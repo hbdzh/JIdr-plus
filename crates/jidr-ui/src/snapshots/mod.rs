@@ -91,13 +91,17 @@ pub fn vm(e: &Entry, clock: &Clock) -> SnapshotVm {
     let thumb = e.thumbnail.as_deref().and_then(thumbnail);
     SnapshotVm {
         name: if e.quick_boot {
-            "Quick boot".into()
+            crate::i18n::text("Quick boot", "快速启动").into()
         } else {
             e.name.clone().into()
         },
         tag: match e.root_mode {
-            Some(m) => format!("Taken with: {}", mode_name(m)),
-            None => "Not tagged".into(),
+            Some(m) => format!(
+                "{} {}",
+                crate::i18n::text("Taken with:", "保存时模式："),
+                crate::i18n::device_label(mode_name(m))
+            ),
+            None => crate::i18n::text("Not tagged", "未标记").into(),
         }
         .into(),
         root: e.root_mode.map(root_kind).unwrap_or(RootKind::None),
@@ -126,6 +130,16 @@ pub fn banner(device: &str, mode: RootMode, entries: &[Entry]) -> (String, bool)
     let total: u64 = named.iter().map(|e| e.size).sum();
     if let Some(r) = refused.first() {
         let other = r.root_mode.map(mode_name).unwrap_or("another root mode");
+        if crate::i18n::text("en", "zh") == "zh" {
+            let other = crate::i18n::device_label(other);
+            return (
+                format!(
+                    "{device} 当前为{}。需重新设置 {other} 后才能恢复该模式下的快照。",
+                    crate::i18n::device_label(mode_name(mode))
+                ),
+                true,
+            );
+        }
         return (
             format!(
                 "{device} is {} now. Snapshots taken with {other} can't be restored until {other} is set up again.",
@@ -136,6 +150,17 @@ pub fn banner(device: &str, mode: RootMode, entries: &[Entry]) -> (String, bool)
     }
     if named.is_empty() {
         return (String::new(), false);
+    }
+    if crate::i18n::text("en", "zh") == "zh" {
+        return (
+            format!(
+                "快照记录了保存时的 root 模式。{device} 当前为{}，可恢复全部 {} 个快照，共占用 {}。",
+                crate::i18n::device_label(mode_name(mode)),
+                named.len(),
+                model::gb(total)
+            ),
+            false,
+        );
     }
     let all = if named.len() == 1 {
         "it".to_string()

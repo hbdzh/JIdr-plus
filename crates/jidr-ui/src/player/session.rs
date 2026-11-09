@@ -18,7 +18,14 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use uuid::Uuid;
 
 use super::input::Screen;
-use crate::AppWindow;
+use crate::{AppWindow, GameWindow};
+
+/// Destination of a stream. Each window has its own session and input path.
+#[derive(Clone)]
+pub enum FrameTarget {
+    Workbench(Weak<AppWindow>),
+    Game(Weak<GameWindow>),
+}
 
 pub fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -104,8 +111,20 @@ pub fn percentile(v: &mut [f32], p: f32) -> Option<f32> {
 struct Frame {
     width: u32,
     height: u32,
+    quarter: u32,
     data: Vec<u8>,
     ts_us: u64,
+}
+
+impl Frame {
+    fn valid(&self) -> bool {
+        self.width > 0
+            && self.height > 0
+            && (self.width as usize)
+                .checked_mul(self.height as usize)
+                .and_then(|n| n.checked_mul(4))
+                == Some(self.data.len())
+    }
 }
 
 fn now_us() -> u64 {
@@ -170,13 +189,16 @@ pub struct Session {
     pub ctl: Controller,
     pub input: mpsc::UnboundedSender<pb::InputEvent>,
     pub want: watch::Sender<(u32, u32)>,
+    visible: watch::Sender<bool>,
     pub stats: Arc<Stats>,
+    frame_alive: Arc<AtomicBool>,
     tasks: Vec<JoinHandle<()>>,
     clipboard: Option<Vec<JoinHandle<()>>>,
 }
 
 impl Drop for Session {
     fn drop(&mut self) {
+        self.frame_alive.store(false, Ordering::Release);
         for t in self.tasks.drain(..) {
             t.abort();
         }
@@ -195,18 +217,44 @@ impl std::fmt::Debug for Session {
 }
 
 impl Session {
+    /// Prevent already queued frames from reaching a view being closed.
+    pub fn stop_frames(&self) {
+        self.frame_alive.store(false, Ordering::Release);
+        self.set_visible(false);
+    }
+
+    /// Flush queued input before closing the stream. This matters when a
+    /// window closes during a drag: the final touch-up must reach Android.
+    pub async fn shutdown(mut self) {
+        self.frame_alive.store(false, Ordering::Release);
+        let (replacement, receiver) = mpsc::unbounded_channel();
+        drop(receiver);
+        drop(std::mem::replace(&mut self.input, replacement));
+        if !self.tasks.is_empty() {
+            let mut task = self.tasks.remove(0);
+            if tokio::time::timeout(Duration::from_secs(1), &mut task)
+                .await
+                .is_err()
+            {
+                task.abort();
+            }
+        }
+    }
+
     /// Connects and starts streaming at `want` pixels.
     pub async fn open(
         device: Uuid,
         info: ConnectInfo,
         native: Screen,
         want: (u32, u32),
-        weak: Weak<AppWindow>,
+        target: FrameTarget,
     ) -> JidrResult<Self> {
         let ctl = connect(&info).await?;
         let stats = Arc::new(Stats::default());
+        let frame_alive = Arc::new(AtomicBool::new(true));
         let (tx, rx) = mpsc::unbounded_channel::<pb::InputEvent>();
         let (want_tx, want_rx) = watch::channel(want);
+        let (visible_tx, visible_rx) = watch::channel(true);
         let mut tasks = Vec::new();
         {
             let mut c = ctl.clone();
@@ -219,9 +267,11 @@ impl Session {
         tasks.push(tokio::spawn(stream_frames(
             ctl.clone(),
             want_rx,
+            visible_rx,
             stats.clone(),
             native,
-            weak,
+            target,
+            frame_alive.clone(),
         )));
         Ok(Self {
             device,
@@ -229,7 +279,9 @@ impl Session {
             ctl,
             input: tx,
             want: want_tx,
+            visible: visible_tx,
             stats,
+            frame_alive,
             tasks,
             clipboard: None,
         })
@@ -253,6 +305,18 @@ impl Session {
         if changed(want.0, cur.0) || changed(want.1, cur.1) {
             let _ = self.want.send(want);
         }
+    }
+
+    /// Pause only the display stream while the native window is occluded.
+    pub fn set_visible(&self, visible: bool) {
+        self.visible.send_if_modified(|current| {
+            if *current == visible {
+                false
+            } else {
+                *current = visible;
+                true
+            }
+        });
     }
 
     /// Shares the clipboard both ways while on.
@@ -319,13 +383,20 @@ impl Session {
 async fn stream_frames(
     mut ctl: Controller,
     mut want: watch::Receiver<(u32, u32)>,
+    mut visible: watch::Receiver<bool>,
     stats: Arc<Stats>,
     native: Screen,
-    weak: Weak<AppWindow>,
+    target: FrameTarget,
+    frame_alive: Arc<AtomicBool>,
 ) {
     let latest: Arc<Mutex<Option<Frame>>> = Arc::default();
     let pending = Arc::new(AtomicBool::new(false));
     loop {
+        while !*visible.borrow_and_update() {
+            if visible.changed().await.is_err() {
+                return;
+            }
+        }
         let (w, h) = *want.borrow_and_update();
         let fmt = pb::ImageFormat {
             format: pb::image_format::ImgFormat::Rgba8888 as i32,
@@ -333,7 +404,11 @@ async fn stream_frames(
             height: h,
             ..Default::default()
         };
-        let mut stream = match ctl.stream_screenshot(fmt).await {
+        let response = tokio::select! {
+            changed = visible.changed() => { if changed.is_err() { return; } continue; }
+            response = ctl.stream_screenshot(fmt) => response,
+        };
+        let mut stream = match response {
             Ok(s) => s.into_inner(),
             Err(e) => {
                 tracing::warn!("streamScreenshot: {e}");
@@ -343,6 +418,10 @@ async fn stream_frames(
         };
         loop {
             tokio::select! {
+                changed = visible.changed() => {
+                    if changed.is_err() { return; }
+                    break;
+                }
                 changed = want.changed() => {
                     if changed.is_err() {
                         return;
@@ -368,24 +447,23 @@ async fn stream_frames(
                     if let Some(t) = lock(&stats.touch_sent).take() {
                         Stats::push(&stats.latencies, now.duration_since(t).as_secs_f32() * 1000.0, 200);
                     }
-                    *lock(&stats.frame) = (f.width, f.height);
                     let quarter = f.rotation.map_or(0, |r| r.rotation.rem_euclid(4) as u32);
-                    stats.quarter.store(quarter, Ordering::Relaxed);
                     *lock(&latest) = Some(Frame {
                         width: f.width,
                         height: f.height,
+                        quarter,
                         data: img.image,
                         ts_us: img.timestamp_us,
                     });
                     // One hop to the UI thread in flight; newer frames replace older ones.
                     if !pending.swap(true, Ordering::AcqRel) {
-                        let (latest, pending, stats, weak) =
-                            (latest.clone(), pending.clone(), stats.clone(), weak.clone());
+                        let (latest, pending, stats, target, frame_alive) =
+                            (latest.clone(), pending.clone(), stats.clone(), target.clone(), frame_alive.clone());
                         let _ = slint::invoke_from_event_loop(move || {
                             pending.store(false, Ordering::Release);
+                            if !frame_alive.load(Ordering::Acquire) { return; }
                             let Some(frame) = lock(&latest).take() else { return };
-                            let Some(app) = weak.upgrade() else { return };
-                            if frame.data.len() < (frame.width * frame.height * 4) as usize {
+                            if !frame.valid() {
                                 return;
                             }
                             let buf = SharedPixelBuffer::<Rgba8Pixel>::clone_from_slice(
@@ -394,10 +472,22 @@ async fn stream_frames(
                                 frame.height,
                             );
                             let dev = oriented(native, (frame.width, frame.height));
-                            app.set_player_frame(Image::from_rgba8(buf));
-                            app.set_player_has_frame(true);
-                            app.set_player_frame_w(dev.width as i32);
-                            app.set_player_frame_h(dev.height as i32);
+                            let image = Image::from_rgba8(buf);
+                            *lock(&stats.frame) = (frame.width, frame.height);
+                            stats.quarter.store(frame.quarter, Ordering::Relaxed);
+                            match target {
+                                FrameTarget::Workbench(weak) => {
+                                    let Some(app) = weak.upgrade() else { return };
+                                    app.set_player_frame(image);
+                                    app.set_player_has_frame(true);
+                                    app.set_player_frame_w(dev.width as i32);
+                                    app.set_player_frame_h(dev.height as i32);
+                                }
+                                FrameTarget::Game(weak) => {
+                                    let Some(window) = weak.upgrade() else { return };
+                                    crate::player::game::present(&window, image, dev, frame.quarter);
+                                }
+                            }
                             stats.shown.fetch_add(1, Ordering::Relaxed);
                             Stats::push(&stats.ages, now_us().saturating_sub(frame.ts_us) as f32 / 1000.0, 200);
                         });
@@ -411,6 +501,44 @@ async fn stream_frames(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frame_requires_exact_checked_rgba_length() {
+        let frame = |width, height, len| Frame {
+            width,
+            height,
+            quarter: 0,
+            data: vec![0; len],
+            ts_us: 0,
+        };
+        assert!(frame(2, 3, 24).valid());
+        assert!(!frame(2, 3, 23).valid());
+        assert!(!frame(2, 3, 25).valid());
+        assert!(!frame(0, 3, 0).valid());
+        assert!(!frame(u32::MAX, u32::MAX, 0).valid());
+    }
+
+    #[test]
+    fn latest_frame_keeps_its_own_rotation() {
+        let slot = Mutex::new(None);
+        *lock(&slot) = Some(Frame {
+            width: 1,
+            height: 2,
+            quarter: 0,
+            data: vec![0; 8],
+            ts_us: 0,
+        });
+        *lock(&slot) = Some(Frame {
+            width: 2,
+            height: 1,
+            quarter: 1,
+            data: vec![0; 8],
+            ts_us: 0,
+        });
+        let frame = lock(&slot).take().unwrap();
+        assert!(frame.valid());
+        assert_eq!((frame.width, frame.height, frame.quarter), (2, 1, 1));
+    }
 
     const PHONE: Screen = Screen {
         width: 1080,

@@ -17,6 +17,7 @@ pub mod battery;
 pub mod device;
 pub mod devtools;
 pub mod extras;
+pub mod game_list;
 pub mod gps;
 pub mod media;
 pub mod network;

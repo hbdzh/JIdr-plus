@@ -35,6 +35,12 @@ pub fn classify(path: &Path, full_root: bool) -> DropAction {
     }
 }
 
+/// Game windows only install APKs or copy files. A ZIP is never interpreted
+/// as a root module there, since dropping an ordinary archive must not reboot.
+pub fn classify_game(path: &Path) -> DropAction {
+    classify(path, false)
+}
+
 /// Title and body for the drop label while a file hovers (the device design).
 pub fn hover_text(action: &DropAction, device: &str) -> (String, String) {
     let name = |p: &Path| {
@@ -71,6 +77,19 @@ pub fn is_signature_mismatch(message: &str) -> bool {
         || message.contains("INSTALL_FAILED_SHARED_USER_INCOMPATIBLE")
 }
 
+/// Explain Android's storage failure consistently for both install entry points.
+pub fn install_error_message(message: &str) -> String {
+    if message.contains("INSTALL_FAILED_INSUFFICIENT_STORAGE") {
+        crate::i18n::text(
+            "Install failed: not enough device storage. Free space or create a larger device.",
+            "安装失败：设备空间不足。可释放空间，或新建更大容量的设备。",
+        )
+        .into()
+    } else {
+        message.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,6 +111,10 @@ mod tests {
         assert!(matches!(
             classify(Path::new("/x/a.png"), true),
             DropAction::Push { note: None, .. }
+        ));
+        assert!(matches!(
+            classify_game(Path::new("/x/m.zip")),
+            DropAction::Push { .. }
         ));
     }
 
@@ -116,5 +139,15 @@ mod tests {
         assert!(!is_signature_mismatch(
             "Failure [INSTALL_FAILED_INSUFFICIENT_STORAGE]"
         ));
+    }
+
+    #[test]
+    fn storage_failure_is_explained_without_rewriting_other_errors() {
+        let message = install_error_message("install failed: INSTALL_FAILED_INSUFFICIENT_STORAGE");
+        assert!(message.contains("storage") || message.contains("存储"));
+        assert_eq!(
+            install_error_message("INSTALL_FAILED_INVALID_APK"),
+            "INSTALL_FAILED_INVALID_APK"
+        );
     }
 }

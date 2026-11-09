@@ -23,7 +23,7 @@ pub mod validate;
 
 use std::future::Future;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use jidr_backend::Backend;
 use jidr_core::JidrResult;
@@ -48,6 +48,9 @@ pub struct Daemon {
     pub(crate) version: String,
     clients: AtomicUsize,
     next_conn: AtomicU64,
+    /// Drains requests before an orderly quit and blocks new ones.
+    pub(crate) command_gate: tokio::sync::RwLock<()>,
+    pub(crate) quitting: AtomicBool,
 }
 
 impl std::fmt::Debug for Daemon {
@@ -110,6 +113,8 @@ impl DaemonBuilder {
             version: self.version.unwrap_or_else(|| VERSION.to_string()),
             clients: AtomicUsize::new(0),
             next_conn: AtomicU64::new(0),
+            command_gate: tokio::sync::RwLock::new(()),
+            quitting: AtomicBool::new(false),
         }))
     }
 }
@@ -168,6 +173,21 @@ impl Daemon {
     pub async fn serve(self: Arc<Self>, shutdown: impl Future<Output = ()>) -> JidrResult<()> {
         let path = self.state.paths.socket();
         let listener = server::bind(&path)?;
+        let lease = match jidr_core::storage_lease::StorageLease::acquire(&self.state.paths.data) {
+            Ok(lease) => lease,
+            Err(error) => {
+                drop(listener);
+                let _ = std::fs::remove_file(&path);
+                return Err(jidr_core::JidrError::busy(format!(
+                    "cannot open Jidr storage: {error}"
+                )));
+            }
+        };
+        if self.state.storage_lease.set(lease).is_err() {
+            drop(listener);
+            let _ = std::fs::remove_file(&path);
+            return Err(jidr_core::JidrError::busy("daemon is already serving"));
+        }
         self.state.adopt_running().await;
         tracing::info!(socket = %path.display(), version = %self.version, "daemon listening");
         let idle = {

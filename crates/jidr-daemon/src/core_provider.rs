@@ -60,6 +60,9 @@ pub struct CreateParams {
     /// Data partition size in MB (overrides the profile).
     #[serde(default)]
     pub data_mb: Option<u32>,
+    /// Play Android audio on the host; defaults to the selected profile.
+    #[serde(default)]
+    pub audio: Option<bool>,
     /// Default: the `default_root_mode` setting (`adb` unless changed), or
     /// `none` when that is `adb` and the image doesn't allow adb root (D7).
     #[serde(default)]
@@ -110,12 +113,30 @@ pub struct EditParams {
     /// Screen density in dpi (overrides the profile).
     #[serde(default)]
     pub density: Option<u32>,
+    /// Play Android audio on the host on the next device start.
+    #[serde(default)]
+    pub audio: Option<bool>,
     #[serde(default)]
     pub agent_owned: Option<bool>,
     /// Hibernate this device after so many idle minutes (0 = never); `null`
     /// follows the `auto_hibernate_minutes` setting.
     #[serde(default, deserialize_with = "some_or_null")]
     pub auto_hibernate_minutes: Option<Option<u32>>,
+    /// Per-device quick boot; null follows the global setting.
+    #[serde(default, deserialize_with = "some_bool_or_null")]
+    pub quick_boot: Option<Option<bool>>,
+    /// Camera source for the next start; `default` uses the emulator default.
+    #[serde(default)]
+    pub camera_back: Option<String>,
+    /// Front camera source for the next start.
+    #[serde(default)]
+    pub camera_front: Option<String>,
+}
+
+fn some_bool_or_null<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Option<bool>>, D::Error> {
+    Option::<bool>::deserialize(d).map(Some)
 }
 
 /// `Some(None)` for an explicit `null`, so it can clear a value.
@@ -502,6 +523,11 @@ impl CoreProvider {
             profile.density = v;
         }
         if let Some(v) = p.data_mb {
+            if !(2048..=262144).contains(&v) {
+                return Err(JidrError::usage(
+                    "data partition must be between 2 and 256 GB",
+                ));
+            }
             profile.data_mb = v;
         }
         let mode = p
@@ -513,7 +539,7 @@ impl CoreProvider {
                 image.tag
             )));
         }
-        let profile_audio = profile.audio;
+        let profile_audio = p.audio.unwrap_or(profile.audio);
         let profile_cameras = (profile.camera_back.clone(), profile.camera_front.clone());
         let avds = self.state.avds();
         let avd = self
@@ -565,6 +591,28 @@ impl CoreProvider {
 
     async fn edit(&self, p: EditParams) -> JidrResult<Value> {
         let d = self.state.device(&p.device).await?;
+        for (camera, front) in [(&p.camera_back, false), (&p.camera_front, true)] {
+            if let Some(camera) = camera
+                && camera != "default"
+                && (!jidr_backend::valid_camera(camera) || (front && camera == "virtualscene"))
+            {
+                return Err(JidrError::usage("invalid camera source"));
+            }
+        }
+        if p.quick_boot.is_some() && d.status.is_active() {
+            return Err(JidrError::busy(
+                "stop the device before changing quick boot",
+            ));
+        }
+        if p.width.is_some_and(|v| !(240..=4096).contains(&v))
+            || p.height.is_some_and(|v| !(240..=4096).contains(&v))
+            || p.density.is_some_and(|v| !(72..=1000).contains(&v))
+        {
+            return Err(JidrError::usage(
+                "screen sides must be 240–4096 pixels and DPI must be 72–1000",
+            ));
+        }
+        let display_changed = p.width.is_some() || p.height.is_some() || p.density.is_some();
         let changes = hw_changes(p.ram_mb, p.cpus, p.width, p.height, p.density);
         if !changes.is_empty() {
             if d.status.is_active() {
@@ -572,6 +620,30 @@ impl CoreProvider {
                     "{} is running; stop it to change its hardware",
                     d.name
                 )));
+            }
+            if display_changed {
+                if matches!(d.status, jidr_core::DeviceStatus::Hibernated)
+                    || d.launch.resume_snapshot.is_some()
+                {
+                    return Err(JidrError::busy(
+                        "resume and stop the device normally before changing its display",
+                    ));
+                }
+                let state = self.state.clone();
+                let backup_device = d.clone();
+                tokio::task::spawn_blocking(move || state.backup_quick_boot(&backup_device))
+                    .await
+                    .map_err(|e| JidrError::unexpected(format!("snapshot backup failed: {e}")))??;
+                // Persist before editing the AVD: a failed configuration write
+                // may cause an extra cold boot, but never load the old state.
+                self.state
+                    .update_device(
+                        d.id,
+                        Box::new(|device| {
+                            device.launch.force_cold_boot = true;
+                        }),
+                    )
+                    .await?;
             }
             self.state.avds().edit(&d.avd, &changes)?;
         }
@@ -587,7 +659,15 @@ impl CoreProvider {
                 &BTreeMap::from([("avd.ini.displayname".into(), Some(name.clone()))]),
             )?;
         }
-        let (name, agent_owned, auto) = (p.name, p.agent_owned, p.auto_hibernate_minutes);
+        let (name, agent_owned, auto, audio, quick_boot, camera_back, camera_front) = (
+            p.name,
+            p.agent_owned,
+            p.auto_hibernate_minutes,
+            p.audio,
+            p.quick_boot,
+            p.camera_back,
+            p.camera_front,
+        );
         let d = self
             .state
             .update_device(
@@ -601,6 +681,31 @@ impl CoreProvider {
                     }
                     if let Some(m) = auto {
                         d.auto_hibernate_minutes = m;
+                    }
+                    if let Some(enabled) = audio {
+                        d.launch.audio = Some(enabled);
+                    }
+                    if let Some(quick_boot) = quick_boot {
+                        d.launch.quick_boot = quick_boot;
+                    }
+                    for (flag, value, target) in [
+                        ("-camera-back", camera_back, &mut d.launch.camera_back),
+                        ("-camera-front", camera_front, &mut d.launch.camera_front),
+                    ] {
+                        if let Some(value) = value {
+                            let mut args = d.launch.extra_args.drain(..);
+                            let mut retained = Vec::new();
+                            while let Some(arg) = args.next() {
+                                if arg == flag {
+                                    args.next();
+                                } else {
+                                    retained.push(arg);
+                                }
+                            }
+                            drop(args);
+                            d.launch.extra_args = retained;
+                            *target = (value != "default").then_some(value);
+                        }
                     }
                 }),
             )
@@ -720,21 +825,26 @@ impl CoreProvider {
 
     async fn details(&self, p: DeviceParams) -> JidrResult<Value> {
         let device = self.state.device(&p.device).await?;
-        let avds = self.state.avds();
-        let config = avds
-            .config(&device.avd)
-            .map(|c| c.entries())
-            .unwrap_or_default();
-        let disk_usage = avds.disk_usage(&device.avd).unwrap_or(0);
-        let pristine_ramdisk_sha256 =
-            jidr_sdk::pristine_ramdisk_sha256(&self.state.sdks(), &device.image);
-        json(DeviceDetails {
-            avd_dir: avds.dir(&device.avd),
-            device,
-            config,
-            disk_usage,
-            pristine_ramdisk_sha256,
+        let state = self.state.clone();
+        tokio::task::spawn_blocking(move || {
+            let avds = state.avds();
+            let config = avds
+                .config(&device.avd)
+                .map(|c| c.entries())
+                .unwrap_or_default();
+            let disk_usage = avds.disk_usage(&device.avd).unwrap_or(0);
+            let pristine_ramdisk_sha256 =
+                jidr_sdk::pristine_ramdisk_sha256(&state.sdks(), &device.image);
+            json(DeviceDetails {
+                avd_dir: avds.dir(&device.avd),
+                device,
+                config,
+                disk_usage,
+                pristine_ramdisk_sha256,
+            })
         })
+        .await
+        .map_err(|e| JidrError::unexpected(format!("reading device details: {e}")))?
     }
 
     async fn image_list(&self, p: ImageListParams) -> JidrResult<Value> {
@@ -758,12 +868,20 @@ impl CoreProvider {
 
     async fn image_install(&self, ctx: &CallCtx, p: ImageParams) -> JidrResult<Value> {
         let image = parse_image(&p.image)?;
-        let repo = self.repository().await?;
         let mut packages = Vec::new();
-        if self.state.sdks().tools().is_err() {
+        let sdks = self.state.sdks();
+        if sdks
+            .studio
+            .as_ref()
+            .is_some_and(|s| s.kind == jidr_sdk::SdkKind::ConfiguredReadOnly)
+        {
+            // An explicitly selected SDK must not silently trigger an
+            // installation to a different location when it disappears.
+            sdks.tools()?;
+        } else if sdks.tools().is_err() {
             packages.extend(["emulator".to_string(), "platform-tools".to_string()]);
         }
-        if self.state.sdks().find_image(&image).is_none() {
+        if sdks.find_image(&image).is_none() {
             packages.push(image.package());
         }
         if packages.is_empty() {
@@ -771,24 +889,30 @@ impl CoreProvider {
                 json!({ "installed": [], "message": format!("{} is already installed", image.package()) }),
             );
         }
+        let repo = self.repository().await?;
         self.install_packages(ctx, &repo, &packages).await
     }
 
     async fn sdk_status(&self) -> JidrResult<Value> {
-        let sdks = self.state.sdks();
-        let tools = sdks.tools().ok().cloned();
-        Ok(json!({
-            "private_sdk": sdks.private.root,
-            "studio_sdk": sdks.studio.as_ref().map(|s| &s.root),
-            "tools_sdk": tools.as_ref().map(|s| &s.root),
-            "emulator_version": tools.as_ref().and_then(|s| s.emulator_version()),
-            "hypervisor": jidr_sdk::host::hypervisor_available(),
-            "host_abi": jidr_sdk::host::host_abi(),
-            "free_bytes": jidr_sdk::host::free_space(&self.state.paths.data).unwrap_or(0),
-            "installed_images": sdks.private.installed_images().into_iter()
-                .chain(sdks.studio.iter().flat_map(|s| s.installed_images()))
-                .map(|i| i.package()).collect::<Vec<_>>(),
-        }))
+        let state = self.state.clone();
+        tokio::task::spawn_blocking(move || {
+            let sdks = state.sdks();
+            let tools = sdks.tools().ok().cloned();
+            Ok(json!({
+                "private_sdk": sdks.private.root,
+                "studio_sdk": sdks.studio.as_ref().map(|s| &s.root),
+                "tools_sdk": tools.as_ref().map(|s| &s.root),
+                "emulator_version": tools.as_ref().and_then(|s| s.emulator_version()),
+                "hypervisor": jidr_sdk::host::hypervisor_available(),
+                "host_abi": jidr_sdk::host::host_abi(),
+                "free_bytes": jidr_sdk::host::free_space(&state.paths.data).unwrap_or(0),
+                "installed_images": sdks.private.installed_images().into_iter()
+                    .chain(sdks.studio.iter().flat_map(|s| s.installed_images()))
+                    .map(|i| i.package()).collect::<Vec<_>>(),
+            }))
+        })
+        .await
+        .map_err(|e| JidrError::unexpected(format!("checking SDK status: {e}")))?
     }
 }
 

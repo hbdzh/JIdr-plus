@@ -281,6 +281,9 @@ pub struct LaunchPrefs {
     /// The next start ignores the quick-boot snapshot; cleared after a boot.
     #[serde(default)]
     pub force_cold_boot: bool,
+    /// Per-device quick-boot override. None follows the global setting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quick_boot: Option<bool>,
     /// `-camera-back`: `emulated`, `virtualscene`, `none` or `webcamN` (R7, D36).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub camera_back: Option<String>,

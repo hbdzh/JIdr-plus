@@ -145,6 +145,14 @@ pub(crate) async fn handle_connection(daemon: Arc<Daemon>, stream: UnixStream) {
             continue;
         };
         if req.method == "daemon.shutdown" {
+            let _gate = daemon.command_gate.read().await;
+            if daemon.quitting.load(Ordering::Acquire) {
+                let _ = tx.send(line(&Response::err(
+                    id,
+                    RpcError::from_jidr(&JidrError::busy("orderly quit is in progress")),
+                )));
+                continue;
+            }
             // Allowed before hello, so a newer client can replace a stale
             // daemon. Running emulators keep running and are re-adopted.
             let _ = tx.send(line(&Response::ok(id, json!({ "stopping": true }))));
@@ -167,6 +175,22 @@ pub(crate) async fn handle_connection(daemon: Arc<Daemon>, stream: UnixStream) {
                 id,
                 RpcError::new(INVALID_REQUEST, "call hello first"),
             )));
+            continue;
+        }
+        if req.method == "daemon.quit" {
+            let result = match parse_params::<jidr_core::provider::NoParams>(req.params) {
+                Ok(_) => daemon.prepare_quit().await,
+                Err(error) => Err(error),
+            };
+            let response = match result {
+                Ok(()) => Response::ok(id, json!({ "stopping": true })),
+                Err(error) => Response::err(id, RpcError::from_jidr(&error)),
+            };
+            let ok = response.error.is_none();
+            let _ = tx.send(line(&response));
+            if ok {
+                daemon.stop.notify_one();
+            }
             continue;
         }
         // Connection-scoped streams.
@@ -208,6 +232,55 @@ pub(crate) async fn handle_connection(daemon: Arc<Daemon>, stream: UnixStream) {
 }
 
 impl Daemon {
+    async fn prepare_quit(&self) -> JidrResult<()> {
+        let _guard =
+            tokio::time::timeout(std::time::Duration::from_secs(5), self.command_gate.write())
+                .await
+                .map_err(|_| JidrError::busy("A Jidr request is still in progress"))?;
+        if self.quitting.swap(true, Ordering::AcqRel) {
+            return Err(JidrError::busy("orderly quit is in progress"));
+        }
+        let result = self.stop_for_quit().await;
+        if result.is_err() {
+            self.quitting.store(false, Ordering::Release);
+        }
+        result
+    }
+
+    async fn stop_for_quit(&self) -> JidrResult<()> {
+        if self.jobs.active() != 0 {
+            return Err(JidrError::busy(
+                "Wait for active Jidr tasks to finish before quitting",
+            ));
+        }
+        let devices = self.state.devices().await;
+        if devices
+            .iter()
+            .any(|d| d.status.is_active() && !matches!(d.status, jidr_core::DeviceStatus::Running))
+        {
+            return Err(JidrError::busy("A device is still changing state"));
+        }
+        for device in devices
+            .into_iter()
+            .filter(|d| matches!(d.status, jidr_core::DeviceStatus::Running))
+        {
+            let _guard = self
+                .state
+                .locks
+                .try_lock(device.id, &device.name, "daemon.quit", None)?;
+            self.state.stop_for_quit(device.id).await?;
+        }
+        if self.state.running_count() != 0 || self.jobs.active() != 0 {
+            return Err(JidrError::busy("A device or task is still running"));
+        }
+        let paths = self.state.paths.clone();
+        tokio::task::spawn_blocking(move || jidr_sdk::migration::ensure_avds_quiescent(&paths))
+            .await
+            .map_err(|e| JidrError::unexpected(format!("device verification failed: {e}")))?
+            .map_err(|e| JidrError::unexpected(format!("device is still in use: {e}")))?;
+        Ok(())
+    }
+
     fn hello(&self, params: Value) -> JidrResult<Value> {
         let p: HelloParams = jidr_core::provider::parse_params(params)?;
         if p.version != self.version {
@@ -236,6 +309,13 @@ impl Daemon {
         method: String,
         params: Value,
     ) -> Response {
+        let _gate = self.command_gate.read().await;
+        if self.quitting.load(Ordering::Acquire) {
+            return Response::err(
+                id,
+                RpcError::from_jidr(&JidrError::busy("orderly quit is in progress")),
+            );
+        }
         if method == "commands.list" {
             return Response::ok(
                 id,

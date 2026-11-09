@@ -26,6 +26,7 @@ sha1.workspace = true
 roxmltree = "0.21"
 zip.workspace = true
 fs4 = "1.1"
+rustix = { version = "1.1.5", features = ["fs"] }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "system-proxy"] }
 
 [dev-dependencies]

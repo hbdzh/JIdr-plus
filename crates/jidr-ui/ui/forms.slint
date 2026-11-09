@@ -10,6 +10,8 @@ export component Select inherits Rectangle {
     in property <[OptionVm]> options;
     in-out property <int> selected;
     in property <string> trailing;
+    in property <bool> enabled: true;
+    in property <bool> open-above: false;
     callback changed(int);
     height: Theme.control-height-md;
     border-radius: Theme.radius-md;
@@ -35,13 +37,15 @@ export component Select inherits Rectangle {
         source: Icons.chevron-down;
     }
     ta := TouchArea {
+        enabled: root.enabled;
         mouse-cursor: pointer;
         clicked => { menu.show(); }
     }
     menu := PopupWindow {
         x: 0px;
-        y: root.height + 4px;
+        y: root.open-above ? -self.height - 4px : root.height + 4px;
         width: root.width;
+        height: root.options.length * 28px + 8px;
         Rectangle {
             background: Theme.surface-overlay;
             border-radius: Theme.radius-lg;
@@ -159,12 +163,13 @@ export component Sheet inherits Rectangle {
     in property <string> subtitle;
     in property <length> sheet-width: 680px;
     in property <length> body-height: 400px;
+    in property <bool> center-vertically: false;
     callback dismiss();
     background: Theme.scrim;
     TouchArea { clicked => { root.dismiss(); } }
     sheet := Rectangle {
         x: (parent.width - self.width) / 2;
-        y: 0px;
+        y: root.center-vertically ? max(0px, (parent.height - self.height) / 2) : 0px;
         width: root.sheet-width;
         height: 72px + root.body-height + 56px;
         background: Theme.elevation-3-surface;

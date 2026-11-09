@@ -13,6 +13,8 @@ pub enum SdkKind {
     Private,
     /// Android Studio's SDK: read-only.
     StudioReadOnly,
+    /// An explicitly selected external SDK; never modified by Jidr.
+    ConfiguredReadOnly,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -54,6 +56,13 @@ impl Sdk {
         Self {
             root: root.into(),
             kind: SdkKind::StudioReadOnly,
+        }
+    }
+
+    pub fn configured(root: impl Into<PathBuf>) -> Self {
+        Self {
+            root: root.into(),
+            kind: SdkKind::ConfiguredReadOnly,
         }
     }
 
@@ -124,8 +133,8 @@ impl Sdk {
     pub fn ensure_writable(&self) -> JidrResult<()> {
         match self.kind {
             SdkKind::Private => Ok(()),
-            SdkKind::StudioReadOnly => Err(JidrError::sdk(format!(
-                "{} is Android Studio's SDK; Jidr never writes to it",
+            SdkKind::StudioReadOnly | SdkKind::ConfiguredReadOnly => Err(JidrError::sdk(format!(
+                "{} is an external SDK; Jidr never writes to it",
                 self.root.display()
             ))),
         }
@@ -143,13 +152,43 @@ impl SdkSet {
     pub fn discover(paths: &JidrPaths) -> Self {
         Self {
             private: Sdk::private(paths),
-            studio: Sdk::studio(),
+            studio: Self::configured_or_studio(paths),
+        }
+    }
+
+    pub fn configured_or_studio(paths: &JidrPaths) -> Option<Sdk> {
+        Self::configured_or(paths, None)
+    }
+
+    pub fn configured_or(paths: &JidrPaths, fallback: Option<Sdk>) -> Option<Sdk> {
+        match jidr_core::tool_paths::ToolPaths::load(paths) {
+            Ok(config) => config
+                .android_sdk
+                .map(Sdk::configured)
+                .or(fallback)
+                .or_else(Sdk::studio),
+            // Preserve a fail-closed selection if the configuration is unreadable.
+            Err(_) => Some(Sdk::configured(PathBuf::new())),
         }
     }
 
     /// The SDK that provides `emulator` and `adb`: the private one if complete,
     /// else Studio's.
     pub fn tools(&self) -> JidrResult<&Sdk> {
+        if let Some(selected) = self
+            .studio
+            .as_ref()
+            .filter(|sdk| sdk.kind == SdkKind::ConfiguredReadOnly)
+        {
+            return if selected.root.is_absolute() && selected.has_emulator() && selected.has_adb() {
+                Ok(selected)
+            } else {
+                Err(JidrError::sdk(format!(
+                    "configured Android SDK is unavailable or incomplete: {}",
+                    selected.root.display()
+                )))
+            };
+        }
         std::iter::once(&self.private)
             .chain(self.studio.as_ref())
             .find(|s| s.has_emulator() && s.has_adb())
@@ -237,6 +276,30 @@ mod tests {
         assert!(Sdk::read_only(dir.path()).ensure_writable().is_err());
         let paths = JidrPaths::under(dir.path());
         assert!(Sdk::private(&paths).ensure_writable().is_ok());
+    }
+
+    #[test]
+    fn explicitly_selected_sdk_takes_priority_and_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = JidrPaths::under(dir.path().join("jidr"));
+        let selected = dir.path().join("sdk");
+        for root in [paths.sdk(), selected.clone()] {
+            std::fs::create_dir_all(root.join("emulator")).unwrap();
+            std::fs::create_dir_all(root.join("platform-tools")).unwrap();
+            std::fs::write(root.join("emulator/emulator"), b"x").unwrap();
+            std::fs::write(root.join("platform-tools/adb"), b"x").unwrap();
+        }
+        jidr_core::tool_paths::ToolPaths {
+            android_sdk: Some(selected.clone()),
+            jdk_home: None,
+        }
+        .save(&paths)
+        .unwrap();
+        let sdks = SdkSet::discover(&paths);
+        assert_eq!(sdks.tools().unwrap().root, selected);
+        assert!(sdks.tools().unwrap().ensure_writable().is_err());
+        std::fs::remove_file(selected.join("platform-tools/adb")).unwrap();
+        assert!(SdkSet::discover(&paths).tools().is_err());
     }
 
     #[test]

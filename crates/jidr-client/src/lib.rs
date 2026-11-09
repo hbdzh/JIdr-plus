@@ -32,8 +32,24 @@ use uuid::Uuid;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// How long to wait for a freshly spawned daemon's socket.
 const SPAWN_TIMEOUT: Duration = Duration::from_secs(15);
+/// A listening but unresponsive daemon must not stall GUI startup forever.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 
 type Pending = Arc<std::sync::Mutex<HashMap<u64, oneshot::Sender<Response>>>>;
+
+struct PendingRequest {
+    id: u64,
+    pending: Pending,
+}
+
+impl Drop for PendingRequest {
+    fn drop(&mut self) {
+        self.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.id);
+    }
+}
 
 /// How to start the daemon when none is running (D4: on demand).
 #[derive(Debug, Clone, Default)]
@@ -122,14 +138,18 @@ fn is_unavailable(e: &std::io::Error) -> bool {
 impl Client {
     /// Connects to a running daemon and says hello.
     pub async fn connect(socket: &Path, client: &str) -> JidrResult<Self> {
-        let stream = UnixStream::connect(socket).await.map_err(|e| {
-            JidrError::new(
-                ErrorCode::Unexpected,
-                format!("no Jidr daemon at {}: {e}", socket.display()),
-            )
-            .with_data(json!({ "unavailable": is_unavailable(&e) }))
-        })?;
-        Self::handshake(stream, client).await
+        tokio::time::timeout(HANDSHAKE_TIMEOUT, async {
+            let stream = UnixStream::connect(socket).await.map_err(|e| {
+                JidrError::new(
+                    ErrorCode::Unexpected,
+                    format!("no Jidr daemon at {}: {e}", socket.display()),
+                )
+                .with_data(json!({ "unavailable": is_unavailable(&e) }))
+            })?;
+            Self::handshake(stream, client).await
+        })
+        .await
+        .map_err(|_| JidrError::unexpected("Jidr daemon did not answer the handshake"))?
     }
 
     async fn handshake(stream: UnixStream, client: &str) -> JidrResult<Self> {
@@ -209,6 +229,10 @@ impl Client {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .insert(id, tx);
+        let _pending_request = PendingRequest {
+            id,
+            pending: self.pending.clone(),
+        };
         let req = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
         let mut line =
             serde_json::to_string(&req).ctx(ErrorCode::Unexpected, "encoding request")?;
@@ -413,12 +437,25 @@ fn spawn_daemon(paths: &JidrPaths, opts: &SpawnOptions) -> JidrResult<()> {
         // Its own process group: Ctrl-C in the user's terminal doesn't reach it.
         cmd.process_group(0);
     }
-    cmd.spawn().map_err(|e| {
+    let child = cmd.spawn().map_err(|e| {
         JidrError::unexpected(format!(
             "cannot start the daemon ({}): {e}",
             program.display()
         ))
     })?;
+    reap_child(child)
+        .map_err(|e| JidrError::unexpected(format!("cannot watch daemon process: {e}")))?;
+    Ok(())
+}
+
+/// A long-lived GUI must reap its detached daemon when it exits, otherwise
+/// kill(0) still sees a zombie and orderly Quit cannot verify termination.
+fn reap_child(mut child: std::process::Child) -> std::io::Result<()> {
+    std::thread::Builder::new()
+        .name("jidr-daemon-reaper".into())
+        .spawn(move || {
+            let _ = child.wait();
+        })?;
     Ok(())
 }
 
@@ -430,12 +467,24 @@ pub fn error_from_rpc(e: &RpcError) -> JidrError {
 
 #[cfg(test)]
 mod tests {
-    use super::bundled_jidr;
+    use super::{Pending, PendingRequest, bundled_jidr, reap_child};
     use std::path::Path;
 
     fn touch(p: &Path) {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();
         std::fs::write(p, b"bin").unwrap();
+    }
+
+    #[test]
+    fn cancelled_request_removes_its_pending_response() {
+        let pending: Pending = Default::default();
+        let (tx, _rx) = tokio::sync::oneshot::channel();
+        pending.lock().unwrap().insert(42, tx);
+        drop(PendingRequest {
+            id: 42,
+            pending: pending.clone(),
+        });
+        assert!(pending.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -469,5 +518,30 @@ mod tests {
         touch(&gui);
         touch(&tmp.path().join("bin/jidr"));
         assert_eq!(bundled_jidr(&gui), Some(tmp.path().join("bin/jidr")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn exited_daemon_child_is_reaped() {
+        let child = std::process::Command::new("sh")
+            .args(["-c", "exit 0"])
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        reap_child(child).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            let alive = std::process::Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success();
+            if !alive {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        panic!("exited daemon child was not reaped");
     }
 }

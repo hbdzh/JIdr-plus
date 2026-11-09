@@ -105,6 +105,27 @@ async fn hibernate_keeps_running_when_the_save_is_empty() {
 }
 
 #[tokio::test]
+async fn resumed_device_stays_running_if_quick_boot_save_is_empty() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    c.ok("device.create", json!({"name":"Safe resume", "image":"35"}))
+        .await;
+    c.run("device.start", json!({"device":"Safe resume"})).await;
+    c.run("device.hibernate", json!({"device":"Safe resume"}))
+        .await;
+    c.run("device.start", json!({"device":"Safe resume"})).await;
+    h.backend.fail_saves();
+    let error = c.err("device.stop", json!({"device":"Safe resume"})).await;
+    assert_eq!(error["data"]["code"], "sdk");
+    let device = c
+        .ok("device.details", json!({"device":"Safe resume"}))
+        .await;
+    assert_eq!(device["device"]["status"]["state"], "running");
+    assert_eq!(h.backend.running().len(), 1);
+    h.stop().await;
+}
+
+#[tokio::test]
 async fn hibernate_is_cleared_by_reset_and_root_changes() {
     let h = Harness::start().await;
     let mut c = h.client().await;

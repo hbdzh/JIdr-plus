@@ -266,15 +266,15 @@ pub fn device_vm(info: &DeviceInfo, clock: &Clock) -> DeviceVm {
         android: android_label(d.image.api).into(),
         image: image_tag(&d.image).into(),
         state: state_of(info),
-        status: status_label(info, now).into(),
+        status: crate::i18n::device_label(&status_label(info, now)).into(),
         progress: info.boot_progress.unwrap_or(0.0),
         root,
-        root_label: root_label.into(),
-        root_short: root_short.into(),
+        root_label: crate::i18n::device_label(&root_label).into(),
+        root_short: crate::i18n::device_label(&root_short).into(),
         beta: play_store && d.root.mode == RootMode::Magisk,
-        root_mode: root_mode_name(d.root.mode).into(),
+        root_mode: crate::i18n::device_label(root_mode_name(d.root.mode)).into(),
         magisk: d.root.magisk_version.clone().unwrap_or_default().into(),
-        verified: verified.into(),
+        verified: crate::i18n::device_label(&verified).into(),
         serial: d
             .runtime
             .as_ref()
@@ -289,7 +289,7 @@ pub fn device_vm(info: &DeviceInfo, clock: &Clock) -> DeviceVm {
         }
         .into(),
         cpus: if info.cpus > 0 {
-            format!("{} cores", info.cpus)
+            format!("{} {}", info.cpus, crate::i18n::text("cores", "核"))
         } else {
             "—".into()
         }

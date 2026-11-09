@@ -27,6 +27,7 @@ tracing.workspace = true
 dirs.workspace = true
 png.workspace = true
 zip = { version = "9", default-features = false, features = ["deflate"] }
+tempfile.workspace = true
 
 # MP4/H.264 through AVFoundation, which encodes with VideoToolbox (D13).
 [target.'cfg(target_os = "macos")'.dependencies]

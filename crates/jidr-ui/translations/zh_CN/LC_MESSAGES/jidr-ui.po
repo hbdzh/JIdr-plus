@@ -1,0 +1,1390 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: zh_CN\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "1 error"
+msgstr "1 个错误"
+
+msgid "100% · full"
+msgstr "100% · 已充满"
+
+msgid "5% · low battery"
+msgstr "5% · 电量低"
+
+msgid "A stock device."
+msgstr "原版设备。"
+
+msgid "A stock device. Test apps as users see them."
+msgstr "原版设备，以用户实际使用的环境测试应用。"
+
+msgid "About"
+msgstr "关于"
+
+msgid "Connecting and loading devices…"
+msgstr "正在连接并加载设备…"
+
+msgid "Startup and sleep"
+msgstr "启动与休眠"
+
+msgid "Cold boot once…"
+msgstr "冷启动一次…"
+
+msgid "Change while stopped; old snapshots are retained."
+msgstr "停机后修改；已有快照会保留。"
+
+msgid "Follow global setting"
+msgstr "跟随全局设置"
+
+msgid "Enabled"
+msgstr "开启"
+
+msgid "Disabled"
+msgstr "关闭"
+
+msgid "Automatic sleep"
+msgstr "自动休眠"
+
+msgid "An attached player prevents sleep."
+msgstr "设备窗口连接时不会自动休眠。"
+
+msgid "Idle time"
+msgstr "空闲时间"
+
+msgid "0 disables sleep; 1–1440 minutes enables it."
+msgstr "0 表示关闭；1–1440 分钟启用。"
+
+msgid "min"
+msgstr "分钟"
+
+msgid "Device settings"
+msgstr "设备设置"
+
+msgid "Stop the device to change RAM, CPU, screen or root. Audio applies on next start."
+msgstr "修改内存、CPU、屏幕或 Root 前请先停止设备；音频设置下次启动生效。"
+
+msgid "Stop before changing hardware or root. Old snapshots may not match new display settings."
+msgstr "修改硬件或 Root 前请先停止设备；旧快照可能与新屏幕配置不兼容。"
+
+msgid "Profile cannot be changed after creation."
+msgstr "创建后不能更换硬件配置模板。"
+
+msgid "Width × height in pixels."
+msgstr "宽 × 高，单位为像素。"
+
+msgid "Resolution preset"
+msgstr "分辨率预设"
+
+msgid "Resolution"
+msgstr "分辨率"
+
+msgid "Width"
+msgstr "宽度"
+
+msgid "Height"
+msgstr "高度"
+
+msgid "Custom"
+msgstr "自定义"
+
+msgid "Portrait 720 × 1280"
+msgstr "竖屏 720 × 1280"
+
+msgid "Portrait 1080 × 1920"
+msgstr "竖屏 1080 × 1920"
+
+msgid "Portrait 1080 × 2400"
+msgstr "竖屏 1080 × 2400"
+
+msgid "Landscape 1280 × 720"
+msgstr "横屏 1280 × 720"
+
+msgid "Landscape 1920 × 1080"
+msgstr "横屏 1920 × 1080"
+
+msgid "Display density"
+msgstr "屏幕密度"
+
+msgid "72–1000 dpi; controls the size of Android UI."
+msgstr "72–1000 dpi，影响 Android 界面大小。"
+
+msgid "72–1000 dpi."
+msgstr "范围：72–1000 dpi。"
+
+msgid "Cold boot: save your game first. Quick boot is backed up."
+msgstr "更改后冷启动，请先保存游戏；原快速快照将备份。"
+
+msgid "Accept Google's SDK license"
+msgstr "接受 Google SDK 许可协议"
+
+msgid "Add Jidr to Claude"
+msgstr "将 Jidr 添加到 Claude"
+
+msgid "Add to Claude Desktop"
+msgstr "添加到 Claude Desktop"
+
+msgid "Adds the server to claude_desktop_config.json. Restart Claude after."
+msgstr "将服务器添加到 claude_desktop_config.json，之后请重启 Claude。"
+
+msgid "Add…"
+msgstr "添加…"
+
+msgid "After restart"
+msgstr "重启后"
+
+msgid "Agents"
+msgstr "智能体"
+
+msgid "Altitude"
+msgstr "海拔"
+
+msgid "Android"
+msgstr "Android"
+
+msgid "Android Emulator and system images, downloaded on your Mac"
+msgstr "下载到 Mac 的 Android 模拟器和系统镜像"
+
+msgid "Android SDK"
+msgstr "Android SDK"
+
+msgid "Android SDK License"
+msgstr "Android SDK 许可协议"
+
+msgid "Android controls"
+msgstr "Android 控制"
+
+msgid "Android is a trademark of Google LLC. Jidr is not affiliated with Google or Genymotion."
+msgstr "Android 是 Google LLC 的商标。Jidr 与 Google 或 Genymotion 无关联。"
+
+msgid "Android version"
+msgstr "Android 版本"
+
+msgid "Animation scale"
+msgstr "动画缩放"
+
+msgid "Answer"
+msgstr "接听"
+
+msgid "Any other MCP client"
+msgstr "其他 MCP 客户端"
+
+msgid "Appearance"
+msgstr "外观"
+
+msgid "Applies on the next start"
+msgstr "下次启动时生效"
+
+msgid "Applies the next time the device starts."
+msgstr "设备下次启动时生效。"
+
+msgid "Apps trust these as system certificates. Adding or removing one restarts the device."
+msgstr "应用会信任这些系统证书。添加或移除证书会重启设备。"
+
+msgid "Auto"
+msgstr "自动"
+
+msgid "Auto-grant root to all apps"
+msgstr "自动向所有应用授予 root 权限"
+
+msgid "Back"
+msgstr "返回"
+
+msgid "Back camera"
+msgstr "后置摄像头"
+
+msgid "Bars shown in Android's status bar."
+msgstr "Android 状态栏显示的信号格数。"
+
+msgid "Battery"
+msgstr "电池"
+
+msgid "Battery level"
+msgstr "电量"
+
+msgid "Bearing"
+msgstr "方向"
+
+msgid "Beta"
+msgstr "测试版"
+
+msgid "Beta · Play Store image"
+msgstr "测试版 · Play 商店镜像"
+
+msgid "Boot complete never reported"
+msgstr "未收到启动完成通知"
+
+msgid "Boot image"
+msgstr "启动镜像"
+
+msgid "Booting Android… {}"
+msgstr "正在启动 Android… {}"
+
+msgid "Brand"
+msgstr "品牌"
+
+msgid "Build identity"
+msgstr "构建标识"
+
+msgid "CA certificates"
+msgstr "CA 证书"
+
+msgid "CPU"
+msgstr "CPU"
+
+msgid "CPU cores"
+msgstr "CPU 核心数"
+
+msgid "Can't restore “{}”"
+msgstr "无法恢复“{}”"
+
+msgid "Cancel"
+msgstr "取消"
+
+msgid "Change"
+msgstr "更改"
+
+msgid "Changes apply the next time the device starts."
+msgstr "更改将在设备下次启动时生效。"
+
+msgid "Change…"
+msgstr "更改…"
+
+msgid "Charging"
+msgstr "充电中"
+
+msgid "Check"
+msgstr "检查"
+
+msgid "Check for updates"
+msgstr "检查更新"
+
+msgid "Choose a file…"
+msgstr "选择文件…"
+
+msgid "Claude Code"
+msgstr "Claude Code"
+
+msgid "Claude Desktop"
+msgstr "Claude Desktop"
+
+msgid "Clear"
+msgstr "清空"
+
+msgid "Clear cache"
+msgstr "清除缓存"
+
+msgid "Clipboard"
+msgstr "剪贴板"
+
+msgid "Commands and devices"
+msgstr "命令与设备"
+
+msgid "Continue"
+msgstr "继续"
+
+msgid "Continue in background"
+msgstr "在后台继续"
+
+msgid "Copy"
+msgstr "复制"
+
+msgid "Copy log"
+msgstr "复制日志"
+
+msgid "Couldn't download Magisk {}. Nothing on {} changed; check the connection and try again."
+msgstr "无法下载 Magisk {}。{} 未作任何更改；请检查网络连接后重试。"
+
+msgid "Couldn't install the Magisk app on {}. Your data is intact and the original boot image is kept, so you can revert."
+msgstr "无法在 {} 上安装 Magisk 应用。您的数据完好，原始启动镜像已保留，您可以恢复。"
+
+msgid "Couldn't patch the boot image. {} is unchanged."
+msgstr "无法修补启动镜像。{} 未作更改。"
+
+msgid "Create"
+msgstr "创建"
+
+msgid "Create your first device"
+msgstr "创建第一台设备"
+
+msgid "Dark"
+msgstr "深色"
+
+msgid "Decline"
+msgstr "拒绝"
+
+msgid "Default root mode"
+msgstr "默认 root 模式"
+
+msgid "Defaults are filled in. Change what you need, then create."
+msgstr "已填入默认值。按需修改后创建。"
+
+msgid "Developer tools"
+msgstr "开发者工具"
+
+msgid "Device"
+msgstr "设备"
+
+msgid "Device now"
+msgstr "设备当前状态"
+
+msgid "Devices"
+msgstr "设备"
+
+msgid "Discharging"
+msgstr "放电中"
+
+msgid "Disk"
+msgstr "磁盘"
+
+msgid "Don't root this device"
+msgstr "不获取设备 root 权限"
+
+msgid "Done"
+msgstr "完成"
+
+msgid "Download"
+msgstr "下载"
+
+msgid "Download Magisk {}"
+msgstr "下载 Magisk {}"
+
+msgid "Download Magisk {} › Patch › Reboot › Install › Verify"
+msgstr "下载 Magisk {} › 修补 › 重启 › 安装 › 验证"
+
+msgid "Download cache"
+msgstr "下载缓存"
+
+msgid "Download the emulator and Android 15 (API 35)"
+msgstr "下载模拟器和 Android 15（API 35）"
+
+msgid "Download: {}"
+msgstr "下载：{}"
+
+msgid "Downloaded"
+msgstr "已下载"
+
+msgid "Downloading"
+msgstr "下载中"
+
+msgid "Driven by"
+msgstr "控制方"
+
+msgid "Edit {}"
+msgstr "编辑 {}"
+
+msgid "Edit…"
+msgstr "编辑…"
+
+msgid "Empty fields keep the image's value. Changes apply on the next start, which is a cold boot."
+msgstr "留空则使用镜像中的值。更改在下次冷启动时生效。"
+
+msgid "Emulated"
+msgstr "模拟"
+
+msgid "End"
+msgstr "结束"
+
+msgid "Environment"
+msgstr "环境"
+
+msgid "Failed · {}"
+msgstr "失败 · {}"
+
+msgid "Filter tag, pid or text"
+msgstr "筛选标签、进程 ID 或文本"
+
+msgid "Find SDK"
+msgstr "查找 SDK"
+
+msgid "Find an Android SDK on this Mac, or install one"
+msgstr "在此 Mac 上查找 Android SDK，或安装一个"
+
+msgid "Fingerprint"
+msgstr "指纹"
+
+msgid "First boot of a Play Store image"
+msgstr "首次启动 Play 商店镜像"
+
+msgid "First device"
+msgstr "第一台设备"
+
+msgid "Fit"
+msgstr "适应窗口"
+
+msgid "Flat on a table"
+msgstr "平放在桌面上"
+
+msgid "Follow"
+msgstr "跟随"
+
+msgid "Following"
+msgstr "正在跟随"
+
+msgid "Found an Android SDK"
+msgstr "已找到 Android SDK"
+
+msgid "From the profile."
+msgstr "来自设备配置。"
+
+msgid "Full root"
+msgstr "完整 root"
+
+msgid "Full root · {}"
+msgstr "完整 root · {}"
+
+msgid "Full speed"
+msgstr "全速"
+
+msgid "GPS"
+msgstr "GPS"
+
+msgid "Game window"
+msgstr "游戏窗口"
+
+msgid "Geist, Geist Mono, Noto Kufi Arabic"
+msgstr "Geist、Geist Mono、Noto Kufi Arabic"
+
+msgid "General"
+msgstr "通用"
+
+msgid "HTTP proxy"
+msgstr "HTTP 代理"
+
+msgid "HTTP(S) traffic goes through {}. For HTTPS, trust the proxy's CA under More › Developer tools › CA certificates."
+msgstr "HTTP(S) 流量经过 {}。要使用 HTTPS，请在更多 › 开发者工具 › CA 证书中信任代理的 CA。"
+
+msgid "Hardware"
+msgstr "硬件"
+
+msgid "Hardware profile"
+msgstr "硬件配置"
+
+msgid "Hide steps"
+msgstr "隐藏步骤"
+
+msgid "Humidity"
+msgstr "湿度"
+
+msgid "I accept"
+msgstr "我接受"
+
+msgid "Image"
+msgstr "镜像"
+
+msgid "Incoming call"
+msgstr "来电"
+
+msgid "Install Magisk app"
+msgstr "安装 Magisk 应用"
+
+msgid "Install Magisk app · Verify"
+msgstr "安装 Magisk 应用 · 验证"
+
+msgid "Installs and verifies Magisk {}. Reboots once (about 40 s)."
+msgstr "安装并验证 Magisk {}。会重启一次（约 40 秒）。"
+
+msgid "Into {}"
+msgstr "安装到 {}"
+
+msgid "Jidr app (this window)"
+msgstr "Jidr 应用（此窗口）"
+
+msgid "Jidr checked that su really answers as root before saying so."
+msgstr "Jidr 已确认 su 确实以 root 身份响应。"
+
+msgid "Jidr downloads Google's Android Emulator and a system image to your Mac. Google's license applies to those files. Jidr shows it in full, unchanged."
+msgstr "Jidr 会将 Google Android 模拟器和系统镜像下载到 Mac。这些文件适用 Google 的许可协议，Jidr 将原文完整显示。"
+
+msgid "Jidr looked in the usual places. It can install what it needs in its own folder and leave your other tools alone."
+msgstr "Jidr 已检查常用位置。它可以将所需内容安装在自己的文件夹中，不影响其他工具。"
+
+msgid "Jidr needs Google's Android Emulator and one system image before it can create a device. Nothing downloads until you accept Google's license."
+msgstr "创建设备前，Jidr 需要 Google Android 模拟器和一个系统镜像。接受 Google 许可协议后才会下载。"
+
+msgid "Jidr runs an MCP server, so an agent can take screenshots, tap, type and read logs. While it drives, the device shows Busy · in use by agent and you can watch in the device window."
+msgstr "Jidr 运行 MCP 服务器，智能体可截图、点击、输入和读取日志。智能体操作时设备会显示占用状态，您可以在设备窗口中观看。"
+
+msgid "Jidr will download, after you accept Google's license"
+msgstr "接受 Google 许可协议后，Jidr 将下载"
+
+msgid "Jidr will use it read-only and keep its own downloads in a separate folder."
+msgstr "Jidr 将以只读方式使用它，并将自己的下载内容保存在单独文件夹中。"
+
+msgid "Jobs"
+msgstr "任务"
+
+msgid "Last started"
+msgstr "上次启动"
+
+msgid "Latitude"
+msgstr "纬度"
+
+msgid "Layout bounds"
+msgstr "布局边界"
+
+msgid "Library"
+msgstr "设备库"
+
+msgid "Licences"
+msgstr "许可信息"
+
+msgid "License"
+msgstr "许可协议"
+
+msgid "Lift"
+msgstr "拿起"
+
+msgid "Light"
+msgstr "浅色"
+
+msgid "Logcat"
+msgstr "日志"
+
+msgid "Longitude"
+msgstr "经度"
+
+msgid "Loop"
+msgstr "循环"
+
+msgid "Lucide icons"
+msgstr "Lucide 图标"
+
+msgid "Magisk"
+msgstr "Magisk"
+
+msgid "Magisk and finished downloads. Safe to clear."
+msgstr "Magisk 和已完成的下载，可以安全清除。"
+
+msgid "Magisk will ask to grant root to Shell. Tap Grant in the device window. Jidr waits {} more; \"Forever\" is up to you."
+msgstr "Magisk 将请求授予 Shell root 权限。请在设备窗口中点击授予。Jidr 还会等待 {}；是否选择“永久”由您决定。"
+
+msgid "Magisk, downloaded on your Mac"
+msgstr "下载到 Mac 的 Magisk"
+
+msgid "Magisk, verified. One reboot."
+msgstr "Magisk 已验证，需要重启一次。"
+
+msgid "Manage snapshots"
+msgstr "管理快照"
+
+msgid "Manufacturer"
+msgstr "制造商"
+
+msgid "Map data © OpenStreetMap contributors"
+msgstr "地图数据 © OpenStreetMap 贡献者"
+
+msgid "Map tiles"
+msgstr "地图图块"
+
+msgid "Mobile data"
+msgstr "移动数据"
+
+msgid "Mobile signal"
+msgstr "移动信号"
+
+msgid "Mode"
+msgstr "模式"
+
+msgid "Model"
+msgstr "型号"
+
+msgid "More options…"
+msgstr "更多选项…"
+
+msgid "Motion"
+msgstr "运动"
+
+msgid "Name"
+msgstr "名称"
+
+msgid "Needs a newer Jidr daemon."
+msgstr "需要更新版本的 Jidr 守护进程。"
+
+msgid "Network"
+msgstr "网络"
+
+msgid "New device"
+msgstr "新建设备"
+
+msgid "Next"
+msgstr "下一步"
+
+msgid "No Android SDK on this Mac"
+msgstr "此 Mac 上没有 Android SDK"
+
+msgid "No devices yet"
+msgstr "暂无设备"
+
+msgid "No devices yet. Create one with ⌘N."
+msgstr "暂无设备。按 ⌘N 创建。"
+
+msgid "No devices yet. They appear here once the SDK is ready."
+msgstr "暂无设备。SDK 就绪后设备会显示在这里。"
+
+msgid "No limit · no added delay"
+msgstr "无限制 · 无额外延迟"
+
+msgid "No snapshots yet. A snapshot saves memory and disk exactly as they are, tagged with the root mode."
+msgstr "暂无快照。快照会完整保存内存和磁盘，并标记 root 模式。"
+
+msgid "No snapshots yet. Save one from the device window with ⌘S."
+msgstr "暂无快照。在设备窗口按 ⌘S 保存。"
+
+msgid "None"
+msgstr "无"
+
+msgid "Not installed"
+msgstr "未安装"
+
+msgid "Not run"
+msgstr "未运行"
+
+msgid "Not verified yet"
+msgstr "尚未验证"
+
+msgid "Nothing matches “{}”."
+msgstr "没有与“{}”匹配的结果。"
+
+msgid "Off. 10.0.2.2 is this Mac; Burp and mitmproxy listen on 8080."
+msgstr "关闭。10.0.2.2 是此 Mac；Burp 和 mitmproxy 监听端口 8080。"
+
+msgid "Off: apps ask and you tap Grant. adb shell is always granted."
+msgstr "关闭：应用请求权限时需点击授予。adb shell 始终获得权限。"
+
+msgid "Off: the level drops as Android uses power. Turn on to simulate a charger."
+msgstr "关闭：电量会随 Android 使用而下降。开启以模拟充电器。"
+
+msgid "On: every app that asks gets root without a prompt."
+msgstr "开启：所有请求 root 权限的应用均无需提示直接获得权限。"
+
+msgid "Only images that run on Apple Silicon (arm64) are listed."
+msgstr "仅显示可在 Apple Silicon（arm64）上运行的镜像。"
+
+msgid "Open"
+msgstr "打开"
+
+msgid "Original kept for revert"
+msgstr "原始文件已保留，可用于恢复"
+
+msgid "Patch boot image"
+msgstr "修补启动镜像"
+
+msgid "Paused"
+msgstr "已暂停"
+
+msgid "Phone"
+msgstr "手机"
+
+msgid "Pick Custom to use your own tile server. The attribution stays visible on the GPS map."
+msgstr "选择“自定义”以使用自己的地图服务器。GPS 地图上仍会显示署名。"
+
+msgid "Pixel-perfect · 1 device pixel = 1 screen pixel"
+msgstr "像素级显示 · 1 个设备像素 = 1 个屏幕像素"
+
+msgid "Play / pause"
+msgstr "播放 / 暂停"
+
+msgid "Play Store images don't allow adb root."
+msgstr "Play 商店镜像不允许 adb root。"
+
+msgid "Pointer location"
+msgstr "指针位置"
+
+msgid "Pressure"
+msgstr "气压"
+
+msgid "Previous"
+msgstr "上一步"
+
+msgid "Profile"
+msgstr "配置"
+
+msgid "Proximity sensor: covers the screen during calls."
+msgstr "距离传感器：通话时遮盖屏幕。"
+
+msgid "Queued"
+msgstr "排队中"
+
+msgid "Quick boot"
+msgstr "快速启动"
+
+msgid "Quick set"
+msgstr "快速设置"
+
+msgid "Quit"
+msgstr "退出"
+
+msgid "RAM"
+msgstr "内存"
+
+msgid "Read and accept Google's SDK license"
+msgstr "阅读并接受 Google SDK 许可协议"
+
+msgid "Read from device"
+msgstr "从设备读取"
+
+msgid "Ready"
+msgstr "就绪"
+
+msgid "Reboot"
+msgstr "重启"
+
+msgid "Rebooting"
+msgstr "正在重启"
+
+msgid "Reboots the device to finish root setup (about 40 s). Leave it running; you can close this sheet."
+msgstr "重启设备以完成 root 设置（约 40 秒）。请保持设备运行；可以关闭此窗口。"
+
+msgid "Recognised"
+msgstr "已识别"
+
+msgid "Recognised uses finger 1; enrol it once in Android's Security settings."
+msgstr "识别使用手指 1；请先在 Android 安全设置中录入一次。"
+
+msgid "Remove"
+msgstr "移除"
+
+msgid "Replay a GPX or KML route"
+msgstr "重放 GPX 或 KML 路线"
+
+msgid "Reset to stock"
+msgstr "恢复原始状态"
+
+msgid "Restart now"
+msgstr "立即重启"
+
+msgid "Restore"
+msgstr "恢复"
+
+msgid "Revert to unrooted"
+msgstr "恢复为未 root 状态"
+
+msgid "Revert to unrooted…"
+msgstr "恢复为未 root 状态…"
+
+msgid "Root"
+msgstr "Root"
+
+msgid "Root failed"
+msgstr "Root 失败"
+
+msgid "Root failed: {}"
+msgstr "Root 失败：{}"
+
+msgid "Root health"
+msgstr "Root 状态"
+
+msgid "Root mode"
+msgstr "Root 模式"
+
+msgid "Root setup"
+msgstr "Root 设置"
+
+msgid "Root setup starts when Android finishes its first boot. Play Store images are signed by Google, so this path is less tested."
+msgstr "Android 首次启动完成后开始 root 设置。Play 商店镜像由 Google 签名，因此此路径经过的测试较少。"
+
+msgid "Root unverified"
+msgstr "Root 未验证"
+
+msgid "Rooted"
+msgstr "已 root"
+
+msgid "Rooted emulators can't pass Play Integrity. Apps that check it will refuse to run."
+msgstr "Root 模拟器无法通过 Play Integrity 检查，执行该检查的应用将拒绝运行。"
+
+msgid "Rooted emulators can't pass Play Integrity. Banking apps and some games from the Play Store will refuse to run on {} once it is rooted."
+msgstr "Root 模拟器无法通过 Play Integrity 检查。{} 获取 root 后，银行应用及 Play 商店中的部分游戏将拒绝运行。"
+
+msgid "Rooted · Magisk {} · verified just now"
+msgstr "已 root · Magisk {} · 刚刚验证"
+
+msgid "Rotation"
+msgstr "旋转"
+
+msgid "SMS text"
+msgstr "短信内容"
+
+msgid "Save"
+msgstr "保存"
+
+msgid "Save a quick-boot snapshot when a device stops"
+msgstr "设备停止时保存快速启动快照"
+
+msgid "Save snapshot of {}"
+msgstr "保存 {} 的快照"
+
+msgid "Save snapshot…"
+msgstr "保存快照…"
+
+msgid "Saved on every stop"
+msgstr "每次停止时保存"
+
+msgid "Saved on every stop · used for fast start"
+msgstr "每次停止时保存 · 用于快速启动"
+
+msgid "Saves memory and disk exactly as they are now. Android pauses for a few seconds while it saves."
+msgstr "完整保存当前内存和磁盘。保存时 Android 会暂停几秒。"
+
+msgid "Saving…"
+msgstr "正在保存…"
+
+msgid "Scene"
+msgstr "场景"
+
+msgid "Screen"
+msgstr "屏幕"
+
+msgid "Scroll to the end to accept. Declining leaves the SDK uninstalled."
+msgstr "滚动到底部后接受。拒绝则不安装 SDK。"
+
+msgid "Security patch"
+msgstr "安全补丁"
+
+msgid "Send SMS"
+msgstr "发送短信"
+
+msgid "Send to device"
+msgstr "发送到设备"
+
+msgid "Sensors"
+msgstr "传感器"
+
+msgid "Serial"
+msgstr "序列号"
+
+msgid "Session"
+msgstr "会话"
+
+msgid "Set location"
+msgstr "设置位置"
+
+msgid "Set proxy"
+msgstr "设置代理"
+
+msgid "Set up Android SDK"
+msgstr "设置 Android SDK"
+
+msgid "Set up Full root…"
+msgstr "设置完整 root…"
+
+msgid "Set up Jidr"
+msgstr "设置 Jidr"
+
+msgid "Setting up root…"
+msgstr "正在设置 root…"
+
+msgid "Setting up root… · step 5 of 5"
+msgstr "正在设置 root… · 第 5 步，共 5 步"
+
+msgid "Setting up root… · step {} of 5"
+msgstr "正在设置 root… · 第 {} 步，共 5 步"
+
+msgid "Settings"
+msgstr "设置"
+
+msgid "Shell root"
+msgstr "Shell root"
+
+msgid "Shell root (adb)"
+msgstr "Shell root（adb）"
+
+msgid "Shell wasn't granted root, so Jidr can't say {} is rooted. Try again and tap Grant, or revert to unrooted. Your data is intact."
+msgstr "Shell 未获得 root 权限，因此 Jidr 无法确认 {} 已 root。请重试并点击授予，或恢复为未 root 状态。您的数据完好。"
+
+msgid "Show full licence texts"
+msgstr "显示完整许可文本"
+
+msgid "Show in Finder"
+msgstr "在访达中显示"
+
+msgid "Show steps"
+msgstr "显示步骤"
+
+msgid "Show taps"
+msgstr "显示触摸操作"
+
+msgid "Slint UI toolkit"
+msgstr "Slint UI 工具包"
+
+msgid "Snapshot"
+msgstr "快照"
+
+msgid "Snapshots"
+msgstr "快照"
+
+msgid "Something near the screen"
+msgstr "屏幕附近有物体"
+
+msgid "Source on GitHub"
+msgstr "GitHub 源代码"
+
+msgid "Speed and latency"
+msgstr "速度和延迟"
+
+msgid "Sponsor Jidr"
+msgstr "赞助 Jidr"
+
+msgid "Start"
+msgstr "启动"
+
+msgid "Start after creating"
+msgstr "创建后启动"
+
+msgid "Start the device to add or remove CA certificates."
+msgstr "启动设备后才能添加或移除 CA 证书。"
+
+msgid "Starts take seconds instead of a full boot. Uses disk per device."
+msgstr "启动只需几秒，无需完整启动；每台设备会占用磁盘空间。"
+
+msgid "Stock"
+msgstr "原版"
+
+msgid "Stop"
+msgstr "停止"
+
+msgid "Stop and revert"
+msgstr "停止并恢复"
+
+msgid "Storage"
+msgstr "存储"
+
+msgid "System"
+msgstr "跟随系统"
+
+msgid "System images"
+msgstr "系统镜像"
+
+msgid "Tap Grant on the device"
+msgstr "在设备上点击授予"
+
+msgid "Temperature"
+msgstr "温度"
+
+msgid "Terminal"
+msgstr "终端"
+
+msgid "Text for the device clipboard"
+msgstr "发送到设备剪贴板的文本"
+
+msgid "This window only"
+msgstr "仅此窗口"
+
+msgid "Took"
+msgstr "用时"
+
+msgid "Tools"
+msgstr "工具"
+
+msgid "Trust Burp's or mitmproxy's CA as a system certificate. Adding one restarts the device."
+msgstr "将 Burp 或 mitmproxy 的 CA 信任为系统证书。添加证书会重启设备。"
+
+msgid "Trusted"
+msgstr "已信任"
+
+msgid "Try again"
+msgstr "重试"
+
+msgid "Turns the device; apps that allow rotation follow."
+msgstr "旋转设备；允许旋转的应用会跟随调整。"
+
+msgid "Type a command or a device name"
+msgstr "输入命令或设备名称"
+
+msgid "Unrecognised"
+msgstr "未识别"
+
+msgid "Upright"
+msgstr "竖直"
+
+msgid "Upside down"
+msgstr "倒置"
+
+msgid "Uptime"
+msgstr "运行时间"
+
+msgid "Use an SDK I already have…"
+msgstr "使用已有的 SDK…"
+
+msgid "Use an existing SDK…"
+msgstr "使用现有 SDK…"
+
+msgid "Used by New device and by jidr device create when --root is not given."
+msgstr "用于新建设备，以及未指定 --root 时的 jidr device create 命令。"
+
+msgid "Verified"
+msgstr "已验证"
+
+msgid "Verified {}"
+msgstr "已验证 {}"
+
+msgid "Verify"
+msgstr "验证"
+
+msgid "Verify again"
+msgstr "再次验证"
+
+msgid "Version"
+msgstr "版本"
+
+msgid "Version {} · macOS 14+ · Apple Silicon"
+msgstr "版本 {} · macOS 14+ · Apple Silicon"
+
+msgid "Waiting for Android to report boot complete"
+msgstr "等待 Android 报告启动完成"
+
+msgid "Waiting to set up root"
+msgstr "等待设置 root"
+
+msgid "Webcam"
+msgstr "网络摄像头"
+
+msgid "Wi-Fi"
+msgstr "Wi-Fi"
+
+msgid "Will be tagged"
+msgstr "将标记为"
+
+msgid "You reached the end. Accept to continue, or decline to leave the SDK uninstalled."
+msgstr "已到达末尾。接受以继续，或拒绝以不安装 SDK。"
+
+msgid "Your Mac has {}."
+msgstr "您的 Mac 已有 {}。"
+
+msgid "adb root works. Nothing changes."
+msgstr "adb root 可用。不会进行更改。"
+
+msgid "adb root works. Nothing on the system changes."
+msgstr "adb root 可用。系统不会进行更改。"
+
+msgid "jidr CLI and daemon"
+msgstr "jidr 命令行工具和守护进程"
+
+msgid "mcp config (JSON)"
+msgstr "MCP 配置（JSON）"
+
+msgid "of {}"
+msgstr "共 {}"
+
+msgid "patched · original kept"
+msgstr "已修补 · 已保留原始文件"
+
+msgid "su -c id didn't answer as root on {}. Your data is intact and the original boot image is kept, so you can revert."
+msgstr "su -c id 未在 {} 上以 root 身份响应。您的数据完好，原始启动镜像已保留，您可以恢复。"
+
+msgid "{} didn't finish booting after the reboot. Your data is intact and the original boot image is kept, so you can revert."
+msgstr "{} 重启后未能完成启动。您的数据完好，原始启动镜像已保留，您可以恢复。"
+
+msgid "{} errors"
+msgstr "{} 个错误"
+
+msgid "{} · 5 of 5 steps"
+msgstr "{} · 5 步中的第 5 步"
+
+msgid "{} · app installed"
+msgstr "{} · 应用已安装"
+
+msgid "Language"
+msgstr "语言"
+
+msgid "Device memory: waiting for sample"
+msgstr "设备内存：等待采样"
+
+msgid " · Mapping enabled"
+msgstr " · 映射已启用"
+
+msgid "Press a letter, number, or Space"
+msgstr "按字母、数字或空格"
+
+msgid "Click a position, then press a key"
+msgstr "点击屏幕位置，再按键"
+
+msgid "Device key mapping"
+msgstr "设备键位映射"
+
+msgid "Edit"
+msgstr "编辑"
+
+msgid "Disable"
+msgstr "停用"
+
+msgid "Enable"
+msgstr "启用"
+
+msgid "Hide hints"
+msgstr "隐藏提示"
+
+msgid "Show hints"
+msgstr "显示提示"
+
+msgid "Rebind to move a key; right-click to delete."
+msgstr "重新绑定可移动键位；右键删除。"
+
+msgid "Editing mappings · open keyboard icon to save"
+msgstr "正在编辑键位 · 打开键盘图标保存"
+
+msgid "Mapping enabled"
+msgstr "映射已启用"
+
+msgid "Window settings"
+msgstr "窗口设置"
+
+msgid "Small"
+msgstr "小"
+
+msgid "Medium"
+msgstr "中"
+
+msgid "Large"
+msgstr "大"
+
+msgid "Unpin"
+msgstr "取消置顶"
+
+msgid "Always on top"
+msgstr "置顶"
+
+msgid "Select an Android text field first; sending uses the Android clipboard"
+msgstr "先选择安卓输入框；发送会使用安卓剪贴板"
+
+msgid "Sending…"
+msgstr "发送中…"
+
+msgid "Send text"
+msgstr "发送文字"
+
+msgid "Paste"
+msgstr "粘贴"
+
+msgid "Close"
+msgstr "关闭"
+
+msgid "Performance and quality"
+msgstr "性能与画质"
+
+msgid "✓ Smooth"
+msgstr "✓ 流畅"
+
+msgid "Smooth"
+msgstr "流畅"
+
+msgid "✓ Sharp"
+msgstr "✓ 清晰"
+
+msgid "Sharp"
+msgstr "清晰"
+
+msgid "✓ Economy"
+msgstr "✓ 省流"
+
+msgid "Economy"
+msgstr "省流"
+
+msgid "Device storage"
+msgstr "设备存储"
+
+msgid "2–256 GB."
+msgstr "2–256 GB。"
+
+msgid "Press a new shortcut, Esc to cancel"
+msgstr "按新的组合键，Esc 取消"
+
+msgid "Shortcuts (click to edit)"
+msgstr "快捷键（点击修改）"
+
+msgid "Screenshot"
+msgstr "截图"
+
+msgid "Fullscreen"
+msgstr "全屏"
+
+msgid "Sidebar"
+msgstr "侧栏"
+
+msgid "Performance panel"
+msgstr "性能面板"
+
+msgid "Text panel"
+msgstr "文字面板"
+
+
+msgid "Device audio (next start)"
+msgstr "设备声音（下次启动生效）"
+
+msgid "JDK location"
+msgstr "JDK 位置"
+
+msgid "Jidr currently does not require a JDK; this path is saved for tools that do."
+msgstr "Jidr 当前不需要 JDK；此路径为需要 JDK 的工具保留。"
+
+msgid "Automatic"
+msgstr "自动"
+
+msgid "Device data location"
+msgstr "设备数据位置"
+
+msgid "Show"
+msgstr "显示"
+
+msgid "Migration destination"
+msgstr "迁移目标"
+
+msgid "Not selected"
+msgstr "未选择"
+
+msgid "Choose…"
+msgstr "选择…"
+
+msgid "Only saves the destination. Data migration is not yet available."
+msgstr "仅保存目标位置；数据迁移功能尚未开放。"
+
+msgid "Audio and camera"
+msgstr "声音与摄像头"
+
+msgid "Front camera"
+msgstr "前置摄像头"
+
+msgid "Takes effect on the next start."
+msgstr "下次启动生效。"
+
+msgid "Emulator default"
+msgstr "模拟器默认"
+
+msgid "Emulated camera"
+msgstr "模拟摄像头"
+
+msgid "Virtual scene"
+msgstr "虚拟场景"
+
+msgid "Mac camera 1"
+msgstr "Mac 摄像头 1"
+
+msgid "Mac camera 2"
+msgstr "Mac 摄像头 2"
+
+msgid "Virtual scene is back camera only."
+msgstr "虚拟场景仅支持后置摄像头。"
+
+msgid "Virtual scene (back only)"
+msgstr "虚拟场景（仅后置）"
+
+msgid "Data and snapshots"
+msgstr "数据与快照"
+
+msgid "Disk usage"
+msgstr "磁盘占用"
+
+msgid "Manage snapshots…"
+msgstr "管理快照…"
+
+msgid "Snapshots are not a complete device backup."
+msgstr "快照不能替代完整的设备备份。"
+
+msgid "Startup"
+msgstr "启动"
+
+msgid "Camera"
+msgstr "摄像头"
+
+msgid "Data"
+msgstr "数据"
+
+msgid "Performance"
+msgstr "性能"
+
+msgid "Game window quality"
+msgstr "游戏窗口画质"
+
+msgid "Changes streamed resolution, not game FPS."
+msgstr "调整传输分辨率，不改变游戏帧率。"
+
+
+msgid "My device"
+msgstr "我的设备"
+
+msgid "Open game window"
+msgstr "打开游戏窗口"
+
+msgid "Start device"
+msgstr "启动设备"
+
+msgid "Quick actions"
+msgstr "常用操作"
+
+msgid "Install APK…"
+msgstr "安装 APK…"
+
+msgid "Screenshots folder"
+msgstr "截图目录"
+
+msgid "Start the device to install an APK."
+msgstr "启动设备后可安装 APK。"
+
+msgid "Hide device details"
+msgstr "收起设备详情"
+
+msgid "Show device details"
+msgstr "查看设备详情"
+
+msgid "Open in main window"
+msgstr "在主窗口中打开"
+
+msgid "Installed games and apps"
+msgstr "已安装的游戏和应用"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Launch"
+msgstr "启动"
+
+msgid "Device center"
+msgstr "设备中心"
+
+msgid "View tasks"
+msgstr "查看任务"
+
+msgid "Add device"
+msgstr "添加设备"
+
+msgid "My devices"
+msgstr "我的设备"
+
+msgid "Choose an APK file"
+msgstr "选择 APK 文件"
+
+msgid "Send file"
+msgstr "发送文件"
+
+msgid "To Downloads"
+msgstr "发送到下载目录"
+
+msgid "Capture screen"
+msgstr "截取设备画面"
+
+msgid "Stop recording"
+msgstr "停止录屏"
+
+msgid "Record screen"
+msgstr "录屏"
+
+msgid "Save a video"
+msgstr "保存视频"
+
+msgid "Android emulator"
+msgstr "安卓模拟器"
+
+msgid "Search devices and commands"
+msgstr "搜索设备和命令"
+
+msgid "Restart"
+msgstr "重启"
+
+msgid "Starting"
+msgstr "正在启动"
+
+msgid "Device details"
+msgstr "设备详情"
+
+msgid "Delete device"
+msgstr "删除设备"

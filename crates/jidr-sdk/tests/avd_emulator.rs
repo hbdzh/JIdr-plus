@@ -162,8 +162,16 @@ impl Emu {
             .args(extra)
             .env("ANDROID_AVD_HOME", avds.home())
             .env("ANDROID_SDK_ROOT", &sdk.root)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stdout(if std::env::var_os("JIDR_E2E_DIAGNOSTICS").is_some() {
+                Stdio::inherit()
+            } else {
+                Stdio::null()
+            })
+            .stderr(if std::env::var_os("JIDR_E2E_DIAGNOSTICS").is_some() {
+                Stdio::inherit()
+            } else {
+                Stdio::null()
+            })
             .spawn()
             .unwrap();
         Self {
@@ -356,4 +364,167 @@ fn snapshot_clone_resumes_independently() {
     );
     avds.delete(&src).unwrap();
     avds.delete(&dst).unwrap();
+}
+
+/// Migration acceptance: boot an isolated AVD, save a snapshot, copy it to a
+/// separate root, then resume the snapshot and verify the guest file contents.
+/// Never operates on a user's AVD.
+#[test]
+fn migration_restores_guest_data_and_snapshot() {
+    use jidr_sdk::migration::{prepare_copy, publish_copy};
+    let parent = std::env::var_os("JIDR_MIGRATION_TEST_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    let temp = tempfile::Builder::new()
+        .prefix("jidr-migration-e2e-")
+        .tempdir_in(parent)
+        .unwrap();
+    let source = JidrPaths::under(temp.path().join("source"));
+    let sdks = SdkSet {
+        private: Sdk::private(&source),
+        studio: Some(Sdk::read_only(test_sdk())),
+    };
+    let image = test_image();
+    let sdk = sdks
+        .find_image(&image)
+        .expect("test image installed")
+        .clone();
+    let tools = sdks.tools().expect("emulator and adb installed").clone();
+    let sysdir = sdk.image_dir(&image);
+    let sysdir = sysdir.to_str().unwrap();
+    let name = jidr_backend::testing::unique_avd("jidr_migration_test");
+    let _guard = jidr_backend::testing::AvdGuard::new(&name);
+    let avds = AvdManager::new(source.avd_home());
+    avds.create(&AvdSpec {
+        name: name.clone(),
+        display_name: "Migration test".into(),
+        profile: profiles::find("agent-lean").unwrap(),
+        image,
+        overrides: Default::default(),
+    })
+    .unwrap();
+    {
+        let mut emu = Emu::launch(
+            &avds,
+            &sdk,
+            &tools,
+            &name,
+            &["-sysdir", sysdir, "-no-snapshot-save"],
+        );
+        println!(
+            "cold boot {:.1}s",
+            emu.wait_booted(Duration::from_secs(420))
+        );
+        let marker = temp.path().join("marker.txt");
+        std::fs::write(&marker, b"before_migration\n").unwrap();
+        emu.adb(&[
+            "push",
+            marker.to_str().unwrap(),
+            "/data/local/tmp/jidr_migration_marker",
+        ]);
+        assert_eq!(
+            emu.adb(&["shell", "cat", "/data/local/tmp/jidr_migration_marker"]),
+            "before_migration"
+        );
+        let result = emu.adb(&["emu", "avd", "snapshot", "save", "migration_probe"]);
+        println!("snapshot save: {result}");
+        let ram = avds.dir(&name).join("snapshots/migration_probe/ram.bin");
+        assert!(
+            std::fs::metadata(ram).map(|m| m.len() > 0).unwrap_or(false),
+            "snapshot memory must exist"
+        );
+        std::fs::write(&marker, b"after_snapshot\n").unwrap();
+        emu.adb(&[
+            "push",
+            marker.to_str().unwrap(),
+            "/data/local/tmp/jidr_migration_marker",
+        ]);
+        emu.adb(&["shell", "sync"]);
+        emu.adb(&["emu", "kill"]);
+        let deadline = Instant::now() + Duration::from_secs(60);
+        while emu.child.try_wait().ok().flatten().is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(250));
+        }
+        assert!(
+            emu.child.try_wait().unwrap().is_some(),
+            "temporary emulator must stop before copy"
+        );
+    }
+    let target_parent = std::env::var_os("JIDR_MIGRATION_DEST_DIR").map(|path| {
+        tempfile::Builder::new()
+            .prefix("jidr-migration-target-")
+            .tempdir_in(path)
+            .unwrap()
+    });
+    let destination = target_parent
+        .as_ref()
+        .map(|p| p.path())
+        .unwrap_or(temp.path())
+        .join("destination");
+    let qemu_img = tools.root.join("emulator/qemu-img");
+    let lease = jidr_core::storage_lease::StorageLease::acquire(&source.data)
+        .expect("acquire source storage lease");
+    #[cfg(unix)]
+    let barrier = jidr_sdk::legacy_barrier::LegacySocketBarrier::acquire(&source.socket())
+        .expect("protect source socket from legacy daemons");
+    let prepared = prepare_copy(
+        &source,
+        &destination,
+        &qemu_img,
+        &lease,
+        #[cfg(unix)]
+        &barrier,
+    )
+    .expect("prepare verified copy");
+    assert_eq!(
+        jidr_sdk::migration_journal::Journal::read(&prepared.journal)
+            .unwrap()
+            .inspect(),
+        jidr_sdk::migration_journal::RecoveryState::Prepared
+    );
+    println!(
+        "verified copy {} files, {} bytes, {} qcow disks",
+        prepared.data.files, prepared.data.bytes, prepared.qcow_disks
+    );
+    let location = publish_copy(
+        &prepared,
+        &source,
+        &lease,
+        #[cfg(unix)]
+        &barrier,
+    )
+    .expect("publish without replacing destination");
+    assert_eq!(
+        jidr_sdk::migration_journal::Journal::read(&prepared.journal)
+            .unwrap()
+            .inspect(),
+        jidr_sdk::migration_journal::RecoveryState::Published
+    );
+    let moved = location.resolve().unwrap();
+    let relocated_avds = AvdManager::new(moved.avd_home());
+    let mut restored = Emu::launch(
+        &relocated_avds,
+        &sdk,
+        &tools,
+        &name,
+        &[
+            "-sysdir",
+            sysdir,
+            "-snapshot",
+            "migration_probe",
+            "-no-snapshot-save",
+        ],
+    );
+    println!(
+        "snapshot resume {:.1}s",
+        restored.wait_booted(Duration::from_secs(180))
+    );
+    assert_eq!(
+        restored.adb(&["shell", "cat", "/data/local/tmp/jidr_migration_marker"]),
+        "before_migration"
+    );
+    assert!(
+        source.avd_home().join(format!("{name}.avd")).exists(),
+        "source remains available"
+    );
 }

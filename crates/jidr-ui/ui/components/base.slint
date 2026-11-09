@@ -540,7 +540,7 @@ export component TrafficLights inherits Rectangle {
 export component Toast inherits Rectangle {
     in property <string> text;
     in property <Tone> tone: Tone.positive;
-    height: 40px;
+    height: root.tone == Tone.negative ? 58px : 40px;
     width: min(420px, t.preferred-width + 48px);
     border-radius: Theme.radius-lg;
     background: Theme.elevation-3-surface;
@@ -559,7 +559,9 @@ export component Toast inherits Rectangle {
     t := T {
         x: Theme.rtl ? 12px : 28px;
         width: parent.width - 40px;
+        height: parent.height;
         text: root.text;
+        wrap: word-wrap;
     }
 }
 

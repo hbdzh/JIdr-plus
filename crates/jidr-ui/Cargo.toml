@@ -13,6 +13,7 @@ publish.workspace = true
 jidr-core.workspace = true
 jidr-client.workspace = true
 jidr-proto.workspace = true
+jidr-sdk.workspace = true
 slint = { workspace = true, features = ["unstable-winit-030"] }
 tokio.workspace = true
 tokio-stream.workspace = true
@@ -25,6 +26,11 @@ png.workspace = true
 tracing.workspace = true
 dirs.workspace = true
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2", "system-proxy"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.5"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["NSApplication", "NSButton", "NSControl", "NSMenu", "NSMenuItem", "NSResponder", "NSView", "NSWindow"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSArray", "NSString"] }
 
 [build-dependencies]
 slint-build = "1.18.1"

@@ -2,7 +2,7 @@
 //! daemon data back into the view models. View state (selection, tabs,
 //! theme) stays here (plan: UI-only state is not a protocol command).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use jidr_core::{JidrPaths, JidrResult};
@@ -86,6 +86,7 @@ pub fn render(app: &AppWindow, state: &State) {
         .and_then(|id| state.data.devices.iter().position(|d| d.device.id == *id));
     app.set_active_device(active_device.map(|i| i as i32).unwrap_or(-1));
     app.set_sdk_ready(state.data.sdk_ready);
+    app.set_library_loading(state.data.loading);
 }
 
 fn job_title(j: &jidr_core::Job) -> String {
@@ -104,18 +105,30 @@ fn job_title(j: &jidr_core::Job) -> String {
 
 /// Shows a toast for a few seconds.
 pub fn toast(weak: &Weak<AppWindow>, text: String) {
+    toast_with_tone(weak, text, false);
+}
+
+pub fn toast_error(weak: &Weak<AppWindow>, text: String) {
+    toast_with_tone(weak, text, true);
+}
+
+fn toast_with_tone(weak: &Weak<AppWindow>, text: String, error: bool) {
     let weak = weak.clone();
     let _ = slint::invoke_from_event_loop(move || {
         if let Some(app) = weak.upgrade() {
+            app.set_toast_error(error);
             app.set_toast(text.clone().into());
             let w = app.as_weak();
-            slint::Timer::single_shot(std::time::Duration::from_secs(4), move || {
-                if let Some(app) = w.upgrade()
-                    && app.get_toast() == text.as_str()
-                {
-                    app.set_toast("".into());
-                }
-            });
+            slint::Timer::single_shot(
+                std::time::Duration::from_secs(if error { 9 } else { 4 }),
+                move || {
+                    if let Some(app) = w.upgrade()
+                        && app.get_toast() == text.as_str()
+                    {
+                        app.set_toast("".into());
+                    }
+                },
+            );
         }
     });
 }
@@ -130,7 +143,7 @@ pub fn report(
     move |r| match r {
         Ok(_) if !ok.is_empty() => toast(&weak, ok),
         Ok(_) => {}
-        Err(e) => toast(&weak, e.message),
+        Err(e) => toast_error(&weak, e.message),
     }
 }
 
@@ -149,6 +162,9 @@ pub struct Ctx {
     pub pending_confirm: RefCell<Option<Box<dyn Fn()>>>,
     /// The device window's live session.
     pub player: RefCell<crate::player::Player>,
+    pub game_windows: RefCell<std::collections::HashMap<Uuid, Rc<crate::player::game::Game>>>,
+    pub pending_window_opens: RefCell<std::collections::HashSet<Uuid>>,
+    pub quitting: Cell<bool>,
 }
 
 #[derive(Default)]
@@ -180,6 +196,9 @@ impl Ctx {
 
     pub fn rerender(self: &Rc<Self>) {
         render(&self.app, &self.state.borrow());
+        if self.quitting.get() {
+            return;
+        }
         crate::player::sync(self);
         crate::root::sync(self);
     }
@@ -256,7 +275,13 @@ pub fn apply_data(app: &AppWindow, data: Data) {
     render(app, &st);
     drop(st);
     if let Some(c) = ctx() {
+        if c.quitting.get() {
+            return;
+        }
         crate::player::sync(&c);
+        crate::player::game::sync(&c);
+        crate::launcher::open_ready_devices(&c);
+        crate::game_library::sync(&c);
         // Starts a root setup queued for a device that just arrived (a new
         // Full-root device), instead of waiting for the next selection.
         crate::root::sync(&c);
@@ -267,6 +292,7 @@ pub fn apply_data(app: &AppWindow, data: Data) {
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     select_backend()?;
     let app = AppWindow::new()?;
+    app.set_library_loading(true);
     app.set_draw_lights(!cfg!(target_os = "macos"));
     app.global::<Theme>()
         .set_reduce_motion(system_reduce_motion());
@@ -283,8 +309,12 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         catalog: RefCell::default(),
         pending_confirm: RefCell::default(),
         player: RefCell::default(),
+        game_windows: RefCell::default(),
+        pending_window_opens: RefCell::default(),
+        quitting: Cell::new(false),
     });
     CTX.with(|c| *c.borrow_mut() = Some(ctx.clone()));
+    crate::i18n::select(ctx.prefs.borrow().language != 0)?;
     ctx.apply_appearance();
     crate::launcher::wire(&ctx);
     crate::player::wire(&ctx);
@@ -293,11 +323,93 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     crate::root::wire(&ctx);
     auto_open(&ctx);
     bridge.connect(paths, sink(app.as_weak()));
-    app.run()?;
+    #[cfg(target_os = "macos")]
+    slint::Timer::single_shot(std::time::Duration::ZERO, crate::macos_dock::install);
+    #[cfg(target_os = "macos")]
+    slint::Timer::single_shot(
+        std::time::Duration::from_millis(800),
+        crate::macos_dock::align_main_window_controls,
+    );
+    #[cfg(target_os = "macos")]
+    {
+        // AppKit can finish laying out the title bar after the first resize.
+        // The alignment is idempotent and reapplies if AppKit moves it back.
+        let timer = slint::Timer::default();
+        timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_secs(1),
+            crate::macos_dock::align_main_window_controls,
+        );
+        ctx.windows.borrow_mut().push(Box::new(timer));
+    }
+    loop {
+        app.run()?;
+        match bridge.shutdown_after_event_loop(&ctx.paths) {
+            Ok(()) => break,
+            Err(error) => {
+                ctx.quitting.set(false);
+                app.show()?;
+                toast(
+                    &app.as_weak(),
+                    format!(
+                        "{} {}",
+                        crate::i18n::text("Could not quit safely:", "无法安全退出："),
+                        error.message
+                    ),
+                );
+            }
+        }
+    }
     Ok(())
 }
 
-/// Dev hook: `JIDR_PLAYER_DEVICE=<name>` opens that device's tab (starting
+/// Called by AppKit on an explicit Quit request. It returns immediately;
+/// AppKit waits for the asynchronous result before terminating the process.
+#[cfg(target_os = "macos")]
+pub(crate) fn begin_native_quit() -> bool {
+    let Some(ctx) = ctx() else { return false };
+    if ctx.quitting.replace(true) {
+        return false;
+    }
+    for game in ctx.game_windows.borrow().values() {
+        game.prepare_for_quit(&ctx);
+    }
+    ctx.player.borrow_mut().session.take();
+    let _ = ctx.app.show();
+    ctx.app.set_toast(
+        crate::i18n::text("Stopping devices before quitting…", "正在停止设备并退出…").into(),
+    );
+    ctx.bridge
+        .shutdown_for_quit(ctx.paths.clone(), move |result| {
+            let _ = slint::invoke_from_event_loop(move || {
+                let Some(ctx) = crate::app::ctx() else {
+                    crate::macos_dock::reply_to_quit(false);
+                    return;
+                };
+                match result {
+                    Ok(()) => crate::macos_dock::reply_to_quit(true),
+                    Err(error) => {
+                        ctx.quitting.set(false);
+                        crate::macos_dock::reply_to_quit(false);
+                        let _ = ctx.app.show();
+                        toast(
+                            &ctx.app.as_weak(),
+                            format!(
+                                "{} {}",
+                                crate::i18n::text("Could not quit safely:", "无法安全退出："),
+                                error.message
+                            ),
+                        );
+                        ctx.rerender();
+                        crate::player::game::sync(&ctx);
+                    }
+                }
+            });
+        });
+    true
+}
+
+/// Dev hook: `JIDR_PLAYER_DEVICE=<name>` opens that device's window (starting
 /// it if needed) once the daemon's device list arrives.
 fn auto_open(ctx: &Rc<Ctx>) {
     let Ok(name) = std::env::var("JIDR_PLAYER_DEVICE") else {
@@ -319,14 +431,16 @@ fn auto_open(ctx: &Rc<Ctx>) {
                 .find(|d| d.device.name.eq_ignore_ascii_case(&name))
                 .map(|d| (d.device.id, d.device.status.clone()));
             let Some((id, status)) = found else { return };
-            if c.state.borrow().tabs.contains(&id) {
+            if c.game_windows.borrow().contains_key(&id) {
                 return;
             }
             if matches!(status, jidr_core::DeviceStatus::Stopped) && !started.get() {
                 started.set(true);
                 crate::launcher::start(&c, id);
             }
-            crate::launcher::open_tab(&c, id);
+            if matches!(status, jidr_core::DeviceStatus::Running) {
+                crate::player::game::open(&c, id);
+            }
         },
     );
     ctx.windows.borrow_mut().push(Box::new(timer));
@@ -410,6 +524,9 @@ mod tests {
             catalog: RefCell::default(),
             pending_confirm: RefCell::default(),
             player: RefCell::default(),
+            game_windows: RefCell::default(),
+            pending_window_opens: RefCell::default(),
+            quitting: Cell::new(false),
         });
         CTX.with(|c| *c.borrow_mut() = Some(ctx.clone()));
 
@@ -453,6 +570,216 @@ mod tests {
     }
 
     #[test]
+    fn device_settings_button_opens_for_running_and_stopped_devices() {
+        crate::offscreen::init().unwrap();
+        let app = crate::goldens::populated(crate::goldens::Variant::Dark).unwrap();
+        app.show().unwrap();
+        let selected = Rc::new(RefCell::new(Vec::new()));
+        let calls = selected.clone();
+        app.on_edit_device(move |index| calls.borrow_mut().push(index));
+        for state in [crate::DevState::Running, crate::DevState::Stopped] {
+            let mut devices = crate::fixtures::devices();
+            devices[0].state = state;
+            app.set_devices(ModelRc::new(VecModel::from(devices)));
+            crate::offscreen::render(app.window(), 1440, 900).unwrap();
+            let position = slint::LogicalPosition::new(1160.0, 379.0);
+            app.window().dispatch_event(WindowEvent::PointerPressed {
+                position,
+                button: PointerEventButton::Left,
+            });
+            app.window().dispatch_event(WindowEvent::PointerReleased {
+                position,
+                button: PointerEventButton::Left,
+            });
+        }
+        assert_eq!(*selected.borrow(), [0, 0]);
+    }
+
+    #[test]
+    fn device_center_routes_actions_and_disables_install_when_stopped() {
+        crate::offscreen::init().unwrap();
+        let app = crate::goldens::populated(crate::goldens::Variant::Dark).unwrap();
+        app.show().unwrap();
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let calls = events.clone();
+        app.on_start_device(move |i| calls.borrow_mut().push(("start", i)));
+        let calls = events.clone();
+        app.on_stop_device(move |i| calls.borrow_mut().push(("stop", i)));
+        let calls = events.clone();
+        app.on_install_apk(move |i| calls.borrow_mut().push(("install", i)));
+        let calls = events.clone();
+        app.on_send_file(move |i| calls.borrow_mut().push(("send", i)));
+        let calls = events.clone();
+        app.on_center_screenshot(move |i| calls.borrow_mut().push(("screenshot", i)));
+        let calls = events.clone();
+        app.on_center_record(move |i| calls.borrow_mut().push(("record", i)));
+        let calls = events.clone();
+        app.on_restart_device(move |i| calls.borrow_mut().push(("restart", i)));
+        let calls = events.clone();
+        app.on_delete_device(move |i| calls.borrow_mut().push(("delete", i)));
+        let calls = events.clone();
+        app.on_manage_snapshots(move |i| calls.borrow_mut().push(("snapshots", i)));
+        let click = |x, y| {
+            let position = slint::LogicalPosition::new(x, y);
+            app.window().dispatch_event(WindowEvent::PointerPressed {
+                position,
+                button: PointerEventButton::Left,
+            });
+            app.window().dispatch_event(WindowEvent::PointerReleased {
+                position,
+                button: PointerEventButton::Left,
+            });
+        };
+        crate::offscreen::render(app.window(), 1440, 900).unwrap();
+        click(800.0, 379.0);
+        click(100.0, 720.0);
+        click(450.0, 720.0);
+        click(100.0, 790.0);
+        click(450.0, 790.0);
+        click(900.0, 379.0);
+        click(1010.0, 379.0);
+        click(100.0, 850.0);
+        click(1320.0, 84.0);
+        assert!(app.get_device_details_open());
+        app.window().dispatch_event(WindowEvent::KeyPressed {
+            text: Key::Escape.into(),
+        });
+        assert!(!app.get_device_details_open());
+        let mut devices = crate::fixtures::devices();
+        devices[0].state = crate::DevState::Stopped;
+        app.set_devices(ModelRc::new(VecModel::from(devices)));
+        crate::offscreen::render(app.window(), 1440, 900).unwrap();
+        click(800.0, 379.0);
+        click(100.0, 720.0);
+        click(450.0, 720.0);
+        click(100.0, 790.0);
+        click(450.0, 790.0);
+        click(900.0, 379.0);
+        click(1010.0, 379.0);
+        assert_eq!(
+            *events.borrow(),
+            [
+                ("stop", 0),
+                ("install", 0),
+                ("send", 0),
+                ("screenshot", 0),
+                ("record", 0),
+                ("restart", 0),
+                ("snapshots", 0),
+                ("start", 0),
+                ("delete", 0)
+            ]
+        );
+    }
+
+    #[test]
+    fn return_key_uses_the_regular_device_action() {
+        crate::offscreen::init().unwrap();
+        let app = crate::goldens::populated(crate::goldens::Variant::Dark).unwrap();
+        app.show().unwrap();
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let calls = events.clone();
+        app.on_game_device(move |i| calls.borrow_mut().push(("game", i)));
+        let calls = events.clone();
+        app.on_start_device(move |i| calls.borrow_mut().push(("start", i)));
+        crate::offscreen::render(app.window(), 1440, 900).unwrap();
+        app.window().dispatch_event(WindowEvent::KeyPressed {
+            text: Key::Return.into(),
+        });
+        let mut devices = crate::fixtures::devices();
+        devices[0].state = crate::DevState::Stopped;
+        app.set_devices(ModelRc::new(VecModel::from(devices)));
+        app.window().dispatch_event(WindowEvent::KeyPressed {
+            text: Key::Return.into(),
+        });
+        assert_eq!(*events.borrow(), [("game", 0), ("start", 0)]);
+    }
+
+    #[test]
+    fn game_card_click_requests_the_displayed_package() {
+        crate::offscreen::init().unwrap();
+        let app = crate::goldens::populated(crate::goldens::Variant::Dark).unwrap();
+        app.set_games(ModelRc::new(VecModel::from(vec![crate::GameVm {
+            name: "Test".into(),
+            package: "example.game".into(),
+            icon: Default::default(),
+            has_icon: false,
+        }])));
+        app.show().unwrap();
+        crate::offscreen::render(app.window(), 1440, 900).unwrap();
+        let called = Rc::new(RefCell::new(Vec::new()));
+        let recorded = called.clone();
+        app.on_launch_game(move |package| recorded.borrow_mut().push(package.to_string()));
+        let position = slint::LogicalPosition::new(880.0, 505.0);
+        app.window().dispatch_event(WindowEvent::PointerPressed {
+            position,
+            button: PointerEventButton::Left,
+        });
+        app.window().dispatch_event(WindowEvent::PointerReleased {
+            position,
+            button: PointerEventButton::Left,
+        });
+        assert_eq!(*called.borrow(), ["example.game"]);
+    }
+
+    #[test]
+    fn tasks_remain_accessible_and_cancellable_without_the_sidebar() {
+        crate::offscreen::init().unwrap();
+        let app = crate::goldens::populated(crate::goldens::Variant::Light).unwrap();
+        app.show().unwrap();
+        let cancelled = Rc::new(RefCell::new(Vec::new()));
+        let calls = cancelled.clone();
+        app.on_cancel_job(move |index| calls.borrow_mut().push(index));
+        crate::offscreen::render(app.window(), 1085, 714).unwrap();
+        let click = |x, y| {
+            let position = slint::LogicalPosition::new(x, y);
+            app.window().dispatch_event(WindowEvent::PointerPressed {
+                position,
+                button: PointerEventButton::Left,
+            });
+            app.window().dispatch_event(WindowEvent::PointerReleased {
+                position,
+                button: PointerEventButton::Left,
+            });
+        };
+        click(860.0, 22.0);
+        assert!(app.get_tasks_open());
+        crate::offscreen::render(app.window(), 1085, 714).unwrap();
+        click(763.0, 229.0);
+        assert_eq!(*cancelled.borrow(), [0]);
+        click(750.0, 170.0);
+        assert!(!app.get_tasks_open());
+    }
+
+    #[test]
+    fn empty_library_keeps_add_and_settings_actions() {
+        crate::offscreen::init().unwrap();
+        let app = AppWindow::new().unwrap();
+        app.set_sdk_ready(true);
+        app.show().unwrap();
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let calls = events.clone();
+        app.on_new_device(move || calls.borrow_mut().push("add"));
+        let calls = events.clone();
+        app.on_open_settings(move || calls.borrow_mut().push("settings"));
+        let calls = events.clone();
+        app.on_open_palette(move || calls.borrow_mut().push("search"));
+        crate::offscreen::render(app.window(), 1440, 900).unwrap();
+        for (x, y) in [(720.0, 516.0), (1410.0, 22.0), (360.0, 22.0)] {
+            let position = slint::LogicalPosition::new(x, y);
+            app.window().dispatch_event(WindowEvent::PointerPressed {
+                position,
+                button: PointerEventButton::Left,
+            });
+            app.window().dispatch_event(WindowEvent::PointerReleased {
+                position,
+                button: PointerEventButton::Left,
+            });
+        }
+        assert_eq!(*events.borrow(), ["add", "settings", "search"]);
+    }
+
+    #[test]
     fn cmd_shortcuts_fire_from_the_window() {
         // Regression: shortcuts checked `modifiers.meta`, which is ⌃ on macOS,
         // so ⌘L, ⌘J, ⌘W… never fired.
@@ -463,7 +790,7 @@ mod tests {
 
         press_cmd(&app, "1");
         press_cmd(&app, "j");
-        assert_eq!(*fired.borrow(), ["tab-1", "panel"]);
+        assert_eq!(*fired.borrow(), ["panel"]);
     }
 
     #[test]

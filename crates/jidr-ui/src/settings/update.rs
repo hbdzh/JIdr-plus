@@ -70,23 +70,32 @@ pub fn evaluate(body: &str, current: &str) -> Check {
 pub fn view(check: &Check, current: &str, homebrew: bool, repo: &str) -> (String, String, String) {
     match check {
         Check::UpToDate => (
-            format!("You're up to date ({current})"),
+            format!(
+                "{} ({current})",
+                crate::i18n::text("You're up to date", "已是最新版本")
+            ),
             String::new(),
             String::new(),
         ),
         Check::Available { version, .. } if homebrew => (
-            format!("Jidr {version} is available. Update with {BREW_UPGRADE}"),
-            "Copy command".into(),
+            format!(
+                "Jidr {version} {} {BREW_UPGRADE}",
+                crate::i18n::text("is available. Update with", "已发布。更新命令：")
+            ),
+            crate::i18n::text("Copy command", "复制命令").into(),
             String::new(),
         ),
         Check::Available { version, url } => (
-            format!("Jidr {version} is available"),
-            "Download".into(),
+            format!(
+                "Jidr {version} {}",
+                crate::i18n::text("is available", "已发布")
+            ),
+            crate::i18n::text("Download", "下载").into(),
             url.clone(),
         ),
         Check::Failed => (
-            "Couldn't reach GitHub".into(),
-            "Open releases page".into(),
+            crate::i18n::text("Couldn't reach GitHub", "无法连接 GitHub").into(),
+            crate::i18n::text("Open releases page", "打开发布页面").into(),
             format!("{repo}/releases"),
         ),
     }

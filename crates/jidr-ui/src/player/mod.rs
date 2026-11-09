@@ -3,10 +3,15 @@
 
 pub mod bench;
 pub mod drop;
+pub mod edit_shortcuts;
 pub mod fullscreen;
+pub mod game;
+pub mod game_shortcuts;
 pub mod input;
+pub mod keymap;
 pub mod logcat;
 pub mod session;
+pub mod window_state;
 
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -28,7 +33,8 @@ use session::{Session, lock, oriented, request_size};
 #[derive(Default)]
 pub struct Player {
     pub session: Option<Session>,
-    opening: Option<Uuid>,
+    opening: Option<(Uuid, u64)>,
+    opening_generation: u64,
     gesture: Gesture,
     quarter: i32,
     logical: (f32, f32),
@@ -62,6 +68,9 @@ fn active_device(ctx: &Ctx) -> Option<(Uuid, bool, Screen, RootMode)> {
     let id = st.active.and_then(|i| st.tabs.get(i)).copied()?;
     let info = st.data.devices.iter().find(|d| d.device.id == id)?;
     let running = matches!(info.device.status, DeviceStatus::Running);
+    if running && (info.width == 0 || info.height == 0) {
+        return None;
+    }
     let screen = Screen {
         width: info.width.max(1),
         height: info.height.max(1),
@@ -80,6 +89,9 @@ pub fn sync(ctx: &Rc<Ctx>) {
     }
     let mut p = ctx.player.borrow_mut();
     let want = active.filter(|a| a.1).map(|a| a.0);
+    if p.opening.is_some_and(|(id, _)| Some(id) != want) {
+        p.opening = None;
+    }
     if p.session.as_ref().map(|s| s.device) != want {
         p.session = None;
         ctx.app.set_player_has_frame(false);
@@ -100,10 +112,12 @@ pub fn sync(ctx: &Rc<Ctx>) {
         p.log_device = Some(id);
         p.log_task = Some(follow_logcat(ctx, id));
     }
-    if p.session.is_some() || p.opening == Some(id) {
+    if p.session.is_some() || p.opening.is_some_and(|(opening, _)| opening == id) {
         return;
     }
-    p.opening = Some(id);
+    p.opening_generation = p.opening_generation.wrapping_add(1);
+    let generation = p.opening_generation;
+    p.opening = Some((id, generation));
     let scale = ctx.app.window().scale_factor();
     ctx.app.set_player_scale(scale);
     let want_px = request_size(p.logical, scale, screen);
@@ -112,12 +126,18 @@ pub fn sync(ctx: &Rc<Ctx>) {
     let handle = ctx.bridge.handle();
     let c = ctx.clone();
     let token = crate::app::defer(move |r: jidr_core::JidrResult<Session>| {
+        {
+            let mut p = c.player.borrow_mut();
+            if p.opening != Some((id, generation)) {
+                return;
+            }
+            p.opening = None;
+        }
         let still_active = |id| active_device(&c).filter(|a| a.1).map(|a| a.0) == Some(id);
         match r {
             Ok(s) => {
                 let keep = still_active(s.device);
                 let mut p = c.player.borrow_mut();
-                p.opening = None;
                 if keep {
                     p.session = Some(s);
                 }
@@ -127,7 +147,6 @@ pub fn sync(ctx: &Rc<Ctx>) {
                 }
             }
             Err(e) => {
-                c.player.borrow_mut().opening = None;
                 toast(
                     &c.app.as_weak(),
                     format!("Can't show the screen: {}", e.message),
@@ -144,7 +163,16 @@ pub fn sync(ctx: &Rc<Ctx>) {
             });
             handle.spawn(async move {
                 let s = match r {
-                    Ok(info) => Session::open(id, info, screen, want_px, weak).await,
+                    Ok(info) => {
+                        Session::open(
+                            id,
+                            info,
+                            screen,
+                            want_px,
+                            session::FrameTarget::Workbench(weak),
+                        )
+                        .await
+                    }
                     Err(e) => Err(e),
                 };
                 crate::app::fire(token, s);
@@ -281,7 +309,14 @@ pub fn wire(ctx: &Rc<Ctx>) {
                     hover(&c, None);
                     handle_drop(&c, p);
                 }
-                WindowEvent::Resized(_) => fullscreen::after_resize(&c),
+                WindowEvent::Resized(_) => {
+                    fullscreen::after_resize(&c);
+                    #[cfg(target_os = "macos")]
+                    slint::Timer::single_shot(
+                        Duration::from_millis(100),
+                        crate::macos_dock::align_main_window_controls,
+                    );
+                }
                 _ => {}
             }
             EventResult::Propagate
@@ -316,6 +351,12 @@ pub fn shortcut(ctx: &Rc<Ctx>, s: &str) -> bool {
 fn tool_action(ctx: &Rc<Ctx>, tool: &str) {
     // View state first: these never reach the device.
     match tool {
+        "game-window" => {
+            if let Some((id, ..)) = active_device(ctx) {
+                game::open(ctx, id);
+            }
+            return;
+        }
         "fullscreen" => return fullscreen::toggle(ctx),
         "exit-fullscreen" => return fullscreen::set(ctx, false),
         _ => {}
@@ -612,7 +653,7 @@ pub fn handle_drop(ctx: &Rc<Ctx>, path: &Path) {
     }
 }
 
-fn install_apk(ctx: &Rc<Ctx>, id: Uuid, apk: PathBuf, reinstall: bool) {
+pub(crate) fn install_apk(ctx: &Rc<Ctx>, id: Uuid, apk: PathBuf, reinstall: bool) {
     let w = ctx.app.as_weak();
     let name = file_name(&apk.to_string_lossy());
     toast(&w, format!("Installing {name}…"));
@@ -621,7 +662,7 @@ fn install_apk(ctx: &Rc<Ctx>, id: Uuid, apk: PathBuf, reinstall: bool) {
     let token = crate::app::defer(move |r: jidr_core::JidrResult<()>| {
         let Some(c) = crate::app::ctx() else { return };
         match r {
-            Ok(()) => {}
+            Ok(()) => crate::game_library::refresh(&c),
             Err(e) if !reinstall && drop::is_signature_mismatch(&e.message) => {
                 let c2 = c.clone();
                 let apk3 = apk2.clone();
@@ -633,7 +674,9 @@ fn install_apk(ctx: &Rc<Ctx>, id: Uuid, apk: PathBuf, reinstall: bool) {
                     move || install_apk(&c2, id, apk3.clone(), true),
                 );
             }
-            Err(e) => toast(&c.app.as_weak(), e.message),
+            Err(e) => {
+                crate::app::toast_error(&c.app.as_weak(), drop::install_error_message(&e.message))
+            }
         }
     });
     let w2 = w.clone();

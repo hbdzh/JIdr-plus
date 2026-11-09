@@ -646,7 +646,10 @@ fn sheet_action(ctx: &Rc<Ctx>, action: &str) {
                     .join("\n")
             });
             crate::settings::copy_text(&text);
-            toast(&ctx.app.as_weak(), "Copied the root setup log".into());
+            toast(
+                &ctx.app.as_weak(),
+                crate::i18n::text("Copied the root setup log", "已复制 root 设置日志").into(),
+            );
         }
         "save-snapshot" => {
             ui.set_open(false);
@@ -685,8 +688,16 @@ fn tools_action(ctx: &Rc<Ctx>, action: &str, value: &str) {
                     toast(
                         &w,
                         match r {
-                            Ok(_) if enabled => "Apps now get root without asking".into(),
-                            Ok(_) => "Apps ask before they get root".into(),
+                            Ok(_) if enabled => crate::i18n::text(
+                                "Apps now get root without asking",
+                                "应用现在无需询问即可获取 root 权限",
+                            )
+                            .into(),
+                            Ok(_) => crate::i18n::text(
+                                "Apps ask before they get root",
+                                "应用获取 root 权限前会询问",
+                            )
+                            .into(),
                             Err(e) => e.message,
                         },
                     );

@@ -23,9 +23,20 @@ fn main() -> Res<()> {
     )?;
     let icons = manifest.join("ui/icons");
     println!("cargo:rerun-if-changed={}", icons.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest.join("ui/assets").display()
+    );
     write_if_changed(&manifest.join("ui/icons.slint"), &generate_icons(&icons)?)?;
 
-    let config = slint_build::CompilerConfiguration::new().with_style("fluent".into());
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest.join("translations").display()
+    );
+    let config = slint_build::CompilerConfiguration::new()
+        .with_style("fluent".into())
+        .with_default_translation_context(slint_build::DefaultTranslationContext::None)
+        .with_bundled_translations(manifest.join("translations"));
     slint_build::compile_with_config(manifest.join("ui/app.slint"), config)?;
     Ok(())
 }

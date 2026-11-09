@@ -95,9 +95,28 @@ pub fn camera_of(d: &Device, flag: &str) -> Option<String> {
     d.launch
         .extra_args
         .iter()
-        .position(|a| a == flag)
+        .rposition(|a| a == flag)
         .and_then(|i| d.launch.extra_args.get(i + 1))
         .cloned()
+        .or_else(|| match flag {
+            "-camera-back" => d.launch.camera_back.clone(),
+            "-camera-front" => d.launch.camera_front.clone(),
+            _ => None,
+        })
+}
+
+fn remove_camera_args(args: &mut Vec<String>, flag: &str) {
+    let mut out = Vec::with_capacity(args.len());
+    let mut it = args.drain(..);
+    while let Some(arg) = it.next() {
+        if arg == flag {
+            it.next();
+        } else {
+            out.push(arg);
+        }
+    }
+    drop(it);
+    *args = out;
 }
 
 pub async fn call(ctx: &CallCtx, method: &str, params: Value) -> JidrResult<Value> {
@@ -138,10 +157,12 @@ pub async fn call(ctx: &CallCtx, method: &str, params: Value) -> JidrResult<Valu
                     d.id,
                     Box::new(move |d: &mut Device| {
                         if let Some(b) = back {
-                            set_camera_args(&mut d.launch.extra_args, "-camera-back", b);
+                            remove_camera_args(&mut d.launch.extra_args, "-camera-back");
+                            d.launch.camera_back = Some(b.arg().into());
                         }
                         if let Some(f) = front {
-                            set_camera_args(&mut d.launch.extra_args, "-camera-front", f);
+                            remove_camera_args(&mut d.launch.extra_args, "-camera-front");
+                            d.launch.camera_front = Some(f.arg().into());
                         }
                     }),
                 )
@@ -180,5 +201,20 @@ mod tests {
                 "none"
             ]
         );
+    }
+
+    #[test]
+    fn removing_legacy_camera_arguments_preserves_other_arguments() {
+        let mut args = vec![
+            "-no-audio".into(),
+            "-camera-back".into(),
+            "webcam0".into(),
+            "-camera-front".into(),
+            "emulated".into(),
+            "-camera-back".into(),
+            "none".into(),
+        ];
+        remove_camera_args(&mut args, "-camera-back");
+        assert_eq!(args, ["-no-audio", "-camera-front", "emulated"]);
     }
 }

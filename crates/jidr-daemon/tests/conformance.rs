@@ -9,6 +9,165 @@ use common::Harness;
 use serde_json::json;
 
 #[tokio::test]
+async fn display_changes_preserve_snapshot_and_force_cold_boot() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    c.ok("device.create", json!({"name":"Display", "image":"35"}))
+        .await;
+    let details = c.ok("device.details", json!({"device":"Display"})).await;
+    let avd = std::path::Path::new(details["avd_dir"].as_str().unwrap());
+    let quick = avd.join("snapshots/default_boot");
+    let named = avd.join("snapshots/saved_game");
+    std::fs::create_dir_all(&quick).unwrap();
+    std::fs::create_dir_all(&named).unwrap();
+    std::fs::write(quick.join("ram.bin"), b"quick-state").unwrap();
+    std::fs::write(named.join("ram.bin"), b"game-state").unwrap();
+    c.ok(
+        "device.edit",
+        json!({"device":"Display", "width":720, "height":1280, "density":280}),
+    )
+    .await;
+    let details = c.ok("device.details", json!({"device":"Display"})).await;
+    assert_eq!(details["config"]["hw.lcd.width"], "720");
+    assert_eq!(details["config"]["hw.lcd.height"], "1280");
+    assert_eq!(details["config"]["hw.lcd.density"], "280");
+    let backups: Vec<_> = std::fs::read_dir(avd.join("jidr/display-backups"))
+        .unwrap()
+        .collect();
+    assert_eq!(backups.len(), 1);
+    let backup = backups[0].as_ref().unwrap().path();
+    assert_eq!(
+        std::fs::read(backup.join("default_boot/ram.bin")).unwrap(),
+        b"quick-state"
+    );
+    assert!(backup.join("config.ini").is_file());
+    assert_eq!(std::fs::read(named.join("ram.bin")).unwrap(), b"game-state");
+    c.run("device.start", json!({"device":"Display"})).await;
+    assert!(h.backend.launches().last().unwrap().1.cold_boot);
+    let err = c
+        .err("device.edit", json!({"device":"Display", "density":320}))
+        .await;
+    assert_eq!(err["data"]["code"], "busy");
+    c.ok("device.stop", json!({"device":"Display"})).await;
+    let err = c
+        .err("device.edit", json!({"device":"Display", "density":0}))
+        .await;
+    assert_eq!(err["data"]["code"], "usage");
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn device_quick_boot_override_does_not_change_other_devices() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    c.ok("device.create", json!({"name":"Cold", "image":"35"}))
+        .await;
+    c.ok("device.create", json!({"name":"Default", "image":"35"}))
+        .await;
+    c.ok("device.edit", json!({"device":"Cold", "quick_boot":false}))
+        .await;
+    c.run("device.start", json!({"device":"Cold"})).await;
+    let options = h.backend.launches().last().unwrap().1.clone();
+    assert!(options.cold_boot);
+    assert!(!options.snapshot_save);
+    let error = c
+        .err("device.edit", json!({"device":"Cold", "quick_boot":true}))
+        .await;
+    assert_eq!(error["data"]["code"], "busy");
+    c.ok("device.stop", json!({"device":"Cold"})).await;
+    c.run("device.start", json!({"device":"Default"})).await;
+    let options = h.backend.launches().last().unwrap().1.clone();
+    assert!(!options.cold_boot);
+    assert!(options.snapshot_save);
+    c.ok("device.stop", json!({"device":"Default"})).await;
+    c.ok("device.edit", json!({"device":"Cold", "quick_boot":null}))
+        .await;
+    let d = c.ok("device.details", json!({"device":"Cold"})).await;
+    assert!(d["device"]["launch"].get("quick_boot").is_none());
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn camera_settings_are_validated_and_used_on_next_start() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    c.ok("device.create", json!({"name":"Camera", "image":"35"}))
+        .await;
+    let err = c
+        .err(
+            "device.edit",
+            json!({"device":"Camera", "camera_front":"virtualscene"}),
+        )
+        .await;
+    assert_eq!(err["data"]["code"], "usage");
+    c.ok(
+        "device.edit",
+        json!({"device":"Camera", "camera_back":"webcam0", "camera_front":"none"}),
+    )
+    .await;
+    c.run("device.start", json!({"device":"Camera"})).await;
+    let options = h.backend.launches().last().unwrap().1.clone();
+    assert_eq!(options.camera_back.as_deref(), Some("webcam0"));
+    assert_eq!(options.camera_front.as_deref(), Some("none"));
+    assert!(
+        !options
+            .extra_args
+            .iter()
+            .any(|v| v == "-camera-back" || v == "-camera-front")
+    );
+    c.ok("device.stop", json!({"device":"Camera"})).await;
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn creation_validates_and_persists_data_capacity() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    let error = c
+        .err(
+            "device.create",
+            json!({"name":"Small", "image":"35", "data_mb":1024}),
+        )
+        .await;
+    assert_eq!(error["data"]["code"], "usage");
+    c.ok(
+        "device.create",
+        json!({"name":"Storage", "image":"35", "data_mb":16384}),
+    )
+    .await;
+    let details = c.ok("device.details", json!({"device":"Storage"})).await;
+    assert_eq!(details["config"]["disk.dataPartition.size"], "16384M");
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn device_edit_rejects_data_capacity_changes() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    c.ok(
+        "device.create",
+        json!({"name":"Expand", "image":"35", "data_mb":4096}),
+    )
+    .await;
+    let details = c.ok("device.details", json!({"device":"Expand"})).await;
+    let avd = std::path::Path::new(details["avd_dir"].as_str().unwrap());
+    std::fs::write(avd.join("userdata-qemu.img"), b"game data").unwrap();
+    for size in [2048, 8192] {
+        let err = c
+            .err("device.edit", json!({"device":"Expand", "data_mb":size}))
+            .await;
+        assert_eq!(err["code"], -32602);
+    }
+    let unchanged = c.ok("device.details", json!({"device":"Expand"})).await;
+    assert_eq!(unchanged["config"]["disk.dataPartition.size"], "4096M");
+    assert_eq!(
+        std::fs::read(avd.join("userdata-qemu.img")).unwrap(),
+        b"game data"
+    );
+    h.stop().await;
+}
+
+#[tokio::test]
 async fn bad_json_is_parse_error() {
     let h = Harness::start().await;
     let mut c = h.conn().await;

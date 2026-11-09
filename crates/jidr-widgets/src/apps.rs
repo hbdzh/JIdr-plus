@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 
-use jidr_core::provider::{CallCtx, CommandSpec, parse_params};
+use jidr_core::provider::{CallCtx, CommandSpec, DeviceParams, parse_params};
 use jidr_core::{JidrError, JidrResult};
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -42,6 +42,10 @@ pub struct PackageParams {
 pub fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec::new::<InspectParams>("app.inspect", "Package name of an APK on this machine"),
+        CommandSpec::new::<DeviceParams>(
+            "app.list",
+            "List launchable third-party apps and their icons",
+        ),
         CommandSpec::new::<LaunchParams>(
             "app.launch",
             "Launch an installed app by package (or APK)",
@@ -152,6 +156,7 @@ async fn launch(t: &Target, package: &str) -> JidrResult<bool> {
 
 pub async fn call(ctx: &CallCtx, method: &str, params: Value) -> JidrResult<Value> {
     match method {
+        "app.list" => crate::game_list::list(ctx, parse_params(params)?).await,
         "app.inspect" => {
             let p: InspectParams = parse_params(params)?;
             Ok(json!({ "package": apk::package_name(&p.apk)? }))

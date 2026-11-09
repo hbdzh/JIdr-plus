@@ -150,9 +150,39 @@ pub fn open(ctx: &Rc<Ctx>) {
                     let Some(win) = weak.upgrade() else { return };
                     let home = std::env::var("ANDROID_HOME").ok();
                     let root = std::env::var("ANDROID_SDK_ROOT").ok();
-                    let (rows, found) = detect_rows(&status, home.as_deref(), root.as_deref());
+                    let (mut rows, found) = detect_rows(&status, home.as_deref(), root.as_deref());
+                    for row in &mut rows {
+                        row.state = match row.state.as_str() {
+                            "Not found" => crate::i18n::text("Not found", "未找到").into(),
+                            "Not set" => crate::i18n::text("Not set", "未设置").into(),
+                            "Found · used read-only" => {
+                                crate::i18n::text("Found · used read-only", "已找到 · 只读使用")
+                                    .into()
+                            }
+                            _ => row.state.clone(),
+                        };
+                    }
                     let image = pick_image(&images);
-                    let (plan_rows, total) = plan(!found, image.as_ref());
+                    let (mut plan_rows, total) = plan(!found, image.as_ref());
+                    for row in &mut plan_rows {
+                        if row.label == "Android Emulator and platform tools" {
+                            row.label = crate::i18n::text(
+                                "Android Emulator and platform tools",
+                                "Android 模拟器和平台工具",
+                            )
+                            .into();
+                        }
+                        if row.size == "size shown when it starts" {
+                            row.size =
+                                crate::i18n::text("size shown when it starts", "开始时显示大小")
+                                    .into();
+                        }
+                    }
+                    let total = if total == "emulator only" {
+                        crate::i18n::text("emulator only", "仅模拟器").to_string()
+                    } else {
+                        total.replace(" + emulator", crate::i18n::text(" + emulator", " + 模拟器"))
+                    };
                     win.set_detect(models(rows));
                     win.set_sdk_found(found);
                     win.set_plan(models(plan_rows));

@@ -6,12 +6,51 @@ use crate::{DevState, DeviceVm, PaletteItem, PaletteKind};
 fn item(kind: PaletteKind, title: &str, subtitle: &str, kbd: &str, action: String) -> PaletteItem {
     PaletteItem {
         kind,
-        title: title.into(),
-        subtitle: subtitle.into(),
+        title: palette_text(title).into(),
+        subtitle: palette_text(subtitle).into(),
         kbd: kbd.into(),
         action: action.into(),
         state: DevState::Stopped,
     }
+}
+
+fn palette_text(value: &str) -> String {
+    if crate::i18n::text("en", "zh") == "en" {
+        return value.to_owned();
+    }
+    for (en, zh) in [
+        (
+            "Find or install the emulator and an image",
+            "查找或安装模拟器和镜像",
+        ),
+        ("Create a device from a profile", "根据配置创建设备"),
+        ("Saves a quick-boot snapshot", "保存快速启动快照"),
+        ("Name, RAM, CPU, screen", "名称、内存、CPU、屏幕"),
+        ("SDK, storage, agents, about", "SDK、存储、智能体、关于"),
+        ("Set up Android SDK", "设置 Android SDK"),
+        ("New device", "新建设备"),
+        ("Add Jidr to Claude", "将 Jidr 添加到 Claude"),
+        ("MCP setup", "MCP 设置"),
+        ("Toggle light and dark", "切换浅色和深色"),
+        ("Appearance", "外观"),
+        ("Settings", "设置"),
+        ("Open ", "打开 "),
+        ("Start ", "启动 "),
+        ("Stop ", "停止 "),
+        ("Edit ", "编辑 "),
+        ("Restart ", "重启 "),
+        ("Delete ", "删除 "),
+        ("Stop and start the device", "停止并重新启动设备"),
+        (
+            "Deletes the device, apps and snapshots",
+            "删除设备、应用和快照",
+        ),
+    ] {
+        if value.starts_with(en) {
+            return value.replacen(en, zh, 1);
+        }
+    }
+    value.to_owned()
 }
 
 /// All entries for the current devices.
@@ -69,6 +108,24 @@ pub fn items(devices: &[DeviceVm], sdk_ready: bool) -> Vec<PaletteItem> {
                 "Name, RAM, CPU, screen",
                 "",
                 format!("edit:{}", d.id),
+            ));
+        }
+        if d.state == DevState::Running {
+            v.push(item(
+                PaletteKind::Action,
+                &format!("Restart {}", d.name),
+                "Stop and start the device",
+                "",
+                format!("restart:{}", d.id),
+            ));
+        }
+        if matches!(d.state, DevState::Stopped | DevState::Crashed) {
+            v.push(item(
+                PaletteKind::Action,
+                &format!("Delete {}", d.name),
+                "Deletes the device, apps and snapshots",
+                "",
+                format!("delete:{}", d.id),
             ));
         }
     }
@@ -142,6 +199,18 @@ mod tests {
         );
         assert!(all.iter().any(|i| i.title == "Stop Pixel-ish 6.1"));
         assert!(all.iter().any(|i| i.title == "Start Tablet 11"));
+        assert!(
+            all.iter()
+                .any(|i| i.action == format!("restart:{}", devices[0].id).as_str())
+        );
+        assert!(
+            !all.iter()
+                .any(|i| i.action == format!("delete:{}", devices[0].id).as_str())
+        );
+        assert!(
+            all.iter()
+                .any(|i| i.action == format!("delete:{}", devices[1].id).as_str())
+        );
         let f = filter(&all, "tablet");
         assert!(f.iter().all(|i| i.title.to_lowercase().contains("tablet")
             || i.subtitle.to_lowercase().contains("tablet")));

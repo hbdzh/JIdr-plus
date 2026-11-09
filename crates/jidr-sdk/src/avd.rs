@@ -571,8 +571,14 @@ pub fn check_snapshot(avd_dir: &Path, name: &str) -> JidrResult<()> {
         return Err(JidrError::usage(format!("not a snapshot: {name:?}")));
     }
     let dir = avd_dir.join("snapshots").join(name);
-    if !dir.join("snapshot.pb").is_file() {
+    let metadata = dir.join("snapshot.pb");
+    if !metadata.is_file() {
         return Err(JidrError::not_found(format!("no snapshot {name:?}")));
+    }
+    if std::fs::metadata(metadata).map(|m| m.len()).unwrap_or(0) == 0 {
+        return Err(JidrError::sdk(format!(
+            "snapshot {name:?} has empty metadata; save it again while the device runs"
+        )));
     }
     let ram = std::fs::metadata(dir.join("ram.bin"))
         .map(|m| m.len())
@@ -677,14 +683,17 @@ pub fn rewrite_avd_refs(text: &str, src: &str, dst: &str) -> String {
 
 /// The emulator holds `hardware-qemu.ini.lock` (containing its pid) while
 /// running. The file stays behind after exit, so the pid must be alive.
-fn is_locked(dir: &Path) -> bool {
-    let Ok(bytes) = std::fs::read(dir.join("hardware-qemu.ini.lock")) else {
-        return false;
+pub(crate) fn is_locked(dir: &Path) -> bool {
+    let bytes = match std::fs::read(dir.join("hardware-qemu.ini.lock")) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
+        // An unreadable lock is not proof that the device is stopped.
+        Err(_) => return true,
     };
     match lock_pid(&bytes) {
         Some(pid) => process_alive(pid),
-        // An empty or garbled lock can't name a live process.
-        None => false,
+        // Do not assume an empty or garbled lock belongs to a dead process.
+        None => true,
     }
 }
 
@@ -697,16 +706,19 @@ fn lock_pid(bytes: &[u8]) -> Option<u32> {
         .take_while(|b| b.is_ascii_digit())
         .map(|b| *b as char)
         .collect();
-    digits.parse().ok()
+    digits.parse::<u32>().ok().filter(|pid| *pid != 0)
 }
 
 pub fn process_alive(pid: u32) -> bool {
     std::process::Command::new("kill")
         .args(["-0", &pid.to_string()])
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .env("LC_ALL", "C")
+        .output()
+        .map(|out| {
+            out.status.success()
+                || !String::from_utf8_lossy(&out.stderr).contains("No such process")
+        })
+        .unwrap_or(true)
 }
 
 fn copy_tree(from: &Path, to: &Path, skip: &[&str]) -> JidrResult<()> {
@@ -1097,6 +1109,9 @@ other.src.avd.like = /h/avd/src.avd.bak/x
         own.extend([0, 0, 0]);
         std::fs::write(&lock, own).unwrap();
         assert!(m.is_running("pad"), "live pid");
+        std::fs::write(&lock, b"\0\0").unwrap();
+        assert!(m.is_running("pad"), "ambiguous lock fails closed");
+        assert_eq!(m.factory_reset("pad").unwrap_err().code, ErrorCode::Busy);
     }
 
     #[test]

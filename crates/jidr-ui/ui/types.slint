@@ -9,6 +9,8 @@ export enum RootKind { none, shell, full, setting-up, verified, unverified, fail
 
 export enum FormFactor { phone, small-phone, tablet }
 
+export struct KeyMarker { label: string, x: float, y: float }
+
 export enum JobTone { queued, running, done, failed, cancelled }
 
 export struct DeviceVm {
@@ -50,6 +52,8 @@ export struct DeviceVm {
     height-px: int,
     play-store: bool,
 }
+
+export struct GameVm { name: string, package: string, icon: image, has-icon: bool }
 
 export struct JobVm {
     id: string,
@@ -110,6 +114,7 @@ export struct OptionVm {
 /// The create/edit form; Rust validates and turns it into `device.create` / `device.edit`.
 export struct DeviceForm {
     edit: bool,
+    saving: bool,
     name: string,
     profile: int,
     image: int,
@@ -117,7 +122,21 @@ export struct DeviceForm {
     ram-gb: string,
     cpus: string,
     screen: string,
+    resolution-preset: int,
+    custom-width: string,
+    custom-height: string,
     density: string,
+    data-gb: string,
+    audio: bool,
+    quick-boot-mode: int,
+    hibernate-global: bool,
+    hibernate-minutes: string,
+    can-cold-start: bool,
+    camera-back: int,
+    camera-front: int,
+    data-path: string,
+    disk-usage: string,
+    stream-quality: int,
     start-after: bool,
     error: string,
     // Editing: the device's image is a Play Store one (no adb root).

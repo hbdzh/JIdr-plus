@@ -23,12 +23,14 @@ impl State {
             .instance(id)
             .ok_or_else(|| JidrError::not_found(format!("{} is not running", d.name)))?;
         let avd_dir = self.avds().dir(&d.avd);
+        // Never overwrite unreadable snapshot metadata with an empty map.
+        let tags = read_snapshot_tags(&avd_dir)?;
         self.backend
             .save_snapshot(&info, SNAPSHOT, &avd_dir)
             .await?;
         jidr_sdk::avd::check_snapshot(&avd_dir, SNAPSHOT)
             .map_err(|e| JidrError::sdk(format!("hibernating {}: {}", d.name, e.message)))?;
-        tag_snapshot(&avd_dir, &d)?;
+        tag_snapshot(&avd_dir, &d, tags)?;
 
         if let Some(w) = lock(&self.watchers).remove(&id) {
             w.abort();
@@ -52,12 +54,29 @@ impl State {
 
 /// Records the device's root mode on the snapshot, in the snapshot
 /// manager's `jidr/snapshots.json`, so the root tag travels with it (D29).
-fn tag_snapshot(avd_dir: &std::path::Path, d: &Device) -> JidrResult<()> {
+fn read_snapshot_tags(avd_dir: &std::path::Path) -> JidrResult<serde_json::Map<String, Value>> {
     let path = avd_dir.join("jidr").join("snapshots.json");
-    let mut tags: serde_json::Map<String, Value> = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
+    match std::fs::read(&path) {
+        Ok(data) => serde_json::from_slice(&data).map_err(|e| {
+            JidrError::sdk(format!(
+                "invalid snapshot metadata at {}: {e}",
+                path.display()
+            ))
+        }),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Default::default()),
+        Err(e) => Err(JidrError::sdk(format!(
+            "cannot read snapshot metadata at {}: {e}",
+            path.display()
+        ))),
+    }
+}
+
+fn tag_snapshot(
+    avd_dir: &std::path::Path,
+    d: &Device,
+    mut tags: serde_json::Map<String, Value>,
+) -> JidrResult<()> {
+    let path = avd_dir.join("jidr").join("snapshots.json");
     let mut tag = json!({
         "label": "Hibernated",
         "root_mode": d.root.mode,
@@ -73,6 +92,36 @@ fn tag_snapshot(avd_dir: &std::path::Path, d: &Device) -> JidrResult<()> {
         std::fs::create_dir_all(dir)
             .map_err(|e| JidrError::unexpected(format!("{}: {e}", dir.display())))?;
     }
-    std::fs::write(&path, text)
-        .map_err(|e| JidrError::unexpected(format!("{}: {e}", path.display())))
+    use std::io::Write as _;
+    let tmp = path.with_file_name(format!(".snapshots-{}.tmp", Uuid::new_v4()));
+    let result = (|| -> std::io::Result<()> {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)?;
+        file.write_all(text.as_bytes())?;
+        file.sync_all()?;
+        std::fs::rename(&tmp, &path)?;
+        if let Some(dir) = path.parent() {
+            std::fs::File::open(dir)?.sync_all()?;
+        }
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result.map_err(|e| JidrError::unexpected(format!("{}: {e}", path.display())))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn malformed_snapshot_metadata_is_not_replaced() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("jidr/snapshots.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"not json").unwrap();
+        assert!(super::read_snapshot_tags(root.path()).is_err());
+        assert_eq!(std::fs::read(path).unwrap(), b"not json");
+    }
 }

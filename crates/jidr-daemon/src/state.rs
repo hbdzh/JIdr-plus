@@ -54,6 +54,9 @@ impl DaemonConfig {
 
 pub struct State {
     pub(crate) paths: JidrPaths,
+    /// Held while this state or any request using it is alive. Older daemon
+    /// versions do not honor this cooperative lease.
+    pub(crate) storage_lease: OnceLock<jidr_core::storage_lease::StorageLease>,
     studio_sdk: Option<PathBuf>,
     pub(crate) sdk_repo: Option<String>,
     pub(crate) backend: Arc<dyn Backend>,
@@ -62,7 +65,9 @@ pub struct State {
     pub(crate) instances: Mutex<HashMap<Uuid, InstanceInfo>>,
     pub(crate) watchers: Mutex<HashMap<Uuid, JoinHandle<()>>>,
     pub(crate) locks: DeviceLocks,
-    providers: OnceLock<Vec<Arc<dyn CommandProvider>>>,
+    // The registry owns providers. Weak references prevent a cycle through
+    // providers that themselves own the daemon state.
+    providers: OnceLock<Vec<Weak<dyn CommandProvider>>>,
     events: broadcast::Sender<Event>,
     me: Weak<State>,
     pub(crate) started_at: std::time::Instant,
@@ -124,6 +129,66 @@ fn save_settings(path: &std::path::Path, s: &Settings) -> JidrResult<()> {
 }
 
 impl State {
+    /// Preserve the old automatic snapshot before an explicit cold boot.
+    pub(crate) fn backup_quick_boot(&self, device: &Device) -> JidrResult<()> {
+        let avd = self.paths.avd_home().join(format!("{}.avd", device.avd));
+        let quick = avd.join("snapshots/default_boot");
+        if !quick.exists() {
+            return Ok(());
+        }
+        let backup = avd
+            .join("jidr/display-backups")
+            .join(Uuid::new_v4().to_string());
+        std::fs::create_dir_all(&backup)
+            .map_err(|e| JidrError::sdk(format!("cannot create snapshot backup: {e}")))?;
+        jidr_sdk::cow_copy(&quick, &backup.join("default_boot"))?;
+        std::fs::copy(avd.join("config.ini"), backup.join("config.ini"))
+            .map_err(|e| JidrError::sdk(format!("cannot back up device configuration: {e}")))?;
+        Ok(())
+    }
+    /// Quit only after a confirmed guest flush and graceful emulator exit.
+    /// On failure keep the instance owned so it can be inspected or retried.
+    pub(crate) async fn stop_for_quit(&self, id: Uuid) -> JidrResult<()> {
+        let device = self.with_store(|store| store.get(id).cloned())?;
+        let info = self.instance(id).ok_or_else(|| {
+            JidrError::unexpected(format!("{} has no running instance", device.name))
+        })?;
+        Adb::new(self.adb_path()?)
+            .device(info.adb_serial.clone())
+            .with_timeout(STOP_SYNC_TIMEOUT)
+            .sync()
+            .await?;
+        let resumed = lock(&self.resumed).contains(&id);
+        let verify_quick_boot = device
+            .launch
+            .quick_boot
+            .unwrap_or(self.settings().quick_boot)
+            && device.pool_base.is_none();
+        if resumed && verify_quick_boot {
+            let avd = self.avds().dir(&device.avd);
+            self.backend
+                .save_quick_boot(&info, &avd, &self.adb_path()?)
+                .await?;
+            jidr_sdk::avd::check_snapshot(&avd, "default_boot")?;
+        }
+        if let Some(watcher) = lock(&self.watchers).remove(&id) {
+            watcher.abort();
+        }
+        lock(&self.instances).remove(&id);
+        self.set_status(id, DeviceStatus::Stopping, None);
+        if let Err(error) = self.backend.stop_for_quit(&info).await {
+            lock(&self.instances).insert(id, info.clone());
+            self.set_status(id, DeviceStatus::Running, Some(Some(info.runtime())));
+            self.watch_crash(id, info);
+            return Err(error);
+        }
+        lock(&self.resumed).remove(&id);
+        self.finish_footprint(id);
+        lock(&self.activity).remove(&id);
+        self.set_status(id, DeviceStatus::Stopped, Some(None));
+        Ok(())
+    }
+
     pub fn new(
         config: DaemonConfig,
         backend: Arc<dyn Backend>,
@@ -134,6 +199,7 @@ impl State {
         let (events, _) = broadcast::channel(1024);
         Ok(Arc::new_cyclic(|me| Self {
             paths: config.paths,
+            storage_lease: OnceLock::new(),
             studio_sdk: config.studio_sdk,
             sdk_repo: config.sdk_repo,
             backend,
@@ -302,7 +368,9 @@ impl State {
     }
 
     pub(crate) fn set_providers(&self, providers: Vec<Arc<dyn CommandProvider>>) {
-        let _ = self.providers.set(providers);
+        let _ = self
+            .providers
+            .set(providers.iter().map(Arc::downgrade).collect());
     }
 
     fn arc(&self) -> JidrResult<Arc<State>> {
@@ -314,10 +382,10 @@ impl State {
     pub fn sdks(&self) -> SdkSet {
         SdkSet {
             private: Sdk::private(&self.paths),
-            studio: match &self.studio_sdk {
-                Some(p) => Some(Sdk::read_only(p)),
-                None => Sdk::studio(),
-            },
+            studio: SdkSet::configured_or(
+                &self.paths,
+                self.studio_sdk.as_ref().map(Sdk::read_only),
+            ),
         }
     }
 
@@ -436,7 +504,7 @@ impl State {
         let Ok(me) = self.arc() else { return };
         let providers = self.providers.get().cloned().unwrap_or_default();
         let ctx = CallCtx::new(me);
-        for p in providers {
+        for p in providers.into_iter().filter_map(|p| p.upgrade()) {
             if let Err(e) = p.on_booted(&ctx, device).await {
                 tracing::warn!(provider = p.name(), device = %device.name, "boot hook failed: {e}");
                 self.emit(
@@ -515,6 +583,20 @@ impl DaemonContext for State {
             }
             lock(&self.instances).remove(&id);
         }
+        if cold_boot {
+            if matches!(device.status, DeviceStatus::Hibernated)
+                || device.launch.resume_snapshot.is_some()
+            {
+                return Err(JidrError::busy(
+                    "resume and stop the saved session before cold booting",
+                ));
+            }
+            let state = self.arc()?;
+            let backup_device = device.clone();
+            tokio::task::spawn_blocking(move || state.backup_quick_boot(&backup_device))
+                .await
+                .map_err(|e| JidrError::unexpected(format!("snapshot backup failed: {e}")))??;
+        }
         let (spec, _) = self.launch_spec(&device)?;
         for cam in [&device.launch.camera_back, &device.launch.camera_front]
             .into_iter()
@@ -538,12 +620,22 @@ impl DaemonContext for State {
             extra_args: device.launch.extra_args.clone(),
             gpu: device.launch.gpu.clone(),
             audio: device.launch.audio.unwrap_or(true),
-            cold_boot: cold_boot || device.launch.force_cold_boot,
+            cold_boot: cold_boot
+                || device.launch.force_cold_boot
+                || (!device
+                    .launch
+                    .quick_boot
+                    .unwrap_or(self.settings().quick_boot)
+                    && resume.is_none()),
             snapshot: resume.clone(),
             // D29 / gap B4: save a quick-boot snapshot on stop unless off. A
             // resumed run doesn't: the exit save would go into the named
             // snapshot, not `default_boot`.
-            snapshot_save: self.settings().quick_boot && resume.is_none(),
+            snapshot_save: device
+                .launch
+                .quick_boot
+                .unwrap_or(self.settings().quick_boot)
+                && resume.is_none(),
             // #25: only adb-root devices boot a writable system image.
             writable_system: device.root.writable_system && device.root.mode == RootMode::Adb,
             ..LaunchOptions::default()
@@ -598,29 +690,38 @@ impl DaemonContext for State {
             // Already stopped, with its state saved for the next start.
             return Ok(current);
         }
-        if let Some(w) = lock(&self.watchers).remove(&id) {
-            w.abort();
-        }
-        let info = lock(&self.instances).remove(&id);
+        let info = self.instance(id);
         if let Some(info) = info {
-            self.set_status(id, DeviceStatus::Stopping, None);
             self.flush_guest_storage(&current.name, &info).await;
-            let resumed = lock(&self.resumed).remove(&id);
-            if resumed && self.settings().quick_boot && current.pool_base.is_none() {
-                // This run started from a named snapshot with no exit save:
-                // save the quick-boot state explicitly (best effort).
+            let resumed = lock(&self.resumed).contains(&id);
+            if resumed
+                && current
+                    .launch
+                    .quick_boot
+                    .unwrap_or(self.settings().quick_boot)
+                && current.pool_base.is_none()
+            {
+                // A resumed run has no exit save. Do not stop the device if
+                // the replacement state could not be saved and verified.
                 let dir = self.avds().dir(&current.avd);
-                if let Err(e) = self
-                    .backend
-                    .save_snapshot(&info, "default_boot", &dir)
-                    .await
-                {
-                    tracing::warn!(device = %current.name, "quick-boot save after a resume failed: {e}");
-                }
+                self.backend
+                    .save_quick_boot(&info, &dir, &self.adb_path()?)
+                    .await?;
+                jidr_sdk::avd::check_snapshot(&dir, "default_boot")?;
             }
+            if let Some(w) = lock(&self.watchers).remove(&id) {
+                w.abort();
+            }
+            lock(&self.instances).remove(&id);
+            lock(&self.resumed).remove(&id);
+            self.set_status(id, DeviceStatus::Stopping, None);
             if let Err(e) = self.backend.stop(&info).await {
                 // Put it back: we don't know its state.
                 lock(&self.instances).insert(id, info.clone());
+                if resumed {
+                    lock(&self.resumed).insert(id);
+                }
+                self.set_status(id, DeviceStatus::Running, Some(Some(info.runtime())));
                 self.watch_crash(id, info);
                 return Err(e);
             }

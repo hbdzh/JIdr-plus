@@ -2,7 +2,7 @@
 
 import { Theme } from "theme.slint";
 import { Icons } from "icons.slint";
-import { T, Role, Tone, Icon, Button, ButtonKind, Pill, Tag, TextField, Toggle, Segmented, TrafficLights, Hint, Panel } from "components/base.slint";
+import { T, Role, Tone, Icon, Button, ButtonKind, Pill, Tag, TextField, Toggle, Segmented, TrafficLights, Hint, Panel, Scroll } from "components/base.slint";
 import { Select } from "forms.slint";
 import { RootModeSelector } from "../src/root/root.slint";
 import { RootChoice, UsageRow, OptionVm } from "types.slint";
@@ -177,9 +177,16 @@ export component SettingsWindow inherits Window {
     in-out property <int> tile-choice: 0;
     in-out property <string> tile-url;
     in-out property <int> appearance: 0;
+    in-out property <int> language: 1;
     in-out property <bool> quick-boot: true;
     // Storage
+    in property <string> data-path;
+    in property <string> migration-target;
+    in property <string> migration-status;
+    in property <bool> migration-checking;
     in property <string> sdk-path;
+    in property <string> jdk-path;
+    in property <string> tool-status;
     in property <string> sdk-state: @tr("Ready");
     in property <bool> sdk-ready: true;
     in property <string> sdk-note;
@@ -201,8 +208,15 @@ export component SettingsWindow inherits Window {
     callback default-root-changed(RootChoice);
     callback tiles-changed(int, string);
     callback appearance-changed(int);
+    callback language-changed(int);
     callback quick-boot-changed(bool);
     callback change-sdk();
+    callback show-data();
+    callback choose-migration-target();
+    callback check-migration();
+    callback change-jdk();
+    callback reset-sdk();
+    callback reset-jdk();
     callback show-sdk();
     callback clear-cache();
     callback add-to-claude();
@@ -213,7 +227,8 @@ export component SettingsWindow inherits Window {
     callback check-updates();
     callback update-action();
 
-    title: @tr("Settings");
+    out property <string> localized-title: @tr("Settings");
+    title: root.localized-title;
     width: 820px;
     height: 640px;
     background: Theme.surface-base;
@@ -314,6 +329,17 @@ export component SettingsWindow inherits Window {
         }
         Rectangle { height: 1px; background: Theme.border-subtle; }
         Row {
+            label: @tr("Language");
+            Segmented {
+                x: Theme.rtl ? parent.cw - self.width : 0px;
+                width: 220px;
+                items: ["English", "简体中文"];
+                selected: root.language;
+                stretch: true;
+                changed(i) => { root.language-changed(i); }
+            }
+        }
+        Row {
             label: @tr("Appearance");
             Segmented {
                 x: Theme.rtl ? parent.cw - self.width : 0px;
@@ -351,11 +377,31 @@ export component SettingsWindow inherits Window {
     }
 
     // Storage.
-    if root.tab == 1: VerticalLayout {
+    if root.tab == 1: Scroll {
         x: bx;
         y: by;
         width: bw;
+        height: root.height - by - 16px;
+        content-height: 452px + max(35px, root.device-usage.length * 35px) + max(35px, root.image-usage.length * 35px);
+      VerticalLayout {
+        width: parent.width;
+        height: parent.content-height;
         spacing: 14px;
+        alignment: start;
+        Row {
+            label: @tr("Device data location");
+            row-height: 42px;
+            TextField { x: Theme.rtl ? 94px : 0px; y: 0px; width: parent.cw - 94px; text: root.data-path; mono: true; enabled: false; }
+            Button { x: Theme.rtl ? 0px : parent.cw - self.width; y: 0px; text: @tr("Show"); clicked => { root.show-data(); } }
+        }
+        Row {
+            label: @tr("Migration destination");
+            row-height: 68px;
+            TextField { x: Theme.rtl ? 94px : 0px; y: 0px; width: parent.cw - 94px; text: root.migration-target == "" ? @tr("Not selected") : root.migration-target; mono: true; enabled: false; }
+            Button { x: Theme.rtl ? 0px : parent.cw - self.width; y: 0px; text: @tr("Choose…"); clicked => { root.choose-migration-target(); } }
+            Hint { x: Theme.rtl ? 90px : 0px; y: 42px; width: parent.cw - 90px; height: 24px; text: root.migration-status == "" ? @tr("Only saves the destination. Data migration is not yet available.") : root.migration-status; }
+            Button { x: Theme.rtl ? 0px : parent.cw - self.width; y: 40px; small: true; text: @tr("Check"); enabled: !root.migration-checking; clicked => { root.check-migration(); } }
+        }
         Row {
             label: @tr("Android SDK");
             row-height: 68px;
@@ -396,6 +442,22 @@ export component SettingsWindow inherits Window {
                 text: @tr("Show in Finder");
                 clicked => { root.show-sdk(); }
             }
+            Button {
+                x: Theme.rtl ? 118px : parent.cw - self.width - 118px;
+                y: 40px;
+                small: true;
+                kind: ButtonKind.tertiary;
+                text: @tr("Automatic");
+                clicked => { root.reset-sdk(); }
+            }
+        }
+        Row {
+            label: @tr("JDK location");
+            row-height: 68px;
+            TextField { x: Theme.rtl ? 94px : 0px; y: 0px; width: parent.cw - 94px; text: root.jdk-path; mono: true; enabled: false; }
+            Button { x: Theme.rtl ? 0px : parent.cw - self.width; y: 0px; text: @tr("Change…"); clicked => { root.change-jdk(); } }
+            Hint { x: Theme.rtl ? 110px : 0px; y: 42px; width: parent.cw - 110px; height: 24px; text: @tr("Jidr currently does not require a JDK; this path is saved for tools that do."); }
+            Button { x: Theme.rtl ? 0px : parent.cw - self.width; y: 40px; small: true; kind: ButtonKind.tertiary; text: @tr("Automatic"); clicked => { root.reset-jdk(); } }
         }
         Row {
             label: @tr("Devices");
@@ -428,6 +490,8 @@ export component SettingsWindow inherits Window {
                 clicked => { root.clear-cache(); }
             }
         }
+        if root.tool-status != "": T { text: root.tool-status; height: 38px; wrap: word-wrap; color: Theme.text-secondary; }
+      }
     }
 
     // Agents.

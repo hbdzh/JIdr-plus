@@ -307,7 +307,12 @@ impl AospBackend {
 
     async fn wait_exit(&self, instance: &InstanceInfo, within: Duration) -> bool {
         if let Some(mut rx) = self.exit_watch(instance.pid) {
-            return timeout(within, rx.wait_for(Option::is_some)).await.is_ok();
+            match timeout(within, rx.wait_for(Option::is_some)).await {
+                Ok(Ok(_)) => return true,
+                Err(_) => return false,
+                // A closed watch is not evidence the process exited.
+                Ok(Err(_)) => {}
+            }
         }
         let deadline = Instant::now() + within;
         while Instant::now() < deadline {
@@ -388,11 +393,38 @@ impl Backend for AospBackend {
                 "emulator did not shut down; killing"
             );
             kill(instance.pid).await;
-            self.wait_exit(instance, Duration::from_secs(10)).await;
+            if !self.wait_exit(instance, Duration::from_secs(10)).await {
+                return Err(JidrError::unexpected(format!(
+                    "emulator process {} did not exit after shutdown",
+                    instance.pid
+                )));
+            }
         }
         if !instance.ports().auto_discovered() {
             // The adb binary isn't known here; the daemon disconnects TCP serials.
             tracing::debug!(serial = %instance.adb_serial, "tcp adb serial left for the daemon to disconnect");
+        }
+        self.exits
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&instance.pid);
+        self.ports.release(instance.ports());
+        Ok(())
+    }
+
+    async fn stop_for_quit(&self, instance: &InstanceInfo) -> JidrResult<()> {
+        let (mut controller, _) = grpc::connect(instance).await?;
+        controller
+            .set_vm_state(VmRunState {
+                state: RunState::Shutdown as i32,
+            })
+            .await
+            .map_err(|e| grpc::status_error("Shutdown", e))?;
+        if !self.wait_exit(instance, SHUTDOWN_TIMEOUT).await {
+            return Err(JidrError::unexpected(format!(
+                "emulator process {} did not exit gracefully",
+                instance.pid
+            )));
         }
         self.exits
             .lock()
@@ -441,6 +473,29 @@ impl Backend for AospBackend {
         Ok(())
     }
 
+    async fn save_quick_boot(
+        &self,
+        instance: &InstanceInfo,
+        _avd_dir: &Path,
+        adb_path: &Path,
+    ) -> JidrResult<()> {
+        // SnapshotService may report success for the reserved default_boot
+        // name without writing its memory image. The emulator console waits
+        // for this special snapshot to finish and returns an explicit OK.
+        let out = jidr_adb::Adb::new(adb_path)
+            .device(&instance.adb_serial)
+            .run(&["emu", "avd", "snapshot", "save", "default_boot"])
+            .await?;
+        if !out.stdout.lines().any(|line| line.trim() == "OK") || out.stdout.contains("KO:") {
+            return Err(JidrError::sdk(format!(
+                "saving quick-boot snapshot failed: {} {}",
+                out.stdout.trim(),
+                out.stderr.trim()
+            )));
+        }
+        Ok(())
+    }
+
     async fn stop_without_save(&self, instance: &InstanceInfo) -> JidrResult<()> {
         if let Ok((mut c, _)) = grpc::connect(instance).await {
             let _ = c
@@ -452,7 +507,12 @@ impl Backend for AospBackend {
         // The launcher's QEMU child first: killing only the launcher would
         // orphan it.
         kill_tree(instance.pid).await;
-        self.wait_exit(instance, Duration::from_secs(10)).await;
+        if !self.wait_exit(instance, Duration::from_secs(10)).await {
+            return Err(JidrError::unexpected(format!(
+                "emulator process {} did not exit after shutdown",
+                instance.pid
+            )));
+        }
         self.exits
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -469,13 +529,7 @@ impl Backend for AospBackend {
             .output()
             .await;
         let me = std::process::id();
-        out.map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .filter_map(|l| l.strip_prefix('p')?.parse::<u32>().ok())
-                .any(|p| p != me && !own.contains(&p))
-        })
-        .unwrap_or(false)
+        clients_from_lsof(out.ok().as_ref(), me, &own)
     }
 
     async fn footprint_mb(&self, instance: &InstanceInfo) -> Option<u64> {
@@ -487,14 +541,31 @@ impl Backend for AospBackend {
     }
 }
 
+fn clients_from_lsof(output: Option<&std::process::Output>, me: u32, own: &[u32]) -> bool {
+    let Some(o) = output else { return true };
+    // lsof returns 1 with no diagnostics when there are no matches. Any
+    // other failure keeps the device awake because absence is unproven.
+    if !o.status.success() && (o.status.code() != Some(1) || !o.stderr.is_empty()) {
+        return true;
+    }
+    String::from_utf8_lossy(&o.stdout)
+        .lines()
+        .filter_map(|line| line.strip_prefix('p')?.parse::<u32>().ok())
+        .any(|pid| pid != me && !own.contains(&pid))
+}
+
 pub async fn process_alive(pid: u32) -> bool {
     Command::new("kill")
         .args(["-0", &pid.to_string()])
-        .stderr(Stdio::null())
-        .status()
+        .env("LC_ALL", "C")
+        .output()
         .await
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .map(|output| {
+            output.status.success()
+                || !String::from_utf8_lossy(&output.stderr).contains("No such process")
+        })
+        // Probe failure must not be treated as proof that a writer exited.
+        .unwrap_or(true)
 }
 
 /// SIGKILL to `pid`'s children, then `pid`.
@@ -528,7 +599,70 @@ pub fn log_tail(path: &Path, n: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn failed_client_detection_keeps_the_device_awake() {
+        use std::os::unix::process::ExitStatusExt;
+        let output = |code, stdout: &[u8], stderr: &[u8]| std::process::Output {
+            status: std::process::ExitStatus::from_raw(code << 8),
+            stdout: stdout.to_vec(),
+            stderr: stderr.to_vec(),
+        };
+        assert!(clients_from_lsof(None, 10, &[20]));
+        assert!(clients_from_lsof(
+            Some(&output(1, b"", b"permission denied")),
+            10,
+            &[20]
+        ));
+        assert!(!clients_from_lsof(Some(&output(1, b"", b"")), 10, &[20]));
+        assert!(!clients_from_lsof(
+            Some(&output(0, b"p10\np20\n", b"")),
+            10,
+            &[20]
+        ));
+        assert!(clients_from_lsof(
+            Some(&output(0, b"p20\np30\n", b"")),
+            10,
+            &[20]
+        ));
+    }
     use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn closed_exit_watch_does_not_mark_a_live_process_stopped() {
+        let backend = AospBackend::new();
+        let pid = std::process::id();
+        let (sender, receiver) = watch::channel(None::<Option<i32>>);
+        drop(sender);
+        backend.exits.lock().unwrap().insert(pid, receiver);
+        let instance = InstanceInfo {
+            avd: "test".into(),
+            pid,
+            console_port: 5554,
+            adb_port: 5555,
+            grpc_port: 8554,
+            adb_serial: "emulator-5554".into(),
+            grpc_token: "test".into(),
+            started_at: Utc::now(),
+            log_path: None,
+        };
+        assert!(
+            !backend
+                .wait_exit(&instance, Duration::from_millis(40))
+                .await
+        );
+    }
+
+    #[tokio::test]
+    async fn process_probe_distinguishes_a_live_and_exited_child() {
+        let mut child = Command::new("sleep").arg("30").spawn().unwrap();
+        let pid = child.id().unwrap();
+        assert!(process_alive(pid).await);
+        child.kill().await.unwrap();
+        child.wait().await.unwrap();
+        assert!(!process_alive(pid).await);
+    }
 
     fn spec() -> LaunchSpec {
         LaunchSpec {

@@ -46,11 +46,18 @@ thread_local! {
     static ACTIVE: RefCell<Active> = RefCell::default();
 }
 
+pub fn is_recording(device: Uuid) -> bool {
+    ACTIVE.with(|active| active.borrow().is_recording(device))
+}
+
 /// Shows the recording state of `active` (the active tab's device).
 pub fn show(ctx: &Ctx, active: Option<Uuid>) {
     let (on, text) = ACTIVE.with(|a| a.borrow().view(active));
     ctx.app.set_player_recording(on);
     ctx.app.set_player_record_text(text.into());
+    let selected = ctx.device_id(ctx.app.get_selected());
+    ctx.app
+        .set_center_recording(selected.is_some_and(is_recording));
 }
 
 /// Updates one device's state from any thread and refreshes the toolbar.
@@ -112,7 +119,15 @@ pub fn screenshot(ctx: &Rc<Ctx>, device: Uuid) {
             Ok(v) => {
                 let path = path_of(&v);
                 copy_image(&path);
-                toast(&w, format!("Saved {} and copied it", file_name(&path)));
+                toast(
+                    &w,
+                    format!(
+                        "{} {} {}",
+                        crate::i18n::text("Saved", "已保存"),
+                        file_name(&path),
+                        crate::i18n::text("and copied it", "并复制到剪贴板"),
+                    ),
+                );
             }
             Err(e) => toast(&w, e.message),
         },
@@ -133,7 +148,7 @@ pub fn toggle(ctx: &Rc<Ctx>, device: Uuid) {
         return;
     }
     ACTIVE.with(|a| a.borrow_mut().set(device, Some("Recording 0:00".into())));
-    show(ctx, Some(device));
+    show(ctx, crate::player::active_id(ctx));
     ctx.bridge.run(
         "media.record",
         json!({ "device": device }),
@@ -146,7 +161,8 @@ pub fn toggle(ctx: &Rc<Ctx>, device: Uuid) {
                     toast(
                         &w,
                         format!(
-                            "Saved {} ({})",
+                            "{} {} ({})",
+                            crate::i18n::text("Saved", "已保存"),
                             file_name(&path_of(&v)),
                             crate::model::duration(secs.round() as i64)
                         ),

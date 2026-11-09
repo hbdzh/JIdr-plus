@@ -186,6 +186,9 @@ pub trait Backend: Send + Sync + std::fmt::Debug {
     /// it was launched with `snapshot_save`), killing it if it hangs.
     async fn stop(&self, instance: &InstanceInfo) -> JidrResult<()>;
 
+    /// Quit path: request a graceful shutdown but never force-kill on timeout.
+    async fn stop_for_quit(&self, instance: &InstanceInfo) -> JidrResult<()>;
+
     /// True if the instance's process is still running.
     async fn is_alive(&self, instance: &InstanceInfo) -> bool;
 
@@ -203,6 +206,16 @@ pub trait Backend: Send + Sync + std::fmt::Debug {
         name: &str,
         avd_dir: &Path,
     ) -> JidrResult<()>;
+
+    /// Save the automatic snapshot of a resumed device.
+    async fn save_quick_boot(
+        &self,
+        instance: &InstanceInfo,
+        avd_dir: &Path,
+        _adb_path: &Path,
+    ) -> JidrResult<()> {
+        self.save_snapshot(instance, "default_boot", avd_dir).await
+    }
 
     /// Ends the instance without the quick-boot save on exit (hibernate: the
     /// state was just saved under a name). Pauses the VM first, so no guest

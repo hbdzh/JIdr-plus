@@ -42,6 +42,8 @@ pub fn apply<C: ComponentHandle>(c: &C, v: Variant)
 where
     for<'a> Theme<'a>: slint::Global<'a, C>,
 {
+    // Golden files use English regardless of the host's locale.
+    let _ = slint::select_bundled_translation("en");
     let theme = c.global::<Theme>();
     theme.set_dark(v != Variant::Light);
     theme.set_rtl(v == Variant::Rtl);
@@ -71,6 +73,29 @@ fn create_sheet(
     play_store: bool,
     edit: bool,
 ) -> Result<SharedPixelBuffer<Rgba8Pixel>, String> {
+    create_sheet_at(v, play_store, edit, 1440, 900, false)
+}
+
+fn create_sheet_at(
+    v: Variant,
+    play_store: bool,
+    edit: bool,
+    width: u32,
+    height: u32,
+    preset: bool,
+) -> Result<SharedPixelBuffer<Rgba8Pixel>, String> {
+    create_sheet_page(v, play_store, edit, width, height, preset, 0)
+}
+
+fn create_sheet_page(
+    v: Variant,
+    play_store: bool,
+    edit: bool,
+    width: u32,
+    height: u32,
+    preset: bool,
+    page: i32,
+) -> Result<SharedPixelBuffer<Rgba8Pixel>, String> {
     let app = populated(v)?;
     let profiles = fixtures::profiles();
     let images = fixtures::system_images();
@@ -79,7 +104,14 @@ fn create_sheet(
     app.set_images(model(device_form::image_rows(&images, &jobs)));
     let mut form = device_form::new_form(&profiles, &images, &[], RootChoice::Shell);
     if edit {
-        form = device_form::edit_form(&fixtures::device_infos()[1], &profiles);
+        let mut device = fixtures::device_infos()[1].clone();
+        if preset {
+            device.width = 1080;
+            device.height = 2400;
+        }
+        form = device_form::edit_form(&device, &profiles);
+        form.data_path = "/Volumes/External/Jidr/avd/example.avd".into();
+        form.disk_usage = "12.4 GB".into();
     } else if play_store {
         form.name = "Play Store test 2".into();
         form.image = images
@@ -92,8 +124,9 @@ fn create_sheet(
         form.name = "Checkout test".into();
     }
     app.set_form(form);
+    app.set_device_edit_page(page);
     app.set_sheet_open(true);
-    shot(&app, 1440, 900)
+    shot(&app, width, height)
 }
 
 fn setup(v: Variant, step: i32) -> Result<SharedPixelBuffer<Rgba8Pixel>, String> {
@@ -191,6 +224,8 @@ fn settings_window(v: Variant, tab: i32) -> Result<SettingsWindow, String> {
     apply(&w, v);
     w.set_tab(tab);
     w.set_version("0.1.0".into());
+    w.set_data_path("~/Library/Application Support/Jidr".into());
+    w.set_migration_target("/Volumes/External/Jidr".into());
     w.set_tile_options(model(settings::tile_options()));
     w.set_sdk_path("~/Library/Application Support/Jidr/sdk".into());
     w.set_sdk_note("License accepted Oct 13, 14:01".into());
@@ -264,12 +299,128 @@ pub fn cases() -> Vec<Case> {
             },
         },
         Case {
+            name: "launcher-loading",
+            render: |v| {
+                let app = app(v)?;
+                app.set_library_loading(true);
+                shot(&app, 1440, 900)
+            },
+        },
+        Case {
+            name: "launcher-loading-devices",
+            render: |v| {
+                let app = populated(v)?;
+                app.set_sdk_ready(false);
+                app.set_library_loading(true);
+                shot(&app, 1440, 900)
+            },
+        },
+        Case {
             name: "launcher-populated",
             render: |v| shot(&populated(v)?, 1440, 900),
         },
         Case {
             name: "launcher-populated-1280",
             render: |v| shot(&populated(v)?, 1280, 800),
+        },
+        Case {
+            name: "launcher-default-size",
+            render: |v| shot(&populated(v)?, 1085, 714),
+        },
+        Case {
+            name: "launcher-tasks",
+            render: |v| {
+                let app = populated(v)?;
+                app.set_tasks_open(true);
+                shot(&app, 1085, 714)
+            },
+        },
+        Case {
+            name: "launcher-device-details",
+            render: |v| {
+                let app = populated(v)?;
+                app.set_device_details_open(true);
+                shot(&app, 1280, 800)
+            },
+        },
+        Case {
+            name: "launcher-device-details-compact",
+            render: |v| {
+                let app = populated(v)?;
+                app.set_device_details_open(true);
+                shot(&app, 960, 700)
+            },
+        },
+        Case {
+            name: "launcher-device-stopped",
+            render: |v| {
+                let app = populated(v)?;
+                app.set_selected(1);
+                shot(&app, 900, 600)
+            },
+        },
+        Case {
+            name: "launcher-game-list",
+            render: |v| {
+                let app = populated(v)?;
+                let icon = slint::Image::load_from_path(
+                    &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("../../apps/jidr-gui/assets/icons/app-icon-256.png"),
+                )
+                .map_err(|e| e.to_string())?;
+                app.set_games(model(vec![
+                    crate::GameVm {
+                        name: "Example Game".into(),
+                        package: "example.game".into(),
+                        icon,
+                        has_icon: true,
+                    },
+                    crate::GameVm {
+                        name: "App without an icon".into(),
+                        package: "example.fallback".into(),
+                        icon: Default::default(),
+                        has_icon: false,
+                    },
+                ]));
+                shot(&app, 1440, 900)
+            },
+        },
+        Case {
+            name: "launcher-install-error",
+            render: |v| {
+                let app = populated(v)?;
+                app.set_toast_error(true);
+                app.set_toast("Install failed: not enough device storage. Free space or create a larger device.".into());
+                shot(&app, 960, 700)
+            },
+        },
+        Case {
+            name: "game-install-error",
+            render: |v| {
+                let game = crate::GameWindow::new().map_err(|e| e.to_string())?;
+                apply(&game, v);
+                game.set_notice_error(true);
+                game.set_notice(
+                    "安装失败：设备空间不足。可释放空间，或新建更大容量的设备。".into(),
+                );
+                shot(&game, 360, 720)
+            },
+        },
+        Case {
+            name: "launcher-device-booting",
+            render: |v| {
+                let app = populated(v)?;
+                app.set_selected(2);
+                shot(&app, 900, 600)
+            },
+        },
+        Case {
+            name: "launcher-boot-progress",
+            render: |v| {
+                let app = populated(v)?;
+                app.set_selected(2);
+                shot(&app, 1085, 714)
+            },
         },
         Case {
             name: "launcher-empty",
@@ -306,6 +457,30 @@ pub fn cases() -> Vec<Case> {
         Case {
             name: "edit-device",
             render: |v| create_sheet(v, false, true),
+        },
+        Case {
+            name: "edit-device-compact",
+            render: |v| create_sheet_at(v, false, true, 900, 600, false),
+        },
+        Case {
+            name: "edit-device-preset",
+            render: |v| create_sheet_at(v, false, true, 900, 600, true),
+        },
+        Case {
+            name: "edit-device-startup",
+            render: |v| create_sheet_page(v, false, true, 900, 600, false, 1),
+        },
+        Case {
+            name: "edit-device-camera",
+            render: |v| create_sheet_page(v, false, true, 900, 600, false, 2),
+        },
+        Case {
+            name: "edit-device-data",
+            render: |v| create_sheet_page(v, false, true, 900, 600, false, 3),
+        },
+        Case {
+            name: "edit-device-performance",
+            render: |v| create_sheet_page(v, false, true, 900, 600, false, 4),
         },
         Case {
             name: "palette",

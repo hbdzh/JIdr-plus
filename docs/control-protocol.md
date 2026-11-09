@@ -101,6 +101,7 @@ These act on the calling connection and aren't in `commands.list`:
 | `events.subscribe` | `{topics?: string[]}` | Push matching events to this connection |
 | `logcat.follow` | `{device, filter?: string[]}` | Push `logcat` events for a running device until the connection closes |
 | `daemon.shutdown` | — | Stop the daemon (allowed before `hello`) |
+| `daemon.quit` | — | Gracefully stop devices and then stop the daemon; refuses active jobs or unverified shutdown |
 
 ## Commands
 
@@ -127,6 +128,14 @@ Launch an installed app by package (or APK)
 | `device` | string | yes |  |
 | `package` | string |  | Package to launch, e.g. `com.example.shop`. |
 | `apk` | string |  | Or an APK on this machine whose package to launch. |
+
+#### `app.list`
+
+List launchable third-party apps and their icons
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `device` | string | yes | Device name or id. |
 
 #### `app.uninstall`
 
@@ -335,6 +344,7 @@ Create a device from a profile and a system image
 | `height` | integer |  | Screen height in pixels (overrides the profile). |
 | `density` | integer |  | Screen density in dpi (overrides the profile). |
 | `data_mb` | integer |  | Data partition size in MB (overrides the profile). |
+| `audio` | boolean |  | Play Android audio on the host; defaults to the selected profile. |
 | `root_mode` | `none` \| `adb` \| `magisk` |  | Default: the `default_root_mode` setting (`adb` unless changed), or `none` when that is `adb` and the image doesn't allow adb root (D7). |
 | `agent_owned` | boolean |  | Agents may run destructive commands on it (D5). |
 
@@ -367,8 +377,11 @@ Rename a device or change its hardware (stopped) · locks the device
 | `width` | integer |  | Screen width in pixels (overrides the profile). |
 | `height` | integer |  | Screen height in pixels (overrides the profile). |
 | `density` | integer |  | Screen density in dpi (overrides the profile). |
+| `audio` | boolean |  | Play Android audio on the host on the next device start. |
 | `agent_owned` | boolean |  |  |
 | `auto_hibernate_minutes` | integer |  | Hibernate this device after so many idle minutes (0 = never); `null` follows the `auto_hibernate_minutes` setting. |
+| `quick_boot` | boolean |  | Per-device quick boot; `null` follows the global setting. |
+| `camera_back`, `camera_front` | string |  | Camera source for the next start: `default`, `none`, `emulated`, `webcamN`, or `virtualscene` (back camera only). |
 
 #### `device.hibernate`
 
@@ -1003,6 +1016,7 @@ Save a snapshot of a running device · long-running (job) · locks the device
 
 | Version | Change |
 |---|---|
+| 0.1 (additive) | `daemon.quit` drains requests, refuses active jobs, syncs and gracefully stops running devices, verifies their files are no longer open, then exits the daemon. Unlike `daemon.shutdown`, it requires `hello` and stops devices. |
 | 0.1 | Initial protocol: hello, errors, jobs, events, core device/sdk/image/profile/file/logcat/jobs commands. |
 | 0.1 (additive) | Phase 5b: `cache.list`, `cache.import`, `cache.prune`, `device.logs`. No existing command changed. |
 | 0.1 (additive) | G15: `root.auto_grant` (D22 "auto-grant all", from the root provider). No existing command changed. |
@@ -1018,3 +1032,6 @@ Save a snapshot of a running device · long-running (job) · locks the device
 | 0.1 (fix) | `root.set` (mode `magisk`) and `root.verify`: `magisk_version` is now the version alone (`30.7`), not the raw `magisk -v` output (`30.7:MAGISK:R`). The field and its type are unchanged. |
 | 0.1 (additive) | #25: `root.writable_system {device, enabled}` (long-running, locks the device) → `{device, writable_system, changed, applied: "unchanged" \| "next_boot" \| "live", system_writable?}`: a writable `/system` on an `adb`-root device (`-writable-system` launch option, then `adb remount` from the boot hook), stored in the existing `RootState.writable_system`. Enabling is refused with `usage` unless the device is in `adb` mode on an image that allows adb root, at API 31 or later; changing it forces a cold boot (D29). `root.set` to `none` or `magisk` resets `writable_system` to `false`, and `base.create` refuses a source with it on (`usage`). No existing field changed meaning. |
 | 0.1 (additive) | #70: `audio.inject {device, path, loop?, sample_rate?, channels?}` (long-running) plays a WAV (8/16/24/32-bit PCM or float, mono or stereo, 8–48 kHz; 24/32-bit and float are converted to 16-bit) or headerless 16-bit PCM as the device's microphone over gRPC `injectAudio`, and ends with `{path, duration_s, played_s, loops, stopped, sample_rate, channels, format, converted_from}`; `audio.stop {device}` → `{stopped}` ends it. Unsupported files are `usage`; a microphone another client already feeds is `busy`. From the widgets provider; no existing command changed. |
+| 0.1 (additive) | `device.create` and `device.edit` accept optional `audio` to control host audio from the next start. Omitted values preserve the profile or existing device setting. |
+| 0.1 (additive) | `device.edit` accepts `quick_boot`: `true` or `false` overrides the global setting for this device; `null` restores the global setting. Changes require a stopped device. Disabled quick boot skips automatic snapshot loading and saving; named hibernation resumes are preserved. |
+| 0.1 (additive) | `app.list` lists launchable third-party applications for a running device, returning the package name, display name and an optional path to a cached icon. |

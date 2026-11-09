@@ -7,7 +7,11 @@ pub mod catalog;
 pub mod cow;
 pub mod host;
 pub mod install;
+#[cfg(unix)]
+pub mod legacy_barrier;
 pub mod license;
+pub mod migration;
+pub mod migration_journal;
 pub mod profiles;
 pub mod repo;
 pub mod sdk;

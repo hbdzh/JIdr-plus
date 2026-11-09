@@ -23,6 +23,7 @@ struct FakeState {
     launches: Vec<(String, LaunchOptions)>,
     specs: Vec<LaunchSpec>,
     fail_next: Option<JidrError>,
+    fail_quit: bool,
     footprints: HashMap<String, u64>,
     /// Snapshots saved: (AVD, name).
     saves: Vec<(String, String)>,
@@ -60,6 +61,11 @@ impl FakeBackend {
     /// The next start fails with `err`.
     pub fn fail_next_start(&self, err: JidrError) {
         self.lock().fail_next = Some(err);
+    }
+
+    /// Simulate a graceful quit timeout without ending the device.
+    pub fn fail_next_quit(&self) {
+        self.lock().fail_quit = true;
     }
 
     /// Simulates the emulator `pid` dying.
@@ -180,6 +186,13 @@ impl Backend for FakeBackend {
     async fn stop(&self, instance: &InstanceInfo) -> JidrResult<()> {
         self.lock().running.remove(&instance.pid);
         Ok(())
+    }
+
+    async fn stop_for_quit(&self, instance: &InstanceInfo) -> JidrResult<()> {
+        if std::mem::take(&mut self.lock().fail_quit) {
+            return Err(JidrError::unexpected("graceful stop failed"));
+        }
+        self.stop(instance).await
     }
 
     async fn is_alive(&self, instance: &InstanceInfo) -> bool {

@@ -10,6 +10,24 @@ use jidr_daemon::testing::TestDaemon;
 use serde_json::json;
 
 #[tokio::test]
+async fn unresponsive_handshake_times_out_without_replacing_the_daemon() {
+    let tmp = tempfile::tempdir().unwrap();
+    let socket = tmp.path().join("unresponsive.sock");
+    let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+    let peer = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        tokio::time::sleep(Duration::from_secs(7)).await;
+        drop(stream);
+    });
+    let start = std::time::Instant::now();
+    let error = Client::connect(&socket, "test").await.unwrap_err();
+    assert!(error.message.contains("handshake"));
+    assert!(start.elapsed() < Duration::from_secs(7));
+    assert!(!peer.is_finished(), "the existing server was left running");
+    peer.abort();
+}
+
+#[tokio::test]
 async fn calls_jobs_and_errors() {
     let tmp = tempfile::tempdir().unwrap();
     let d = TestDaemon::start(tmp.path()).await.unwrap();

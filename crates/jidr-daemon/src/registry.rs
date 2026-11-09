@@ -27,6 +27,7 @@ pub const BUILTIN_METHODS: &[&str] = &[
     "events.subscribe",
     "logcat.follow",
     "daemon.shutdown",
+    "daemon.quit",
 ];
 
 impl Registry {

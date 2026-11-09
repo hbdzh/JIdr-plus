@@ -3,6 +3,7 @@
 //! never blocks on it; results come back through callbacks.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -31,6 +32,7 @@ pub struct Data {
     pub devices: Vec<DeviceInfo>,
     pub jobs: Vec<Job>,
     pub sdk_ready: bool,
+    pub loading: bool,
 }
 
 pub enum Update {
@@ -47,6 +49,12 @@ struct Cache {
     details: HashMap<Uuid, Value>,
     profiles: BTreeMap<String, HardwareProfile>,
     boot: HashMap<Uuid, f32>,
+    jobs: Vec<Job>,
+    sdk_ready: bool,
+    sdk_checked: bool,
+    profiles_loaded: bool,
+    incomplete: bool,
+    published: bool,
 }
 
 pub struct Bridge {
@@ -54,6 +62,8 @@ pub struct Bridge {
     client: Arc<tokio::sync::RwLock<Option<Arc<Client>>>>,
     /// Jobs this window started (others holding a device mean Busy).
     mine: Arc<Mutex<HashSet<Uuid>>>,
+    quitting: Arc<AtomicBool>,
+    connect_gate: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl std::fmt::Debug for Bridge {
@@ -74,6 +84,8 @@ impl Bridge {
             rt,
             client: Arc::default(),
             mine: Arc::default(),
+            quitting: Arc::default(),
+            connect_gate: Arc::default(),
         }))
     }
 
@@ -109,13 +121,21 @@ impl Bridge {
             let mut cache = Cache::default();
             let mut first = true;
             loop {
+                let gate = me.connect_gate.lock().await;
+                if me.quitting.load(Ordering::Acquire) {
+                    drop(gate);
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                    continue;
+                }
                 sink(Update::Conn(if first {
                     Conn::Connecting
                 } else {
                     Conn::Reconnecting("Reconnecting to the daemon…".into())
                 }));
                 first = false;
-                match Client::connect_or_spawn(&paths, "gui", &opts).await {
+                let connected = Client::connect_or_spawn(&paths, "gui", &opts).await;
+                drop(gate);
+                match connected {
                     Ok(c) => {
                         let c = Arc::new(c);
                         *me.client.write().await = Some(c.clone());
@@ -132,18 +152,53 @@ impl Bridge {
         });
     }
 
+    /// Prevents this GUI from respawning the daemon while shutdown runs.
+    /// If shutdown fails, reconnect is restored and the caller can report it.
+    pub fn shutdown_for_quit(
+        self: &Arc<Self>,
+        paths: JidrPaths,
+        done: impl FnOnce(JidrResult<()>) + Send + 'static,
+    ) {
+        if self.quitting.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let gate = self.connect_gate.clone();
+        let quitting = self.quitting.clone();
+        self.rt.spawn(async move {
+            let _gate = gate.lock().await;
+            let result = crate::shutdown::orderly_exit(&paths).await;
+            if result.is_err() {
+                quitting.store(false, Ordering::Release);
+            }
+            done(result);
+        });
+    }
+
+    /// Handles platforms/event-loop exits that do not deliver a native Quit
+    /// callback, e.g. when the last window is closed.
+    pub fn shutdown_after_event_loop(&self, paths: &JidrPaths) -> JidrResult<()> {
+        self.quitting.store(true, Ordering::Release);
+        let result = self.rt.block_on(async {
+            let _gate = self.connect_gate.lock().await;
+            crate::shutdown::orderly_exit(paths).await
+        });
+        if result.is_err() {
+            self.quitting.store(false, Ordering::Release);
+        }
+        result
+    }
+
     /// One connected session: subscribe, load, then follow events until the
     /// health check fails.
     async fn session(&self, c: &Arc<Client>, sink: &Sink, cache: &mut Cache) -> JidrResult<()> {
-        let mut events = c.subscribe(&["device.", "job."]).await?;
+        let mut events =
+            tokio::time::timeout(Duration::from_secs(5), c.subscribe(&["device.", "job."]))
+                .await
+                .map_err(|_| JidrError::unexpected("daemon subscription timed out"))??;
         cache.details.clear();
-        if let Ok(p) = c
-            .call_as::<_, Vec<HardwareProfile>>("profile.list", json!({}))
-            .await
-        {
-            cache.profiles = p.into_iter().map(|p| (p.id.clone(), p)).collect();
-        }
-        sink(Update::Data(self.load(c, cache).await?));
+        cache.sdk_checked = false;
+        cache.profiles_loaded = false;
+        self.load(c, cache, sink).await?;
         let mut health = tokio::time::interval(HEALTH_EVERY);
         loop {
             tokio::select! {
@@ -158,16 +213,21 @@ impl Bridge {
                                 self.note(&ev, cache);
                                 sink(Update::Event(ev));
                             }
-                            sink(Update::Data(self.load(c, cache).await?));
+                            self.load(c, cache, sink).await?;
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                        sink(Update::Data(self.load(c, cache).await?));
+                        self.load(c, cache, sink).await?;
                     }
                     Err(e) => return Err(JidrError::unexpected(format!("events: {e}"))),
                 },
                 _ = health.tick() => {
-                    c.call("daemon.status", json!({})).await?;
+                    tokio::time::timeout(Duration::from_secs(5), c.call("daemon.status", json!({})))
+                        .await
+                        .map_err(|_| JidrError::unexpected("daemon health check timed out"))??;
+                    if cache.incomplete {
+                        self.load(c, cache, sink).await?;
+                    }
                 }
             }
         }
@@ -199,44 +259,112 @@ impl Bridge {
         }
     }
 
-    async fn load(&self, c: &Client, cache: &mut Cache) -> JidrResult<Data> {
-        let devices: Vec<Device> = c.call_as("device.list", json!({})).await?;
-        let jobs: Vec<Job> = c.call_as("jobs.list", json!({})).await.unwrap_or_default();
-        let sdk_ready = c
-            .call("sdk.status", json!({}))
+    async fn load(&self, c: &Arc<Client>, cache: &mut Cache, sink: &Sink) -> JidrResult<()> {
+        const LIMIT: Duration = Duration::from_secs(5);
+        let devices: Vec<Device> = tokio::time::timeout(LIMIT, c.call_as("device.list", json!({})))
             .await
-            .map(|v| sdk_has_tools(&v))
-            .unwrap_or(false);
+            .map_err(|_| JidrError::unexpected("device list timed out"))??;
+        cache
+            .details
+            .retain(|id, _| devices.iter().any(|device| device.id == *id));
+        cache.boot.retain(|id, _| {
+            devices.iter().any(|device| {
+                device.id == *id
+                    && matches!(
+                        device.status,
+                        jidr_core::DeviceStatus::Booting | jidr_core::DeviceStatus::Starting
+                    )
+            })
+        });
+        // Publish the authoritative list before slower SDK and AVD scans.
+        if !cache.published {
+            sink(Update::Data(self.build_data(&devices, cache)));
+        }
+        let client = c.clone();
+        let metadata = tokio::spawn(async move {
+            tokio::join!(
+                tokio::time::timeout(LIMIT, client.call_as::<_, Vec<Job>>("jobs.list", json!({}))),
+                tokio::time::timeout(LIMIT, client.call("sdk.status", json!({}))),
+                tokio::time::timeout(
+                    LIMIT,
+                    client.call_as::<_, Vec<HardwareProfile>>("profile.list", json!({}))
+                ),
+            )
+        });
+        let mut requests = Vec::new();
+        for device in &devices {
+            if !cache.details.contains_key(&device.id) {
+                let client = c.clone();
+                let id = device.id;
+                requests.push(tokio::spawn(async move {
+                    (
+                        id,
+                        tokio::time::timeout(
+                            LIMIT,
+                            client.call("device.details", json!({"device": id})),
+                        )
+                        .await,
+                    )
+                }));
+            }
+        }
+        for request in requests {
+            if let Ok((id, Ok(Ok(details)))) = request.await {
+                cache.details.insert(id, details);
+                if !cache.published {
+                    sink(Update::Data(self.build_data(&devices, cache)));
+                }
+            }
+        }
+        let (jobs, sdk, profiles) = metadata
+            .await
+            .map_err(|e| JidrError::unexpected(format!("loading device metadata: {e}")))?;
+        let jobs_ok = matches!(&jobs, Ok(Ok(_)));
+        let sdk_ok = matches!(&sdk, Ok(Ok(_)));
+        let profiles_ok = matches!(&profiles, Ok(Ok(_)));
+        if let Ok(Ok(jobs)) = jobs {
+            cache.jobs = jobs;
+        }
+        if let Ok(Ok(sdk)) = sdk {
+            cache.sdk_ready = sdk_has_tools(&sdk);
+            cache.sdk_checked = true;
+        }
+        if let Ok(Ok(profiles)) = profiles {
+            cache.profiles = profiles.into_iter().map(|p| (p.id.clone(), p)).collect();
+            cache.profiles_loaded = true;
+        }
+        cache.incomplete = !jobs_ok
+            || !sdk_ok
+            || !profiles_ok
+            || !cache.sdk_checked
+            || !cache.profiles_loaded
+            || devices
+                .iter()
+                .any(|device| !cache.details.contains_key(&device.id));
+        sink(Update::Data(self.build_data(&devices, cache)));
+        cache.published = true;
+        Ok(())
+    }
+
+    fn build_data(&self, devices: &[Device], cache: &Cache) -> Data {
         let mine = self.mine.lock().map(|m| m.clone()).unwrap_or_default();
         let mut infos = Vec::with_capacity(devices.len());
         for d in devices {
-            if !cache.details.contains_key(&d.id)
-                && let Ok(v) = c.call("device.details", json!({ "device": d.id })).await
-            {
-                cache.details.insert(d.id, v);
-            }
             let mut info = DeviceInfo::new(d.clone());
             if let Some(det) = cache.details.get(&d.id) {
                 apply_details(&mut info, det);
             }
             if let Some(p) = cache.profiles.get(&d.profile) {
                 info.profile_name = Some(p.name.clone());
-                if info.width == 0 {
-                    (info.width, info.height, info.density) = (p.width, p.height, p.density);
-                }
-                if info.ram_mb == 0 {
-                    (info.ram_mb, info.cpus) = (p.ram_mb, p.cpus);
-                }
             }
             if matches!(
                 d.status,
                 jidr_core::DeviceStatus::Booting | jidr_core::DeviceStatus::Starting
             ) {
                 info.boot_progress = cache.boot.get(&d.id).copied();
-            } else {
-                cache.boot.remove(&d.id);
             }
-            let holding: Vec<&Job> = jobs
+            let holding: Vec<&Job> = cache
+                .jobs
                 .iter()
                 .filter(|j| j.device == Some(d.id) && !j.state.is_terminal())
                 .collect();
@@ -249,11 +377,12 @@ impl Bridge {
             }
             infos.push(info);
         }
-        Ok(Data {
+        Data {
             devices: infos,
-            jobs,
-            sdk_ready,
-        })
+            jobs: cache.jobs.clone(),
+            sdk_ready: cache.sdk_ready,
+            loading: !cache.sdk_checked,
+        }
     }
 
     /// Runs a call off the UI thread; `done` gets the result (on the IO thread).
@@ -263,6 +392,10 @@ impl Bridge {
         params: Value,
         done: impl FnOnce(JidrResult<Value>) + Send + 'static,
     ) {
+        if self.quitting.load(Ordering::Acquire) {
+            done(Err(JidrError::busy("Jidr is quitting")));
+            return;
+        }
         let client = self.client.clone();
         let method = method.to_string();
         self.rt.spawn(async move {
@@ -283,6 +416,10 @@ impl Bridge {
         progress: impl Fn(&Job) + Send + Sync + 'static,
         done: impl FnOnce(JidrResult<Value>) + Send + 'static,
     ) {
+        if self.quitting.load(Ordering::Acquire) {
+            done(Err(JidrError::busy("Jidr is quitting")));
+            return;
+        }
         let client = self.client.clone();
         let mine = self.mine.clone();
         let method = method.to_string();

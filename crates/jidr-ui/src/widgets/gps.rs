@@ -218,7 +218,11 @@ pub fn set_location(ctx: &Rc<Ctx>, device: uuid::Uuid) {
     let (Some(lat), Some(lon)) = (parse(&vm.gps_lat), parse(&vm.gps_lon)) else {
         toast(
             &ctx.app.as_weak(),
-            "Latitude and longitude must be numbers".into(),
+            crate::i18n::text(
+                "Latitude and longitude must be numbers",
+                "纬度和经度必须是数字",
+            )
+            .into(),
         );
         return;
     };

@@ -19,8 +19,14 @@ pub mod app;
 pub mod bridge;
 pub mod device_form;
 pub mod fixtures;
+pub mod game_library;
 pub mod goldens;
+pub mod i18n;
 pub mod launcher;
+// AppKit's Dock callback has no safe winit extension point.
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+mod macos_dock;
 pub mod model;
 pub mod offscreen;
 pub mod palette;
@@ -28,6 +34,7 @@ pub mod player;
 pub mod recording;
 pub mod root;
 pub mod settings;
+pub mod shutdown;
 pub mod snapshots;
 pub mod widgets;
 pub mod wizard;
