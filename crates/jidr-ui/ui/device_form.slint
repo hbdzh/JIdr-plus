@@ -1,0 +1,409 @@
+// Create / edit device sheet (the Workbench create design).
+
+import { Theme } from "theme.slint";
+import { Icons } from "icons.slint";
+import { T, Role, Button, ButtonKind, TextField, Checkbox, Hint, FieldLabel } from "components/base.slint";
+import { Select, ImageList, Field, Sheet, SheetFooter } from "forms.slint";
+import { RootModeSelector } from "../src/root/root.slint";
+import { DeviceForm, RootChoice, ImageRowVm, OptionVm } from "types.slint";
+
+export component DeviceSheet inherits Sheet {
+    in-out property <DeviceForm> form;
+    in property <[OptionVm]> profiles;
+    in property <[ImageRowVm]> images;
+    in property <string> device-name;
+    in property <string> magisk-version: "30.7";
+    in property <string> host-ram: "16 GB";
+    in property <string> host-cpus: "10";
+    callback submit(DeviceForm);
+    callback cancel();
+    callback image-changed(int);
+    callback profile-changed(int);
+    callback cold-start();
+    callback manage-snapshots();
+    in-out property <int> edit-page: 0;
+    property <length> edit-offset: form.edit ? 40px : 0px;
+    property <bool> ps: form.edit ? form.play-store : (form.image >= 0 && form.image < images.length && images[form.image].play-store);
+    // Root cards: three lines of note on Play Store images.
+    property <length> cards-h: ps ? 134px : 96px;
+    // Edit has no image list: the root mode follows name and profile.
+    property <length> root-y: (form.edit ? 69px : 300px) + edit-offset;
+    title: form.edit ? @tr("Edit {}", device-name) : @tr("New device");
+    subtitle: form.edit ? @tr("Stop before changing hardware or root. Old snapshots may not match new display settings.") : @tr("Defaults are filled in. Change what you need, then create.");
+    sheet-width: 680px;
+    center-vertically: form.edit;
+    body-height: hw-y + (form.edit ? 181px : 97px);
+    dismiss => { if !root.form.saving { root.cancel(); } }
+
+    property <length> cw: 640px;
+    property <length> half: (cw - 14px) / 2;
+    property <length> third: (cw - 28px) / 3;
+    function colx(i: int, w: length, gap: length) -> length {
+        return 20px + (Theme.rtl ? cw - (i + 1) * w - i * gap : i * (w + gap));
+    }
+
+    if root.form.edit: HorizontalLayout {
+        x: 20px;
+        y: 0px;
+        height: 30px;
+        spacing: 8px;
+        Button { text: @tr("Hardware"); kind: root.edit-page == 0 ? ButtonKind.primary : ButtonKind.secondary; clicked => { root.edit-page = 0; } }
+        Button { text: @tr("Startup"); kind: root.edit-page == 1 ? ButtonKind.primary : ButtonKind.secondary; clicked => { root.edit-page = 1; } }
+        Button { text: @tr("Camera"); kind: root.edit-page == 2 ? ButtonKind.primary : ButtonKind.secondary; clicked => { root.edit-page = 2; } }
+        Button { text: @tr("Data"); kind: root.edit-page == 3 ? ButtonKind.primary : ButtonKind.secondary; clicked => { root.edit-page = 3; } }
+        Button { text: @tr("Performance"); kind: root.edit-page == 4 ? ButtonKind.primary : ButtonKind.secondary; clicked => { root.edit-page = 4; } }
+    }
+
+    // Name + profile.
+    if !root.form.edit || root.edit-page == 0: Field {
+        x: colx(0, half, 14px);
+        y: 4px + root.edit-offset;
+        width: half;
+        label: @tr("Name");
+        TextField {
+            text: root.form.name;
+            focused-look: true;
+            edited(t) => { root.form.name = t; }
+        }
+    }
+    if !root.form.edit || root.edit-page == 0: Field {
+        x: colx(1, half, 14px);
+        y: 4px + root.edit-offset;
+        width: half;
+        label: @tr("Hardware profile");
+        hint: root.form.edit ? @tr("Profile cannot be changed after creation.") : "";
+        Select {
+            options: root.profiles;
+            selected: root.form.profile;
+            enabled: !root.form.edit;
+            changed(i) => { root.profile-changed(i); }
+        }
+    }
+
+    // Android version.
+    if !form.edit: Rectangle {
+        x: 20px;
+        y: 69px;
+        width: cw;
+        height: 16px;
+        FieldLabel {
+            x: Theme.rtl ? parent.width - self.preferred-width : 0px;
+            width: self.preferred-width;
+            text: @tr("Android version");
+        }
+        Hint {
+            x: Theme.rtl ? 0px : parent.width - self.preferred-width;
+            width: self.preferred-width;
+            text: @tr("Only images that run on Apple Silicon (arm64) are listed.");
+            wrap: no-wrap;
+        }
+    }
+    if !form.edit: ImageList {
+        x: 20px;
+        y: 90px;
+        width: cw;
+        images: root.images;
+        selected: root.form.image;
+        changed(i) => {
+            root.form.image = i;
+            root.image-changed(i);
+        }
+    }
+
+    // Root mode.
+    if !root.form.edit || root.edit-page == 0: FieldLabel {
+        x: Theme.rtl ? 20px + cw - self.preferred-width : 20px;
+        y: root-y;
+        width: self.preferred-width;
+        height: 16px;
+        text: @tr("Root mode");
+    }
+    if !root.form.edit || root.edit-page == 0: RootModeSelector {
+        x: 20px;
+        y: root-y + 21px;
+        width: cw;
+        height: root.cards-h;
+        selected: root.form.root;
+        shell-allowed: !root.ps;
+        play-store: root.ps;
+        magisk-version: root.magisk-version;
+        changed(c) => { root.form.root = c; }
+    }
+
+    // Hardware.
+    property <length> hw-y: root-y + 21px + cards-h + 18px;
+    if !root.form.edit || root.edit-page == 0: Field {
+        x: colx(0, root.form.edit ? third : (cw - 42px) / 4, 14px);
+        y: hw-y;
+        width: root.form.edit ? third : (cw - 42px) / 4;
+        label: @tr("RAM");
+        hint: @tr("Your Mac has {}.", root.host-ram);
+        TextField {
+            text: root.form.ram-gb;
+            unit: "GB";
+            mono: true;
+            edited(t) => { root.form.ram-gb = t; }
+        }
+    }
+    if !root.form.edit || root.edit-page == 0: Field {
+        x: colx(1, root.form.edit ? third : (cw - 42px) / 4, 14px);
+        y: hw-y;
+        width: root.form.edit ? third : (cw - 42px) / 4;
+        label: @tr("CPU cores");
+        TextField {
+            text: root.form.cpus;
+            unit: @tr("of {}", root.host-cpus);
+            mono: true;
+            edited(t) => { root.form.cpus = t; }
+        }
+    }
+    if !root.form.edit: Field {
+        x: colx(2, (cw - 42px) / 4, 14px);
+        y: hw-y;
+        width: (cw - 42px) / 4;
+        label: @tr("Screen");
+        hint: @tr("From the profile.");
+        TextField {
+            text: root.form.screen;
+            unit: root.form.density + " dpi";
+            mono: true;
+            edited(t) => { root.form.screen = t; }
+        }
+    }
+    if !root.form.edit: Field {
+        x: colx(3, (cw - 42px) / 4, 14px);
+        y: hw-y;
+        width: (cw - 42px) / 4;
+        label: @tr("Device storage");
+        hint: @tr("2–256 GB.");
+        TextField {
+            text: root.form.data-gb;
+            unit: "GB";
+            mono: true;
+            edited(t) => { root.form.data-gb = t; }
+        }
+    }
+    if root.form.edit && root.edit-page == 0: Field {
+        x: colx(0, half, 14px);
+        y: hw-y + 84px;
+        width: half;
+        label: @tr("Resolution");
+        hint: @tr("Cold boot: save your game first. Quick boot is backed up.");
+        Select {
+            open-above: true;
+            options: [
+                { id: "custom", label: @tr("Custom") },
+                { id: "720x1280", label: @tr("Portrait 720 × 1280") },
+                { id: "1080x1920", label: @tr("Portrait 1080 × 1920") },
+                { id: "1080x2400", label: @tr("Portrait 1080 × 2400") },
+                { id: "1280x720", label: @tr("Landscape 1280 × 720") },
+                { id: "1920x1080", label: @tr("Landscape 1920 × 1080") },
+            ];
+            selected: root.form.resolution-preset;
+            changed(i) => {
+                root.form.resolution-preset = i;
+                if i == 1 { root.form.screen = "720×1280"; }
+                if i == 2 { root.form.screen = "1080×1920"; }
+                if i == 3 { root.form.screen = "1080×2400"; }
+                if i == 4 { root.form.screen = "1280×720"; }
+                if i == 5 { root.form.screen = "1920×1080"; }
+                if i == 1 || i == 4 { root.form.custom-width = i == 1 ? "720" : "1280"; root.form.custom-height = i == 1 ? "1280" : "720"; }
+                if i == 2 || i == 5 { root.form.custom-width = i == 2 ? "1080" : "1920"; root.form.custom-height = i == 2 ? "1920" : "1080"; }
+                if i == 3 { root.form.custom-width = "1080"; root.form.custom-height = "2400"; }
+            }
+        }
+    }
+    if root.form.edit && root.edit-page == 0: Field {
+        x: colx(2, third, 14px);
+        y: hw-y;
+        width: third;
+        label: @tr("Display density");
+        hint: @tr("72–1000 dpi.");
+        TextField {
+            text: root.form.density;
+            unit: "dpi";
+            mono: true;
+            edited(t) => { root.form.density = t; }
+        }
+    }
+    if root.form.edit && root.edit-page == 0 && root.form.resolution-preset == 0: Field {
+        x: colx(2, (cw - 42px) / 4, 14px);
+        y: hw-y + 84px;
+        width: (cw - 42px) / 4;
+        label: @tr("Width");
+        TextField {
+            text: root.form.custom-width;
+            unit: "px";
+            mono: true;
+            edited(t) => { root.form.custom-width = t; root.form.screen = t + "×" + root.form.custom-height; }
+        }
+    }
+    if root.form.edit && root.edit-page == 0 && root.form.resolution-preset == 0: Field {
+        x: colx(3, (cw - 42px) / 4, 14px);
+        y: hw-y + 84px;
+        width: (cw - 42px) / 4;
+        label: @tr("Height");
+        TextField {
+            text: root.form.custom-height;
+            unit: "px";
+            mono: true;
+            edited(t) => { root.form.custom-height = t; root.form.screen = root.form.custom-width + "×" + t; }
+        }
+    }
+    if root.form.edit && root.edit-page == 1: Field {
+        x: colx(0, half, 14px);
+        y: 48px;
+        width: half;
+        label: @tr("Quick boot");
+        hint: @tr("Change while stopped; old snapshots are retained.");
+        Select {
+            options: [
+                { id: "global", label: @tr("Follow global setting") },
+                { id: "on", label: @tr("Enabled") },
+                { id: "off", label: @tr("Disabled") },
+            ];
+            selected: root.form.quick-boot-mode;
+            changed(i) => { root.form.quick-boot-mode = i; }
+        }
+    }
+    if root.form.edit && root.edit-page == 1: Rectangle {
+        x: colx(1, half, 14px);
+        y: 48px;
+        width: half;
+        height: 92px;
+        FieldLabel { x: 0px; y: 0px; width: parent.width; text: @tr("Automatic sleep"); height: 16px; }
+        Checkbox {
+            x: 0px;
+            y: 24px;
+            text: @tr("Follow global setting");
+            checked: root.form.hibernate-global;
+            toggled(v) => { root.form.hibernate-global = v; }
+        }
+        T { y: 55px; width: parent.width; height: 32px; text: @tr("An attached player prevents sleep."); color: Theme.text-secondary; wrap: word-wrap; }
+    }
+    if root.form.edit && root.edit-page == 1 && !root.form.hibernate-global: Field {
+        x: colx(0, half, 14px);
+        y: 145px;
+        width: half;
+        label: @tr("Idle time");
+        hint: @tr("0 disables sleep; 1–1440 minutes enables it.");
+        TextField {
+            text: root.form.hibernate-minutes;
+            unit: @tr("min");
+            edited(t) => { root.form.hibernate-minutes = t; }
+        }
+    }
+    if root.form.edit && root.edit-page == 1: Button {
+        x: 20px;
+        y: 245px;
+        text: @tr("Cold boot once…");
+        enabled: root.form.can-cold-start;
+        clicked => { root.cold-start(); }
+    }
+    if root.form.edit && root.edit-page == 2: Field {
+        x: colx(0, half, 14px); y: 48px; width: half;
+        label: @tr("Back camera");
+        hint: @tr("Takes effect on the next start.");
+        Select {
+            options: [
+                { id: "default", label: @tr("Emulator default") },
+                { id: "emulated", label: @tr("Emulated camera") },
+                { id: "virtualscene", label: @tr("Virtual scene") },
+                { id: "webcam0", label: @tr("Mac camera 1") },
+                { id: "webcam1", label: @tr("Mac camera 2") },
+                { id: "none", label: @tr("Disabled") },
+            ];
+            selected: root.form.camera-back;
+            changed(i) => { root.form.camera-back = i; }
+        }
+    }
+    if root.form.edit && root.edit-page == 3: Rectangle {
+        x: 20px; y: 48px; width: cw; height: 220px;
+        FieldLabel { x: 0px; y: 0px; width: parent.width; text: @tr("Device data location"); height: 16px; }
+        T { x: 0px; y: 22px; width: parent.width; height: 48px; text: root.form.data-path; color: Theme.text-secondary; wrap: word-wrap; }
+        FieldLabel { x: 0px; y: 80px; width: parent.width; text: @tr("Disk usage"); height: 16px; }
+        T { x: 0px; y: 102px; width: parent.width; height: 20px; text: root.form.disk-usage; color: Theme.text-secondary; }
+        Button { x: 0px; y: 145px; text: @tr("Manage snapshots…"); clicked => { root.manage-snapshots(); } }
+        T { x: 0px; y: 182px; width: parent.width; height: 32px; text: @tr("Snapshots are not a complete device backup."); color: Theme.text-secondary; wrap: word-wrap; }
+    }
+    if root.form.edit && root.edit-page == 4: Field {
+        x: colx(0, half, 14px); y: 48px; width: half;
+        label: @tr("Game window quality");
+        hint: @tr("Changes streamed resolution, not game FPS.");
+        Select {
+            options: [
+                { id: "smooth", label: @tr("Smooth") },
+                { id: "sharp", label: @tr("Sharp") },
+                { id: "economy", label: @tr("Economy") },
+            ];
+            selected: root.form.stream-quality;
+            changed(i) => { root.form.stream-quality = i; }
+        }
+    }
+    if root.form.edit && root.edit-page == 2: Field {
+        x: colx(1, half, 14px); y: 48px; width: half;
+        label: @tr("Front camera");
+        hint: @tr("Virtual scene is back camera only.");
+        Select {
+            options: [
+                { id: "default", label: @tr("Emulator default") },
+                { id: "emulated", label: @tr("Emulated camera") },
+                { id: "virtualscene", label: @tr("Virtual scene (back only)") },
+                { id: "webcam0", label: @tr("Mac camera 1") },
+                { id: "webcam1", label: @tr("Mac camera 2") },
+                { id: "none", label: @tr("Disabled") },
+            ];
+            selected: root.form.camera-front;
+            changed(i) => { root.form.camera-front = i; }
+        }
+    }
+    if root.form.error != "": T {
+        x: 20px;
+        y: hw-y + (root.form.edit ? 168px : 84px);
+        width: cw;
+        height: 18px;
+        text: root.form.error;
+        color: Theme.negative;
+    }
+
+    SheetFooter {
+        y: root.body-height;
+        width: root.sheet-width;
+        if !root.form.edit: Checkbox {
+            x: Theme.rtl ? parent.width - 20px - self.width : 20px;
+            text: @tr("Start after creating");
+            checked: root.form.start-after;
+            toggled(v) => { root.form.start-after = v; }
+        }
+        Checkbox {
+            x: Theme.rtl ? parent.width - (root.form.edit ? 20px : 188px) - self.width : (root.form.edit ? 20px : 188px);
+            text: @tr("Device audio (next start)");
+            checked: root.form.audio;
+            toggled(v) => { root.form.audio = v; }
+        }
+        HorizontalLayout {
+            x: Theme.rtl ? 20px : parent.width - 20px - self.preferred-width;
+            width: self.preferred-width;
+            height: 30px;
+            spacing: 8px;
+            for slot[j] in 2: Rectangle {
+                property <int> i: Theme.rtl ? 1 - j : j;
+                width: i == 0 ? cancel-b.width : ok-b.width;
+                cancel-b := Button {
+                    visible: i == 0;
+                    enabled: !root.form.saving;
+                    text: @tr("Cancel");
+                    clicked => { root.cancel(); }
+                }
+                ok-b := Button {
+                    visible: i == 1;
+                    kind: ButtonKind.primary;
+                    text: root.form.saving ? @tr("Saving…") : (root.form.edit ? @tr("Save") : @tr("Create"));
+                    enabled: !root.form.saving;
+                    kbd: "⌘↵";
+                    clicked => { root.submit(root.form); }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,330 @@
+// Launcher 1A content: device detail (populated) and the first-run empty
+// state (the Workbench main design).
+
+import { Theme } from "theme.slint";
+import { Icons } from "icons.slint";
+import { T, Role, Icon, Button, ButtonKind, Panel, Pill, KV, Scroll } from "components/base.slint";
+import { StatusPill } from "components/status.slint";
+import { DeviceVm, GameVm, DevState, RootKind } from "types.slint";
+
+/// Section title (`.h-sec`).
+component H inherits T {
+    font-size: 13px;
+    font-weight: 600;
+    height: 18px;
+}
+
+/// The selected device, its applications, and expandable technical details.
+export component DeviceDetail inherits Rectangle {
+    in property <DeviceVm> device;
+    in property <[GameVm]> games;
+    in property <string> games-message;
+    in property <string> games-note;
+    in-out property <bool> advanced-open: false;
+    callback start(); callback stop(); callback restart(); callback delete(); callback edit();
+    callback refresh-games(); callback launch-game(string);
+    property <length> px: 20px;
+    property <length> cw: self.width - 40px;
+    property <length> card-h: max(350px, edit.y + edit.height + 12px);
+    property <length> apps-y: card-h + 16px;
+    property <length> apps-h: max(0px, self.height - apps-y);
+    property <length> apps-list-h: max(0px, apps-h - 62px - (games-note != "" ? 22px : 0px));
+    background: Theme.surface-base;
+    Rectangle {
+        Panel { x: 0px; y: 0px; width: parent.width; height: root.card-h; }
+        H { x: px; y: 17px; width: 150px; text: @tr("Device details"); }
+        Button {
+            x: px + cw - self.width; y: 12px; small: true; kind: ButtonKind.tertiary;
+            text: @tr("Show device details");
+            clicked => { root.advanced-open = true; }
+        }
+        Image { x: px; y: 48px; width: 96px; height: 150px; source: @image-url("assets/device-detail-generated.png"); image-fit: contain; }
+        T { x: 132px; y: 72px; width: max(0px, cw - 112px); height: 30px; text: device.name; role: Role.title; }
+        StatusPill { x: 132px; y: 107px; state: device.state; text: device.state == DevState.starting || device.state == DevState.booting ? @tr("Starting") : device.status; }
+        T { x: 132px; y: 136px; width: max(0px, cw - 112px); height: 20px; text: device.android; color: Theme.text-tertiary; }
+        for spec[i] in [
+            { key: @tr("CPU"), value: device.cpus },
+            { key: @tr("RAM"), value: device.ram },
+            { key: @tr("Screen"), value: device.screen },
+            { key: @tr("Disk usage"), value: device.disk },
+            { key: @tr("Android"), value: device.android },
+            { key: @tr("Image"), value: device.image },
+        ]: KV {
+            x: px + Math.mod(i, 2) * ((cw + 12px) / 2); y: 195px + floor(i / 2) * 24px;
+            width: (cw - 12px) / 2; key-width: 66px; key: spec.key; value: spec.value;
+        }
+        if device.state == DevState.starting || device.state == DevState.booting: T {
+            x: px; y: 268px; width: cw; height: 20px; text: device.status; color: Theme.text-secondary;
+        }
+        Rectangle { x: px; y: 291px; width: cw; height: 1px; background: Theme.border-subtle; }
+        primary := Button {
+            x: px; y: 304px; kind: ButtonKind.primary; has-icon: true;
+            text: device.state == DevState.running || device.state == DevState.starting || device.state == DevState.booting || device.state == DevState.stopping ? @tr("Stop") : @tr("Start");
+            icon: device.state == DevState.running || device.state == DevState.starting || device.state == DevState.booting || device.state == DevState.stopping ? Icons.square : Icons.play;
+            enabled: device.state == DevState.running || device.state == DevState.stopped || device.state == DevState.crashed;
+            clicked => { if device.state == DevState.running || device.state == DevState.starting || device.state == DevState.booting { root.stop(); } else { root.start(); } }
+        }
+        restart := Button {
+            property <bool> wrap: primary.x + primary.width + 8px + self.width > px + cw;
+            x: wrap ? px : primary.x + primary.width + 8px; y: primary.y + (wrap ? 36px : 0px);
+            text: @tr("Restart"); has-icon: true; icon: Icons.rotate-cw; enabled: device.state == DevState.running; clicked => { root.restart(); }
+        }
+        delete := Button {
+            property <bool> wrap: restart.x + restart.width + 8px + self.width > px + cw;
+            x: wrap ? px : restart.x + restart.width + 8px; y: restart.y + (wrap ? 36px : 0px);
+            text: @tr("Delete device"); has-icon: true; icon: Icons.trash-2; enabled: device.state == DevState.stopped || device.state == DevState.crashed; clicked => { root.delete(); }
+        }
+        edit := Button {
+            property <bool> wrap: delete.x + delete.width + 8px + self.width > px + cw;
+            x: wrap ? px : delete.x + delete.width + 8px; y: delete.y + (wrap ? 36px : 0px);
+            text: @tr("Device settings"); has-icon: true; icon: Icons.settings; clicked => { root.edit(); }
+        }
+        Panel { x: 0px; y: root.apps-y; width: parent.width; height: root.apps-h; }
+        H { x: px; y: root.apps-y + 18px; width: max(0px, cw - 100px); text: @tr("Installed games and apps") + (root.games.length > 0 ? "  " + root.games.length : ""); }
+        Button { x: px + cw - self.width; y: root.apps-y + 12px; small: true; text: @tr("Refresh"); has-icon: true; icon: Icons.rotate-cw; enabled: device.state == DevState.running; clicked => { root.refresh-games(); } }
+        Scroll {
+            x: px; y: root.apps-y + 50px; width: cw; height: root.apps-list-h;
+            content-height: max(self.height, root.games.length * 64px);
+            if root.games.length == 0: T { x: 0px; y: 8px; width: parent.width; height: 42px; text: root.games-message; color: Theme.text-secondary; wrap: word-wrap; }
+            for g[i] in root.games: Rectangle {
+                x: 0px; y: i * 64px; width: parent.width; height: 58px;
+                border-radius: Theme.radius-lg; background: Theme.surface-raised; border-width: 1px; border-color: Theme.border-default;
+                TouchArea { enabled: device.state == DevState.running; mouse-cursor: pointer; clicked => { root.launch-game(g.package); } }
+                if g.has-icon: Image { x: 8px; y: 5px; width: 48px; height: 48px; source: g.icon; image-fit: contain; }
+                if !g.has-icon: Icon { x: 16px; y: 13px; size: 32px; source: Icons.smartphone; }
+                T { x: 68px; y: 9px; width: max(0px, parent.width - 150px); height: 40px; text: g.name; role: Role.label; }
+                Button { x: parent.width - self.width - 10px; text: @tr("Launch"); has-icon: true; icon: Icons.play; enabled: device.state == DevState.running; clicked => { root.launch-game(g.package); } }
+            }
+        }
+        if root.games-note != "": T { x: px; y: root.apps-y + 54px + root.apps-list-h; width: cw; height: 20px; text: root.games-note; color: Theme.text-secondary; }
+    }
+}
+
+/// A device list and selected-device detail, sized to the main window.
+export component DeviceCenter inherits Rectangle {
+    in property <[DeviceVm]> devices;
+    in property <int> selected: -1;
+    in property <[GameVm]> games;
+    in property <string> games-message;
+    in property <string> games-note;
+    in property <bool> recording: false;
+    in-out property <bool> advanced-open: false;
+    callback select(int); callback start(int); callback stop(int); callback game(int); callback edit(int); callback restart(int); callback delete(int);
+    callback install-apk(int); callback send-file(int); callback screenshot(int); callback record(int); callback screenshots-folder();
+    callback manage-snapshots(int);
+    callback refresh-games(); callback launch-game(string);
+    property <length> left-w: (self.width - 66px) * 0.515;
+    property <length> right-w: self.width - 66px - left-w;
+    property <length> list-h: max(120px, self.height - 292px);
+    property <length> quick-y: 32px + list-h;
+    property <length> detail-y: 16px;
+    property <length> detail-h: max(0px, self.height - 32px);
+    background: Theme.surface-base;
+    Rectangle {
+        Panel { x: 24px; y: 16px; width: root.left-w; height: root.list-h; border-radius: 16px; }
+        H { x: 42px; y: 36px; width: root.left-w - 36px; text: @tr("My devices") + "  " + root.devices.length; }
+        Scroll {
+            x: 38px; y: 70px; width: root.left-w - 28px; height: root.list-h - 68px;
+            content-height: root.devices.length * 94px;
+            for d[i] in root.devices: Rectangle {
+                x: 0px; y: i * 94px; width: parent.width - 4px; height: 86px;
+                border-radius: 12px; border-width: i == root.selected ? 1px : 0px;
+                border-color: Theme.accent-text;
+                background: i == root.selected ? Theme.surface-selected : dta.has-hover ? Theme.surface-control-hover.with-alpha(0.35) : transparent;
+                dta := TouchArea { mouse-cursor: pointer; clicked => { root.select(i); } double-clicked => { root.select(i); if d.state == DevState.running { root.game(i); } if d.state == DevState.stopped || d.state == DevState.crashed { root.start(i); } } }
+                Image { x: 12px; y: 9px; width: 40px; height: 68px; source: @image-url("assets/device-list-generated.png"); image-fit: contain; }
+                T { x: 66px; y: 14px; width: max(0px, parent.width - 100px); height: 20px; text: d.name; role: Role.label; font-weight: 600; }
+                Rectangle { x: 66px; y: 43px; width: 7px; height: 7px; border-radius: 4px; background: d.state == DevState.running ? Theme.status-positive-on-container : d.state == DevState.starting || d.state == DevState.booting ? Theme.status-transition-on-container : Theme.text-tertiary; }
+                T { x: 79px; y: 37px; width: max(0px, parent.width - 115px); height: 18px; text: d.status; color: Theme.text-secondary; }
+                T { x: 66px; y: 59px; width: max(0px, parent.width - 100px); height: 16px; text: d.android; color: Theme.text-tertiary; }
+                if i == root.selected: Icon { x: parent.width - 30px; size: 16px; source: Icons.chevron-right; colorize: Theme.text-tertiary; }
+            }
+        }
+        Panel { x: 24px; y: root.quick-y; width: root.left-w; height: 244px; border-radius: 16px; }
+        H { x: 42px; y: root.quick-y + 18px; width: root.left-w - 36px; text: @tr("Quick actions"); }
+        for tile[i] in [
+            { label: @tr("Install APK…"), sub: @tr("Choose an APK file"), icon: Icons.download },
+            { label: @tr("Send file"), sub: @tr("To Downloads"), icon: Icons.folder-open },
+            { label: @tr("Screenshot"), sub: @tr("Capture screen"), icon: Icons.camera },
+            { label: root.recording ? @tr("Stop recording") : @tr("Record screen"), sub: @tr("Save a video"), icon: Icons.video },
+        ]: Rectangle {
+            property <length> tile-w: (root.left-w - 46px) / 2;
+            x: 42px + Math.mod(i, 2) * (tile-w + 10px); y: root.quick-y + 49px + floor(i / 2) * 71px;
+            width: tile-w; height: 61px; border-radius: 12px; border-width: 1px; border-color: Theme.border-default; background: Theme.surface-base;
+            tta := TouchArea { enabled: root.selected >= 0 && root.devices[root.selected].state == DevState.running; mouse-cursor: pointer; clicked => { if i == 0 { root.install-apk(root.selected); } if i == 1 { root.send-file(root.selected); } if i == 2 { root.screenshot(root.selected); } if i == 3 { root.record(root.selected); } } }
+            Icon { x: 12px; size: 24px; source: tile.icon; colorize: tta.enabled ? Theme.accent-text : Theme.text-disabled; }
+            T { x: 48px; y: 9px; width: parent.width - 56px; height: 20px; text: tile.label; role: Role.label; color: tta.enabled ? Theme.text-primary : Theme.text-disabled; }
+            T { x: 48px; y: 32px; width: parent.width - 56px; height: 17px; text: tile.sub; color: Theme.text-secondary; }
+        }
+        if root.selected >= 0: Button { x: 42px; y: root.quick-y + 198px; small: true; text: @tr("Manage snapshots"); has-icon: true; icon: Icons.camera; clicked => { root.manage-snapshots(root.selected); } }
+        Button { x: 188px; y: root.quick-y + 198px; small: true; text: @tr("Screenshots folder"); has-icon: true; icon: Icons.folder-open; clicked => { root.screenshots-folder(); } }
+        if root.selected >= 0: DeviceDetail {
+            x: 42px + root.left-w; y: root.detail-y; width: root.right-w; height: root.detail-h;
+            device: root.devices[root.selected]; games: root.games; games-message: root.games-message; games-note: root.games-note; advanced-open <=> root.advanced-open;
+            start => { root.start(root.selected); } stop => { root.stop(root.selected); }
+            restart => { root.restart(root.selected); } delete => { root.delete(root.selected); } edit => { root.edit(root.selected); }
+            refresh-games => { root.refresh-games(); } launch-game(package) => { root.launch-game(package); }
+        }
+    }
+}
+
+/// Detailed information for the selected device, shown above the center.
+export component DeviceInfoDialog inherits Rectangle {
+    in property <DeviceVm> device;
+    callback dismiss();
+    callback verify-root();
+    callback revert-root();
+    background: Theme.scrim;
+    TouchArea { clicked => { root.dismiss(); } }
+    Panel {
+        width: min(680px, parent.width - 40px);
+        height: min(630px, parent.height - 40px);
+        x: (parent.width - self.width) / 2; y: (parent.height - self.height) / 2;
+        TouchArea {}
+        T { x: 20px; y: 15px; width: parent.width - 100px; height: 30px; text: @tr("Device details") + " · " + device.name; role: Role.title; }
+        Button { x: parent.width - self.width - 20px; y: 18px; small: true; text: @tr("Close"); clicked => { root.dismiss(); } }
+        Scroll {
+            x: 20px; y: 58px; width: parent.width - 40px; height: parent.height - 76px; content-height: 612px;
+            for p[i] in 3: Panel {
+                x: 0px; y: i * 164px; width: parent.width - 8px; height: 152px;
+                H { x: 16px; y: 14px; width: parent.width - 32px; text: i == 0 ? @tr("Android") : i == 1 ? @tr("Hardware") : @tr("Root health"); }
+                VerticalLayout {
+                    x: 16px; y: 44px; width: parent.width - 32px; spacing: 6px; alignment: LayoutAlignment.start;
+                    if i == 0: KV { key: @tr("Version"); value: device.android; }
+                    if i == 0: KV { key: @tr("Image"); value: device.image; }
+                    if i == 0: KV { key: @tr("Profile"); value: device.profile; }
+                    if i == 0: KV { key: @tr("Serial"); value: device.serial; mono: true; }
+                    if i == 1: KV { key: @tr("RAM"); value: device.ram; mono: true; }
+                    if i == 1: KV { key: @tr("CPU"); value: device.cpus; mono: true; }
+                    if i == 1: KV { key: @tr("Screen"); value: device.screen; mono: true; }
+                    if i == 1: KV { key: @tr("Disk usage"); value: device.disk; mono: true; }
+                    if i == 2: KV { key: @tr("Mode"); value: device.root-mode; }
+                    if i == 2 && device.magisk != "": KV { key: @tr("Magisk"); value: device.magisk; }
+                    if i == 2: KV { key: @tr("Verified"); value: device.verified; }
+                }
+                if i == 2 && device.root != RootKind.none: HorizontalLayout {
+                    x: 16px; y: parent.height - 38px; height: 24px; spacing: 8px;
+                    Button { small: true; text: @tr("Verify again"); clicked => { root.verify-root(); } }
+                    Button { small: true; kind: ButtonKind.tertiary; text: @tr("Revert to unrooted…"); clicked => { root.revert-root(); } }
+                }
+            }
+            H { x: 0px; y: 506px; width: parent.width; text: @tr("Session"); }
+            VerticalLayout {
+                x: 0px; y: 530px; width: parent.width - 8px; spacing: 8px; alignment: LayoutAlignment.start;
+                KV { key: @tr("Uptime"); value: device.uptime; key-width: 120px; }
+                KV { key: @tr("Last started"); value: device.last-started; key-width: 120px; }
+            }
+        }
+    }
+}
+
+/// First run (`.empty`): no SDK yet, three steps, one primary action.
+export component FirstRunEmpty inherits Rectangle {
+    in property <bool> sdk-ready: false;
+    in property <string> sdk-label: @tr("Not installed");
+    in property <string> download-size: "2.3 GB";
+    callback setup-sdk();
+    callback use-existing();
+    callback new-device();
+    background: Theme.surface-base;
+    VerticalLayout {
+        alignment: center;
+        spacing: 10px;
+        HorizontalLayout {
+            alignment: center;
+            Rectangle {
+                width: 44px;
+                height: 44px;
+                border-radius: 12px;
+                background: Theme.surface-control;
+                Icon { size: 24px; source: Icons.smartphone; }
+            }
+        }
+        T {
+            text: @tr("No devices yet");
+            role: Role.title;
+            font-size: 18px;
+            horizontal-alignment: center;
+        }
+        if !root.sdk-ready: HorizontalLayout {
+            alignment: center;
+            T {
+                width: 420px;
+                text: @tr("Jidr needs Google's Android Emulator and one system image before it can create a device. Nothing downloads until you accept Google's license.");
+                color: Theme.text-secondary;
+                wrap: word-wrap;
+                horizontal-alignment: center;
+            }
+        }
+        if root.sdk-ready: HorizontalLayout {
+            alignment: center;
+            Button { kind: ButtonKind.primary; text: @tr("Add device"); clicked => { root.new-device(); } }
+        }
+        if !root.sdk-ready: HorizontalLayout {
+            alignment: center;
+            padding-top: 8px;
+            Panel {
+                width: 520px;
+                height: 172px;
+                drop-shadow-blur: 0px;
+                for row[i] in [
+                    { n: "1", t: @tr("Find an Android SDK on this Mac, or install one"), r: root.sdk-label, pill: true },
+                    { n: "2", t: @tr("Read and accept Google's SDK license"), r: "", pill: false },
+                    { n: "3", t: @tr("Download the emulator and Android 15 (API 35)"), r: root.download-size, pill: false },
+                ]: Rectangle {
+                    y: 18px + i * 30px;
+                    x: 18px;
+                    width: parent.width - 36px;
+                    height: 22px;
+                    Pill {
+                        x: Theme.rtl ? parent.width - self.width : 0px;
+                        small: true;
+                        has-icon: false;
+                        text: row.n;
+                    }
+                    T {
+                        x: Theme.rtl ? 0px : 30px;
+                        width: parent.width - 30px;
+                        text: row.t;
+                    }
+                    if row.pill: Pill {
+                        x: Theme.rtl ? 0px : parent.width - self.width;
+                        small: true;
+                        has-icon: false;
+                        text: row.r;
+                    }
+                    if !row.pill && row.r != "": T {
+                        x: Theme.rtl ? 0px : parent.width - self.preferred-width;
+                        width: self.preferred-width;
+                        text: row.r;
+                        role: Role.code;
+                        color: Theme.text-secondary;
+                    }
+                }
+                HorizontalLayout {
+                    x: Theme.rtl ? parent.width - 18px - self.preferred-width : 18px;
+                    y: 18px + 3 * 30px + 12px;
+                    height: 30px;
+                    spacing: 8px;
+                    for slot[j] in 2: Rectangle {
+                        property <int> i: Theme.rtl ? 1 - j : j;
+                        width: i == 0 ? b0.width : b1.width;
+                        b0 := Button {
+                            visible: i == 0;
+                            kind: ButtonKind.primary;
+                            text: @tr("Set up Android SDK");
+                            kbd: "⌘↵";
+                            clicked => { root.setup-sdk(); }
+                        }
+                        b1 := Button {
+                            visible: i == 1;
+                            kind: ButtonKind.tertiary;
+                            text: @tr("Use an SDK I already have…");
+                            clicked => { root.use-existing(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

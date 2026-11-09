@@ -1,0 +1,37 @@
+name: Check release packaging
+
+# Manually verify the selected branch without creating a GitHub Release.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  package:
+    name: Build and scan unsigned test packages
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust (from rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and scan
+        run: cargo xtask release --dry-run --scan --out dist
+      - name: Upload test packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: jidr-plus-unsigned-test-packages
+          path: |
+            dist/Jidr-*-arm64.dmg
+            dist/jidr-mcp-*.mcpb
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7

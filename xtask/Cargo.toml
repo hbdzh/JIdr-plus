@@ -1,0 +1,21 @@
+[package]
+name = "xtask"
+description = "Jidr build automation: ci, license-check, skills-check, e2e-mac, release."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+# skills-check compiles apps/jidr/src/cli.rs to parse the skills' commands.
+clap.workspace = true
+clap_complete.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

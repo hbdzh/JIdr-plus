@@ -1,0 +1,501 @@
+//! Protocol conformance over a real Unix socket (fake backend, no emulator).
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+mod common;
+
+use std::time::Duration;
+
+use common::Harness;
+use serde_json::json;
+
+#[tokio::test]
+async fn display_changes_preserve_snapshot_and_force_cold_boot() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    c.ok("device.create", json!({"name":"Display", "image":"35"}))
+        .await;
+    let details = c.ok("device.details", json!({"device":"Display"})).await;
+    let avd = std::path::Path::new(details["avd_dir"].as_str().unwrap());
+    let quick = avd.join("snapshots/default_boot");
+    let named = avd.join("snapshots/saved_game");
+    std::fs::create_dir_all(&quick).unwrap();
+    std::fs::create_dir_all(&named).unwrap();
+    std::fs::write(quick.join("ram.bin"), b"quick-state").unwrap();
+    std::fs::write(named.join("ram.bin"), b"game-state").unwrap();
+    c.ok(
+        "device.edit",
+        json!({"device":"Display", "width":720, "height":1280, "density":280}),
+    )
+    .await;
+    let details = c.ok("device.details", json!({"device":"Display"})).await;
+    assert_eq!(details["config"]["hw.lcd.width"], "720");
+    assert_eq!(details["config"]["hw.lcd.height"], "1280");
+    assert_eq!(details["config"]["hw.lcd.density"], "280");
+    let backups: Vec<_> = std::fs::read_dir(avd.join("jidr/display-backups"))
+        .unwrap()
+        .collect();
+    assert_eq!(backups.len(), 1);
+    let backup = backups[0].as_ref().unwrap().path();
+    assert_eq!(
+        std::fs::read(backup.join("default_boot/ram.bin")).unwrap(),
+        b"quick-state"
+    );
+    assert!(backup.join("config.ini").is_file());
+    assert_eq!(std::fs::read(named.join("ram.bin")).unwrap(), b"game-state");
+    c.run("device.start", json!({"device":"Display"})).await;
+    assert!(h.backend.launches().last().unwrap().1.cold_boot);
+    let err = c
+        .err("device.edit", json!({"device":"Display", "density":320}))
+        .await;
+    assert_eq!(err["data"]["code"], "busy");
+    c.ok("device.stop", json!({"device":"Display"})).await;
+    let err = c
+        .err("device.edit", json!({"device":"Display", "density":0}))
+        .await;
+    assert_eq!(err["data"]["code"], "usage");
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn device_quick_boot_override_does_not_change_other_devices() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    c.ok("device.create", json!({"name":"Cold", "image":"35"}))
+        .await;
+    c.ok("device.create", json!({"name":"Default", "image":"35"}))
+        .await;
+    c.ok("device.edit", json!({"device":"Cold", "quick_boot":false}))
+        .await;
+    c.run("device.start", json!({"device":"Cold"})).await;
+    let options = h.backend.launches().last().unwrap().1.clone();
+    assert!(options.cold_boot);
+    assert!(!options.snapshot_save);
+    let error = c
+        .err("device.edit", json!({"device":"Cold", "quick_boot":true}))
+        .await;
+    assert_eq!(error["data"]["code"], "busy");
+    c.ok("device.stop", json!({"device":"Cold"})).await;
+    c.run("device.start", json!({"device":"Default"})).await;
+    let options = h.backend.launches().last().unwrap().1.clone();
+    assert!(!options.cold_boot);
+    assert!(options.snapshot_save);
+    c.ok("device.stop", json!({"device":"Default"})).await;
+    c.ok("device.edit", json!({"device":"Cold", "quick_boot":null}))
+        .await;
+    let d = c.ok("device.details", json!({"device":"Cold"})).await;
+    assert!(d["device"]["launch"].get("quick_boot").is_none());
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn camera_settings_are_validated_and_used_on_next_start() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    c.ok("device.create", json!({"name":"Camera", "image":"35"}))
+        .await;
+    let err = c
+        .err(
+            "device.edit",
+            json!({"device":"Camera", "camera_front":"virtualscene"}),
+        )
+        .await;
+    assert_eq!(err["data"]["code"], "usage");
+    c.ok(
+        "device.edit",
+        json!({"device":"Camera", "camera_back":"webcam0", "camera_front":"none"}),
+    )
+    .await;
+    c.run("device.start", json!({"device":"Camera"})).await;
+    let options = h.backend.launches().last().unwrap().1.clone();
+    assert_eq!(options.camera_back.as_deref(), Some("webcam0"));
+    assert_eq!(options.camera_front.as_deref(), Some("none"));
+    assert!(
+        !options
+            .extra_args
+            .iter()
+            .any(|v| v == "-camera-back" || v == "-camera-front")
+    );
+    c.ok("device.stop", json!({"device":"Camera"})).await;
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn creation_validates_and_persists_data_capacity() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    let error = c
+        .err(
+            "device.create",
+            json!({"name":"Small", "image":"35", "data_mb":1024}),
+        )
+        .await;
+    assert_eq!(error["data"]["code"], "usage");
+    c.ok(
+        "device.create",
+        json!({"name":"Storage", "image":"35", "data_mb":16384}),
+    )
+    .await;
+    let details = c.ok("device.details", json!({"device":"Storage"})).await;
+    assert_eq!(details["config"]["disk.dataPartition.size"], "16384M");
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn device_edit_rejects_data_capacity_changes() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    c.ok(
+        "device.create",
+        json!({"name":"Expand", "image":"35", "data_mb":4096}),
+    )
+    .await;
+    let details = c.ok("device.details", json!({"device":"Expand"})).await;
+    let avd = std::path::Path::new(details["avd_dir"].as_str().unwrap());
+    std::fs::write(avd.join("userdata-qemu.img"), b"game data").unwrap();
+    for size in [2048, 8192] {
+        let err = c
+            .err("device.edit", json!({"device":"Expand", "data_mb":size}))
+            .await;
+        assert_eq!(err["code"], -32602);
+    }
+    let unchanged = c.ok("device.details", json!({"device":"Expand"})).await;
+    assert_eq!(unchanged["config"]["disk.dataPartition.size"], "4096M");
+    assert_eq!(
+        std::fs::read(avd.join("userdata-qemu.img")).unwrap(),
+        b"game data"
+    );
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn bad_json_is_parse_error() {
+    let h = Harness::start().await;
+    let mut c = h.conn().await;
+    c.send_raw("{not json").await;
+    let r = c.read().await;
+    assert_eq!(r["error"]["code"], -32700);
+    assert_eq!(r["id"], serde_json::Value::Null);
+    // The connection survives.
+    c.send_raw(r#"{"jsonrpc":"1.0","id":7,"method":"hello"}"#)
+        .await;
+    let r = c.read().await;
+    assert_eq!(r["error"]["code"], -32600);
+    assert_eq!(r["id"], 7);
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn hello_is_required_and_stale_clients_are_refused() {
+    let h = Harness::start().await;
+    let mut c = h.conn().await;
+    assert_eq!(c.err("device.list", json!({})).await["code"], -32600);
+    let e = c.err("hello", json!({ "version": "0.0.0-old" })).await;
+    assert_eq!(e["code"], -32008);
+    assert_eq!(e["data"]["code"], "daemon_stale");
+    assert_eq!(e["data"]["exit_code"], 8);
+    assert_eq!(e["data"]["details"]["daemon_version"], jidr_daemon::VERSION);
+    let ok = c
+        .ok("hello", json!({ "version": jidr_daemon::VERSION }))
+        .await;
+    assert_eq!(ok["protocol"], "0.1");
+    c.ok("device.list", json!({})).await;
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn unknown_method_and_params() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    assert_eq!(c.err("device.explode", json!({})).await["code"], -32601);
+    let e = c
+        .err("device.create", json!({ "nmae": "x", "image": "35" }))
+        .await;
+    assert_eq!(e["code"], -32602);
+    assert!(e["message"].as_str().unwrap().contains("nmae"), "{e}");
+    let e = c
+        .err("device.start", json!({ "device": "p", "cold_boot": "yes" }))
+        .await;
+    assert_eq!(e["code"], -32602, "type errors are usage errors too: {e}");
+    let e = c.err("hello", json!({ "version": "x", "extra": 1 })).await;
+    assert!(e["message"].as_str().unwrap().contains("extra"), "{e}");
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn commands_list_describes_every_command() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    let list = c.ok("commands.list", json!({})).await;
+    let list = list.as_array().unwrap();
+    let start = list.iter().find(|s| s["id"] == "device.start").unwrap();
+    assert_eq!(start["longRunning"], true);
+    assert_eq!(start["locksDevice"], true);
+    assert_eq!(start["params"]["properties"]["device"]["type"], "string");
+    let delete = list.iter().find(|s| s["id"] == "device.delete").unwrap();
+    assert_eq!(delete["destructive"], true);
+    for s in list {
+        assert!(!s["label"].as_str().unwrap().is_empty(), "{s}");
+        assert_eq!(s["params"]["type"], "object", "{s}");
+    }
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn device_lifecycle() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    let d = c
+        .ok(
+            "device.create",
+            json!({ "name": "Phone A", "image": "35:google_apis", "ram_mb": 3072 }),
+        )
+        .await;
+    assert_eq!(d["root"]["mode"], "adb", "D7: adb where allowed");
+    assert_eq!(d["avd"], "Phone_A");
+    let e = c
+        .err("device.create", json!({ "name": "phone a", "image": "35" }))
+        .await;
+    assert_eq!(e["data"]["code"], "usage");
+    let e = c
+        .err(
+            "device.create",
+            json!({ "name": "PS", "image": "35:google_apis_playstore", "root_mode": "adb" }),
+        )
+        .await;
+    assert_eq!(e["data"]["code"], "usage");
+    let ps = c
+        .ok(
+            "device.create",
+            json!({ "name": "PS", "image": "35:google_apis_playstore" }),
+        )
+        .await;
+    assert_eq!(ps["root"]["mode"], "none");
+    let e = c
+        .err("device.create", json!({ "name": "B", "image": "29" }))
+        .await;
+    assert_eq!(e["data"]["code"], "sdk", "image not installed: {e}");
+
+    let details = c.ok("device.details", json!({ "device": "Phone A" })).await;
+    assert_eq!(details["config"]["hw.ramSize"], "3072");
+
+    let e = c
+        .err("device.connect_info", json!({ "device": "Phone A" }))
+        .await;
+    assert_eq!(e["data"]["code"], "not_found");
+    let started = c.run("device.start", json!({ "device": "Phone A" })).await;
+    assert_eq!(started["status"]["state"], "running");
+    let ci = c
+        .ok("device.connect_info", json!({ "device": "Phone A" }))
+        .await;
+    assert!(ci["grpc_token"].as_str().unwrap().starts_with("fake-token"));
+    assert!(
+        ci["grpc_endpoint"]
+            .as_str()
+            .unwrap()
+            .starts_with("127.0.0.1:")
+    );
+
+    // adb-backed commands go through the fake adb.
+    let apk = h.tmp.path().join("app.apk");
+    std::fs::write(&apk, b"apk").unwrap();
+    c.ok("file.install", json!({ "device": "Phone A", "apk": apk }))
+        .await;
+    let log = c
+        .ok("logcat.dump", json!({ "device": "Phone A", "lines": 10 }))
+        .await;
+    assert!(log["text"].as_str().unwrap().contains("hello"));
+
+    let e = c
+        .err(
+            "device.edit",
+            json!({ "device": "Phone A", "ram_mb": 4096 }),
+        )
+        .await;
+    assert_eq!(
+        e["data"]["code"], "busy",
+        "hardware edits need a stopped device"
+    );
+    c.ok("device.stop", json!({ "device": "Phone A" })).await;
+    c.ok(
+        "device.edit",
+        json!({ "device": "Phone A", "ram_mb": 4096, "name": "Phone B" }),
+    )
+    .await;
+    let copy = c
+        .ok(
+            "device.clone",
+            json!({ "device": "Phone B", "name": "Phone C" }),
+        )
+        .await;
+    assert_eq!(copy["launch"]["force_cold_boot"], true);
+    c.run("device.start", json!({ "device": "Phone C" })).await;
+    let launches = h.backend.launches();
+    assert!(
+        launches.last().unwrap().1.cold_boot,
+        "a clone's first boot is cold"
+    );
+    c.ok("device.reset", json!({ "device": "Phone C" })).await;
+    c.ok("device.delete", json!({ "device": "Phone C" })).await;
+    c.ok("device.delete", json!({ "device": "Phone B" })).await;
+    c.ok("device.delete", json!({ "device": "PS" })).await;
+    assert_eq!(c.ok("device.list", json!({})).await, json!([]));
+    assert!(h.backend.running().is_empty());
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn busy_lock_names_the_holder() {
+    let h = Harness::start().await;
+    let mut a = h.client().await;
+    let mut b = h.client().await;
+    a.ok("device.create", json!({ "name": "Slow", "image": "35" }))
+        .await;
+    let gate = h.backend.gate_starts();
+    // A starts: the job holds the lock while the backend blocks.
+    let started = a.ok("device.start", json!({ "device": "Slow" })).await;
+    assert_eq!(started["pending"], true);
+    let job = started["job"].clone();
+    let e = b.err("device.stop", json!({ "device": "Slow" })).await;
+    assert_eq!(e["code"], -32004);
+    assert_eq!(e["data"]["code"], "busy");
+    assert_eq!(e["data"]["details"]["op"], "device.start");
+    assert_eq!(e["data"]["details"]["holder"], job, "the holder is the job");
+    // Reads don't take the lock.
+    b.ok("device.details", json!({ "device": "Slow" })).await;
+    gate.add_permits(1);
+    let done = a.ok("jobs.wait", json!({ "job": job })).await;
+    assert_eq!(done["state"], "succeeded");
+    assert_eq!(done["result"]["status"]["state"], "running");
+    b.ok("device.stop", json!({ "device": "Slow" })).await;
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn crash_is_reported_not_restarted() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    c.ok("device.create", json!({ "name": "Crashy", "image": "35" }))
+        .await;
+    let d = c.run("device.start", json!({ "device": "Crashy" })).await;
+    let pid = d["runtime"]["pid"].as_u64().unwrap() as u32;
+    h.backend.crash(pid);
+    let mut state = json!(null);
+    for _ in 0..100 {
+        let list = c.ok("device.list", json!({})).await;
+        state = list[0]["status"].clone();
+        if state["state"] == "crashed" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(state["state"], "crashed", "{state}");
+    assert_eq!(state["reason"], "fake crash");
+    assert_eq!(h.backend.launches().len(), 1, "D9: no auto-restart");
+    // A crashed device can be started again.
+    c.run("device.start", json!({ "device": "Crashy" })).await;
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn socket_is_private_and_single_instance() {
+    use std::os::unix::fs::PermissionsExt;
+    let h = Harness::start().await;
+    let mode = std::fs::metadata(h.paths.socket())
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(mode, 0o600);
+    let err = jidr_daemon::server::bind(&h.paths.socket()).unwrap_err();
+    assert_eq!(err.code, jidr_core::ErrorCode::Busy);
+    let socket = h.paths.socket();
+    h.stop().await;
+    assert!(!socket.exists(), "socket removed on shutdown");
+}
+
+/// Regression (9e manual check, 2026-10-16): with the emulator from Android
+/// Studio's SDK and the image only in Jidr's private SDK, the emulator
+/// rejected the private SDK as `ANDROID_SDK_ROOT` ("Broken AVD system path")
+/// and exited. The launch names the image directory as `-sysdir`.
+#[tokio::test]
+async fn a_private_sdk_image_launches_with_its_sysdir() {
+    let h = Harness::start().await;
+    let image = jidr_core::ImageRef {
+        api: 34,
+        tag: "google_apis".into(),
+        abi: jidr_sdk::host::host_abi().into(),
+    };
+    let dir = h.paths.sdk().join(image.sysdir());
+    std::fs::create_dir_all(&dir).unwrap();
+    for f in ["source.properties", "system.img", "ramdisk.img"] {
+        std::fs::write(dir.join(f), b"x").unwrap();
+    }
+    let mut c = h.client().await;
+    c.ok("device.create", json!({ "name": "Private", "image": "34" }))
+        .await;
+    c.run("device.start", json!({ "device": "Private" })).await;
+    let spec = h.backend.specs().pop().unwrap();
+    assert_eq!(spec.sdk_root, h.paths.sdk());
+    assert_eq!(spec.sysdir, dir);
+    h.stop().await;
+}
+
+/// Gap B4: settings live in the daemon (`settings.json`), so `device.create`
+/// without `root_mode` and the quick-boot launch flag follow them for every
+/// client.
+#[tokio::test]
+async fn settings_drive_create_and_quick_boot() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    let s = c.ok("settings.get", json!({})).await;
+    assert_eq!(
+        s,
+        json!({ "default_root_mode": "adb", "quick_boot": true, "budget_percent": 75, "auto_hibernate_minutes": 0 })
+    );
+    // Default adb, but Play Store images refuse adb root: none.
+    let ps = c
+        .ok(
+            "device.create",
+            json!({ "name": "PS", "image": "35:google_apis_playstore" }),
+        )
+        .await;
+    assert_eq!(ps["root"]["mode"], "none");
+
+    let s = c
+        .ok(
+            "settings.set",
+            json!({ "default_root_mode": "none", "quick_boot": false }),
+        )
+        .await;
+    assert_eq!(
+        s,
+        json!({ "default_root_mode": "none", "quick_boot": false, "budget_percent": 75, "auto_hibernate_minutes": 0 })
+    );
+    let saved: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(h.paths.settings_file()).unwrap()).unwrap();
+    assert_eq!(saved, s);
+    // Only the given fields change.
+    let s = c.ok("settings.set", json!({ "quick_boot": true })).await;
+    assert_eq!(s["default_root_mode"], "none");
+    c.ok("settings.set", json!({ "quick_boot": false })).await;
+    assert_eq!(
+        c.err("settings.set", json!({ "quick": true })).await["code"],
+        -32602
+    );
+
+    let d = c
+        .ok("device.create", json!({ "name": "Plain", "image": "35" }))
+        .await;
+    assert_eq!(d["root"]["mode"], "none");
+    c.run("device.start", json!({ "device": "Plain" })).await;
+    let (_, opts) = h.backend.launches().pop().unwrap();
+    assert!(!opts.snapshot_save, "quick_boot off: -no-snapshot-save");
+
+    // G14: device.details carries the image's pristine ramdisk hash.
+    let det = c.ok("device.details", json!({ "device": "Plain" })).await;
+    assert_eq!(
+        det["pristine_ramdisk_sha256"],
+        "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881"
+    );
+    h.stop().await;
+}

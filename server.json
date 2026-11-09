@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.hbdzh/jidr-plus",
+  "title": "JIdr Plus",
+  "description": "See and drive Android emulators on a Mac: screenshot, tap, type, UI tree, logs, root.",
+  "websiteUrl": "https://github.com/hbdzh/JIdr-plus",
+  "repository": {
+    "url": "https://github.com/hbdzh/JIdr-plus",
+    "source": "github"
+  },
+  "version": "0.3.1",
+  "packages": [
+    {
+      "registryType": "mcpb",
+      "identifier": "https://github.com/hbdzh/JIdr-plus/releases/download/v0.3.1/jidr-mcp-0.3.1-darwin-arm64.mcpb",
+      "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

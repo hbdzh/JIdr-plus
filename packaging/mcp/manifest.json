@@ -1,0 +1,51 @@
+{
+  "manifest_version": "0.3",
+  "name": "jidr",
+  "display_name": "JIdr Plus",
+  "version": "@VERSION@",
+  "description": "See and drive Android emulators on your Mac: screenshot, tap, type, read the UI and logs, and run any Jidr command.",
+  "long_description": "Jidr is a free, open-source Android emulator manager for Apple Silicon Macs with one-click rooted devices. This extension runs `jidr mcp`, which starts the Jidr daemon when needed. Agents can create, start and stop devices, install apps, take screenshots, tap, swipe, type, read the uiautomator tree and tail logcat. Destructive commands (delete, factory reset) are refused unless the device is agent-owned (D5). Jidr downloads Google's Android SDK and system images on your Mac the first time, after you accept their licence in the Jidr app or CLI.",
+  "author": {
+    "name": "Jidr contributors",
+    "url": "https://github.com/AbdurahmanAlmehdi/jidr"
+  },
+  "homepage": "https://github.com/hbdzh/JIdr-plus",
+  "documentation": "https://github.com/hbdzh/JIdr-plus/blob/jidr-plus-initial/docs/mcp.md",
+  "support": "https://github.com/hbdzh/JIdr-plus/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hbdzh/JIdr-plus"
+  },
+  "icon": "icon.png",
+  "license": "Apache-2.0",
+  "keywords": ["android", "emulator", "adb", "root", "magisk", "testing", "macos"],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/jidr",
+    "mcp_config": {
+      "command": "${__dirname}/server/jidr",
+      "args": ["mcp"]
+    }
+  },
+  "tools": [
+    { "name": "command_list", "description": "Every Jidr command with its params schema and flags" },
+    { "name": "command_run", "description": "Run any Jidr command; long-running ones are waited for or returned as a job" },
+    { "name": "pool_get", "description": "Lease a throwaway clone of a base device, booted from its snapshot in seconds" },
+    { "name": "pool_release", "description": "Give a leased device back: it is stopped and deleted" },
+    { "name": "jobs_list", "description": "List long-running operations" },
+    { "name": "jobs_cancel", "description": "Cancel a long-running operation" },
+    { "name": "screenshot", "description": "PNG of the device screen, with its size and scale" },
+    { "name": "tap", "description": "Tap at a point on the screen" },
+    { "name": "swipe", "description": "Swipe or drag between two points" },
+    { "name": "type_text", "description": "Type text into the focused field" },
+    { "name": "press_key", "description": "Press Home, Back, Enter, volume, arrows and other keys" },
+    { "name": "ui_dump", "description": "The uiautomator UI tree: text, ids and bounds" },
+    { "name": "logcat_tail", "description": "Recent log lines, optionally filtered" },
+    { "name": "proxy_set", "description": "Send the device's HTTP(S) traffic through Burp or mitmproxy on this Mac" },
+    { "name": "proxy_clear", "description": "Remove the device's HTTP proxy" },
+    { "name": "ca_cert_install", "description": "Trust Burp's or mitmproxy's CA as a system certificate on a Full-root device" }
+  ],
+  "compatibility": {
+    "platforms": ["darwin"]
+  }
+}

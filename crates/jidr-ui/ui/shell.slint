@@ -1,0 +1,154 @@
+// The Workbench window shell: title bar, tabs, and background tasks.
+// Regions swap sides in RTL (system README › RTL).
+
+import { Theme } from "theme.slint";
+import { Icons } from "icons.slint";
+import { T, Role, Tone, Tones, Icon, IconButton, Button, ButtonKind, Kbd, Bar, Panel, Scroll, TrafficLights, Pill } from "components/base.slint";
+import { JobVm, JobTone, ConnState } from "types.slint";
+
+/// Main window chrome: app identity, search and primary actions.
+export component TitleBar inherits Rectangle {
+    in property <bool> draw-lights: true;
+    in property <bool> sdk-ready: true;
+    in property <int> job-count: 0;
+    in property <ConnState> conn: ConnState.online;
+    in property <string> conn-text;
+    callback drag-window();
+    callback search();
+    callback new-device();
+    callback settings();
+    callback tasks();
+    height: Theme.window-titlebar-height;
+    background: Theme.surface-chrome;
+    TouchArea {
+        pointer-event(ev) => {
+            if ev.kind == PointerEventKind.down && ev.button == PointerEventButton.left { root.drag-window(); }
+        }
+    }
+    TrafficLights { drawn: root.draw-lights; x: Theme.rtl ? parent.width - 19px - self.width : 19px; y: (parent.height - self.height) / 2; }
+    T { x: Theme.rtl ? parent.width - 232px : 82px; y: 0px; width: 150px; height: parent.height; text: @tr("Android emulator"); role: Role.label; font-weight: 600; }
+    Rectangle {
+        x: Theme.rtl ? parent.width - 290px - self.width : 290px; y: 7px; width: min(235px, parent.width - 710px); height: 30px;
+        border-radius: Theme.radius-md; border-width: 1px; border-color: Theme.border-default; background: Theme.surface-control;
+        Icon { x: Theme.rtl ? parent.width - 9px - self.width : 9px; size: Theme.icon-sm; source: Icons.search; }
+        T { x: Theme.rtl ? 8px : 30px; width: parent.width - 38px; height: parent.height; text: @tr("Search devices and commands"); color: Theme.text-tertiary; }
+        TouchArea { mouse-cursor: pointer; clicked => { root.search(); } }
+    }
+    HorizontalLayout {
+        x: Theme.rtl ? 16px : parent.width - self.preferred-width - 16px; y: 6px; width: self.preferred-width; height: 32px;
+        spacing: 8px; alignment: end;
+        if root.conn != ConnState.online: Pill {
+            small: true; tone: root.conn == ConnState.offline ? Tone.negative : Tone.transition;
+            spinning: root.conn != ConnState.offline; icon: Icons.plug; text: root.conn-text;
+        }
+        if root.job-count > 0: Button { text: @tr("View tasks"); clicked => { root.tasks(); } }
+        Button { small: true; text: @tr("Add device"); kind: ButtonKind.primary; has-icon: true; icon: Icons.plus; enabled: root.sdk-ready; clicked => { root.new-device(); } }
+        Button { icon-only: true; has-icon: true; icon: Icons.settings; clicked => { root.settings(); } }
+    }
+    Rectangle { y: parent.height - 1px; height: 1px; background: Theme.border-default; }
+}
+
+/// Job row (`.job`): icon, title, bar, bytes and time left, cancel.
+export component JobRow inherits Rectangle {
+    in property <JobVm> job;
+    callback cancel();
+    property <Tone> tone: job.tone == JobTone.running ? Tone.transition
+        : job.tone == JobTone.done ? Tone.positive
+        : job.tone == JobTone.failed ? Tone.negative
+        : Tone.neutral;
+    height: 64px;
+    border-radius: Theme.radius-lg;
+    background: Theme.surface-raised;
+    border-width: 1px;
+    border-color: Theme.border-default;
+    ic := Rectangle {
+        x: Theme.rtl ? parent.width - 12px - 28px : 12px;
+        width: 28px;
+        height: 28px;
+        border-radius: Theme.radius-md;
+        background: Tones.container(tone);
+        Icon {
+            size: Theme.icon-sm;
+            source: job.tone == JobTone.done ? Icons.check
+                : job.tone == JobTone.failed ? Icons.x
+                : job.tone == JobTone.cancelled ? Icons.ban
+                : job.tone == JobTone.queued ? Icons.clock
+                : Icons.download;
+            colorize: Tones.on(tone);
+        }
+    }
+    property <length> text-x: Theme.rtl ? (job.cancellable ? 40px : 12px) : 50px;
+    property <length> text-w: root.width - 62px - (job.cancellable ? 28px : 0px);
+    T {
+        x: text-x;
+        y: 11px;
+        width: text-w;
+        height: 16px;
+        text: job.title;
+        role: Role.label;
+        font-weight: 600;
+    }
+    Bar {
+        x: text-x;
+        y: 31px;
+        width: text-w;
+        value: job.progress;
+        visible: job.tone == JobTone.running;
+    }
+    T {
+        x: text-x;
+        y: 39px;
+        width: text-w;
+        height: 14px;
+        text: job.detail;
+        role: Role.caption;
+        mono: true;
+        color: Theme.text-secondary;
+    }
+    T {
+        x: text-x;
+        y: 39px;
+        width: text-w;
+        height: 14px;
+        text: job.eta;
+        role: Role.caption;
+        color: Theme.text-tertiary;
+        horizontal-alignment: Theme.rtl ? TextHorizontalAlignment.left : TextHorizontalAlignment.right;
+    }
+    if job.cancellable: Button {
+        x: Theme.rtl ? 8px : parent.width - 8px - self.width;
+        small: true;
+        icon-only: true;
+        has-icon: true;
+        kind: ButtonKind.tertiary;
+        icon: Icons.x;
+        clicked => { root.cancel(); }
+    }
+}
+
+/// A centered task list, available even before a device is created.
+export component TasksDialog inherits Rectangle {
+    in property <[JobVm]> jobs;
+    callback cancel(int);
+    callback dismiss();
+    background: #00000080;
+    TouchArea { clicked => { root.dismiss(); } }
+    Panel {
+        width: min(520px, parent.width - 40px);
+        height: min(480px, parent.height - 40px);
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        // Consume clicks within the dialog instead of dismissing it.
+        TouchArea { }
+        T { x: 20px; y: 16px; width: parent.width - 110px; height: 30px; text: @tr("Jobs"); role: Role.title; }
+        Button { x: parent.width - self.width - 20px; y: 16px; text: @tr("Close"); clicked => { root.dismiss(); } }
+        Scroll {
+            x: 20px; y: 58px; width: parent.width - 40px; height: parent.height - 78px;
+            content-height: max(self.height, root.jobs.length * 72px);
+            for job[i] in root.jobs: JobRow {
+                y: i * 72px; width: parent.width; job: job;
+                cancel => { root.cancel(i); }
+            }
+        }
+    }
+}

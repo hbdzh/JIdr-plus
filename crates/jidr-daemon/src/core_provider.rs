@@ -1,0 +1,1315 @@
+//! The daemon's own commands: daemon, sdk, image, profile, device, file, logcat.
+
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
+use async_trait::async_trait;
+use jidr_adb::{Adb, InstallOptions};
+use jidr_core::provider::{
+    CallCtx, CommandProvider, CommandSpec, DaemonContext, DeviceParams, NoParams, parse_params,
+};
+use jidr_core::{Device, ImageRef, JidrError, JidrResult, LaunchPrefs, RootMode, RootState};
+use jidr_sdk::{AvdSpec, CatalogFilter, ConsentStore, Fetcher, Repository, profiles, repo};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use uuid::Uuid;
+
+use crate::state::State;
+
+pub struct CoreProvider {
+    state: Arc<State>,
+}
+
+impl CoreProvider {
+    pub fn new(state: Arc<State>) -> Self {
+        Self { state }
+    }
+}
+
+// ---- params -------------------------------------------------------------
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateParams {
+    /// Unique device name.
+    pub name: String,
+    /// System image: `35`, `35:google_apis`, `35:google_apis:arm64-v8a` or
+    /// `system-images;android-35;google_apis;arm64-v8a`.
+    pub image: String,
+    /// Hardware profile id (`profile.list`); default `phone-6.1-fhd`.
+    #[serde(default)]
+    pub profile: Option<String>,
+    /// RAM in MB (overrides the profile).
+    #[serde(default)]
+    pub ram_mb: Option<u32>,
+    /// Virtual CPU cores (overrides the profile).
+    #[serde(default)]
+    pub cpus: Option<u32>,
+    /// Screen width in pixels (overrides the profile).
+    #[serde(default)]
+    pub width: Option<u32>,
+    /// Screen height in pixels (overrides the profile).
+    #[serde(default)]
+    pub height: Option<u32>,
+    /// Screen density in dpi (overrides the profile).
+    #[serde(default)]
+    pub density: Option<u32>,
+    /// Data partition size in MB (overrides the profile).
+    #[serde(default)]
+    pub data_mb: Option<u32>,
+    /// Play Android audio on the host; defaults to the selected profile.
+    #[serde(default)]
+    pub audio: Option<bool>,
+    /// Default: the `default_root_mode` setting (`adb` unless changed), or
+    /// `none` when that is `adb` and the image doesn't allow adb root (D7).
+    #[serde(default)]
+    pub root_mode: Option<RootMode>,
+    /// Agents may run destructive commands on it (D5).
+    #[serde(default)]
+    pub agent_owned: Option<bool>,
+}
+
+/// `settings.set`: only the given fields change.
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SettingsParams {
+    /// Root mode for `device.create` without `root_mode`.
+    #[serde(default)]
+    pub default_root_mode: Option<RootMode>,
+    /// Save a quick-boot snapshot on stop (D29); from each device's next start.
+    #[serde(default)]
+    pub quick_boot: Option<bool>,
+    /// Share of host RAM running devices may use, 10–100 percent (D42).
+    #[serde(default)]
+    pub budget_percent: Option<u8>,
+    /// Hibernate running devices idle this many minutes; 0 = off.
+    #[serde(default)]
+    pub auto_hibernate_minutes: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct EditParams {
+    /// Device name or id.
+    pub device: String,
+    /// New name.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// RAM in MB (overrides the profile).
+    #[serde(default)]
+    pub ram_mb: Option<u32>,
+    /// Virtual CPU cores (overrides the profile).
+    #[serde(default)]
+    pub cpus: Option<u32>,
+    /// Screen width in pixels (overrides the profile).
+    #[serde(default)]
+    pub width: Option<u32>,
+    /// Screen height in pixels (overrides the profile).
+    #[serde(default)]
+    pub height: Option<u32>,
+    /// Screen density in dpi (overrides the profile).
+    #[serde(default)]
+    pub density: Option<u32>,
+    /// Play Android audio on the host on the next device start.
+    #[serde(default)]
+    pub audio: Option<bool>,
+    #[serde(default)]
+    pub agent_owned: Option<bool>,
+    /// Hibernate this device after so many idle minutes (0 = never); `null`
+    /// follows the `auto_hibernate_minutes` setting.
+    #[serde(default, deserialize_with = "some_or_null")]
+    pub auto_hibernate_minutes: Option<Option<u32>>,
+    /// Per-device quick boot; null follows the global setting.
+    #[serde(default, deserialize_with = "some_bool_or_null")]
+    pub quick_boot: Option<Option<bool>>,
+    /// Camera source for the next start; `default` uses the emulator default.
+    #[serde(default)]
+    pub camera_back: Option<String>,
+    /// Front camera source for the next start.
+    #[serde(default)]
+    pub camera_front: Option<String>,
+}
+
+fn some_bool_or_null<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> Result<Option<Option<bool>>, D::Error> {
+    Option::<bool>::deserialize(d).map(Some)
+}
+
+/// `Some(None)` for an explicit `null`, so it can clear a value.
+fn some_or_null<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<u32>>, D::Error> {
+    Option::<u32>::deserialize(d).map(Some)
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CloneParams {
+    /// Device to copy (must be stopped).
+    pub device: String,
+    /// Name of the copy.
+    pub name: String,
+    /// Keep this snapshot (name or id): a copy-on-write clone whose first
+    /// start resumes it, in seconds (D42). Without it the copy cold-boots.
+    #[serde(default)]
+    pub keep_snapshot: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StartParams {
+    /// Device name or id.
+    pub device: String,
+    /// Ignore the quick-boot snapshot.
+    #[serde(default)]
+    pub cold_boot: bool,
+    /// Start even past the host RAM budget (`resource_exhausted` otherwise).
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct InstallParams {
+    pub device: String,
+    /// Path of the APK on this machine.
+    pub apk: PathBuf,
+    /// Replace an installed app (`-r`).
+    #[serde(default = "yes")]
+    pub replace: bool,
+    /// Grant runtime permissions (`-g`).
+    #[serde(default)]
+    pub grant_permissions: bool,
+    /// Allow a version downgrade (`-d`).
+    #[serde(default)]
+    pub downgrade: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PushParams {
+    pub device: String,
+    /// Local file.
+    pub local: PathBuf,
+    /// Device path; default `/sdcard/Download/`.
+    #[serde(default)]
+    pub remote: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PullParams {
+    pub device: String,
+    pub remote: String,
+    pub local: PathBuf,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LogcatDumpParams {
+    pub device: String,
+    /// Only the last N lines.
+    #[serde(default)]
+    pub lines: Option<u32>,
+    /// logcat filter specs, e.g. `["ActivityManager:I", "*:S"]`.
+    #[serde(default)]
+    pub filter: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PackagesParams {
+    /// SDK package paths, e.g. `emulator`, `system-images;android-35;google_apis;arm64-v8a`.
+    pub packages: Vec<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AcceptLicenseParams {
+    /// License id, e.g. `android-sdk-license`.
+    pub id: String,
+    /// SHA-256 of the license text you were shown (from `sdk.licenses`).
+    pub sha256: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ImageListParams {
+    /// Include images that aren't installed (needs network; falls back to
+    /// installed images when offline).
+    #[serde(default = "yes")]
+    pub available: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ImageParams {
+    /// `35`, `35:google_apis` or a full `system-images;…` package.
+    pub image: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CacheImportParams {
+    /// A local file to add to the download cache (e.g. a Magisk APK for offline use).
+    pub path: PathBuf,
+    /// Its expected SHA-256; the import fails if the file doesn't match.
+    #[serde(default)]
+    pub sha256: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CachePruneParams {
+    /// Only remove downloads older than this many days (default: all).
+    #[serde(default)]
+    pub older_than_days: Option<u64>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LogsParams {
+    pub device: String,
+    /// Where to write the zip (default: Jidr's logs folder).
+    #[serde(default)]
+    pub output: Option<PathBuf>,
+}
+
+#[derive(Debug, Serialize, JsonSchema)]
+pub struct DeviceDetails {
+    pub device: Device,
+    pub avd_dir: PathBuf,
+    pub config: BTreeMap<String, String>,
+    /// Bytes on disk used by the device's AVD (D30).
+    pub disk_usage: u64,
+    /// SHA-256 of the image's unmodified `ramdisk.img` in the SDK (gap G14);
+    /// absent when the image isn't installed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pristine_ramdisk_sha256: Option<String>,
+}
+
+// ---- helpers ------------------------------------------------------------
+
+/// The root mode `device.create` uses without `root_mode`: the setting, but
+/// `none` instead of `adb` on images that refuse adb root (Play Store).
+fn default_root(setting: RootMode, image: &ImageRef) -> RootMode {
+    if setting == RootMode::Adb && !image.allows_adb_root() {
+        RootMode::None
+    } else {
+        setting
+    }
+}
+
+/// The folder id of the snapshot a user named: a tag's label in
+/// `<avd>/jidr/snapshots.json` (the snapshot manager's tags), else the name.
+fn snapshot_id_for(avd_dir: &std::path::Path, sel: &str) -> String {
+    let sel = sel.trim();
+    std::fs::read_to_string(avd_dir.join("jidr").join("snapshots.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Map<String, Value>>(&t).ok())
+        .and_then(|tags| {
+            tags.iter()
+                .find(|(_, t)| t.get("label").and_then(Value::as_str) == Some(sel))
+                .map(|(id, _)| id.clone())
+        })
+        .unwrap_or_else(|| sel.to_string())
+}
+
+/// Parses an image selector; the ABI defaults to the host's.
+pub fn parse_image(sel: &str) -> JidrResult<ImageRef> {
+    if sel.starts_with("system-images;") {
+        return ImageRef::parse_package(sel)
+            .ok_or_else(|| JidrError::usage(format!("invalid image package {sel:?}")));
+    }
+    let mut parts = sel.split(':');
+    let api = parts
+        .next()
+        .and_then(|a| a.trim().trim_start_matches("android-").parse().ok())
+        .ok_or_else(|| {
+            JidrError::usage(format!(
+                "invalid image {sel:?}: expected e.g. 35:google_apis"
+            ))
+        })?;
+    let tag = parts
+        .next()
+        .filter(|t| !t.is_empty())
+        .unwrap_or("google_apis")
+        .to_string();
+    let abi = parts
+        .next()
+        .filter(|a| !a.is_empty())
+        .unwrap_or(jidr_sdk::host::host_abi())
+        .to_string();
+    if parts.next().is_some() {
+        return Err(JidrError::usage(format!("invalid image {sel:?}")));
+    }
+    Ok(ImageRef { api, tag, abi })
+}
+
+/// `logcat -d` arguments. logcat applies `-t N` to the raw buffer *before*
+/// tag filtering, so with a filter we dump everything and keep the last N
+/// matching lines ourselves (`tail_lines`).
+pub fn logcat_args(lines: Option<u32>, filter: &[String]) -> Vec<String> {
+    let mut args = Vec::new();
+    if let (Some(n), true) = (lines, filter.is_empty()) {
+        args.extend(["-t".to_string(), n.to_string()]);
+    }
+    args.extend(filter.iter().cloned());
+    args
+}
+
+pub fn tail_lines(text: &str, n: usize) -> String {
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = lines[lines.len().saturating_sub(n)..].join("\n");
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out
+}
+
+pub(crate) fn validate_device_name(name: &str) -> JidrResult<()> {
+    let name = name.trim();
+    if name.is_empty() || name.len() > 64 || name.contains(['/', '\n', '\r']) {
+        return Err(JidrError::usage(
+            "device names are 1–64 characters, without / or newlines",
+        ));
+    }
+    if Uuid::parse_str(name).is_ok() {
+        return Err(JidrError::usage(
+            "a device name can't look like a device id",
+        ));
+    }
+    Ok(())
+}
+
+fn json<T: Serialize>(v: T) -> JidrResult<Value> {
+    serde_json::to_value(v).map_err(|e| JidrError::unexpected(format!("encoding result: {e}")))
+}
+
+fn hw_changes(
+    ram_mb: Option<u32>,
+    cpus: Option<u32>,
+    width: Option<u32>,
+    height: Option<u32>,
+    density: Option<u32>,
+) -> BTreeMap<String, Option<String>> {
+    [
+        ("hw.ramSize", ram_mb),
+        ("hw.cpu.ncore", cpus),
+        ("hw.lcd.width", width),
+        ("hw.lcd.height", height),
+        ("hw.lcd.density", density),
+    ]
+    .into_iter()
+    .filter_map(|(k, v)| v.map(|v| (k.to_string(), Some(v.to_string()))))
+    .collect()
+}
+
+impl CoreProvider {
+    async fn adb(&self, device: &Device) -> JidrResult<Adb> {
+        let info = self.state.connect_info(device.id).await?;
+        Ok(Adb::new(info.adb_path).device(info.adb_serial))
+    }
+
+    async fn repository(&self) -> JidrResult<Repository> {
+        let base = self.state.sdk_repo.clone().unwrap_or_else(repo::repo_base);
+        Fetcher::new()?.repository(&base).await
+    }
+
+    fn cache(&self) -> jidr_sdk::DownloadCache {
+        jidr_sdk::DownloadCache::new(self.state.paths.downloads())
+    }
+
+    fn consent(&self) -> JidrResult<ConsentStore> {
+        ConsentStore::load(self.state.paths.consent_file())
+    }
+
+    /// Installs packages into the private SDK after checking licenses.
+    async fn install_packages(
+        &self,
+        ctx: &CallCtx,
+        repo: &Repository,
+        packages: &[String],
+    ) -> JidrResult<Value> {
+        let pkgs = packages
+            .iter()
+            .map(|p| {
+                repo.latest(p, 0)
+                    .ok_or_else(|| JidrError::not_found(format!("no SDK package {p}")))
+            })
+            .collect::<JidrResult<Vec<_>>>()?;
+        let consent = self.consent()?;
+        let pending = consent.pending(repo, &pkgs)?;
+        if !pending.is_empty() {
+            return Err(JidrError::sdk(format!(
+                "accept these licenses first: {}",
+                pending
+                    .iter()
+                    .map(|p| p.id.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+            .with_data(json!({ "pending_licenses": pending })));
+        }
+        let fetcher = Fetcher::new()?;
+        let sdk = self.state.sdks().private;
+        let n = pkgs.len() as f32;
+        let mut installed = Vec::new();
+        for (i, pkg) in pkgs.iter().enumerate() {
+            let report = |p: jidr_sdk::Progress| {
+                let frac = if p.total > 0 {
+                    p.done as f32 / p.total as f32
+                } else {
+                    0.0
+                };
+                let fraction = Some((i as f32 + frac) / n);
+                let message = format!("{:?} {}", p.phase, p.package);
+                // B5: bytes only while downloading; other phases clear them.
+                if p.phase == jidr_sdk::Phase::Downloading {
+                    ctx.report_bytes(fraction, &message, p.done, p.total);
+                } else {
+                    ctx.report(fraction, &message);
+                }
+            };
+            let dir = jidr_sdk::install(&fetcher, &sdk, repo, &consent, pkg, &report, &ctx.cancel)
+                .await?;
+            installed.push(
+                json!({ "package": pkg.path, "revision": pkg.revision.to_string(), "path": dir }),
+            );
+        }
+        Ok(json!({ "installed": installed }))
+    }
+
+    async fn create(&self, p: CreateParams) -> JidrResult<Value> {
+        validate_device_name(&p.name)?;
+        let name = p.name.trim().to_string();
+        if self.state.with_store(|s| s.name_taken(&name, None)) {
+            return Err(JidrError::usage(format!(
+                "a device named {name:?} already exists"
+            )));
+        }
+        let image = parse_image(&p.image)?;
+        let sdks = self.state.sdks();
+        let sdk = sdks.find_image(&image).cloned().ok_or_else(|| {
+            JidrError::sdk(format!(
+                "{} is not installed; run `jidr image install {}`",
+                image.package(),
+                p.image
+            ))
+        })?;
+        let mut profile = match &p.profile {
+            Some(id) => profiles::find(id)?,
+            None => profiles::default_profile()?,
+        };
+        if let Some(v) = p.ram_mb {
+            profile.ram_mb = v;
+        }
+        if let Some(v) = p.cpus {
+            profile.cpus = v;
+        }
+        if let Some(v) = p.width {
+            profile.width = v;
+        }
+        if let Some(v) = p.height {
+            profile.height = v;
+        }
+        if let Some(v) = p.density {
+            profile.density = v;
+        }
+        if let Some(v) = p.data_mb {
+            if !(2048..=262144).contains(&v) {
+                return Err(JidrError::usage(
+                    "data partition must be between 2 and 256 GB",
+                ));
+            }
+            profile.data_mb = v;
+        }
+        let mode = p
+            .root_mode
+            .unwrap_or_else(|| default_root(self.state.settings().default_root_mode, &image));
+        if mode == RootMode::Adb && !image.allows_adb_root() {
+            return Err(JidrError::usage(format!(
+                "{} images don't allow adb root; use root_mode magisk or none",
+                image.tag
+            )));
+        }
+        let profile_audio = p.audio.unwrap_or(profile.audio);
+        let profile_cameras = (profile.camera_back.clone(), profile.camera_front.clone());
+        let avds = self.state.avds();
+        let avd = self
+            .state
+            .with_store(|s| s.avd_id_for(&name, |id| avds.exists(id)));
+        avds.create(&AvdSpec {
+            name: avd.clone(),
+            display_name: name.clone(),
+            profile: profile.clone(),
+            image: image.clone(),
+            overrides: BTreeMap::new(),
+        })?;
+        let device = Device {
+            id: Uuid::new_v4(),
+            name,
+            avd: avd.clone(),
+            profile: profile.id,
+            image,
+            sdk_root: sdk.root,
+            root: RootState {
+                mode,
+                ..Default::default()
+            },
+            agent_owned: p.agent_owned.unwrap_or(false),
+            created_at: chrono::Utc::now(),
+            launch: LaunchPrefs {
+                audio: (!profile_audio).then_some(false),
+                camera_back: profile_cameras.0,
+                camera_front: profile_cameras.1,
+                ..Default::default()
+            },
+            status: Default::default(),
+            runtime: None,
+            footprint_mb: None,
+            auto_hibernate_minutes: None,
+            base: false,
+            pool_base: None,
+        };
+        if let Err(e) = self.state.with_store(|s| s.insert(device.clone())) {
+            let _ = avds.delete(&avd);
+            return Err(e);
+        }
+        self.state.emit(
+            "device.created",
+            json!({ "device": device.id, "name": device.name }),
+        );
+        json(device)
+    }
+
+    async fn edit(&self, p: EditParams) -> JidrResult<Value> {
+        let d = self.state.device(&p.device).await?;
+        for (camera, front) in [(&p.camera_back, false), (&p.camera_front, true)] {
+            if let Some(camera) = camera
+                && camera != "default"
+                && (!jidr_backend::valid_camera(camera) || (front && camera == "virtualscene"))
+            {
+                return Err(JidrError::usage("invalid camera source"));
+            }
+        }
+        if p.quick_boot.is_some() && d.status.is_active() {
+            return Err(JidrError::busy(
+                "stop the device before changing quick boot",
+            ));
+        }
+        if p.width.is_some_and(|v| !(240..=4096).contains(&v))
+            || p.height.is_some_and(|v| !(240..=4096).contains(&v))
+            || p.density.is_some_and(|v| !(72..=1000).contains(&v))
+        {
+            return Err(JidrError::usage(
+                "screen sides must be 240–4096 pixels and DPI must be 72–1000",
+            ));
+        }
+        let display_changed = p.width.is_some() || p.height.is_some() || p.density.is_some();
+        let changes = hw_changes(p.ram_mb, p.cpus, p.width, p.height, p.density);
+        if !changes.is_empty() {
+            if d.status.is_active() {
+                return Err(JidrError::busy(format!(
+                    "{} is running; stop it to change its hardware",
+                    d.name
+                )));
+            }
+            if display_changed {
+                if matches!(d.status, jidr_core::DeviceStatus::Hibernated)
+                    || d.launch.resume_snapshot.is_some()
+                {
+                    return Err(JidrError::busy(
+                        "resume and stop the device normally before changing its display",
+                    ));
+                }
+                let state = self.state.clone();
+                let backup_device = d.clone();
+                tokio::task::spawn_blocking(move || state.backup_quick_boot(&backup_device))
+                    .await
+                    .map_err(|e| JidrError::unexpected(format!("snapshot backup failed: {e}")))??;
+                // Persist before editing the AVD: a failed configuration write
+                // may cause an extra cold boot, but never load the old state.
+                self.state
+                    .update_device(
+                        d.id,
+                        Box::new(|device| {
+                            device.launch.force_cold_boot = true;
+                        }),
+                    )
+                    .await?;
+            }
+            self.state.avds().edit(&d.avd, &changes)?;
+        }
+        if let Some(name) = &p.name {
+            validate_device_name(name)?;
+            if self.state.with_store(|s| s.name_taken(name, Some(d.id))) {
+                return Err(JidrError::usage(format!(
+                    "a device named {name:?} already exists"
+                )));
+            }
+            self.state.avds().edit(
+                &d.avd,
+                &BTreeMap::from([("avd.ini.displayname".into(), Some(name.clone()))]),
+            )?;
+        }
+        let (name, agent_owned, auto, audio, quick_boot, camera_back, camera_front) = (
+            p.name,
+            p.agent_owned,
+            p.auto_hibernate_minutes,
+            p.audio,
+            p.quick_boot,
+            p.camera_back,
+            p.camera_front,
+        );
+        let d = self
+            .state
+            .update_device(
+                d.id,
+                Box::new(move |d| {
+                    if let Some(n) = name {
+                        d.name = n.trim().to_string();
+                    }
+                    if let Some(a) = agent_owned {
+                        d.agent_owned = a;
+                    }
+                    if let Some(m) = auto {
+                        d.auto_hibernate_minutes = m;
+                    }
+                    if let Some(enabled) = audio {
+                        d.launch.audio = Some(enabled);
+                    }
+                    if let Some(quick_boot) = quick_boot {
+                        d.launch.quick_boot = quick_boot;
+                    }
+                    for (flag, value, target) in [
+                        ("-camera-back", camera_back, &mut d.launch.camera_back),
+                        ("-camera-front", camera_front, &mut d.launch.camera_front),
+                    ] {
+                        if let Some(value) = value {
+                            let mut args = d.launch.extra_args.drain(..);
+                            let mut retained = Vec::new();
+                            while let Some(arg) = args.next() {
+                                if arg == flag {
+                                    args.next();
+                                } else {
+                                    retained.push(arg);
+                                }
+                            }
+                            drop(args);
+                            d.launch.extra_args = retained;
+                            *target = (value != "default").then_some(value);
+                        }
+                    }
+                }),
+            )
+            .await?;
+        json(d)
+    }
+
+    async fn clone_device(&self, p: CloneParams) -> JidrResult<Value> {
+        let src = self.state.device(&p.device).await?;
+        if src.status.is_active() {
+            return Err(JidrError::busy(format!(
+                "{} is running; stop it before cloning",
+                src.name
+            )));
+        }
+        validate_device_name(&p.name)?;
+        let name = p.name.trim().to_string();
+        if self.state.with_store(|s| s.name_taken(&name, None)) {
+            return Err(JidrError::usage(format!(
+                "a device named {name:?} already exists"
+            )));
+        }
+        let avds = self.state.avds();
+        let avd = self
+            .state
+            .with_store(|s| s.avd_id_for(&name, |id| avds.exists(id)));
+        let src_dir = avds.dir(&src.avd);
+        let kept = match &p.keep_snapshot {
+            Some(sel) => {
+                let id = snapshot_id_for(&src_dir, sel);
+                avds.clone_with_snapshot(&src.avd, &avd, &name, &id)?;
+                Some(id)
+            }
+            None => {
+                avds.clone_avd(&src.avd, &avd, &name)?;
+                None
+            }
+        };
+        let dst_dir = avds.dir(&avd);
+        let mut launch = src.launch.clone();
+        // Per-device files (e.g. a patched ramdisk) move with the copy.
+        if let Some(r) = &launch.ramdisk
+            && let Ok(rel) = r.strip_prefix(&src_dir)
+        {
+            launch.ramdisk = Some(dst_dir.join(rel));
+        }
+        let mut root = src.root.clone();
+        if let Some(r) = &root.patched_ramdisk_path
+            && let Ok(rel) = r.strip_prefix(&src_dir)
+        {
+            root.patched_ramdisk_path = Some(dst_dir.join(rel));
+        }
+        launch.force_cold_boot = kept.is_none();
+        launch.resume_snapshot = kept;
+        let device = Device {
+            id: Uuid::new_v4(),
+            name,
+            avd: avd.clone(),
+            created_at: chrono::Utc::now(),
+            launch,
+            root,
+            status: Default::default(),
+            runtime: None,
+            footprint_mb: src.footprint_mb,
+            base: false,
+            pool_base: None,
+            ..src
+        };
+        if let Err(e) = self.state.with_store(|s| s.insert(device.clone())) {
+            let _ = avds.delete(&avd);
+            return Err(e);
+        }
+        self.state.emit(
+            "device.created",
+            json!({ "device": device.id, "name": device.name }),
+        );
+        json(device)
+    }
+
+    async fn reset(&self, p: DeviceParams) -> JidrResult<Value> {
+        let d = self.state.device(&p.device).await?;
+        if d.status.is_active() {
+            self.state.stop_device(d.id).await?;
+        }
+        self.state.avds().factory_reset(&d.avd)?;
+        let d = self
+            .state
+            .update_device(
+                d.id,
+                Box::new(|d| {
+                    d.launch.force_cold_boot = true;
+                    // The wipe took the hibernate snapshot with it.
+                    d.launch.resume_snapshot = None;
+                    if matches!(d.status, jidr_core::DeviceStatus::Hibernated) {
+                        d.status = jidr_core::DeviceStatus::Stopped;
+                    }
+                }),
+            )
+            .await?;
+        json(d)
+    }
+
+    async fn delete(&self, p: DeviceParams) -> JidrResult<Value> {
+        let d = self.state.device(&p.device).await?;
+        if d.status.is_active() {
+            self.state.stop_device(d.id).await?;
+        }
+        let avds = self.state.avds();
+        if avds.exists(&d.avd) {
+            avds.delete(&d.avd)?;
+        }
+        self.state.with_store(|s| s.remove(d.id))?;
+        self.state
+            .emit("device.deleted", json!({ "device": d.id, "name": d.name }));
+        Ok(json!({ "deleted": d.id, "name": d.name }))
+    }
+
+    async fn details(&self, p: DeviceParams) -> JidrResult<Value> {
+        let device = self.state.device(&p.device).await?;
+        let state = self.state.clone();
+        tokio::task::spawn_blocking(move || {
+            let avds = state.avds();
+            let config = avds
+                .config(&device.avd)
+                .map(|c| c.entries())
+                .unwrap_or_default();
+            let disk_usage = avds.disk_usage(&device.avd).unwrap_or(0);
+            let pristine_ramdisk_sha256 =
+                jidr_sdk::pristine_ramdisk_sha256(&state.sdks(), &device.image);
+            json(DeviceDetails {
+                avd_dir: avds.dir(&device.avd),
+                device,
+                config,
+                disk_usage,
+                pristine_ramdisk_sha256,
+            })
+        })
+        .await
+        .map_err(|e| JidrError::unexpected(format!("reading device details: {e}")))?
+    }
+
+    async fn image_list(&self, p: ImageListParams) -> JidrResult<Value> {
+        let repo = if p.available {
+            match self.repository().await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!("offline image list: {e}");
+                    Repository::default()
+                }
+            }
+        } else {
+            Repository::default()
+        };
+        json(jidr_sdk::image_catalog(
+            &repo,
+            &self.state.sdks(),
+            &CatalogFilter::default(),
+        ))
+    }
+
+    async fn image_install(&self, ctx: &CallCtx, p: ImageParams) -> JidrResult<Value> {
+        let image = parse_image(&p.image)?;
+        let mut packages = Vec::new();
+        let sdks = self.state.sdks();
+        if sdks
+            .studio
+            .as_ref()
+            .is_some_and(|s| s.kind == jidr_sdk::SdkKind::ConfiguredReadOnly)
+        {
+            // An explicitly selected SDK must not silently trigger an
+            // installation to a different location when it disappears.
+            sdks.tools()?;
+        } else if sdks.tools().is_err() {
+            packages.extend(["emulator".to_string(), "platform-tools".to_string()]);
+        }
+        if sdks.find_image(&image).is_none() {
+            packages.push(image.package());
+        }
+        if packages.is_empty() {
+            return Ok(
+                json!({ "installed": [], "message": format!("{} is already installed", image.package()) }),
+            );
+        }
+        let repo = self.repository().await?;
+        self.install_packages(ctx, &repo, &packages).await
+    }
+
+    async fn sdk_status(&self) -> JidrResult<Value> {
+        let state = self.state.clone();
+        tokio::task::spawn_blocking(move || {
+            let sdks = state.sdks();
+            let tools = sdks.tools().ok().cloned();
+            Ok(json!({
+                "private_sdk": sdks.private.root,
+                "studio_sdk": sdks.studio.as_ref().map(|s| &s.root),
+                "tools_sdk": tools.as_ref().map(|s| &s.root),
+                "emulator_version": tools.as_ref().and_then(|s| s.emulator_version()),
+                "hypervisor": jidr_sdk::host::hypervisor_available(),
+                "host_abi": jidr_sdk::host::host_abi(),
+                "free_bytes": jidr_sdk::host::free_space(&state.paths.data).unwrap_or(0),
+                "installed_images": sdks.private.installed_images().into_iter()
+                    .chain(sdks.studio.iter().flat_map(|s| s.installed_images()))
+                    .map(|i| i.package()).collect::<Vec<_>>(),
+            }))
+        })
+        .await
+        .map_err(|e| JidrError::unexpected(format!("checking SDK status: {e}")))?
+    }
+}
+
+#[async_trait]
+impl CommandProvider for CoreProvider {
+    fn name(&self) -> &str {
+        "core"
+    }
+
+    fn commands(&self) -> Vec<CommandSpec> {
+        vec![
+            CommandSpec::new::<NoParams>(
+                "daemon.status",
+                "Daemon version, uptime and device counts",
+            ),
+            CommandSpec::new::<NoParams>(
+                "host.budget",
+                "Host RAM, the device budget and what each running device uses",
+            ),
+            CommandSpec::new::<NoParams>(
+                "sdk.status",
+                "Where the SDKs are, emulator version, hypervisor, free disk",
+            ),
+            CommandSpec::new::<PackagesParams>(
+                "sdk.licenses",
+                "Licenses still to accept before installing packages, with their text",
+            ),
+            CommandSpec::new::<AcceptLicenseParams>(
+                "sdk.accept_license",
+                "Record consent to a license text by its SHA-256 (D8)",
+            ),
+            CommandSpec::new::<PackagesParams>(
+                "sdk.install",
+                "Install SDK packages into Jidr's private SDK",
+            )
+            .long_running(),
+            CommandSpec::new::<ImageListParams>(
+                "image.list",
+                "System images for this host, installed or available",
+            ),
+            CommandSpec::new::<ImageParams>(
+                "image.install",
+                "Install a system image (and the emulator if missing)",
+            )
+            .long_running(),
+            CommandSpec::new::<NoParams>("profile.list", "Built-in hardware profiles"),
+            CommandSpec::new::<CreateParams>(
+                "device.create",
+                "Create a device from a profile and a system image",
+            ),
+            CommandSpec::new::<EditParams>(
+                "device.edit",
+                "Rename a device or change its hardware (stopped)",
+            )
+            .locks_device(),
+            CommandSpec::new::<CloneParams>(
+                "device.clone",
+                "Copy a stopped device under a new name; keep_snapshot makes a copy-on-write clone that resumes that snapshot",
+            )
+            .locks_device(),
+            CommandSpec::new::<StartParams>(
+                "device.start",
+                "Start a device and wait until it has booted",
+            )
+            .long_running()
+            .locks_device(),
+            CommandSpec::new::<DeviceParams>(
+                "device.stop",
+                "Stop a device, saving its quick-boot state",
+            )
+            .locks_device(),
+            CommandSpec::new::<DeviceParams>(
+                "device.hibernate",
+                "Save a running device's whole state and stop it; device.start resumes it in seconds",
+            )
+            .long_running()
+            .locks_device(),
+            CommandSpec::new::<DeviceParams>("device.reset", "Factory reset: wipe all user data")
+                .destructive()
+                .locks_device(),
+            CommandSpec::new::<DeviceParams>("device.delete", "Delete a device and its data")
+                .destructive()
+                .locks_device(),
+            CommandSpec::new::<NoParams>("device.list", "All devices with their status"),
+            CommandSpec::new::<DeviceParams>(
+                "device.details",
+                "A device's settings, config.ini, status and disk usage",
+            ),
+            CommandSpec::new::<DeviceParams>(
+                "device.connect_info",
+                "gRPC endpoint, token and adb serial of a running device",
+            ),
+            CommandSpec::new::<InstallParams>("file.install", "Install an APK on a running device")
+                .locks_device(),
+            CommandSpec::new::<PushParams>(
+                "file.push",
+                "Copy a file to a running device (default /sdcard/Download/)",
+            ),
+            CommandSpec::new::<PullParams>("file.pull", "Copy a file from a running device"),
+            CommandSpec::new::<LogcatDumpParams>("logcat.dump", "Dump the device log"),
+            CommandSpec::new::<DeviceParams>("logcat.clear", "Clear the device log"),
+            CommandSpec::new::<LogsParams>(
+                "device.logs",
+                "Zip a device's settings, emulator and crash logs and logcat for a bug report",
+            ),
+            CommandSpec::new::<NoParams>("cache.list", "Files in the download cache (by SHA-256)"),
+            CommandSpec::new::<CacheImportParams>(
+                "cache.import",
+                "Add a local file to the download cache (offline Magisk, D30)",
+            ),
+            CommandSpec::new::<CachePruneParams>(
+                "cache.prune",
+                "Delete cached downloads (they're downloaded again when needed)",
+            ),
+            CommandSpec::new::<NoParams>(
+                "settings.get",
+                "Daemon-wide settings: default root mode, quick boot on stop, RAM budget, auto-hibernate",
+            ),
+            CommandSpec::new::<SettingsParams>(
+                "settings.set",
+                "Change daemon-wide settings (only the fields given)",
+            ),
+        ]
+    }
+
+    async fn call(&self, ctx: &CallCtx, method: &str, params: Value) -> JidrResult<Value> {
+        match method {
+            "daemon.status" => {
+                parse_params::<NoParams>(params)?;
+                let devices = self.state.devices().await;
+                Ok(json!({
+                    "version": env!("CARGO_PKG_VERSION"),
+                    "protocol": crate::rpc::PROTOCOL_VERSION,
+                    "pid": std::process::id(),
+                    "uptime_s": self.state.started_at.elapsed().as_secs(),
+                    "devices": devices.len(),
+                    "running": self.state.running_count(),
+                    "socket": self.state.paths.socket(),
+                }))
+            }
+            "sdk.status" => {
+                parse_params::<NoParams>(params)?;
+                self.sdk_status().await
+            }
+            "host.budget" => {
+                parse_params::<NoParams>(params)?;
+                json(self.state.budget()?)
+            }
+            "sdk.licenses" => {
+                let p: PackagesParams = parse_params(params)?;
+                let repo = self.repository().await?;
+                let pkgs = p
+                    .packages
+                    .iter()
+                    .map(|n| {
+                        repo.latest(n, 0)
+                            .ok_or_else(|| JidrError::not_found(format!("no SDK package {n}")))
+                    })
+                    .collect::<JidrResult<Vec<_>>>()?;
+                json(self.consent()?.pending(&repo, &pkgs)?)
+            }
+            "sdk.accept_license" => {
+                let p: AcceptLicenseParams = parse_params(params)?;
+                let repo = self.repository().await?;
+                json(self.consent()?.accept_hash(&repo, &p.id, &p.sha256)?)
+            }
+            "sdk.install" => {
+                let p: PackagesParams = parse_params(params)?;
+                let repo = self.repository().await?;
+                self.install_packages(ctx, &repo, &p.packages).await
+            }
+            "image.list" => self.image_list(parse_params(params)?).await,
+            "image.install" => self.image_install(ctx, parse_params(params)?).await,
+            "profile.list" => {
+                parse_params::<NoParams>(params)?;
+                json(profiles::builtin())
+            }
+            "device.create" => self.create(parse_params(params)?).await,
+            "device.edit" => self.edit(parse_params(params)?).await,
+            "device.clone" => self.clone_device(parse_params(params)?).await,
+            "device.start" => {
+                let p: StartParams = parse_params(params)?;
+                let d = self.state.device(&p.device).await?;
+                json(
+                    self.state
+                        .start_admitted(d.id, p.cold_boot, p.force, &ctx.cancel)
+                        .await?,
+                )
+            }
+            "device.stop" => {
+                let p: DeviceParams = parse_params(params)?;
+                let d = self.state.device(&p.device).await?;
+                json(self.state.stop_device(d.id).await?)
+            }
+            "device.hibernate" => {
+                let p: DeviceParams = parse_params(params)?;
+                let d = self.state.device(&p.device).await?;
+                ctx.report(None, "Saving memory and disk");
+                json(self.state.hibernate(d.id).await?)
+            }
+            "device.reset" => self.reset(parse_params(params)?).await,
+            "device.delete" => self.delete(parse_params(params)?).await,
+            "device.list" => {
+                parse_params::<NoParams>(params)?;
+                json(self.state.devices().await)
+            }
+            "device.details" => self.details(parse_params(params)?).await,
+            "settings.get" => {
+                parse_params::<NoParams>(params)?;
+                json(self.state.settings())
+            }
+            "settings.set" => {
+                let p: SettingsParams = parse_params(params)?;
+                if let Some(b) = p.budget_percent
+                    && !(10..=100).contains(&b)
+                {
+                    return Err(JidrError::usage("budget_percent must be 10–100"));
+                }
+                json(self.state.update_settings(|s| {
+                    if let Some(b) = p.budget_percent {
+                        s.budget_percent = b;
+                    }
+                    if let Some(m) = p.auto_hibernate_minutes {
+                        s.auto_hibernate_minutes = m;
+                    }
+                    if let Some(m) = p.default_root_mode {
+                        s.default_root_mode = m;
+                    }
+                    if let Some(q) = p.quick_boot {
+                        s.quick_boot = q;
+                    }
+                })?)
+            }
+            "device.connect_info" => {
+                let p: DeviceParams = parse_params(params)?;
+                let d = self.state.device(&p.device).await?;
+                json(self.state.connect_info(d.id).await?)
+            }
+            "file.install" => {
+                let p: InstallParams = parse_params(params)?;
+                let d = self.state.device(&p.device).await?;
+                if !p.apk.is_file() {
+                    return Err(JidrError::usage(format!(
+                        "no such APK: {}",
+                        p.apk.display()
+                    )));
+                }
+                let opts = InstallOptions {
+                    replace: p.replace,
+                    grant_permissions: p.grant_permissions,
+                    downgrade: p.downgrade,
+                };
+                self.adb(&d)
+                    .await?
+                    .with_timeout(Duration::from_secs(600))
+                    .install(&p.apk, opts)
+                    .await?;
+                Ok(json!({ "installed": p.apk }))
+            }
+            "file.push" => {
+                let p: PushParams = parse_params(params)?;
+                let d = self.state.device(&p.device).await?;
+                let remote = p.remote.unwrap_or_else(|| "/sdcard/Download/".into());
+                self.adb(&d)
+                    .await?
+                    .with_timeout(Duration::from_secs(600))
+                    .push(&p.local, &remote)
+                    .await?;
+                Ok(json!({ "pushed": p.local, "remote": remote }))
+            }
+            "file.pull" => {
+                let p: PullParams = parse_params(params)?;
+                let d = self.state.device(&p.device).await?;
+                self.adb(&d)
+                    .await?
+                    .with_timeout(Duration::from_secs(600))
+                    .pull(&p.remote, &p.local)
+                    .await?;
+                Ok(json!({ "pulled": p.remote, "local": p.local }))
+            }
+            "logcat.dump" => {
+                let p: LogcatDumpParams = parse_params(params)?;
+                let d = self.state.device(&p.device).await?;
+                let args = logcat_args(p.lines, &p.filter);
+                let args: Vec<&str> = args.iter().map(String::as_str).collect();
+                let text = self.adb(&d).await?.logcat_dump(&args).await?;
+                let text = match (p.lines, p.filter.is_empty()) {
+                    (Some(n), false) => tail_lines(&text, n as usize),
+                    _ => text,
+                };
+                Ok(json!({ "text": text }))
+            }
+            "device.logs" => {
+                let p: LogsParams = parse_params(params)?;
+                let d = self.state.device(&p.device).await?;
+                let logcat = match self.adb(&d).await {
+                    Ok(adb) => adb
+                        .with_timeout(Duration::from_secs(30))
+                        .logcat_dump(&[])
+                        .await
+                        .ok(),
+                    Err(_) => None,
+                };
+                let out = p.output.unwrap_or_else(|| {
+                    self.state.paths.logs.join(format!(
+                        "{}-logs-{}.zip",
+                        d.avd,
+                        chrono::Utc::now().format("%Y%m%d-%H%M%S")
+                    ))
+                });
+                let files = crate::bundle::write_bundle(
+                    &out,
+                    &d,
+                    &self.state.avds().dir(&d.avd),
+                    &self.state.paths.device_logs(&d.avd),
+                    logcat.as_deref(),
+                )?;
+                Ok(json!({ "path": out, "files": files }))
+            }
+            "cache.list" => {
+                parse_params::<NoParams>(params)?;
+                json(self.cache().list())
+            }
+            "cache.import" => {
+                let p: CacheImportParams = parse_params(params)?;
+                json(self.cache().import(&p.path, p.sha256.as_deref())?)
+            }
+            "cache.prune" => {
+                let p: CachePruneParams = parse_params(params)?;
+                let age = p.older_than_days.map(|d| Duration::from_secs(d * 86_400));
+                json(self.cache().prune(age))
+            }
+            "logcat.clear" => {
+                let p: DeviceParams = parse_params(params)?;
+                let d = self.state.device(&p.device).await?;
+                self.adb(&d).await?.logcat_clear().await?;
+                Ok(json!({ "cleared": true }))
+            }
+            other => Err(JidrError::usage(format!(
+                "core provider has no command {other}"
+            ))),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn image_selectors() {
+        let host = jidr_sdk::host::host_abi();
+        assert_eq!(
+            parse_image("35").unwrap(),
+            ImageRef {
+                api: 35,
+                tag: "google_apis".into(),
+                abi: host.into()
+            }
+        );
+        assert_eq!(parse_image("33:default").unwrap().tag, "default");
+        assert_eq!(parse_image("34:google_apis:x86_64").unwrap().abi, "x86_64");
+        assert_eq!(
+            parse_image("system-images;android-31;google_apis_playstore;arm64-v8a")
+                .unwrap()
+                .tag,
+            "google_apis_playstore"
+        );
+        for bad in ["", "x", "35:a:b:c", "system-images;nope"] {
+            assert!(parse_image(bad).is_err(), "{bad}");
+        }
+    }
+
+    /// Regression: `logcat -d -t 500 Tag:I *:S` applies the 500 to the raw
+    /// buffer first, so a filtered tail came back empty on a busy device.
+    #[test]
+    fn filtered_logcat_tails_after_filtering() {
+        let f = vec!["ActivityManager:I".to_string(), "*:S".to_string()];
+        assert_eq!(logcat_args(Some(500), &f), f, "no -t with a filter");
+        assert_eq!(logcat_args(Some(50), &[]), vec!["-t", "50"]);
+        assert!(logcat_args(None, &[]).is_empty());
+        assert_eq!(tail_lines("a\nb\nc\n", 2), "b\nc\n");
+        assert_eq!(tail_lines("a\n", 5), "a\n");
+        assert_eq!(tail_lines("", 5), "");
+    }
+
+    #[test]
+    fn device_names() {
+        validate_device_name("My phone 6.1″").unwrap();
+        for bad in [
+            "",
+            "   ",
+            "a/b",
+            &"x".repeat(65),
+            "6f9619ff-8b86-d011-b42d-00cf4fc964ff",
+        ] {
+            assert!(validate_device_name(bad).is_err(), "{bad}");
+        }
+    }
+}

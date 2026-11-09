@@ -1,0 +1,223 @@
+//! Network widget: Wi-Fi on/off (`svc wifi`), mobile data on/off (console
+//! `gsm data`), speed and delay profiles (console `network speed/delay`)
+//! and the global HTTP proxy (`settings global http_proxy`, [`proxy`]).
+//!
+//! Mobile data is switched at the emulated radio, not with Android's own
+//! switch: `svc data` / `cmd phone data` exit 0 and change nothing on the
+//! API 35 images (CI run 38625267538), while the console works on every image.
+//! Android's Quick Settings switch stays as it was; the device just has no
+//! mobile data network, as when it loses coverage.
+
+use jidr_backend::console::GsmLine;
+use jidr_core::provider::{CallCtx, CommandSpec, DeviceParams, parse_params};
+use jidr_core::{JidrError, JidrResult};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+
+use crate::device::target;
+
+pub mod proxy;
+
+/// Named profiles (speed + latency pairs from the console's own tables).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum Profile {
+    /// No throttling.
+    Full,
+    /// LTE speed, no added delay.
+    Lte,
+    /// HSDPA (3.5G).
+    Hsdpa,
+    /// UMTS (3G) speed and delay.
+    Umts,
+    /// EDGE (2.5G) speed and delay.
+    Edge,
+    /// GPRS speed, GSM delay.
+    Gprs,
+    /// GSM (2G) speed and delay.
+    Gsm,
+}
+
+impl Profile {
+    /// (console `network speed`, console `network delay`).
+    pub fn console(self) -> (&'static str, &'static str) {
+        match self {
+            Profile::Full => ("full", "none"),
+            Profile::Lte => ("lte", "none"),
+            Profile::Hsdpa => ("hsdpa", "umts"),
+            Profile::Umts => ("umts", "umts"),
+            Profile::Edge => ("edge", "edge"),
+            Profile::Gprs => ("gprs", "gsm"),
+            Profile::Gsm => ("gsm", "gsm"),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetParams {
+    pub device: String,
+    #[serde(default)]
+    pub wifi: Option<bool>,
+    /// Mobile data.
+    #[serde(default)]
+    pub mobile: Option<bool>,
+    #[serde(default)]
+    pub profile: Option<Profile>,
+}
+
+pub fn specs() -> Vec<CommandSpec> {
+    vec![
+        CommandSpec::new::<DeviceParams>("network.get", "Wi-Fi, mobile data and speed profile"),
+        CommandSpec::new::<SetParams>(
+            "network.set",
+            "Turn Wi-Fi or mobile data on/off and set the speed/delay profile",
+        ),
+        CommandSpec::new::<DeviceParams>(
+            "network.proxy.get",
+            "The device's global HTTP proxy, or null when there is none",
+        ),
+        CommandSpec::new::<proxy::SetParams>(
+            "network.proxy.set",
+            "Send the device's HTTP(S) traffic through a proxy (10.0.2.2 is this Mac), e.g. Burp or mitmproxy",
+        ),
+        CommandSpec::new::<DeviceParams>(
+            "network.proxy.clear",
+            "Remove the device's global HTTP proxy",
+        ),
+    ]
+}
+
+fn on_off(v: bool) -> &'static str {
+    if v { "enable" } else { "disable" }
+}
+
+/// Whether the emulated radio has mobile data, from the console's
+/// `gsm status` reply (`gsm data state:  home`): registered at home or roaming.
+fn mobile_data_on(gsm_status: &[String]) -> Option<bool> {
+    let state = gsm_status
+        .iter()
+        .find_map(|l| l.trim().strip_prefix("gsm data state:"))?
+        .trim();
+    Some(matches!(state, "home" | "roaming"))
+}
+
+/// Did the radio take `gsm data on|off`? `false` when `gsm status` shows
+/// the other state or no data state at all.
+fn radio_took(want: bool, gsm_status: &[String]) -> bool {
+    mobile_data_on(gsm_status) == Some(want)
+}
+
+pub async fn call(ctx: &CallCtx, method: &str, params: Value) -> JidrResult<Value> {
+    match method {
+        "network.proxy.get" => {
+            let p: DeviceParams = parse_params(params)?;
+            proxy::get(&target(ctx, &p.device).await?.adb()).await
+        }
+        "network.proxy.set" => {
+            let p: proxy::SetParams = parse_params(params)?;
+            // Refuse a bad host or port before looking for the device.
+            let host = proxy::check(&p.host, p.port)?;
+            proxy::set(&target(ctx, &p.device).await?.adb(), host, p.port).await
+        }
+        "network.proxy.clear" => {
+            let p: DeviceParams = parse_params(params)?;
+            proxy::clear(&target(ctx, &p.device).await?.adb()).await
+        }
+        "network.get" => {
+            let p: DeviceParams = parse_params(params)?;
+            let t = target(ctx, &p.device).await?;
+            let adb = t.adb();
+            let wifi = adb.shell("settings get global wifi_on").await?.trim() == "1";
+            let gsm = t.console_cmd("gsm status").await?;
+            let mobile = mobile_data_on(&gsm).ok_or_else(|| {
+                JidrError::unexpected(format!("no data state in `gsm status`: {gsm:?}"))
+            })?;
+            let status = t.console_cmd("network status").await.unwrap_or_default();
+            Ok(json!({ "wifi": wifi, "mobile": mobile, "status": status }))
+        }
+        "network.set" => {
+            let p: SetParams = parse_params(params)?;
+            if p.wifi.is_none() && p.mobile.is_none() && p.profile.is_none() {
+                return Err(JidrError::usage("give wifi, mobile or profile"));
+            }
+            let t = target(ctx, &p.device).await?;
+            let adb = t.adb();
+            if let Some(w) = p.wifi {
+                adb.shell(&format!("svc wifi {}", on_off(w))).await?;
+            }
+            if p.mobile.is_some() || p.profile.is_some() {
+                let mut c = t.console().await?;
+                if let Some(m) = p.mobile {
+                    // Check the radio took it, and send it once more if not
+                    // (API 33 CI once kept data registered after `gsm data off`).
+                    let mut status = Vec::new();
+                    for _ in 0..2 {
+                        c.gsm_state(GsmLine::Data, if m { "home" } else { "off" })
+                            .await?;
+                        status = c.command("gsm status").await?;
+                        if radio_took(m, &status) {
+                            break;
+                        }
+                    }
+                    if !radio_took(m, &status) {
+                        return Err(JidrError::sdk(format!(
+                            "the emulated radio didn't turn mobile data {}: {status:?}",
+                            on_off(m)
+                        )));
+                    }
+                }
+                if let Some(pr) = p.profile {
+                    let (speed, delay) = pr.console();
+                    c.network_speed(speed).await?;
+                    c.network_delay(delay).await?;
+                }
+            }
+            Ok(json!({ "wifi": p.wifi, "mobile": p.mobile, "profile": p.profile }))
+        }
+        _ => Err(JidrError::usage(format!("unknown method {method}"))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn profiles_map_to_console_tables() {
+        assert_eq!(Profile::Edge.console(), ("edge", "edge"));
+        assert_eq!(Profile::Full.console(), ("full", "none"));
+        let p: SetParams = parse_params(json!({"device": "d", "profile": "umts"})).unwrap();
+        assert_eq!(p.profile, Some(Profile::Umts));
+    }
+
+    #[test]
+    fn mobile_data_follows_the_radio_data_state() {
+        let status = |data: &str| {
+            vec![
+                "gsm voice state: home".to_string(),
+                format!("gsm data state:  {data}"),
+            ]
+        };
+        assert_eq!(mobile_data_on(&status("home")), Some(true));
+        assert_eq!(mobile_data_on(&status("roaming")), Some(true));
+        assert_eq!(mobile_data_on(&status("off")), Some(false));
+        assert_eq!(mobile_data_on(&status("unregistered")), Some(false));
+        assert_eq!(mobile_data_on(&["OK".to_string()]), None);
+    }
+
+    /// Regression (API 33 CI, PR #10/#11): data stayed registered after
+    /// `gsm data off`; network.set now checks `gsm status` and resends.
+    #[test]
+    fn network_set_checks_the_radio_took_the_data_state() {
+        let status = |data: &str| vec![format!("gsm data state:  {data}")];
+        assert!(radio_took(false, &status("off")));
+        assert!(radio_took(false, &status("unregistered")));
+        assert!(!radio_took(false, &status("home")));
+        assert!(radio_took(true, &status("roaming")));
+        assert!(!radio_took(true, &status("off")));
+        assert!(!radio_took(true, &["KO: unknown".to_string()]));
+        assert!(!radio_took(false, &[]));
+    }
+}
