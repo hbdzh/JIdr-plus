@@ -1,115 +1,63 @@
-# Jidr (جذر)
+# JIdr Plus
 
-Android on your Mac, rooted in a minute.
+JIdr Plus 是基于开源项目 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr) 的 macOS 安卓模拟器项目。本仓库在原项目基础上改进设备中心、独立游戏窗口和中文使用体验，同时保留原项目的 Rust 后台、命令行工具和 MCP 服务。
 
-[![Latest release](https://img.shields.io/github/v/release/AbdurahmanAlmehdi/jidr)](https://github.com/AbdurahmanAlmehdi/jidr/releases/latest)
-![macOS 14+ on Apple Silicon](https://img.shields.io/badge/macOS_14%2B-Apple_Silicon-black)
+目前界面使用 **Slint**，SwiftUI 尚处于可行性验证阶段。项目仍在开发中，建议在更新软件或调整设备配置前保存游戏进度。
 
-Jidr creates and runs virtual Android phones and tablets on Apple Silicon Macs. Pick **Full root** and Magisk is patched in and verified for you; pick **Shell root** for `adb root`; or keep the device stock. It's a free, open-source alternative to Genymotion Desktop, written in Rust, with a desktop app, a CLI and an MCP server for AI agents.
+## 主要功能
 
-```bash
-brew install --cask abdurahmanalmehdi/tap/jidr
-```
+- **设备中心**：查看、启动、停止和管理设备，配置 CPU、内存、分辨率和屏幕密度。
+- **独立游戏窗口**：适配横竖屏，提供导航、音量、旋转、截图、全屏和侧栏控制。
+- **游戏与应用**：查看运行中设备已安装的可启动应用，支持启动应用和安装 APK。
+- **电脑输入**：支持鼠标触控、键盘输入、中文输入法和常见文本编辑快捷键；文本输入与粘贴效果取决于安卓应用是否支持相应操作。
+- **基础键位映射**：添加屏幕点击位置、绑定按键、保存设备方案并显示提示。
+- **截图和快照**：提供截图、录屏与快照管理；退出应用时会尝试安全停止运行中的设备。
+- **SDK 和工具路径**：设置中可选择 Android SDK 等工具路径。JDK 路径供需要它的工具使用，JIdr 本身目前不要求安装 JDK。
+- **开发工具**：保留 CLI、MCP、Root 和设备管理等上游功能。Root 及第三方组件需遵守各自许可。
 
-Or [download the DMG](https://github.com/AbdurahmanAlmehdi/jidr/releases/latest). Site: [jidr.ly](https://jidr.ly). News: [@Jidr_ly on X](https://x.com/Jidr_ly).
+### 数据迁移现状
 
-![Jidr in 25 seconds: create an API 35 device with Full root, watch Magisk 30.7 get patched and verified, then su -c id and frida-ps from the terminal](docs/images/demo.gif)
+设置中的数据位置入口目前**只保存目标位置并进行初步检查，不会迁移设备数据或快照**。迁移功能尚未开放；请勿因为选择了新位置就删除原有数据。具体设计见 [存储迁移设计](docs/storage-migration-design.md)。
 
-## Features
+## 系统要求
 
-- **Devices:** create, clone, start, stop and delete virtual devices from Google's emulator images (API 29–36, arm64). Jidr keeps its own SDK and never modifies Android Studio's SDK or AVDs.
-- **One-click root:** None, Shell root (`adb root`) or Full root (Magisk, patched into a per-device copy of the ramdisk and verified with `su -c id`). Revert at any time. Play Store images get a guided beta.
-- **Player window:** the device screen with mouse and keyboard input, drag-and-drop for APKs and files, and logcat.
-- **Game window:** open a running device with **Game window** in the Library (or the external-window icon in its player). A separate compact window keeps its device binding while you use the Library or open other devices. The screen fits without cropping and follows portrait or landscape rotation; its side bar provides navigation, volume, rotation, screenshots and fullscreen. Close the window to end its display session without stopping the device.
-- **Installed games and apps:** the device center lists launchable user-installed apps for the selected running device; click an item to open it in the game window. Names and PNG icons are read from the APK's small metadata files using SDK build tools when available; unavailable resources fall back to package names and a generic icon. Switching devices discards stale results.
-- **Quit:** quitting the app syncs and gracefully stops running devices before ending the daemon. Active jobs or an unverified stop keep the app open so no process is force-killed.
-- **Text editing:** after focusing an Android text field in a game window, use ⌘C / ⌘X / ⌘V for text clipboard operations, ⌘A to select all, ⌘Z to undo and ⇧⌘Z or ⌘Y to redo. Clipboard text is transferred only when you use copy, cut or paste; Android apps must support the relevant editing action.
-- **Mac input methods:** with key mapping disabled, click an Android text field and compose using the Mac input method. Committed text is sent using Android's clipboard; the Mac clipboard is not changed. The message icon also opens a manual text panel for apps that need it. Android fields must support paste.
-- **Window preferences:** the game window remembers position, size, sidebar and pin state per device. The settings icon offers size presets and always-on-top; an off-screen saved position is not restored.
-- **Game-window performance:** the gauge panel shows received frame rate, frame size, sampled emulator memory and an estimated touch-to-next-frame interval. Smooth mode requests a smaller image; clear mode requests the normal resolution. The figures depend on device activity and do not measure full input-to-photon latency.
-- **Game-window file drops:** drop an APK to install it, or another file to copy it to the device's Download folder. ZIP files are copied rather than installed as root modules. Errors and progress are shown in the same device window; incompatible signatures do not cause automatic uninstallation.
-- **Game-window shortcuts:** the help icon lists configurable shortcuts for screenshot, fullscreen, sidebar, performance and text input. Shortcuts are stored per device and separate from game key mappings.
-- **Click mapping:** in a game window, open the keyboard icon, choose **Edit**, click a screen position and press a letter, number or Space. Reassign a key to move it; right-click a marker to remove it. **Save** stores one scheme per device and enables it for the current session. Bindings are specific to the screen rotation; use **Disable** before typing normally. Mapping starts disabled when a window is reopened, and hints can be hidden independently.
-- **Widgets:** battery, rotation and motion sensors, network (Wi-Fi, mobile data, speed and delay profiles), calls, SMS and signal bars, GPS with GPX/KML route replay on an OpenStreetMap map, fingerprint, the host webcam as the camera, clipboard and developer toggles.
-- **Media and state:** PNG screenshots, MP4 recordings, and snapshots tagged with the root mode they were taken in.
-- **Build identity:** set build properties (model, brand, fingerprint…) on Full-root devices.
-- **CLI:** every action is a `jidr` command, with `--json` output and stable exit codes for CI.
-- **MCP server:** `jidr mcp` lets Claude and other MCP clients see and drive a device: screenshot, tap, type, UI tree, logs.
+- Apple Silicon Mac，macOS 14 或更高版本。
+- 安卓 SDK、模拟器和系统镜像需要额外磁盘空间；实际需求取决于镜像、设备、游戏数据和快照大小。
+- 首次安装 Google SDK 组件或系统镜像时，需要由用户本人接受对应许可。
 
-No accounts, no telemetry, no paid tier.
+## 从源码构建
 
-![The Jidr player: a running device, its toolbar, and the battery widget](docs/images/player.png)
-
-## Install
-
-You need macOS 14 or later on Apple Silicon, and about 10 GB of free disk space for the SDK and one system image.
-
-- **Homebrew:** `brew install --cask abdurahmanalmehdi/tap/jidr` installs `Jidr.app` and puts the `jidr` CLI on your `PATH`. Update with `brew upgrade --cask jidr`.
-- **DMG:** download `Jidr-<version>-arm64.dmg` from the [latest release](https://github.com/AbdurahmanAlmehdi/jidr/releases/latest) and drag Jidr to Applications. The CLI is at `/Applications/Jidr.app/Contents/Helpers/jidr`.
-
-On first launch the app finds or downloads the Android SDK and a system image, after you accept Google's license.
-
-## Quick start (CLI)
+本仓库与上游 Jidr 的官方发布包是不同的版本；上游的 Homebrew 包和 DMG 不包含本仓库的改动。当前可从源码构建：
 
 ```bash
-jidr image install 35 --accept-licenses   # download an API 35 image; you accept Google's license
-jidr device create Phone --image 35       # create a device
-jidr device start Phone                   # boot it and wait until it's ready
-jidr root set Phone magisk                # Full root with Magisk, verified
-```
-
-## Use it from an AI agent
-
-Add Jidr to Claude Code as an MCP server:
-
-```bash
-claude mcp add jidr -- jidr mcp
-```
-
-For Claude Desktop, open `jidr-mcp-<version>-darwin-arm64.mcpb` from the [latest release](https://github.com/AbdurahmanAlmehdi/jidr/releases/latest). Jidr is also in the [MCP Registry](https://registry.modelcontextprotocol.io) as `io.github.AbdurahmanAlmehdi/jidr`. [docs/mcp.md](docs/mcp.md) lists the tools.
-
-Agent skills teach Claude Code, Cursor, Codex and other agents to create and drive Jidr devices with the CLI (`jidr`), to test an app on them (`jidr-app-testing`), to get devices of their own without crowding the machine (`jidr-agent-devices`) and to root them, install Magisk modules and intercept HTTPS (`jidr-root`). Install them with the open [skills](https://skills.sh) CLI:
-
-```bash
-npx skills add AbdurahmanAlmehdi/jidr
-```
-
-They live in [skills/](skills/).
-
-## Documentation
-
-- [CLI reference](docs/cli.md)
-- [MCP tools](docs/mcp.md)
-- [Root modes](docs/root.md)
-- [Control protocol](docs/control-protocol.md): the JSON-RPC protocol the app, the CLI and the MCP server share
-- [Design system](docs/design/README.md)
-- [Decisions](docs/decisions/log.md) and [architecture decision records](docs/decisions/)
-- [Feature parity with Genymotion Desktop](docs/parity.md)
-- [Clean-room policy](docs/clean-room.md)
-- [Changelog](CHANGELOG.md)
-
-## Build from source
-
-```bash
-git clone https://github.com/AbdurahmanAlmehdi/jidr
-cd jidr
+git clone https://github.com/hbdzh/JIdr-plus.git
+cd JIdr-plus
 cargo build --release -p jidr -p jidr-gui
 ```
 
-You need `rustup` (it installs the toolchain pinned in `rust-toolchain.toml`) and `protoc` (`brew install protobuf`). [CONTRIBUTING.md](CONTRIBUTING.md) has the full setup and how to run the tests.
+需要安装 [rustup](https://rustup.rs/) 和 `protoc`（例如使用 `brew install protobuf`）。Rust 版本由 [rust-toolchain.toml](rust-toolchain.toml) 指定。构建命令生成二进制文件，并不自动安装 macOS 应用包。
 
-## Licensing
+## 验证
 
-Jidr is split-licensed. The desktop app (`crates/jidr-ui`, `apps/jidr-gui`) is **GPL-3.0-only** because it links Slint. Everything else (CLI, daemon, MCP server, libraries, site) is **Apache-2.0**. See `LICENSE-APACHE`, the `LICENSE-GPL` files in the two GUI crates, and `NOTICE`.
+```bash
+cargo test -p jidr-ui --lib
+cargo xtask ci
+```
 
-Jidr downloads the Android Emulator and system images from Google under the Android SDK License, which you accept in the app. It downloads Magisk (GPL-3.0) only when you choose Full root. None of these are bundled.
+部分模拟器集成测试需要已安装的 Android SDK、系统镜像及相应运行环境，详见 [CONTRIBUTING.md](CONTRIBUTING.md)。不要将测试指向需要保留的真实设备数据。
 
-## Questions and contributing
+## 项目结构
 
-Questions, ideas and setups you want to share go in [Discussions](https://github.com/AbdurahmanAlmehdi/jidr/discussions); bugs go in [Issues](https://github.com/AbdurahmanAlmehdi/jidr/issues).
+- `apps/jidr-gui`、`crates/jidr-ui`：桌面界面。
+- `apps/jidr`：命令行程序及 daemon 入口。
+- `crates/jidr-daemon`、`crates/jidr-backend`：设备管理与模拟器控制。
+- `crates/jidr-sdk`：SDK、镜像和虚拟设备管理。
+- `crates/jidr-client`、`crates/jidr-mcp`：后台协议客户端与 MCP 服务。
 
-Contributions are welcome: read [CONTRIBUTING.md](CONTRIBUTING.md). Report security issues as described in [SECURITY.md](SECURITY.md). If you work with an AI coding agent, point it at [AGENTS.md](AGENTS.md).
+设备状态由 Rust daemon 管理，界面通过本地 JSON-RPC 协议与之通信。详细说明见 [控制协议](docs/control-protocol.md)、[CLI 参考](docs/cli.md)、[MCP 说明](docs/mcp.md)和 [Root 模式](docs/root.md)。
 
-## Trademarks
+## 许可与致谢
 
-Android is a trademark of Google LLC. Genymotion is a trademark of its owner. Jidr is not affiliated with Google or Genymotion.
+本项目基于 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr)，感谢原项目及其贡献者。沿用原项目的分许可方式：桌面界面相关的 `crates/jidr-ui` 和 `apps/jidr-gui` 为 **GPL-3.0-only**；CLI、daemon 和其余标明 Apache 许可的部分为 **Apache-2.0**。详见 [NOTICE](NOTICE)、[LICENSE-APACHE](LICENSE-APACHE)及相应目录下的许可证。
+
+Android SDK、系统镜像及 Magisk 不随本项目源码打包，其下载和使用受各自许可约束。Android 是 Google LLC 的商标。
