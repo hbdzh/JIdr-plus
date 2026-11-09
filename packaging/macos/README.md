@@ -7,7 +7,7 @@
 | `Info.plist.in` | bundle metadata; `@VERSION@` becomes the workspace version |
 | `sign.sh` | Developer ID signing (hardened runtime, inside-out) and DMG notarization + staple; `cargo xtask release` calls it when `JIDR_SIGNING_IDENTITY` is set |
 | `verify.sh` | Gatekeeper, hardened runtime and the stapled ticket; the release workflow runs it on signed builds. Fails on ad-hoc builds, as expected |
-| `../homebrew/jidr.rb` | cask template only; no JIdr Plus tap is currently published |
+| `../homebrew/jidr.rb` | cask template only; no JIdr Plus tap or automated tap publication |
 | `../mcp/manifest.json` | MCPB manifest (`@VERSION@`); the bundle holds it, the signed `jidr` as `server/jidr`, the icon and the licences. `jidr-mcp`'s tests check its tool list |
 | `../../server.json` | MCP Registry metadata template; its release URL and checksum must be verified before any future publication |
 
@@ -30,7 +30,9 @@ cargo xtask release --dry-run --scan    # local build, DMG, mount check, forbidd
 
 ## Releases and signing (D32)
 
-The inherited release-please workflow is configured for `main`; this repository currently uses `jidr-plus-initial`, so that automation does not run on the current branch. The manually dispatched release workflow builds and uploads assets to an existing release tag in this repository. It does not publish a Homebrew tap, MCP Registry entry, or website. `server.json` contains a placeholder checksum and must not be published until it is replaced with the checksum of an actual release asset.
+Run the **Check release packaging** workflow manually on the branch to build and scan unsigned test artifacts without creating a release. The workflow stores the DMG, MCP bundle and checksums as a short-lived Actions artifact; these files are not notarized and are not a public release.
+
+The inherited release-please workflow is configured for `main`; this repository currently uses `jidr-plus-initial`, so that automation does not run on the current branch. The manually dispatched release workflow builds and uploads assets to an existing release tag in this repository. It does not publish a Homebrew tap, MCP Registry entry, or website. `server.json` contains a placeholder checksum and must not be published directly. The release workflow generates `mcp-registry.json` using the actual MCP bundle checksum and uploads it as an asset for review; registry publication is a separate manual step.
 
 Repository secrets for signing (without them the DMG is ad-hoc signed and the run warns; users then open the app from System Settings › Privacy & Security › Open Anyway):
 

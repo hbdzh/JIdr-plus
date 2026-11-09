@@ -377,18 +377,7 @@ fn sign(app: &Path, signing: &Signing, sign_script: &Path) -> Result<()> {
 /// always detaches.
 fn check_dmg(dmg: &Path, mountpoint: &Path, scan: bool) -> Result<Vec<Finding>> {
     std::fs::create_dir_all(mountpoint)?;
-    tool(
-        "hdiutil",
-        &[
-            "attach",
-            "-readonly",
-            "-nobrowse",
-            "-noautoopen",
-            "-mountpoint",
-            &path_str(mountpoint)?,
-            &path_str(dmg)?,
-        ],
-    )?;
+    attach_dmg(dmg, mountpoint, tool)?;
     let result = (|| {
         if !mountpoint.join("Jidr.app/Contents/MacOS/Jidr").is_file() {
             bail!("the mounted DMG has no Jidr.app");
@@ -404,6 +393,45 @@ fn check_dmg(dmg: &Path, mountpoint: &Path, scan: bool) -> Result<Vec<Finding>> 
     detached?;
     std::fs::remove_dir(mountpoint).ok();
     Ok(findings)
+}
+
+// Newer macOS releases can reject the deprecated hdiutil attach while
+// accepting the same read-only request through diskutil image.
+fn attach_dmg(
+    dmg: &Path,
+    mountpoint: &Path,
+    mut run: impl FnMut(&str, &[&str]) -> Result<()>,
+) -> Result<()> {
+    let mountpoint = path_str(mountpoint)?;
+    let dmg = path_str(dmg)?;
+    match run(
+        "hdiutil",
+        &[
+            "attach",
+            "-readonly",
+            "-nobrowse",
+            "-noautoopen",
+            "-mountpoint",
+            &mountpoint,
+            &dmg,
+        ],
+    ) {
+        Ok(()) => Ok(()),
+        Err(first) => run(
+            "diskutil",
+            &[
+                "image",
+                "attach",
+                "--readOnly",
+                "--mountOptions",
+                "nobrowse",
+                "--mountPoint",
+                &mountpoint,
+                &dmg,
+            ],
+        )
+        .with_context(|| format!("hdiutil attach also failed: {first}")),
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -535,6 +563,31 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn mount_falls_back_to_read_only_diskutil_when_hdiutil_fails() {
+        let mut calls = Vec::new();
+        let result = super::attach_dmg(
+            std::path::Path::new("/tmp/test image.dmg"),
+            std::path::Path::new("/tmp/test mount"),
+            |program, args| {
+                calls.push((
+                    program.to_owned(),
+                    args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
+                ));
+                if program == "hdiutil" {
+                    anyhow::bail!("attach denied")
+                }
+                Ok(())
+            },
+        );
+        assert!(result.is_ok());
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[1].0, "diskutil");
+        assert!(calls[1].1.contains(&"--readOnly".to_owned()));
+        assert!(calls[1].1.contains(&"/tmp/test image.dmg".to_owned()));
+        assert!(calls[1].1.contains(&"/tmp/test mount".to_owned()));
+    }
+
     #[test]
     fn signing_follows_the_identity_and_dry_run() {
         use super::{Signing, signing_mode};

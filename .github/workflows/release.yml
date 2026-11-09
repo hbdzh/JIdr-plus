@@ -93,6 +93,17 @@ jobs:
             echo "mcpb_sha256=$(awk '/\.mcpb$/ {print $1}' dist/SHA256SUMS.txt)"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Prepare MCP Registry metadata for this release
+        env:
+          VERSION: ${{ steps.sums.outputs.version }}
+          MCPB_SHA256: ${{ steps.sums.outputs.mcpb_sha256 }}
+        run: |
+          [ -n "$MCPB_SHA256" ] || { echo "::error::no MCP bundle checksum"; exit 1; }
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/jidr-mcp-${VERSION}-darwin-arm64.mcpb"
+          jq --arg v "$VERSION" --arg u "$url" --arg s "$MCPB_SHA256" \
+            '.version = $v | .packages[0].identifier = $u | .packages[0].fileSha256 = $s' \
+            server.json > dist/mcp-registry.json
+
       - name: Gatekeeper check
         if: env.HAVE_SIGNING == 'true'
         run: packaging/macos/verify.sh dist/Jidr-*-arm64.dmg
@@ -100,7 +111,7 @@ jobs:
       - name: Upload to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ inputs.tag }}" dist/Jidr-*-arm64.dmg dist/jidr-mcp-*.mcpb dist/SHA256SUMS.txt --clobber
+        run: gh release upload "${{ inputs.tag }}" dist/Jidr-*-arm64.dmg dist/jidr-mcp-*.mcpb dist/SHA256SUMS.txt dist/mcp-registry.json --clobber
 
       - name: Remove the signing keychain and the API key
         if: always() && env.HAVE_SIGNING == 'true'
