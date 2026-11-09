@@ -1,15 +1,13 @@
-# Homebrew cask for the AbdurahmanAlmehdi/homebrew-tap tap:
-#   brew install --cask abdurahmanalmehdi/tap/jidr
-# release.yml fills in the version and the DMG's checksum (its line in
-# SHA256SUMS.txt) and pushes the result to Casks/jidr.rb in the tap.
+# Template only: no JIdr Plus Homebrew tap is currently published.
+# Fill version and checksum after creating a JIdr Plus release.
 cask "jidr" do
   version "@VERSION@"
   sha256 "@SHA256@"
 
-  url "https://github.com/AbdurahmanAlmehdi/jidr/releases/download/v#{version}/Jidr-#{version}-arm64.dmg"
+  url "https://github.com/hbdzh/JIdr-plus/releases/download/v#{version}/Jidr-#{version}-arm64.dmg"
   name "Jidr"
   desc "Android emulators with one-click rooted devices"
-  homepage "https://jidr.ly/"
+  homepage "https://github.com/hbdzh/JIdr-plus"
 
   livecheck do
     url :url
