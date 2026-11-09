@@ -53,7 +53,7 @@ Emulator tests on shared CI runners can be slow. If one fails in code you didn't
 
 ## Releases
 
-Releases are cut from `main` by a release pull request that collects the changes since the last version. Merging it tags the version and builds the signed, notarized DMG. Contributors don't need to do anything for this beyond writing conventional commits.
+Automated releases are currently disabled. The release workflow can build assets for an existing tag; signing and notarization require separately configured Apple credentials. See [packaging/macos/README.md](packaging/macos/README.md).
 
 ## Using an AI coding agent
 

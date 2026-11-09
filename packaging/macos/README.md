@@ -31,7 +31,7 @@ cargo xtask release --dry-run --scan    # local build, DMG, mount check, forbidd
 
 Run the **Check release packaging** workflow manually on the branch to build and scan unsigned test artifacts without creating a release. The workflow stores the DMG, MCP bundle and checksums as a short-lived Actions artifact; these files are not notarized and are not a public release.
 
-The inherited release-please workflow is configured for `main`; this repository currently uses `jidr-plus-initial`, so that automation does not run on the current branch. The manually dispatched release workflow builds and uploads assets to an existing release tag in this repository. It does not publish an MCP Registry entry or website. `server.json` contains a placeholder checksum and must not be published directly. The release workflow generates `mcp-registry.json` using the actual MCP bundle checksum and uploads it as an asset for review; registry publication is a separate manual step.
+The inherited release-please workflow is configured for `main`; this repository currently uses `master`, so that automation does not run on the current branch. The manually dispatched release workflow builds and uploads assets to an existing release tag in this repository. It does not publish an MCP Registry entry or website. `server.json` contains a placeholder checksum and must not be published directly. The release workflow generates `mcp-registry.json` using the actual MCP bundle checksum and uploads it as an asset for review; registry publication is a separate manual step.
 
 Repository secrets for signing (without them the DMG is ad-hoc signed and the run warns; users then open the app from System Settings › Privacy & Security › Open Anyway):
 

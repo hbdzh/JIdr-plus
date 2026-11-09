@@ -900,7 +900,7 @@ pub fn open(ctx: &std::rc::Rc<crate::app::Ctx>, tab: i32) {
             open_external(&[&url]);
         }
     });
-    win.on_show_licences(move || open_external(&[&format!("{repo}/blob/main/NOTICE")]));
+    win.on_show_licences(move || open_external(&[&format!("{repo}/blob/master/NOTICE")]));
 
     let _ = win.show();
     ctx.windows.borrow_mut().push(Box::new(win));
