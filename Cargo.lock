@@ -3100,6 +3100,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "jidr-swiftui-bridge"
+version = "0.3.1"
+dependencies = [
+ "anyhow",
+ "jidr-client",
+ "jidr-core",
+ "jidr-proto",
+ "jidr-sdk",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tonic",
+]
+
+[[package]]
 name = "jidr-ui"
 version = "0.3.1"
 dependencies = [

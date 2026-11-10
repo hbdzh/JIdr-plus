@@ -1,0 +1,1137 @@
+// SPDX-License-Identifier: GPL-3.0-only
+import AppKit
+import SwiftUI
+import Foundation
+import UniformTypeIdentifiers
+
+// Shared navigation treatment for settings and tool categories.
+struct JidrNavigationItem: View {
+    let title: String
+    let symbol: String
+    let selected: Bool
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                Image(systemName: symbol).frame(width: 16)
+                Text(title).lineLimit(1)
+            }
+                .font(.callout.weight(selected ? .semibold : .regular))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 10).padding(.vertical, 7)
+                .background(selected ? Color.accentColor.opacity(0.14) : Color.clear,
+                            in: RoundedRectangle(cornerRadius: 7))
+                .contentShape(Rectangle())
+        }.buttonStyle(.plain)
+    }
+}
+
+/// A path and its related controls stay together, including for long paths.
+struct PathSetting<Actions: View>: View {
+    let title: String
+    let path: String
+    @ViewBuilder let actions: () -> Actions
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.callout.weight(.medium))
+            Text(path).font(.callout).foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.middle).help(path).textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8, content: actions)
+        }.padding(.vertical, 4)
+    }
+}
+
+struct DeviceArt: View {
+    let name: String
+    let width: CGFloat
+    var body: some View {
+        if let url = Bundle.main.url(forResource:name, withExtension:"png"), let image = NSImage(contentsOf:url) {
+            Image(nsImage:image).resizable().scaledToFit().frame(width:width)
+        }
+    }
+}
+
+struct DeviceDetailsView: View {
+    @ObservedObject var model: CenterModel
+    let details: Details
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirmRevert = false
+    @State private var selectedRoot = "none"
+    @State private var confirmRootChange = false
+    @State private var confirmRootSetup = false
+    private var rootModeText: String {
+        switch details.device.root.mode {
+        case "none": return model.text("无", "None")
+        case "adb": return "Shell root"
+        case "magisk": return model.text("完整 Root", "Full root")
+        default: return details.device.root.mode
+        }
+    }
+    private var rootHealthText: String {
+        switch details.device.root.health {
+        case "ok": return model.text("已验证", "Verified")
+        case "failed": return model.text("验证失败", "Verification failed")
+        case "unverified": return model.text("尚未验证", "Not verified")
+        default: return details.device.root.health ?? "—"
+        }
+    }
+    var body: some View {
+        VStack(alignment:.leading,spacing:14) {
+            HStack(alignment:.top) {
+                VStack(alignment:.leading,spacing:4) {
+                    Text("设备详情").font(.title2.weight(.semibold))
+                    Text(details.device.name).font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                }
+                Spacer(minLength:12)
+                Button("关闭") { dismiss() }
+            }
+            Form {
+                Section(model.text("设备概览", "Overview")) {
+                    LabeledContent(model.text("状态", "Status"), value:details.device.statusText(language:model.language))
+                    LabeledContent(model.text("设备 ID", "Device ID")) {
+                        HStack {
+                            Text(details.device.id).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                            Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(details.device.id,forType:.string) } label: { Image(systemName:"doc.on.doc") }
+                                .buttonStyle(.borderless).help(model.text("复制设备 ID", "Copy device ID"))
+                        }
+                    }
+                }
+                Section("Android") {
+                    LabeledContent("版本",value:details.device.androidVersion)
+                    LabeledContent("镜像",value:details.device.image.tag)
+                    LabeledContent("配置",value:details.device.profile)
+                    LabeledContent("序列号",value:details.device.runtime?.adb_serial ?? "—")
+                    LabeledContent("SDK") {
+                        Text(details.device.sdk_root).lineLimit(1).truncationMode(.middle)
+                            .help(details.device.sdk_root).textSelection(.enabled)
+                    }
+                }
+                Section("硬件") {
+                    LabeledContent("内存",value:"\(details.config["hw.ramSize"] ?? "—") MB")
+                    LabeledContent("CPU",value:"\(details.config["hw.cpu.ncore"] ?? "—")")
+                    LabeledContent("屏幕",value:"\(details.config["hw.lcd.width"] ?? "—") × \(details.config["hw.lcd.height"] ?? "—")")
+                    if let bytes = details.disk_usage { LabeledContent("磁盘占用",value:ByteCountFormatter.string(fromByteCount:Int64(clamping:bytes),countStyle:.file)) }
+                }
+                Section("Root 状态") {
+                    Button("Root 高级工具…") { model.openAdvanced(details.device.id, name:details.device.name, root:true) }.disabled(!details.device.running)
+                    LabeledContent("模式",value:rootModeText)
+                    LabeledContent("验证",value:rootHealthText)
+                    Picker("更改 Root 模式",selection:$selectedRoot) {
+                        Text("无").tag("none"); Text("Shell root").tag("adb"); Text("完整 root").tag("magisk")
+                    }.disabled(!details.device.stopped)
+                    Button("更改 Root 模式…") { confirmRootChange = true }
+                        .disabled(!details.device.stopped || selectedRoot == details.device.root.mode)
+                    if !details.device.stopped { Text("请先停止设备，再更改 Root 模式。").font(.caption).foregroundStyle(.secondary) }
+                    if details.device.root.mode == "magisk" {
+                        Button("设置或重试完整 Root…") { confirmRootSetup = true }.disabled(model.busy.contains(details.device.id))
+                    }
+                    HStack {
+                        Button("再次验证") { model.operation("root.verify",id:details.device.id) }.disabled(!details.device.running)
+                        Button("恢复为无 Root",role:.destructive) { confirmRevert = true }.disabled(!details.device.stopped || details.device.root.mode == "none")
+                    }
+                }
+            }.formStyle(.grouped)
+        }.padding(24).frame(width:620,height:560)
+        .onAppear { selectedRoot = details.device.root.mode }
+        .alert("更改 Root 模式？",isPresented:$confirmRootChange) {
+            Button("取消",role:.cancel) { }
+            Button("更改") {
+                if selectedRoot == "magisk" {
+                    dismiss(); DispatchQueue.main.async { model.setupFullRoot(details.device.id,name:details.device.name) }
+                } else { model.operation("root.set",id:details.device.id,params:["mode":selectedRoot]); dismiss() }
+            }
+        } message: { Text("更改 Root 模式可能需要冷启动，也可能影响快照恢复。请先保存游戏进度。") }
+        .alert("设置完整 Root？",isPresented:$confirmRootSetup) {
+            Button("取消",role:.cancel) { }
+            Button("继续") { dismiss(); DispatchQueue.main.async { model.setupFullRoot(details.device.id,name:details.device.name) } }
+        } message: { Text("将下载并配置 Magisk，设备可能重启。Play 商店镜像可能需要在设备窗口手动授权。请先保存游戏进度。") }
+        .alert("恢复为无 Root？",isPresented:$confirmRevert) {
+            Button("取消",role:.cancel) { }
+            Button("恢复",role:.destructive) { model.operation("root.set",id:details.device.id,params:["mode":"none"]); dismiss() }
+        } message: { Text("这将更改设备的 Root 模式，并可能要求冷启动。请先保存游戏进度。") }
+    }
+}
+
+struct EditDeviceView: View {
+    @ObservedObject var model: CenterModel
+    let details: Details
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
+    @State private var ram: String
+    @State private var cores: String
+    @State private var width: String
+    @State private var height: String
+    @State private var density: String
+    @State private var resolutionPreset: String
+    @State private var audio: Bool
+    @State private var quickBoot: String
+    @State private var cameraBack: String
+    @State private var cameraFront: String
+    @State private var sleepMinutes: String
+    @State private var error = ""
+    @State private var saving = false
+    @State private var confirmColdBoot = false
+    @State private var quality = 1
+    @State private var qualityLoaded = false
+    @State private var qualityMessage = ""
+    private let resolutionPresets = [("720×1280", "720", "1280"), ("1080×1920", "1080", "1920"), ("1080×2400", "1080", "2400"), ("1280×720", "1280", "720"), ("1920×1080", "1920", "1080")]
+    init(model: CenterModel, details: Details) {
+        self.model = model; self.details = details
+        _name = State(initialValue:details.device.name)
+        _ram = State(initialValue:details.config["hw.ramSize"] ?? "")
+        _cores = State(initialValue:details.config["hw.cpu.ncore"] ?? "")
+        _width = State(initialValue:details.config["hw.lcd.width"] ?? "")
+        _height = State(initialValue:details.config["hw.lcd.height"] ?? "")
+        _density = State(initialValue:details.config["hw.lcd.density"] ?? "")
+        let resolution = "\(details.config["hw.lcd.width"] ?? "")×\(details.config["hw.lcd.height"] ?? "")"
+        _resolutionPreset = State(initialValue:["720×1280", "1080×1920", "1080×2400", "1280×720", "1920×1080"].contains(resolution) ? resolution : "custom")
+        _audio = State(initialValue:details.device.launch.audio ?? true)
+        _quickBoot = State(initialValue:details.device.launch.quick_boot.map { $0 ? "on" : "off" } ?? "global")
+        _cameraBack = State(initialValue:details.device.launch.camera_back ?? "default")
+        _cameraFront = State(initialValue:details.device.launch.camera_front ?? "default")
+        _sleepMinutes = State(initialValue:details.device.auto_hibernate_minutes.map(String.init) ?? "")
+    }
+    var body: some View {
+        VStack(alignment:.leading,spacing:14) {
+            Text("设备设置").font(.title2.weight(.semibold))
+            Text(details.device.name).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+            Label(details.device.running ? model.text("设备运行中，停止后才能修改硬件和启动设置。", "Stop the running device to change hardware and startup settings.") : model.text("更改屏幕设置会冷启动；原快速启动快照由后台备份。", "Display changes require a cold boot; the quick-boot snapshot is backed up."), systemImage:"info.circle")
+                .foregroundStyle(.secondary).font(.callout)
+            Form {
+                Section(model.text("硬件", "Hardware")) {
+                TextField("名称",text:$name)
+                TextField("内存（MB）",text:$ram)
+                TextField("CPU 核心数",text:$cores)
+                Picker("分辨率预设",selection:Binding(get: { resolutionPreset },set: { selection in
+                    resolutionPreset = selection
+                    if let preset = resolutionPresets.first(where: { $0.0 == selection }) { width = preset.1; height = preset.2 }
+                })) {
+                    Text("自定义").tag("custom")
+                    ForEach(resolutionPresets, id: \.0) { preset in Text(preset.0).tag(preset.0) }
+                }
+                if resolutionPreset == "custom" {
+                    TextField("屏幕宽度（px）",text:$width)
+                    TextField("屏幕高度（px）",text:$height)
+                }
+                TextField("屏幕密度（dpi）",text:$density)
+                }.disabled(!details.device.stopped)
+                Section(model.text("启动与外设", "Startup & peripherals")) {
+                Picker("快速启动",selection:$quickBoot) { Text("跟随全局").tag("global"); Text("开启").tag("on"); Text("停用").tag("off") }
+                LabeledContent(model.text("自动休眠", "Auto sleep")) {
+                    TextField(model.text("默认", "Default"),text:$sleepMinutes)
+                        .multilineTextAlignment(.trailing).frame(maxWidth:120)
+                }
+                Text(model.text("单位为分钟；留空跟随全局，0 为关闭。", "Minutes; leave blank for the global setting, or use 0 to turn off."))
+                    .font(.caption).foregroundStyle(.secondary)
+                Picker("后置摄像头",selection:$cameraBack) { Text("默认").tag("default"); Text("禁用").tag("none"); Text("模拟").tag("emulated"); Text("虚拟场景").tag("virtualscene"); Text("Mac 摄像头 1").tag("webcam0"); Text("Mac 摄像头 2").tag("webcam1") }
+                Picker("前置摄像头",selection:$cameraFront) { Text("默认").tag("default"); Text("禁用").tag("none"); Text("模拟").tag("emulated"); Text("Mac 摄像头 1").tag("webcam0"); Text("Mac 摄像头 2").tag("webcam1") }
+                }.disabled(!details.device.stopped)
+                Section(model.text("声音与画面", "Audio & display")) {
+            Toggle("设备声音（下次启动生效）",isOn:$audio)
+            HStack {
+                Picker("游戏窗口画质",selection:$quality) {
+                    Text("流畅").tag(0); Text("清晰").tag(1); Text("节能").tag(2)
+                }.disabled(!qualityLoaded)
+                Button("保存画质") {
+                    do {
+                        guard let path = model.dataDirectory else { return }
+                        try WindowQualityStore(dataDirectory:path,device:details.device.id).save(UInt8(quality))
+                        qualityMessage = "画质已保存，下次打开窗口生效。"
+                    } catch { qualityMessage = error.localizedDescription }
+                }.disabled(!qualityLoaded)
+            }
+            Text("只改变画面传输分辨率，不改变游戏帧率。") .font(.caption).foregroundStyle(.secondary)
+            if !qualityMessage.isEmpty { Text(qualityMessage).font(.caption) }
+                }
+            }.formStyle(.grouped)
+            Button("冷启动一次…") { confirmColdBoot = true }.disabled(!details.device.stopped || saving)
+            if !error.isEmpty { Text(error).foregroundStyle(.red) }
+            HStack { Spacer(); Button("取消") { dismiss() }.disabled(saving); Button("保存") {
+                let trimmed = name.trimmingCharacters(in:.whitespacesAndNewlines)
+                guard !trimmed.isEmpty, let r = Int(ram), (512...65536).contains(r), let c = Int(cores), (1...16).contains(c), let w = Int(width), (240...4096).contains(w), let h = Int(height), (240...4096).contains(h), let dpi = Int(density), (72...1000).contains(dpi) else { error = "请检查名称、内存、CPU、分辨率和 DPI。"; return }
+                var values: [String:Any] = [:]
+                if trimmed != details.device.name { values["name"] = trimmed }
+                for (key,value,old) in [("ram_mb",r,details.config["hw.ramSize"]),("cpus",c,details.config["hw.cpu.ncore"]),("width",w,details.config["hw.lcd.width"]),("height",h,details.config["hw.lcd.height"]),("density",dpi,details.config["hw.lcd.density"])] {
+                    if String(value) != old { values[key] = value }
+                }
+                if audio != (details.device.launch.audio ?? true) { values["audio"] = audio }
+                if details.device.stopped {
+                    let oldQuick = details.device.launch.quick_boot.map { $0 ? "on" : "off" } ?? "global"
+                    if quickBoot != oldQuick { values["quick_boot"] = quickBoot == "global" ? NSNull() : (quickBoot == "on") as Any }
+                    if cameraBack != (details.device.launch.camera_back ?? "default") { values["camera_back"] = cameraBack }
+                    if cameraFront != (details.device.launch.camera_front ?? "default") { values["camera_front"] = cameraFront }
+                    if sleepMinutes != (details.device.auto_hibernate_minutes.map(String.init) ?? "") {
+                        if sleepMinutes.isEmpty { values["auto_hibernate_minutes"] = NSNull() }
+                        else if let minutes = Int(sleepMinutes), (0...1440).contains(minutes) { values["auto_hibernate_minutes"] = minutes }
+                        else { error = "自动休眠时间必须介于 0 到 1440 分钟。"; return }
+                    }
+                }
+                if !details.device.stopped { values = values.filter { $0.key == "audio" } }
+                guard !values.isEmpty else { dismiss(); return }
+                values["device"] = details.device.id
+                saving = true
+                model.call("device.edit",values) { result in
+                    saving = false
+                    switch result {
+                    case .success: model.refresh(); if model.selected == details.device.id { model.load(details.device.id) }; dismiss()
+                    case .failure(let failure): error = failure.localizedDescription
+                    }
+                }
+            }.buttonStyle(.borderedProminent).disabled(saving) }
+        }.padding(24).frame(width:560,height:660)
+        .onAppear {
+            do {
+                guard let path = model.dataDirectory else { qualityMessage = "无法读取数据目录"; return }
+                quality = Int(try WindowQualityStore(dataDirectory:path,device:details.device.id).load())
+                qualityLoaded = true
+            } catch { qualityMessage = error.localizedDescription }
+        }
+        .alert("冷启动设备？",isPresented:$confirmColdBoot) {
+            Button("取消",role:.cancel) { }
+            Button("冷启动") { model.start(details.device.id,coldBoot:true); dismiss() }
+        } message: { Text("本次启动将跳过快速启动快照，未保存的设置不会应用。") }
+    }
+}
+
+struct HardwareProfile: Decodable, Identifiable {
+    let id: String; let name: String
+    let ram_mb: Int; let cpus: Int; let data_mb: Int; let audio: Bool
+}
+struct AvailableImage: Decodable, Identifiable {
+    let api: Int; let tag: String; let abi: String; let installed_in: String?
+    var id: String { "\(api):\(tag):\(abi)" }
+    var package: String { "system-images;android-\(api);\(tag);\(abi)" }
+}
+struct InstallSDKView: View {
+    @ObservedObject var model: CenterModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var images: [AvailableImage] = []
+    @State private var selection = ""
+    @State private var licenses: [PendingLicense] = []
+    @State private var reviewed = false
+    @State private var loading = false
+    @State private var loadingImages = false
+    @State private var imageError = ""
+    @State private var sdkStatusError = ""
+    @State private var loadingMessage = ""
+    @State private var showingLicenses = false
+    @State private var showingInstallStatus = false
+    @State private var error = ""
+    @State private var plan: SDKInstallPlan?
+    @State private var sdkStatus: SDKStatus?
+
+    private var package: String? { images.first(where: { $0.id == selection })?.package }
+    private var packages: [String] { ["emulator", "platform-tools"] + (package.map { [$0] } ?? []) }
+
+    private func loadSDKStatus() {
+        sdkStatusError = ""
+        model.call("sdk.status") { result in
+            do { sdkStatus = try model.decode(result.get(),as:SDKStatus.self) }
+            catch { sdkStatusError = model.text("无法检查 SDK 状态，请重试。", "Unable to check SDK status. Try again.") + "\n" + error.localizedDescription }
+        }
+    }
+    private func loadAvailableImages() {
+        guard !loadingImages else { return }
+        loadingImages = true; imageError = ""
+        model.call("image.list", ["available":true]) { result in
+            loadingImages = false
+            do {
+                images = try model.decode(result.get(),as:[AvailableImage].self)
+                if !selection.isEmpty && !images.contains(where: { $0.id == selection && $0.installed_in == nil }) { selection = "" }
+            }
+            catch { imageError = model.text("无法读取 SDK 镜像列表，请检查网络后重试。", "Unable to load SDK images. Check your connection and retry.") + "\n" + error.localizedDescription }
+        }
+    }
+    private func retrySetup() {
+        showingInstallStatus = false; showingLicenses = false; reviewed = false
+        error = ""; plan = nil
+        loadSDKStatus(); loadAvailableImages()
+    }
+
+    private func chooseExistingSDK() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        loading = true; error = ""; loadingMessage = model.text("正在检查 SDK…", "Checking SDK…")
+        model.call("center.toolpath.set",["kind":"sdk","path":url.path]) { result in
+            loading = false
+            switch result {
+            case .success: model.refresh(); dismiss()
+            case .failure(let failure): error = model.text("无法使用该 SDK，请确认目录包含 emulator 和 platform-tools。", "Cannot use this SDK. Check that it contains emulator and platform-tools.") + "\n" + failure.localizedDescription
+            }
+        }
+    }
+
+    private func prepare() {
+        loading = true; error = ""; loadingMessage = model.text("正在读取许可…", "Loading licences…")
+        model.call("sdk.licenses", ["packages":packages]) { result in
+            loading = false
+            do {
+                let found = try model.decode(result.get(), as:[PendingLicense].self)
+                licenses = found; plan = SDKInstallPlan(imagePackage:package,licenses:found)
+                reviewed = false; showingLicenses = true
+            }
+            catch { self.error = model.text("无法读取 SDK 许可，请检查网络后重试。", "Unable to load SDK licences. Check your connection and retry.") + "\n" + error.localizedDescription }
+        }
+    }
+    private func accept(_ index: Int) {
+        guard let plan else { loading = false; return }
+        let requests: [[String:String]]
+        do { requests = try plan.consentRequests(reviewed:reviewed) }
+        catch { loading = false; self.error = model.text("请阅读并同意许可协议。", "Review and agree to the licences first."); return }
+        if index == requests.count {
+            showingInstallStatus = true; loading = false
+            model.startSDKInstall(plan)
+            return
+        }
+        model.call("sdk.accept_license", requests[index]) { result in
+            switch result {
+            case .success: accept(index + 1)
+            case .failure(let failure): loading = false; error = model.text("无法记录许可确认，请重新检查许可后重试。", "Unable to record licence consent. Review the licences and retry.") + "\n" + failure.localizedDescription
+            }
+        }
+    }
+    var body: some View {
+        VStack(alignment:.leading,spacing:14) {
+            Text("安装 Android SDK 和系统镜像").font(.title2.bold())
+            if showingInstallStatus {
+                if model.sdkInstalling {
+                    if let fraction = model.sdkInstallFraction {
+                        ProgressView(value:fraction) { Text(model.sdkInstallMessage) }
+                        Text(model.text("当前步骤 \(Int(fraction * 100))%", "Current step \(Int(fraction * 100))%"))
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else { ProgressView(model.sdkInstallMessage) }
+                    Text(model.text("安装可以在后台继续；退出前请等待安装或取消完成。", "Installation can continue in the background. Wait for installation or cancellation before quitting."))
+                        .font(.callout).foregroundStyle(.secondary)
+                } else {
+                    Text(model.sdkInstallMessage).font(.callout)
+                }
+                if let installError = model.sdkInstallError { Text(installError).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+            } else if showingLicenses {
+                if licenses.isEmpty { Text("所选组件没有需要接受的新许可。") }
+                else {
+                    ScrollView { VStack(alignment:.leading,spacing:12) { ForEach(licenses) { license in
+                        Text(license.id).font(.headline)
+                        Text(license.text).textSelection(.enabled)
+                    } }.frame(maxWidth:.infinity,alignment:.leading) }.frame(height:280)
+                    Toggle("我已阅读并同意上述许可协议",isOn:$reviewed)
+                }
+            } else {
+                Text("选择要安装的系统镜像；也可以只安装模拟器工具。")
+                if !sdkStatusError.isEmpty {
+                    Text(sdkStatusError).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    Button(model.text("重新检查 SDK", "Retry SDK check"),action:loadSDKStatus)
+                }
+                if let existing = sdkStatus?.tools_sdk {
+                    VStack(alignment:.leading,spacing:6) {
+                        Label(model.text("已检测到可用的 Android SDK", "Android SDK detected"),systemImage:"checkmark.circle")
+                            .foregroundStyle(.secondary)
+                        Text(existing).font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle).help(existing).textSelection(.enabled)
+                        Button(model.text("使用检测到的 SDK", "Use detected SDK")) { dismiss() }.disabled(loading)
+                    }
+                }
+                if let location = sdkStatus?.private_sdk {
+                    Text(model.text("下载位置：\(location)", "Download location: \(location)"))
+                        .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
+                Button("使用已有 SDK…") { chooseExistingSDK() }.disabled(loading)
+                Picker("系统镜像",selection:$selection) {
+                    Text("仅安装模拟器工具").tag("")
+                    ForEach(images.filter { $0.installed_in == nil }) { image in
+                        Text("Android API \(image.api) · \(image.tag) · \(image.abi)").tag(image.id)
+                    }
+                }
+                if loadingImages {
+                    ProgressView(model.text("正在读取镜像列表…", "Loading system images…")).controlSize(.small)
+                } else if !imageError.isEmpty {
+                    Text(imageError).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    Button(model.text("重新读取镜像", "Retry images"),action:loadAvailableImages)
+                } else if images.allSatisfy({ $0.installed_in != nil }) {
+                    Text("未找到可下载的镜像；请检查网络，或使用已有 SDK。") .font(.caption).foregroundStyle(.secondary)
+                    Button(model.text("重新读取镜像", "Retry images"),action:loadAvailableImages)
+                }
+            }
+            if loading { ProgressView(loadingMessage) }
+            if !error.isEmpty { Text(error).foregroundStyle(.red).textSelection(.enabled) }
+            HStack { Spacer()
+                if showingInstallStatus {
+                    if model.sdkInstalling {
+                        Button(model.sdkCancelPending ? model.text("正在取消…", "Cancelling…") : model.text("取消安装", "Cancel installation")) { model.cancelSDKInstall() }
+                            .disabled(model.sdkInstallJob == nil || model.sdkCancelPending)
+                        Button(model.text("后台运行", "Run in background")) { dismiss() }
+                    } else {
+                        if model.sdkInstallSucceeded == false { Button(model.text("重新选择并重试", "Choose and retry"),action:retrySetup) }
+                        Button("关闭") { dismiss() }
+                    }
+                } else {
+                Button("取消") { dismiss() }.disabled(loading)
+                if showingLicenses {
+                    Button(licenses.isEmpty ? "安装" : "同意并安装") { loading = true; error = ""; loadingMessage = model.text("正在确认许可…", "Confirming licences…"); accept(0) }
+                        .disabled(loading || (!licenses.isEmpty && !reviewed))
+                } else { Button("继续") { prepare() }.disabled(loading) }
+                }
+            }
+        }.padding(24).frame(width:650)
+        .onAppear {
+            if model.sdkInstalling { showingInstallStatus = true; return }
+            loadSDKStatus(); loadAvailableImages()
+        }
+        .interactiveDismissDisabled(loading)
+    }
+}
+struct NewDeviceView: View {
+    @ObservedObject var model: CenterModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var profiles: [HardwareProfile] = []
+    @State private var images: [AvailableImage] = []
+    @State private var profile = ""
+    @State private var image = ""
+    @State private var ram = "4096"
+    @State private var cpus = "4"
+    @State private var storage = "6"
+    @State private var root = "none"
+    @State private var audio = true
+    @State private var error = ""
+    @State private var saving = false
+    @State private var installing = false
+    @State private var showAdvanced = false
+    func applyProfile(_ id:String) {
+        guard let value = profiles.first(where: { $0.id == id }) else { return }
+        ram = String(value.ram_mb); cpus = String(value.cpus)
+        storage = String(max(2, value.data_mb / 1024)); audio = value.audio
+    }
+    func loadImages() {
+        model.call("image.list",["available":false]) { result in
+            do { images = try model.decode(result.get(),as:[AvailableImage].self).filter { $0.installed_in != nil }; image = images.first?.id ?? "" }
+            catch { self.error = error.localizedDescription }
+        }
+    }
+    var body: some View {
+        VStack(alignment:.leading,spacing:14) {
+            Text("添加设备").font(.title2.bold())
+            Text("选择已经安装的系统镜像和硬件配置。").foregroundStyle(.secondary)
+            Form {
+                Section("基础配置") {
+                TextField("设备名称",text:$name)
+                Picker("系统镜像",selection:$image) { Text("请选择").tag(""); ForEach(images) { Text("Android API \($0.api) · \($0.tag)").tag($0.id) } }
+                Picker("硬件配置",selection:$profile) { Text("请选择").tag(""); ForEach(profiles) { Text($0.name).tag($0.id) } }
+                    .onChange(of:profile) { _, value in applyProfile(value) }
+                Picker("Root 模式",selection:$root) { Text("无").tag("none"); Text("Shell root").tag("adb"); Text("完整 root").tag("magisk") }
+                if root == "magisk" { Text("创建后将下载并配置 Magisk，期间设备会启动并重启。").font(.caption).foregroundStyle(.secondary) }
+                }
+                Section {
+                    Button { showAdvanced.toggle() } label: {
+                        Label(model.text("高级配置", "Advanced configuration"), systemImage:showAdvanced ? "chevron.down" : "chevron.right")
+                    }.buttonStyle(.plain)
+                    if showAdvanced {
+                TextField("内存（MB）",text:$ram)
+                TextField("CPU 核心数",text:$cpus)
+                TextField("设备存储（GB）",text:$storage)
+                Toggle("设备声音",isOn:$audio)
+                    }
+                }
+            }.formStyle(.grouped)
+            if images.isEmpty { Text("没有找到已安装的系统镜像。 ").font(.caption).foregroundStyle(.secondary) }
+            Button("安装 SDK 和系统镜像…") { installing = true }
+            if !error.isEmpty { Text(error).foregroundStyle(.red) }
+            HStack { Spacer(); Button("取消") { dismiss() }.disabled(saving)
+                Button("创建") {
+                    let parameters: [String:Any]
+                    do { parameters = try DeviceCreation(name:name,image:image,profile:profile,ram:ram,cpus:cpus,storage:storage,root:root,audio:audio).parameters() }
+                    catch { self.error = model.creationError(error); return }
+                    saving = true
+                    model.call("device.create",parameters) { result in
+                        saving = false
+                        switch result {
+                        case .success(let data):
+                            do {
+                                let created = try model.decode(data,as:Device.self)
+                                model.selected = created.id; model.details = nil; model.apps = []
+                                model.refresh(); dismiss()
+                                if root == "magisk" { DispatchQueue.main.async { model.setupFullRoot(created.id,name:created.name) } }
+                            } catch { self.error = model.text("设备已创建，但读取结果失败：", "Device created, but its result could not be read: ") + error.localizedDescription; model.refresh() }
+                        case .failure(let failure): error = failure.localizedDescription
+                        }
+                    }
+                }.buttonStyle(.borderedProminent).disabled(saving || images.isEmpty || profiles.isEmpty)
+            }
+        }.padding(24).frame(width:520, height:520).onAppear {
+            model.call("profile.list") { result in
+                do { profiles = try model.decode(result.get(),as:[HardwareProfile].self); profile = profiles.first?.id ?? "" }
+                catch { self.error = error.localizedDescription }
+            }
+            model.call("settings.get") { result in
+                if let data = try? result.get(), let value = try? model.decode(data,as:DaemonSettings.self) { root = value.default_root_mode }
+            }
+            loadImages()
+        }
+        .sheet(isPresented:$installing,onDismiss:loadImages) {
+            InstallSDKView(model:model).environment(\.locale,Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
+        }
+    }
+}
+
+struct ToolPaths: Decodable { let android_sdk: String?; let jdk_home: String? }
+struct CenterPaths: Decodable { let data: String; let cache: String; let logs: String; let tools: ToolPaths }
+struct DaemonSettings: Decodable {
+    let default_root_mode: String
+    let quick_boot: Bool
+    let budget_percent: UInt8
+    let auto_hibernate_minutes: UInt32
+}
+struct SDKStatus: Decodable { let tools_sdk: String?; let private_sdk: String? }
+struct CacheEntry: Decodable { let size: UInt64 }
+struct AboutInfo: Decodable { let version: String; let repository: String }
+struct SettingsView: View {
+    @ObservedObject var model: CenterModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var category = 0
+    @State private var migrationParent: URL?
+    @State private var migrationChecking = false
+    @State private var migrationMessage = ""
+    @State private var tileURL = ""
+    @State private var mcpBinary = "jidr"
+    @State private var confirmClaudeConfig = false
+    @State private var paths: CenterPaths?
+    @State private var sdkStatus: SDKStatus?
+    @State private var root = "none"
+    @State private var quickBoot = true
+    @State private var budget = "80"
+    @State private var autoHibernate = "0"
+    @State private var loaded = false
+    @State private var message = ""
+    @State private var saving = false
+    @State private var installing = false
+    @State private var cacheBytes: UInt64?
+    @State private var imageCount: Int?
+    @State private var deviceUsage: [String:UInt64] = [:]
+    @State private var about: AboutInfo?
+    @State private var confirmCacheClear = false
+    @State private var checkingUpdate = false
+    @State private var updateMessage = ""
+    @State private var releaseURL: URL?
+    func load() {
+        tileURL = model.tileURL
+        model.call("center.paths") { result in
+            do { paths = try model.decode(result.get(),as:CenterPaths.self) }
+            catch { message = error.localizedDescription }
+        }
+        model.call("sdk.status") { result in
+            do { sdkStatus = try model.decode(result.get(),as:SDKStatus.self) }
+            catch { message = error.localizedDescription }
+        }
+        model.call("settings.get") { result in
+            do {
+                let value = try model.decode(result.get(),as:DaemonSettings.self)
+                root = value.default_root_mode; quickBoot = value.quick_boot
+                budget = String(value.budget_percent)
+                autoHibernate = String(value.auto_hibernate_minutes)
+                loaded = true
+            }
+            catch { message = error.localizedDescription }
+        }
+        model.call("cache.list") { result in
+            do {
+                let entries = try model.decode(result.get(),as:[CacheEntry].self)
+                cacheBytes = entries.reduce(0) { total, item in total.addingReportingOverflow(item.size).overflow ? UInt64.max : total + item.size }
+            } catch { message = error.localizedDescription }
+        }
+        model.call("image.list",["available":false]) { result in
+            do { imageCount = try model.decode(result.get(),as:[AvailableImage].self).filter { $0.installed_in != nil }.count }
+            catch { message = error.localizedDescription }
+        }
+        for device in model.devices {
+            model.call("device.details",["device":device.id]) { result in
+                if let value = try? result.get(), let details = try? model.decode(value,as:Details.self), let bytes = details.disk_usage { deviceUsage[device.id] = bytes }
+            }
+        }
+        model.call("center.about") { result in
+            if let value = try? result.get() { about = try? model.decode(value,as:AboutInfo.self) }
+        }
+    }
+    func tool(_ kind:String, path:Any) {
+        guard !saving else { return }; saving = true
+        model.call("center.toolpath.set",["kind":kind,"path":path]) { result in
+            saving = false
+            switch result { case .success: message = kind == "sdk" ? model.text("SDK 路径已保存，下次启动设备时生效。", "SDK path saved; it will apply on the next device start.") : model.text("JDK 路径已保存。", "JDK path saved."); load()
+            case .failure(let failure): message = failure.localizedDescription }
+        }
+    }
+    func choose(_ kind:String) {
+        let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        tool(kind,path:url.path)
+    }
+    func chooseMigrationParent() {
+        let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
+        panel.prompt = model.text("选择位置", "Choose location")
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        migrationParent = folder; migrationMessage = model.text("已选择目标位置，数据尚未迁移。", "Destination selected; no data has been moved.")
+    }
+    func checkMigration() {
+        guard let parent = migrationParent, let sdk = paths?.tools.android_sdk ?? sdkStatus?.tools_sdk else {
+            migrationMessage = model.text("请选择目标位置并确认 SDK 可用。", "Choose a destination and ensure the SDK is available."); return
+        }
+        migrationChecking = true
+        model.call("center.migration.preflight",["parent":parent.path,"sdk":sdk]) { result in
+            migrationChecking = false
+            switch result {
+            case .success(let value):
+                guard let data = value as? [String:Any], let required = data["required_bytes"] as? Int64, let available = data["available_bytes"] as? Int64 else {
+                    migrationMessage = model.text("检查结果无效。", "Invalid preflight result."); return
+                }
+                let needed = ByteCountFormatter.string(fromByteCount:required,countStyle:.file)
+                let free = ByteCountFormatter.string(fromByteCount:available,countStyle:.file)
+                migrationMessage = model.text("空间初步检查通过：需要约 \(needed)，可用 \(free)。数据尚未迁移或切换。", "Space preflight passed: needs about \(needed), \(free) available. No data has been moved or switched.")
+                if let issues = data["incomplete_snapshots"] as? [String], !issues.isEmpty {
+                    migrationMessage += "\n" + model.text("发现文件不完整的快照，不能保证恢复：", "Incomplete snapshots cannot be assumed recoverable: ") + issues.joined(separator:", ")
+                }
+            case .failure(let error):
+                let reason = error.localizedDescription
+                let translated: String
+                switch reason {
+                case "destination already exists": translated = model.text("目标目录已存在，请选择其他位置。", "The destination already exists. Choose another location.")
+                case "destination overlaps source": translated = model.text("目标位置与现有数据重叠。", "The destination overlaps existing data.")
+                case "destination or qemu-img unavailable": translated = model.text("目标目录或 SDK 磁盘工具不可用。", "The destination or SDK disk tool is unavailable.")
+                case "paths must be absolute": translated = model.text("目标和 SDK 路径必须是绝对路径。", "Destination and SDK paths must be absolute.")
+                default: translated = reason
+                }
+                migrationMessage = model.text("初步检查未通过：", "Preliminary check failed: ") + translated
+            }
+        }
+    }
+    func showFolder(_ path:String?) {
+        guard let path, FileManager.default.fileExists(atPath:path), NSWorkspace.shared.open(URL(fileURLWithPath:path)) else { message = model.text("无法打开目录。", "Cannot open the folder."); return }
+    }
+    func checkUpdate() {
+        guard let about, let url = URL(string:"https://api.github.com/repos/hbdzh/JIdr-plus/releases/latest") else { return }
+        checkingUpdate = true; updateMessage = model.text("正在检查更新…", "Checking for updates…"); releaseURL = nil
+        var request = URLRequest(url:url); request.timeoutInterval = 8
+        request.setValue("JIdr/\(about.version)",forHTTPHeaderField:"User-Agent")
+        URLSession.shared.dataTask(with:request) { data, response, _ in
+            let parsed = data.flatMap { try? JSONSerialization.jsonObject(with:$0) as? [String:Any] }
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+            DispatchQueue.main.async {
+                checkingUpdate = false
+                guard status == 200, let tag = parsed?["tag_name"] as? String,
+                      let page = parsed?["html_url"] as? String, let destination = URL(string:page),
+                      destination.scheme == "https", destination.host == "github.com",
+                      destination.path.hasPrefix("/hbdzh/JIdr-plus/releases/") else {
+                    updateMessage = model.text("无法检查更新，请稍后重试。", "Unable to check for updates. Try again later."); return
+                }
+                let latest = tag.trimmingCharacters(in:CharacterSet(charactersIn:"v"))
+                let newer = latest.compare(about.version,options:.numeric) == .orderedDescending
+                updateMessage = newer ? model.text("发现新版本：\(latest)", "New version available: \(latest)") : model.text("已是最新版本。", "You're up to date.")
+                if newer { releaseURL = destination }
+            }
+        }.resume()
+    }
+    var body: some View {
+        HStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(model.text("设置", "Settings")).font(.title2.weight(.semibold)).padding(.horizontal, 10).padding(.bottom, 12)
+                ForEach(Array([(model.text("通用", "General"), "gearshape"),
+                               (model.text("设备默认值", "Device defaults"), "slider.horizontal.3"),
+                               (model.text("数据与工具", "Data & tools"), "externaldrive"),
+                               (model.text("高级", "Advanced"), "wrench.and.screwdriver"),
+                               (model.text("关于", "About"), "info.circle")].enumerated()), id: \.offset) { index, item in
+                    JidrNavigationItem(title:item.0, symbol:item.1, selected:category == index) { category = index }
+                }
+                Spacer()
+            }.padding(16).frame(width: 185).background(Color(nsColor: .controlBackgroundColor))
+            Divider()
+            VStack(alignment:.leading,spacing:14) {
+            HStack { Text([model.text("通用", "General"), model.text("设备默认值", "Device defaults"), model.text("数据与工具", "Data & tools"), model.text("高级", "Advanced"), model.text("关于", "About")][category]).font(.title2.weight(.semibold)); Spacer(); Button("关闭") { dismiss() }.disabled(saving) }
+            ScrollView {
+              Form {
+                if category == 0 { Section("界面") {
+                    Picker("语言", selection:Binding(get:{model.language},set:{model.setPreference("language",$0)})) { Text("中文").tag(1); Text("English").tag(0) }
+                    Picker("外观", selection:Binding(get:{model.appearance},set:{model.setPreference("appearance",$0)})) { Text("跟随系统").tag(0); Text("浅色").tag(1); Text("深色").tag(2) }
+                }
+                }
+                if category == 3 { Section(model.text("高级设置", "Advanced")) {
+                    TextField(model.text("地图瓦片地址（留空使用默认）", "Map tile URL (empty for default)"),text:$tileURL)
+                    Text(model.text("须使用 HTTPS 并包含 {z}、{x}、{y}。打开地图时，服务商会收到请求。", "Use HTTPS and include {z}, {x}, {y}. The provider receives requests when the map is opened.")).font(.caption).foregroundStyle(.secondary)
+                    Button(model.text("保存地图设置", "Save map settings")) {
+                        saving = true
+                        model.call("center.prefs.set",["tile_url":tileURL]) { result in
+                            saving = false
+                            switch result { case .success: model.tileURL = tileURL; message = model.text("地图设置已保存。", "Map settings saved."); case .failure(let error): message = error.localizedDescription.contains("Map tile URL must") ? model.text("地图地址必须使用 HTTPS，并包含 {z}、{x} 和 {y}。", "Map tile URL must use HTTPS and contain {z}, {x} and {y}.") : error.localizedDescription }
+                        }
+                    }.disabled(saving)
+                    TextField(model.text("MCP 命令路径", "MCP command path"),text:$mcpBinary)
+                    Text(model.text("将以下配置添加到支持 MCP 的客户端。可填写 jidr 可执行文件的绝对路径。", "Add this configuration to your MCP client. You may enter the absolute path to the jidr executable.")).font(.caption).foregroundStyle(.secondary)
+                    Button(model.text("配置 Claude Desktop…", "Configure Claude Desktop…")) { confirmClaudeConfig = true }.disabled(saving)
+                    Button(model.text("复制 MCP 配置", "Copy MCP configuration")) {
+                        guard !mcpBinary.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty, let data = try? JSONSerialization.data(withJSONObject:["mcpServers":["jidr":["command":mcpBinary,"args":["mcp"]]]],options:[.prettyPrinted,.sortedKeys]), let text = String(data:data,encoding:.utf8) else { return }
+                        NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text,forType:.string)
+                        message = model.text("MCP 配置已复制。", "MCP configuration copied.")
+                    }
+                }
+                }
+                if category == 1 { Section("设备默认设置") {
+                    Picker("默认 Root 模式",selection:$root) { Text("无").tag("none"); Text("Shell root").tag("adb"); Text("完整 root").tag("magisk") }
+                    Toggle("停止设备时保存快速启动快照",isOn:$quickBoot)
+                    TextField("设备内存预算（%）",text:$budget)
+                    TextField("自动休眠分钟数（0 为关闭）",text:$autoHibernate)
+                    Button("保存默认设置") {
+                        guard let percent = UInt8(budget), (10...100).contains(percent), let minutes = UInt32(autoHibernate) else {
+                            message = model.text("内存预算必须为 10–100%，自动休眠时间必须为非负整数。", "Memory budget must be 10–100%; idle sleep must be a nonnegative integer."); return
+                        }
+                        saving = true; model.call("settings.set",["default_root_mode":root,"quick_boot":quickBoot,"budget_percent":percent,"auto_hibernate_minutes":minutes]) { result in
+                            saving = false; switch result { case .success: message = model.text("已保存", "Saved"); case .failure(let failure): message = failure.localizedDescription }
+                        }
+                    }.disabled(!loaded || saving)
+                }
+                }
+                if category == 2 { Section("数据和工具位置") {
+                    PathSetting(title:model.text("数据目录", "Data folder"), path:paths?.data ?? model.text("读取中…", "Loading…")) {
+                        Button("显示数据目录") { showFolder(paths?.data) }.disabled(paths == nil)
+                    }
+                    PathSetting(title:"Android SDK", path:paths?.tools.android_sdk ?? sdkStatus?.tools_sdk ?? model.text("自动选择", "Automatic")) {
+                        Button("选择 SDK") { choose("sdk") }.disabled(paths == nil || saving)
+                        Button("恢复自动选择") { tool("sdk",path:NSNull()) }.disabled(paths == nil || saving)
+                        Button(model.text("显示目录", "Show folder")) { showFolder(paths?.tools.android_sdk ?? sdkStatus?.tools_sdk) }.disabled(paths?.tools.android_sdk == nil && sdkStatus?.tools_sdk == nil)
+                    }
+                    Button("安装 SDK 和系统镜像…") { installing = true }.disabled(saving)
+                    PathSetting(title:"JDK", path:paths?.tools.jdk_home ?? model.text("系统默认", "System default")) {
+                        Button("选择 JDK") { choose("jdk") }.disabled(paths == nil || saving)
+                        Button("恢复系统默认") { tool("jdk",path:NSNull()) }.disabled(paths == nil || saving)
+                    }
+                    PathSetting(title:model.text("迁移目标", "Migration destination"), path:migrationParent.map { $0.appendingPathComponent("Jidr").path } ?? model.text("未选择", "Not selected")) {
+                        Button(model.text("选择目标位置…", "Choose destination…")) { chooseMigrationParent() }.disabled(saving || migrationChecking)
+                        Button(model.text("初步检查", "Preliminary check")) { checkMigration() }.disabled(migrationParent == nil || saving || migrationChecking)
+                    }
+                    Text(model.text("目前仅支持初步检查；尚不能迁移或切换数据位置。", "Only preliminary checks are available; migration and switching are not yet supported."))
+                        .font(.caption).foregroundStyle(.secondary)
+                    if !migrationMessage.isEmpty { Text(migrationMessage).font(.caption).textSelection(.enabled) }
+                }
+                Section("存储用量") {
+                    ForEach(model.devices) { device in
+                        LabeledContent(device.name,value:deviceUsage[device.id].map { ByteCountFormatter.string(fromByteCount:Int64(clamping:$0),countStyle:.file) } ?? model.text("读取中…", "Loading…"))
+                    }
+                    LabeledContent("已安装镜像",value:imageCount.map(String.init) ?? model.text("读取中…", "Loading…"))
+                    LabeledContent("下载缓存",value:cacheBytes.map { ByteCountFormatter.string(fromByteCount:Int64(clamping:$0),countStyle:.file) } ?? model.text("读取中…", "Loading…"))
+                    Button("清理下载缓存…") { confirmCacheClear = true }.disabled(saving || cacheBytes == nil || cacheBytes == 0)
+                }
+                }
+                if category == 4 { Section("关于") {
+                    LabeledContent("版本",value:about?.version ?? "—")
+                    HStack {
+                        Button("检查更新") { checkUpdate() }.disabled(checkingUpdate || about == nil)
+                        if let releaseURL { Button("查看新版本") { NSWorkspace.shared.open(releaseURL) } }
+                        Button("源代码") { if let value = about?.repository, let url = URL(string:value) { NSWorkspace.shared.open(url) } }.disabled(about == nil)
+                        Button("许可证") { if let value = about?.repository, let url = URL(string:value + "/blob/master/NOTICE") { NSWorkspace.shared.open(url) } }.disabled(about == nil)
+                    }
+                    if !updateMessage.isEmpty { Text(updateMessage).font(.caption) }
+                }
+                }
+              }.formStyle(.grouped).frame(maxWidth: 680, alignment: .leading)
+            }
+            if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+            }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }.frame(width:780,height:580).onAppear(perform:load)
+        .sheet(isPresented:$installing,onDismiss:load) {
+            InstallSDKView(model:model).environment(\.locale,Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
+        }
+        .alert(model.text("配置 Claude Desktop？", "Configure Claude Desktop?"),isPresented:$confirmClaudeConfig) {
+            Button(model.text("取消", "Cancel"),role:.cancel) { }
+            Button(model.text("配置", "Configure")) {
+                let path = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Claude/claude_desktop_config.json")
+                do { try MCPConfiguration.install(at:path,command:mcpBinary); message = model.text("配置已保存，请重启 Claude Desktop。", "Configuration saved. Restart Claude Desktop.") }
+                catch { message = model.text("无法保存 Claude 配置：", "Could not save Claude configuration: ") + OperationMessages.error(error.localizedDescription,language:model.language) }
+            }
+        } message: { Text(model.text("将添加或替换 Jidr 的 MCP 配置，保留其他配置。", "This adds or replaces the Jidr MCP entry and preserves other settings.")) }
+        .alert("清理下载缓存？",isPresented:$confirmCacheClear) {
+            Button("取消",role:.cancel) { }
+            Button("清理",role:.destructive) {
+                saving = true
+                model.call("cache.prune") { result in
+                    saving = false
+                    switch result { case .success: message = model.text("下载缓存已清理。", "Download cache cleared."); load(); case .failure(let failure): message = failure.localizedDescription }
+                }
+            }
+        } message: { Text("已下载的缓存文件会被删除，之后需要时可能重新下载。设备数据和快照不会删除。") }
+    }
+}
+
+struct SnapshotRow: Decodable, Identifiable {
+    var id: String { name }
+    let name: String
+    let quick_boot: Bool
+    let restorable: Bool
+    let root_mode: String?
+    let size_bytes: UInt64?
+}
+struct SnapshotList: Decodable { let snapshots: [SnapshotRow] }
+struct SnapshotsView: View {
+    @ObservedObject var model: CenterModel
+    let device: Device
+    @Environment(\.dismiss) private var dismiss
+    @State private var snapshots: [SnapshotRow] = []
+    @State private var newName = ""
+    @State private var error = ""
+    @State private var running = false
+    @State private var loading = true
+    @State private var selected: SnapshotRow?
+    @State private var deleting = false
+    @State private var confirm = false
+    func load() {
+        loading = true
+        model.call("snapshot.list", ["device":device.id]) { result in
+            loading = false
+            do { snapshots = try model.decode(result.get(),as:SnapshotList.self).snapshots; error = "" }
+            catch { self.error = error.localizedDescription }
+        }
+    }
+    func action(_ method:String, _ name:String) {
+        running = true
+        model.call(method,["device":device.id,"name":name]) { result in
+            running = false
+            switch result { case .success: newName = ""; load(); model.refresh(); case .failure(let failure): error = failure.localizedDescription }
+        }
+    }
+    var body: some View {
+        VStack(alignment:.leading,spacing:14) {
+            HStack {
+                VStack(alignment:.leading, spacing:4) { Text("管理快照").font(.title2.weight(.semibold)); Text(device.name).font(.callout).foregroundStyle(.secondary).lineLimit(1) }
+                Spacer(); Button("关闭") { dismiss() }.disabled(running)
+            }
+            HStack(spacing:8) {
+                TextField("新快照名称",text:$newName).textFieldStyle(.roundedBorder)
+                Button("保存快照") { action("snapshot.save",newName) }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!device.running || newName.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty || running)
+            }
+            if !device.running { Text("启动设备后可保存快照。").font(.caption).foregroundStyle(.secondary) }
+            if !error.isEmpty { Text(error).foregroundStyle(.red) }
+            if loading {
+                ProgressView(model.text("正在读取快照…", "Loading snapshots…")).frame(maxWidth:.infinity,maxHeight:.infinity)
+            } else if snapshots.isEmpty && error.isEmpty {
+                Label(model.text("暂无快照", "No snapshots"), systemImage:"camera")
+                    .foregroundStyle(.secondary).frame(maxWidth:.infinity, maxHeight:.infinity)
+            } else { List(snapshots) { snapshot in
+                HStack(spacing:12) { Image(systemName:"camera").foregroundStyle(.secondary); VStack(alignment:.leading,spacing:4) {
+                    Text(snapshot.name).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                    HStack(spacing:8) {
+                        Text(snapshot.quick_boot ? "快速启动快照" : "Root：\(snapshot.root_mode ?? "未知")")
+                        if let size = snapshot.size_bytes { Text(ByteCountFormatter.string(fromByteCount:Int64(clamping:size),countStyle:.file)) }
+                    }.font(.caption).foregroundStyle(.secondary)
+                    if !snapshot.restorable { Text(model.text("不可恢复：快照文件可能不完整，或 Root 模式不匹配。", "Cannot restore: snapshot files may be incomplete or the root mode may not match.")).font(.caption).foregroundStyle(.secondary) }
+                }; Spacer()
+                    Button("恢复") { selected = snapshot; deleting = false; confirm = true }.disabled(!device.running || !snapshot.restorable || running)
+                    if !snapshot.quick_boot { Button("删除",role:.destructive) { selected = snapshot; deleting = true; confirm = true }.disabled(running) }
+                }.padding(.vertical,4)
+            }.listStyle(.inset) }
+        }.padding(20).frame(width:620,height:480).onAppear(perform:load)
+        .alert(deleting ? "删除快照？" : "恢复快照？",isPresented:$confirm) {
+            Button("取消",role:.cancel) { }
+            Button(deleting ? "删除" : "恢复",role:.destructive) { if let selected { action(deleting ? "snapshot.delete" : "snapshot.load",selected.name) } }
+        } message: { Text(deleting ? "删除后无法恢复该快照。" : "恢复将回退设备状态和应用数据，请先保存当前游戏进度。") }
+    }
+}
+
+struct FullRootView: View {
+    @ObservedObject var model: CenterModel
+    let target: RootPresentation
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        VStack(alignment:.leading,spacing:14) {
+            Text("完整 Root 配置").font(.title2.bold())
+            Text(target.name).foregroundStyle(.secondary)
+            switch model.fullRoot[target.id] {
+            case .running:
+                HStack { ProgressView().controlSize(.small); Text(model.progress(for:target.id) ?? model.text("正在准备…", "Preparing…")) }
+                Text("设备可能多次重启。Play 商店镜像可能需要在 Magisk 中为 Shell 手动授权。")
+                    .font(.callout).foregroundStyle(.secondary)
+                Button("打开设备窗口",systemImage:"macwindow") { model.openGame(target.id) }
+                    .disabled(model.devices.first(where: { $0.id == target.id })?.running != true)
+                Text("如设备重启后窗口断开，可再次点击此按钮。关闭此面板不会取消配置。")
+                    .font(.caption).foregroundStyle(.secondary)
+            case .verified(let version):
+                Label("Root 验证成功",systemImage:"checkmark.circle.fill").foregroundStyle(.green)
+                if !version.isEmpty { Text("Magisk \(version)") }
+            case .failed(let error):
+                Label("Root 配置未完成",systemImage:"exclamationmark.triangle.fill").foregroundStyle(.red)
+                Text("请检查网络、游戏进度和快照状态后，再决定是否重试。")
+                Text(error).font(.caption).textSelection(.enabled)
+                Button("重试") { model.setupFullRoot(target.id,name:target.name) }.disabled(model.busy.contains(target.id))
+            case nil:
+                Text("没有正在进行的 Root 配置。")
+            }
+            HStack { Spacer(); Button("关闭") { dismiss() } }
+        }.padding(24).frame(width:560)
+    }
+}
+
+struct CenterView: View {
+    @ObservedObject var model: CenterModel
+    @State private var query = ""
+    @State private var editing = false
+    @State private var showingSnapshots = false
+    @State private var creating = false
+    @State private var installingSDK = false
+    @State private var showingSettings = false
+    @State private var showingDetails = false
+    @State private var confirmingDelete = false
+    var selectedDevice: Device? { model.devices.first(where:{$0.id == model.selected}) }
+    @ViewBuilder private func startButton(_ device:Device) -> some View {
+        Button(device.running ? "停止" : "启动",systemImage:device.running ? "stop" : "play") {
+            if device.running { model.stop(device.id) } else { model.start(device.id) }
+        }.buttonStyle(.borderedProminent).disabled(model.busy.contains(device.id) || (!device.running && !device.stopped))
+    }
+    @ViewBuilder private func restartButton(_ device:Device) -> some View {
+        Button("重启",systemImage:"arrow.clockwise") { model.restart(device.id) }.disabled(!device.running || model.busy.contains(device.id))
+    }
+    @ViewBuilder private func deleteButton(_ device:Device) -> some View {
+        Button("删除设备",systemImage:"trash",role:.destructive) { confirmingDelete = true }.disabled(!device.stopped || model.busy.contains(device.id))
+    }
+    @ViewBuilder private func settingsButton() -> some View {
+        Button("设备设置",systemImage:"gearshape") { editing = true }.disabled(model.details == nil)
+    }
+    var body: some View {
+        VStack(spacing:0) {
+            HStack {
+                Text("安卓模拟器").font(.headline)
+                Spacer()
+                TextField("搜索设备",text:$query).textFieldStyle(.roundedBorder).frame(width:200)
+                Button("添加设备",systemImage:"plus") { creating = true }
+                Button { showingSettings = true } label: { Image(systemName:"gearshape") }.help("设置")
+                Button { model.refresh() } label: { Image(systemName:"arrow.clockwise") }.help("刷新")
+            }.padding(.leading,94).padding(.trailing,12).frame(height:44)
+            .background(Color(nsColor:.windowBackgroundColor))
+            Divider()
+            HStack(alignment:.top,spacing:16) {
+              VStack(spacing:16) {
+                VStack(alignment:.leading) {
+                    HStack { Text("我的设备"); Text("\(model.devices.count)") }.font(.headline)
+                    if model.deviceListLoaded && model.devices.isEmpty {
+                        VStack(alignment:.leading, spacing:12) {
+                            Label(model.text("开始使用 Jidr", "Get started with Jidr"), systemImage:"iphone")
+                                .font(.headline)
+                            Text(model.text("先选择已有 Android SDK 或安装所需组件，然后创建第一台设备。", "Choose an existing Android SDK or install the required components, then create your first device."))
+                                .font(.callout).foregroundStyle(.secondary)
+                            HStack {
+                                Button(model.text("设置 Android SDK…", "Set up Android SDK…")) { installingSDK = true }
+                                Button(model.text("创建设备…", "Create device…")) { creating = true }
+                            }
+                        }.padding(.vertical,12)
+                    } else { ScrollView {
+                        LazyVStack(spacing:8) {
+                            ForEach(model.devices.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }) { device in
+                                Button { model.select(device.id) } label: {
+                                    HStack { DeviceArt(name:"device-list", width:40); VStack(alignment:.leading) { Text(device.name).font(.headline).lineLimit(1).truncationMode(.middle); HStack(spacing:6) { Circle().fill(device.running ? Color.green : Color.secondary).frame(width:6,height:6); Text(device.statusText(language:model.language)) }.font(.caption).foregroundStyle(.secondary); Text(device.androidVersion).font(.caption).foregroundStyle(.secondary) }; Spacer(); Image(systemName:"chevron.right") }.padding(12).frame(maxWidth:.infinity,alignment:.leading).background(model.selected == device.id ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.06),in:RoundedRectangle(cornerRadius:10))
+                                }.buttonStyle(.plain)
+                                    .simultaneousGesture(TapGesture(count:2).onEnded {
+                                        if device.running { model.openGame(device.id) }
+                                    })
+                            }
+                        }
+                    } }
+                }.padding(16).frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.topLeading)
+                    .background(Color(nsColor:.controlBackgroundColor),in:RoundedRectangle(cornerRadius:14))
+                VStack(alignment:.leading,spacing:12) {
+                    Text("常用操作").font(.headline)
+                    if let device = selectedDevice {
+                        Grid(alignment:.leading,horizontalSpacing:12,verticalSpacing:12) {
+                            GridRow {
+                                Button("安装 APK",systemImage:"square.and.arrow.down") { model.chooseFile(device:device.id,apk:true) }
+                                Button("发送文件",systemImage:"folder") { model.chooseFile(device:device.id,apk:false) }
+                            }
+                            GridRow {
+                                Button("截图",systemImage:"camera") { model.screenshot(device:device.id) }
+                                Button(model.recording.contains(device.id) ? "停止录屏" : "录屏",systemImage:"record.circle") { model.toggleRecording(device:device.id) }
+                            }
+                        }.disabled(!device.running)
+                        HStack {
+                            Button("管理快照",systemImage:"camera") { showingSnapshots = true }
+                            Button("截图目录",systemImage:"folder") { model.openScreenshotFolder() }
+                        }
+                    }
+                }.padding(16).frame(maxWidth:.infinity,alignment:.leading)
+                    .background(Color(nsColor:.controlBackgroundColor),in:RoundedRectangle(cornerRadius:14))
+              }.frame(maxWidth:.infinity,maxHeight:.infinity)
+              VStack(spacing:16) {
+                VStack(alignment:.leading,spacing:14) {
+                    HStack { Text("设备详情").font(.headline); Spacer(); Button("查看设备详情") { showingDetails = true }.buttonStyle(.plain).disabled(model.details == nil) }
+                    if let device = selectedDevice {
+                        HStack { DeviceArt(name:"device-detail", width:86); VStack(alignment:.leading) { Text(device.name).font(.title2.weight(.semibold)).lineLimit(1).truncationMode(.middle); Text(device.statusText(language:model.language)).foregroundStyle(device.running ? .green : .secondary); Text(device.androidVersion).foregroundStyle(.secondary) }; Spacer() }
+                        if let d = model.details {
+                            Grid(alignment:.leading,horizontalSpacing:24,verticalSpacing:8) {
+                                GridRow { Text("CPU").foregroundStyle(.secondary); Text(model.text("\(d.config["hw.cpu.ncore"] ?? "—") 核", "\(d.config["hw.cpu.ncore"] ?? "—") cores")); Text("内存").foregroundStyle(.secondary); Text("\(d.config["hw.ramSize"] ?? "—") MB") }
+                                GridRow { Text("屏幕").foregroundStyle(.secondary); Text("\(d.config["hw.lcd.width"] ?? "—")×\(d.config["hw.lcd.height"] ?? "—")"); Text("DPI").foregroundStyle(.secondary); Text(d.config["hw.lcd.density"] ?? "—") }
+                            }
+                        }
+                        ViewThatFits(in:.horizontal) {
+                            HStack { startButton(device); restartButton(device); deleteButton(device); settingsButton() }.fixedSize()
+                            VStack(alignment:.leading) {
+                                HStack { startButton(device); restartButton(device) }
+                                HStack { deleteButton(device); settingsButton() }
+                            }
+                        }
+                        if let progress = model.progress(for:device.id) {
+                            HStack { ProgressView().controlSize(.small); Text(progress).font(.caption).foregroundStyle(.secondary) }
+                        }
+                        if model.fullRoot[device.id] != nil {
+                            Button("查看 Root 配置") { model.rootPresentation = RootPresentation(id:device.id,name:device.name) }
+                        }
+                    } else { Text("请选择设备").foregroundStyle(.secondary) }
+                }.padding(16).frame(maxWidth:.infinity,alignment:.topLeading)
+                    .background(Color(nsColor:.controlBackgroundColor),in:RoundedRectangle(cornerRadius:14))
+                VStack(alignment:.leading,spacing:12) {
+                    HStack {
+                        Text("已安装的游戏和应用").font(.headline)
+                        Spacer()
+                        Button("刷新",systemImage:"arrow.clockwise") { if let device = selectedDevice { model.load(device.id) } }
+                            .disabled(selectedDevice?.running != true)
+                    }
+                    if let device = selectedDevice, device.running {
+                        if model.appsLoading { ProgressView(model.text("正在读取应用…", "Loading apps…")).controlSize(.small).font(.caption).foregroundStyle(.secondary) }
+                        if let error = model.appsError { Label(error,systemImage:"exclamationmark.triangle").font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+                        if !model.appsLoading && model.appsError == nil && model.apps.isEmpty {
+                            Label(model.text("没有已安装的用户应用", "No user apps installed"), systemImage:"app.dashed")
+                                .font(.callout).foregroundStyle(.secondary).padding(.vertical, 8)
+                        }
+                        ScrollView {
+                            LazyVStack {
+                                ForEach(model.apps) { app in
+                                    HStack {
+                                        if let path = app.icon, let icon = NSImage(contentsOfFile:path) {
+                                            Image(nsImage:icon).resizable().frame(width:32,height:32).clipShape(RoundedRectangle(cornerRadius:6))
+                                        }
+                                        Text(app.name); Spacer()
+                                        Button("启动",systemImage:"play") { model.launch(app,device:device.id) }
+                                    }.padding(8)
+                                }
+                            }
+                        }
+                    } else { Text("启动设备后查看已安装的游戏和应用。").foregroundStyle(.secondary) }
+                    Spacer(minLength:0)
+                }.padding(16).frame(maxWidth:.infinity,maxHeight:.infinity,alignment:.topLeading)
+                    .background(Color(nsColor:.controlBackgroundColor),in:RoundedRectangle(cornerRadius:14))
+              }.frame(maxWidth:.infinity,maxHeight:.infinity)
+            }.padding(16)
+            if !model.notice.isEmpty { Text(model.displayNotice).font(.caption).padding(6) }
+        }.frame(minWidth:800,minHeight:550).background(Color(nsColor:.underPageBackgroundColor))
+        .ignoresSafeArea(.container, edges:.top)
+        .environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
+        .preferredColorScheme(model.appearance == 1 ? .light : model.appearance == 2 ? .dark : nil)
+        .sheet(isPresented:$editing) {
+            if let details = model.details { EditDeviceView(model:model,details:details).environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans")) }
+        }
+        .sheet(isPresented:$showingSnapshots) { if let device = selectedDevice { SnapshotsView(model:model, device:device).environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans")) } }
+        .sheet(isPresented:$creating) { NewDeviceView(model:model).environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans")) }
+        .sheet(isPresented:$installingSDK) { InstallSDKView(model:model).environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans")) }
+        .sheet(isPresented:$showingSettings) { SettingsView(model:model).environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans")) }
+        .sheet(isPresented:$showingDetails) { if let details = model.details { DeviceDetailsView(model:model,details:details).environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans")) } }
+        .sheet(item:$model.rootPresentation) { target in FullRootView(model:model,target:target).environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans")) }
+        .alert("删除设备及全部数据？",isPresented:$confirmingDelete) {
+            Button("取消",role:.cancel) { }
+            Button("删除",role:.destructive) { if let device = selectedDevice, device.stopped { model.operation("device.delete",id:device.id) } }
+        } message: { Text("设备中的应用、游戏数据和快照将被删除，无法撤销。") }
+    }
+}

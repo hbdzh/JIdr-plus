@@ -1,0 +1,23 @@
+[package]
+name = "jidr-swiftui-bridge"
+version.workspace = true
+edition.workspace = true
+license = "Apache-2.0"
+publish = false
+
+[dependencies]
+anyhow.workspace = true
+jidr-client.workspace = true
+jidr-core.workspace = true
+jidr-proto.workspace = true
+jidr-sdk.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tonic.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

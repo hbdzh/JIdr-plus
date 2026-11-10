@@ -15,6 +15,7 @@ members = [
     "crates/jidr-ui",
     "apps/jidr",
     "apps/jidr-gui",
+    "apps/jidr-swiftui-prototype/bridge",
     "xtask",
 ]
 default-members = ["apps/jidr"]
