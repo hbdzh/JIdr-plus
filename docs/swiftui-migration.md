@@ -58,15 +58,48 @@ the installed SDK emulator and falls back to the vendored 35.6.11 copies. Two ma
 therefore compile different gRPC bindings. M1 fixes the policy (pin `JIDR_PROTO_VENDORED=1`
 for CI and acceptance, or declare the minimum emulator version) and records it.
 
-### Open M0 items
+### Audits completed (evidence)
 
-- **English-mode walkthrough**: code-level audit delegated; the visual walkthrough of the
-  English main flow still needs the running app with a daemon, and its findings go into the
-  parity rows.
-- **Parity matrix**: first draft in [docs/swiftui-parity.md](swiftui-parity.md); scene mapping
-  is being verified against the code.
+- **Parity**: all 68 golden scenes mapped against the code in
+  [docs/swiftui-parity-scenes.md](swiftui-parity-scenes.md) (behaviour level: 7 entry, 49
+  partial, 12 missing), with the module matrix in [docs/swiftui-parity.md](swiftui-parity.md).
+  Structural gaps: no daemon reconnect, no task list/cancel, no device tab in the workbench,
+  coarse Root state, no global shortcuts, no RTL.
+- **Localization**: [docs/swiftui-localization.md](swiftui-localization.md) audits all three
+  mechanisms (`.strings` 154 keys / `t()` 249 sites / 26 ternaries) and lists ~36 reachable
+  Chinese strings in English mode, with the top 10 on main flows, plus the CI rules that would
+  catch them.
+
+### Open M0 items (not blocking M1)
+
+- **Visual English walkthrough**: the code-level audit is done; the on-screen walkthrough
+  (running app + daemon) is folded into the M1 screenshot harness rather than claimed as done.
 - **ADR approval**: D2/D15/D20 amendments and the Slint freeze need the maintainer's approval;
   the licence wording change for D18 is deferred to M6.
+- **Decisions to take in M1/M2**: device-window form (separate window vs workbench tab), RTL
+  scope (D33 mirrors a third of the goldens; recommendation: semantic leading/trailing now,
+  full RTL only if Arabic ships), and the localization direction (keep the Chinese-key
+  `.strings` tables plus CI rules, or move to English-source keys with a zh catalogue).
+
+### First estimate after M0
+
+Person-days, one owner plus up to two agents, excluding maintainer-only work (game sessions,
+signing credentials). Ranges are deliberately coarse; M1 replaces them with the task facts.
+
+| Stage | Work | Person-days |
+|---|---|---:|
+| M1 | Swift CI + localization gate; fixture mode; screenshot baselines; installable test `.app` + DMG; isolation | 7–11 |
+| M2-A | device center and tasks: reconnect, task list/cancel, device-window form, palette + shortcuts, toasts/status | 9–13 |
+| M2-B | player and input: fullscreen reveal, overlay, uninstall, multi-touch mapping, shortcut editor, status displays | 8–12 |
+| M2-C | root/snapshots/tools: 5-step timeline, stop+revert, Play Store wait, snapshot dialogs, map click, runtime camera | 8–12 |
+| M3 | native integration, tokens/icons, multi-window/compact/Retina, EN/ZH walkthrough, config compatibility | 12–17 |
+| M4 | isolated acceptance scripts + runs; performance A/B and long-run checks (maintainer joins for games) | 6–10 |
+| M5 | release chain: packaging, signing/notarization, Gatekeeper, install/upgrade/rollback | 4–6 |
+| M6 | switch, docs, Slint fallback, deferred decisions | 2–4 |
+| **Total** | | **56–85 person-days** |
+
+With one owner plus two agents and the M1 gate as the first checkpoint this is roughly
+**6–9 calendar weeks**, low-to-medium confidence; the M2 split and review overhead dominate.
 
 ## M1–M6 gates (summary)
 
@@ -105,5 +138,6 @@ concurrent edits.
 
 ## Task tracking
 
-Shared tasks are on the team board: `M0 parity 初稿`, `M0 本地化走查`, followed by the M1
-tasks. Write scopes are disjoint; the Lead commits and runs the gates.
+Shared tasks are on the team board. M0: `M0 parity 初稿` and `M0 本地化走查` (both complete).
+M1: `M1 Swift CI 与本地化门禁` and `M1 可安装测试包`. Write scopes are disjoint; the Lead
+commits and runs the gates.
