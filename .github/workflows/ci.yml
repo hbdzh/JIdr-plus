@@ -96,6 +96,10 @@ jobs:
           bash apps/jidr-swiftui-prototype/build-center.sh
       - name: Logic tests and localization gate (test.sh)
         run: bash apps/jidr-swiftui-prototype/test.sh
+      - name: Design tokens are in sync with tokens.json
+        # generate-tokens.sh --check regenerates from docs/design/tokens.json
+        # into the generated Swift files and fails when they differ.
+        run: bash apps/jidr-swiftui-prototype/generate-tokens.sh --check
       - name: Localization gate (mechanisms a/b/c, AppKit sinks, both bridges)
         # Fails only on leaks outside the audited baseline
         # (Tests/i18n_allowlist.txt); .strings hygiene issues are warnings.
