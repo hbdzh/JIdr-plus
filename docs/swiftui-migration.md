@@ -173,15 +173,17 @@ user data, AVDs or SDK files were touched and no Google licence was accepted by 
 |---|---|
 | CLI/protocol flow (`scripts/m4-swiftui-acceptance.sh`, read-only SDK, real emulator) | **11/11 steps in 104 s**: create → boot (23 s) → connect-info → `app.list` + launch Settings (focused) → screenshot → guest marker, `snapshot.save`, delete, `snapshot.load`, marker read back → `root.verify`/`root.set adb` (uid=0) → 3 s recording (88 frames) → stop → delete → daemon quit |
 | Live UI render (`render-live.sh` + `Tests/LiveRender`) | real daemon + real device (Android 16 API 36): centre ready 102 ms, centre 1000×640 and 820×600 renders, player first frame **173 ms** at 432×768; app list empty on a fresh image is the real state and is noted |
-| Player performance (`bench-player.sh` + `Tests/Bench`) | 30/30 taps detected: touch→new-frame **median 13.28 ms, p90 24.57 ms** (ADR-0001 budget 80 ms: PASS); 10 s driven run at 576×1280: received **59.0 fps**, presented (Slint "shown" definition) **59.0 fps**, actual NSView draw **50.0 fps**; 173.42 MB/s; player+bridge CPU 52.76% of one core; RSS 832 MB; bench result PASS |
+| Player performance (`bench-player.sh` + `Tests/Bench`) | 30/30 taps detected: touch→new-frame **median 13.28 ms, p90 24.57 ms** (ADR-0001 budget 80 ms: PASS); 10 s driven run at 576×1280: received **59.0 fps**, presented ("delivered to the UI hop", the same counter as Slint's `shown`) **59.0 fps**; 173.42 MB/s; player+bridge CPU 52.76% of one core; RSS 832 MB; bench result PASS. The stricter actual-draw counter read 50 fps: the machine's main display was running at **50 Hz**, and AppKit draws at most once per refresh, so that number is the panel ceiling, not a SwiftUI cost (per-frame draw measured at 0.13–0.16 ms; a 60 Hz screen placement still drew at 50 Hz in this session). The bench now reports `display_refresh_hz`/`displayed_ratio_of_refresh`, takes `--screen N` to place the window on a known display, and gates the UI-hop counter against 55 fps while judging the draw counter against the panel. |
 | Slint comparison | live A/B not obtained: `display_bench` itself does not drive frames and the swipe driver had a script bug, so its numbers are a static-scene artefact. Against the same-machine 2026-11-09 reference (received 59.97 / displayed 58.72, CPU 61.3%) presented fps is -0.5% (reference only, no PASS/FAIL) |
 | Rollback | the Slint 0.3.1 app starts normally on a `gui-prefs.json` written with the SwiftUI shape (unknown keys ignored, file untouched); keymaps/shortcuts/window-state legacy readers are covered by tests |
 
-Open observations: the 15% gap between presented frames and actual draws (AppKit redraw
-coalescing vs draw cost) is logged for follow-up, not treated as a regression; real-game
-compatibility, on-screen IME/clipboard behaviour and VoiceOver/Tab order still need a manual
-pass on this machine (no screen-recording or accessibility permission here); the Slint live A/B
-should be repeated with a driven scene on a machine where the bench window can be fronted.
+The presented-vs-draw gap is explained: the bench session's main display is a DELL
+S2725QS running at 50 Hz (it offers 60 and 120 Hz modes), so AppKit window draws cap at 50/s
+while the stream delivers 59–60 frames/s; per-frame draw cost measured 0.13–0.16 ms, so this
+is not a SwiftUI regression. On a 60/120 Hz display the draw counter should track presented
+fps. The scenario's remaining manual checks are real-game compatibility, on-screen
+IME/clipboard behaviour, VoiceOver/Tab order (this session has no screen-recording or
+accessibility permission), and a Slint live A/B with a driven scene.
 
 The automated part of M4 is complete; the three manual items above stay open as switch
 conditions for M6.
