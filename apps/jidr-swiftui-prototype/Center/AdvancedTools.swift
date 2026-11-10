@@ -58,9 +58,10 @@ struct AdvancedToolsView: View {
     @State private var layoutBounds = false
     @State private var animation = 1.0
     @State private var developerLoaded = false
-    @State private var certs: [[String:Any]] = []
-    @State private var props: [String:String] = [:]
-    @State private var propsLoaded = false
+    @State private var cameraBack = "emulated"
+    @State private var cameraFront = "emulated"
+    @State private var cameraLoaded = false
+    @State private var cameraCurrent = ""
     @State private var pending: PendingAction?
     @State private var showingMap = false
     @State private var routePath = ""
@@ -71,7 +72,6 @@ struct AdvancedToolsView: View {
     init(model: CenterModel,id: String,initialRoot: Bool) { self.model = model; self.id = id; _tab = State(initialValue:initialRoot ? 4 : 0) }
     private func t(_ zh:String,_ en:String) -> String { model.text(zh,en) }
     private var running: Bool { model.devices.first(where:{$0.id == id})?.running == true }
-    private var fullRoot: Bool { model.devices.first(where:{$0.id == id})?.root.mode == "magisk" }
     private func call(_ method:String,_ params:[String:Any] = [:], complete: ((Any) -> Void)? = nil) {
         guard !working else { return }
         working = true; message = t("处理中…", "Working…")
@@ -95,13 +95,6 @@ struct AdvancedToolsView: View {
     private func loadNetwork() { call("network.get") { value in
         guard let d = value as? [String:Any], let w = d["wifi"] as? Bool, let m = d["mobile"] as? Bool else { message = t("网络状态格式无效。", "Invalid network response."); return }
         wifi = w; mobile = m; networkLoaded = true
-    } }
-    private func loadProps() { call("device.props.get") { value in
-        guard let d = value as? [String:Any], let p = d["props"] as? [String:Any] else { message = t("设备属性格式无效。", "Invalid device properties."); return }
-        props = p.reduce(into:[:]) { result, item in if let value = item.value as? String { result[item.key] = value } }; propsLoaded = true
-    } }
-    private func loadCerts() { call("root.cacert.list") { value in
-        guard let d = value as? [String:Any], let entries = d["certs"] as? [[String:Any]] else { message = t("证书列表格式无效。", "Invalid certificate list."); return }; certs = entries
     } }
     var body: some View {
         HStack(spacing: 0) {
@@ -134,7 +127,7 @@ struct AdvancedToolsView: View {
                     case 1: gps
                     case 2: networkAndSensors
                     case 3: logs
-                    case 4: rootTools
+                    case 4: RootDevToolsView(model:model, id:id, running:running)
                     default: additionalTools
                     }
                 }.frame(maxWidth: .infinity, alignment:.leading)
@@ -149,11 +142,7 @@ struct AdvancedToolsView: View {
         .onDisappear { stopLogStream() }
         .alert(item:$pending) { action in
             Alert(title:Text(action.title), message:Text(action.detail), primaryButton:.destructive(Text(t("继续", "Continue"))) {
-                call(action.method, action.params) { _ in
-                    model.refresh()
-                    if ["root.module.install", "root.cacert.install", "root.cacert.remove"].contains(action.method) { model.reconnectAfterRestart(id) }
-                    if action.method == "root.cacert.remove" { certs.removeAll() }
-                }
+                call(action.method, action.params) { _ in model.refresh() }
             }, secondaryButton:.cancel(Text(t("取消", "Cancel"))))
         }
     }
@@ -205,7 +194,16 @@ struct AdvancedToolsView: View {
                     call("gps.set",["latitude":a,"longitude":o])
                 }.buttonStyle(.borderedProminent)
                 Button(t("显示地图", "Show map")) { showingMap = true }
-                    .sheet(isPresented:$showingMap) { VStack(spacing:0) { LocationMapView(latitude:Double(lat) ?? 0, longitude:Double(lon) ?? 0, tileURL:model.tileURL); if model.tileURL.isEmpty { Text("© OpenStreetMap contributors").font(.caption) } }.frame(width:640,height:450) }
+                    .sheet(isPresented:$showingMap) {
+                        GPSMapSheet(model:model, device:id, latitude:Double(lat) ?? 0, longitude:Double(lon) ?? 0, tileURL:model.tileURL) { latitude, longitude in
+                            lat = String(format: "%.4f", latitude)
+                            lon = String(format: "%.4f", longitude)
+                            call("gps.set", ["latitude":latitude,"longitude":longitude]) { _ in
+                                message = t("已设置位置：纬度 \(lat)，经度 \(lon)。", "Location set: latitude \(lat), longitude \(lon).")
+                            }
+                        }
+                        .environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
+                    }
             }
             Divider(); Text(t("路线回放", "Route playback")).font(.headline)
             HStack { Button(t("选择 GPX / KML", "Choose GPX / KML")) { choose(["gpx","kml"]) { routePath = $0.path } }; Text(routePath.isEmpty ? t("未选择文件", "No file selected") : URL(fileURLWithPath:routePath).lastPathComponent).lineLimit(1) }
@@ -329,12 +327,70 @@ struct AdvancedToolsView: View {
                 Button(t("抬起", "Lift")) { call("fingerprint.remove") }
             }
             Text(t("需先在 Android 安全设置中注册指纹。", "Enroll a fingerprint in Android security settings first.")).font(.caption).foregroundStyle(.secondary)
+            Divider(); Text(t("摄像头", "Camera")).font(.headline)
+            if !cameraCurrent.isEmpty { Text(cameraCurrent).font(.caption).foregroundStyle(.secondary) }
+            HStack {
+                Text(t("后置", "Back camera")).frame(width: 90, alignment: .leading).foregroundStyle(.secondary)
+                Picker("", selection: $cameraBack) { ForEach(cameraBackOptions, id: \.0) { value, label in Text(label).tag(value) } }
+                    .labelsHidden().frame(width: 220, alignment: .leading)
+            }
+            HStack {
+                Text(t("前置", "Front camera")).frame(width: 90, alignment: .leading).foregroundStyle(.secondary)
+                Picker("", selection: $cameraFront) { ForEach(cameraFrontOptions, id: \.0) { value, label in Text(label).tag(value) } }
+                    .labelsHidden().frame(width: 220, alignment: .leading)
+            }
+            HStack {
+                Button(t("读取摄像头配置", "Read cameras"), action: loadCamera)
+                Button(t("应用（下次启动生效）", "Apply (next start)")) { applyCamera() }
+                    .buttonStyle(.borderedProminent).disabled(!cameraLoaded)
+            }
+            Text(t("摄像头切换在下次启动设备时生效。虚拟场景只支持后置摄像头。",
+                   "Camera changes apply the next time the device starts. The virtual scene is a back camera only."))
+                .font(.caption).foregroundStyle(.secondary)
             Divider(); HStack { Text(t("开发者选项", "Developer options")).font(.headline); Spacer(); Button(t("读取", "Read")) { loadDeveloper() } }
             Toggle(t("显示触摸", "Show taps"),isOn:$showTaps).disabled(!developerLoaded)
             Toggle(t("指针位置", "Pointer location"),isOn:$pointer).disabled(!developerLoaded)
             Toggle(t("布局边界", "Layout bounds"),isOn:$layoutBounds).disabled(!developerLoaded)
             Picker(t("动画倍率", "Animation scale"),selection:$animation) { ForEach([0.0,0.5,1.0,1.5,2.0,5.0,10.0],id:\.self) { Text(String($0)).tag($0) } }.disabled(!developerLoaded)
             Button(t("应用开发者选项", "Apply developer options")) { call("dev.set",["show_taps":showTaps,"pointer_location":pointer,"layout_bounds":layoutBounds,"animation_scale":animation]) }.disabled(!developerLoaded)
+        }
+    }
+    private var cameraBackOptions: [(String, String)] {
+        [("emulated", t("模拟", "Emulated")), ("virtualscene", t("虚拟场景", "Virtual scene")),
+         ("webcam0", t("Mac 摄像头 1", "Mac camera 1")), ("webcam1", t("Mac 摄像头 2", "Mac camera 2")),
+         ("none", t("禁用", "None"))]
+    }
+    private var cameraFrontOptions: [(String, String)] {
+        cameraBackOptions.filter { $0.0 != "virtualscene" }
+    }
+    private func cameraLabel(_ value: String) -> String {
+        if value == "default" { return t("默认（未设置）", "Default (unset)") }
+        return (cameraBackOptions.first(where: { $0.0 == value })?.1) ?? value
+    }
+    private func loadCamera() {
+        call("camera.get") { value in
+            guard let data = value as? [String: Any], let back = data["back"] as? String, let front = data["front"] as? String else {
+                message = t("摄像头配置格式无效。", "Invalid camera response.")
+                return
+            }
+            if cameraBackOptions.contains(where: { $0.0 == back }) { cameraBack = back }
+            if cameraFrontOptions.contains(where: { $0.0 == front }) { cameraFront = front }
+            cameraCurrent = t("当前：后置 \(cameraLabel(back)) · 前置 \(cameraLabel(front))",
+                              "Current: back \(cameraLabel(back)) · front \(cameraLabel(front))")
+            cameraLoaded = true
+        }
+    }
+    private func applyCamera() {
+        call("camera.set", ["back": cameraBack, "front": cameraFront]) { value in
+            var back = cameraBack
+            var front = cameraFront
+            if let data = value as? [String: Any] {
+                if let stored = data["back"] as? String { back = stored }
+                if let stored = data["front"] as? String { front = stored }
+            }
+            cameraCurrent = t("当前：后置 \(cameraLabel(back)) · 前置 \(cameraLabel(front))",
+                              "Current: back \(cameraLabel(back)) · front \(cameraLabel(front))")
+            message = t("摄像头已保存，下次启动设备时生效。", "Camera sources saved; they apply the next time the device starts.")
         }
     }
     private func loadDeveloper() {
@@ -345,55 +401,138 @@ struct AdvancedToolsView: View {
             showTaps = taps; pointer = point; layoutBounds = bounds; animation = scale; developerLoaded = true
         }
     }
-    private var rootTools: some View {
-        VStack(alignment:.leading,spacing:12) {
-            if !fullRoot { Text(t("以下功能需要完整 Root（Magisk）。", "These tools require Full root (Magisk).")) }
-            Group {
-                Button(t("安装 Magisk 模块…", "Install Magisk module…")) { choose(["zip"]) { url in pending = PendingAction(title:t("安装模块？", "Install module?"),detail:t("将安装 \(url.lastPathComponent) 并重启设备。请先保存游戏进度。", "Install \(url.lastPathComponent) and reboot the device. Save your game first."),method:"root.module.install",params:["path":url.path]) } }
-                HStack {
-                    Button(t("启用自动授权…", "Enable automatic grants…")) { pending = PendingAction(title:t("启用自动 Root 授权？", "Enable automatic root grants?"),detail:t("所有应用都将无需询问获得 Root 权限。", "All apps will receive root access without prompting."),method:"root.auto_grant",params:["enabled":true]) }
-                    Button(t("关闭自动授权", "Disable automatic grants")) { call("root.auto_grant",["enabled":false]) }
-                }
-                Button(t("在 Magisk 中管理模块", "Manage modules in Magisk")) {
-                    call("app.launch",["package":"com.topjohnwu.magisk"]) { _ in model.openGame(id) }
-                }
-                Text(t("卸载模块请在 Magisk 应用中操作，然后重启设备。", "Remove modules in the Magisk app, then restart the device.")).font(.caption).foregroundStyle(.secondary)
-                Divider(); HStack { Text(t("系统 CA 证书", "System CA certificates")).font(.headline); Spacer(); Button(t("刷新", "Refresh"),action:loadCerts); Button(t("验证", "Verify")) { call("root.cacert.verify") } }
-                ForEach(certs.indices,id:\.self) { i in
-                    HStack { Text((certs[i]["subject"] as? String) ?? (certs[i]["file"] as? String) ?? "—").lineLimit(1); Spacer()
-                        if let file = certs[i]["file"] as? String { Button(t("移除…", "Remove…")) { pending = PendingAction(title:t("移除证书？", "Remove certificate?"),detail:t("将移除 \(file) 并重启设备。", "Remove \(file) and reboot the device."),method:"root.cacert.remove",params:["cert":file]) } }
-                    }
-                }
-                Button(t("安装 CA 证书…", "Install CA certificate…")) { choose(["pem","crt","cer","der"]) { url in pending = PendingAction(title:t("信任此证书？", "Trust this certificate?"),detail:t("将信任 \(url.lastPathComponent) 并重启设备。", "Trust \(url.lastPathComponent) and reboot the device."),method:"root.cacert.install",params:["path":url.path]) } }
-                Divider(); HStack { Text(t("设备属性", "Device properties")).font(.headline); Spacer(); Button(t("读取属性", "Read properties"),action:loadProps) }
-                ForEach(["model","brand","manufacturer","device","fingerprint","security_patch"],id:\.self) { field in TextField(field,text:Binding(get:{props[field] ?? ""},set:{props[field] = $0})).disabled(!propsLoaded) }
-                Text(t("空值使用系统默认值；修改后需要冷启动。", "Empty values use the system defaults; changes require a cold boot.")).font(.caption).foregroundStyle(.secondary)
-                Button(t("保存设备属性…", "Save properties…")) { pending = PendingAction(title:t("保存设备属性？", "Save device properties?"),detail:t("下一次启动将冷启动，请先保存游戏进度。", "The next start will be a cold boot. Save your game first."),method:"device.props.set",params:["props":props]) }.disabled(!propsLoaded)
-            }.disabled(!fullRoot)
+}
+
+/// The GPS map sheet: shows the OSM map around the fix and turns a click on
+/// the map into a latitude/longitude (crates/jidr-ui/src/widgets/gps.rs:
+/// map_click, 245-259), confirmed before it is sent to the device.
+struct GPSMapSheet: View {
+    @ObservedObject var model: CenterModel
+    let device: String
+    let latitude: Double
+    let longitude: Double
+    let tileURL: String
+    let onApply: (Double, Double) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var pick: MapPick?
+    @State private var recenter = 0
+
+    struct MapPick: Identifiable {
+        let id = UUID()
+        let latitude: Double
+        let longitude: Double
+    }
+
+    private func t(_ chinese: String, _ english: String) -> String { model.text(chinese, english) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(t("在地图上选择位置", "Pick a location on the map")).font(.headline)
+                Spacer()
+                Button(t("关闭", "Close")) { dismiss() }
+            }
+            Text(t("点击地图选择新的定位点，确认后会发送到设备。滚轮可以缩放。",
+                   "Click the map to choose a new fix; it is sent to the device after you confirm. Scroll to zoom."))
+                .font(.caption).foregroundStyle(.secondary)
+            LocationMapView(latitude: latitude, longitude: longitude, tileURL: tileURL, recenter: recenter) { lat, lon in
+                pick = MapPick(latitude: lat, longitude: lon)
+            }
+            .frame(width: 620, height: 380)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.secondary.opacity(0.2)))
+            HStack(spacing: 6) {
+                if tileURL.isEmpty { Text("© OpenStreetMap contributors").font(.caption2).foregroundStyle(.secondary) }
+                Spacer()
+                Text(t("纬度 \(String(format: "%.4f", latitude)) · 经度 \(String(format: "%.4f", longitude))",
+                       "Latitude \(String(format: "%.4f", latitude)) · longitude \(String(format: "%.4f", longitude))"))
+                    .font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .frame(width: 660)
+        .alert(item: $pick) { pick in
+            Alert(
+                title: Text(t("设置此位置？", "Set this location?")),
+                message: Text(t("纬度 \(String(format: "%.4f", pick.latitude)) · 经度 \(String(format: "%.4f", pick.longitude))\n设备的位置将立即更改。",
+                                "Latitude \(String(format: "%.4f", pick.latitude)) · longitude \(String(format: "%.4f", pick.longitude))\nThe device's location changes immediately.")),
+                primaryButton: .default(Text(t("设置", "Set"))) {
+                    onApply(pick.latitude, pick.longitude)
+                    dismiss()
+                },
+                secondaryButton: .cancel(Text(t("取消", "Cancel"))) {
+                    recenter += 1
+                })
         }
     }
 }
 
+/// The OSM map view. Tiles never mirror and the attribution stays visible
+/// (D14); clicks are converted to coordinates by MapKit.
 struct LocationMapView: NSViewRepresentable {
     let latitude: Double
     let longitude: Double
     let tileURL: String
+    var recenter = 0
+    var onPick: ((Double, Double) -> Void)?
+
     final class Coordinator: NSObject, MKMapViewDelegate {
+        var onPick: ((Double, Double) -> Void)?
+        var pin: MKPointAnnotation?
+        var lastCenter: CLLocationCoordinate2D?
+        var lastRecenter = 0
+
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             if let tiles = overlay as? MKTileOverlay { return MKTileOverlayRenderer(tileOverlay:tiles) }
             return MKOverlayRenderer(overlay:overlay)
         }
+
+        @objc func clicked(_ gesture: NSClickGestureRecognizer) {
+            guard let map = gesture.view as? MKMapView else { return }
+            let coordinate = map.convert(gesture.location(in: map), toCoordinateFrom: map)
+            pin?.coordinate = coordinate
+            onPick?(coordinate.latitude, coordinate.longitude)
+        }
     }
-    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeCoordinator() -> Coordinator {
+        let coordinator = Coordinator()
+        coordinator.onPick = onPick
+        return coordinator
+    }
+
     func makeNSView(context: Context) -> MKMapView {
-        let map = MKMapView(); map.delegate = context.coordinator
+        let map = MKMapView()
+        map.delegate = context.coordinator
         let template = tileURL.isEmpty ? "https://tile.openstreetmap.org/{z}/{x}/{y}.png" : tileURL
-        let overlay = MKTileOverlay(urlTemplate:template); overlay.canReplaceMapContent = true
+        let overlay = MKTileOverlay(urlTemplate:template)
+        overlay.canReplaceMapContent = true
         map.addOverlay(overlay,level:.aboveLabels)
         let coordinate = CLLocationCoordinate2D(latitude:latitude,longitude:longitude)
+        context.coordinator.lastCenter = coordinate
         map.setRegion(MKCoordinateRegion(center:coordinate,latitudinalMeters:10000,longitudinalMeters:10000),animated:false)
-        let pin = MKPointAnnotation(); pin.coordinate = coordinate; map.addAnnotation(pin)
+        let pin = MKPointAnnotation()
+        pin.coordinate = coordinate
+        map.addAnnotation(pin)
+        context.coordinator.pin = pin
+        let click = NSClickGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.clicked(_:)))
+        map.addGestureRecognizer(click)
         return map
     }
-    func updateNSView(_ map: MKMapView, context: Context) { }
+
+    func updateNSView(_ map: MKMapView, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.onPick = onPick
+        let coordinate = CLLocationCoordinate2D(latitude:latitude,longitude:longitude)
+        let moved = coordinator.lastCenter.map {
+            abs($0.latitude - coordinate.latitude) > 1e-9 || abs($0.longitude - coordinate.longitude) > 1e-9
+        } ?? true
+        if moved || coordinator.lastRecenter != recenter {
+            coordinator.lastCenter = coordinate
+            coordinator.lastRecenter = recenter
+            coordinator.pin?.coordinate = coordinate
+            map.setRegion(MKCoordinateRegion(center:coordinate,latitudinalMeters:10000,longitudinalMeters:10000),animated:false)
+        }
+    }
 }
