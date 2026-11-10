@@ -11,6 +11,7 @@ Direction **Workbench**: one IDE-like window, dark-first, soft cards, devices op
 | Workbench component CSS (retained as design reference) | `jidr.css` |
 | Product brief | `PRODUCT.md` |
 | Brand (icon, symbol, web set) | `../../assets/brand/` |
+| SwiftUI visual refresh (2026-11): tokens, design kit and implementation notes | [`visual-refresh.md`](visual-refresh.md) |
 
 Chosen concepts: launcher **1A** (sidebar device list and device detail), device window **4A** (docked widget panel), landing page **8A** (headline over the app).
 

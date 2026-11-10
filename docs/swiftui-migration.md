@@ -210,6 +210,17 @@ to pretend it signed), an install → upgrade → rollback run (needs a previous
 play, on-screen IME/clipboard behaviour and VoiceOver/Tab order (this session has no screen
 recording or accessibility permission), and the 15% presented-vs-actual-draw observation.
 
+### Post-M6 visual refresh (2026-11)
+
+After the switch, the SwiftUI centre, settings window, sheets and player chrome were moved onto
+the refreshed D41 palette and a shared `Center/DesignKit.swift` component layer: card surfaces with
+hairline borders, status dots, accent-tinted selected rows, inline device actions with an overflow
+menu, grouped settings forms with a native sidebar, and a dark token-built player chrome. The Slint
+fallback consumes the same regenerated tokens while keeping its own layout. Every existing field,
+action, alert, accessibility label and keyboard shortcut was preserved; the screenshot matrix was
+regenerated. Details, implementation notes, deviations and verification live in
+[docs/design/visual-refresh.md](design/visual-refresh.md).
+
 ## M1–M6 gates (summary)
 
 - **M1 — test and package skeleton.** macOS CI job for Swift builds, logic tests and the
