@@ -107,6 +107,19 @@ With one owner plus two agents and the M1 gate as the first checkpoint this is r
 **6–9 calendar weeks**, low-to-medium confidence; the M2 split and review overhead dominate.
 The three decisions above remove the RTL work and the device-tab work from the estimates.
 
+## M1: test and package skeleton (status 2026-11-11)
+
+| Item | Evidence |
+|---|---|
+| macOS Swift CI job | `.github/workflows/ci.yml` `swift-macos`: rustup, protoc, cached Rust, builds both previews, runs `test.sh` and the localization gate; the GUI window test is a separate `continue-on-error` step (reported, never silently skipped) |
+| Localization gate | `Tests/localization_coverage.py` (8 rules, mechanisms a/b/c, UI and AppKit sinks, both bridge diagnostics, self-test) plus `Tests/i18n_allowlist.txt` (47 audited baseline rows); fails only on new leaks; `.strings` hygiene is warnings; `test.sh` runs `--self-test` |
+| Installable test package | `package-test.sh` → `target/swiftui-package/JidrSwiftUICenter.app` + `Jidr-0.3.1-test.dmg`; bundle-relative helper discovery in `Center/main.swift`; ad-hoc inside-out signature (strict verification passes); en/zh, icon and three licences; forbidden-content scan with a negative control; Finder-style launch with no `JIDR_HOME` uses `~/Library/Application Support/Jidr-SwiftUI-Test` and leaves the real Jidr data directory untouched |
+| Isolation | the packaging run and the CI-local tests never write `~/Library/Application Support/Jidr`; the test home is removed afterwards |
+
+Still open in M1: the fixture mode (success/failure/progress/cancel/disconnect states without an
+emulator) and the first SwiftUI screenshot baselines (empty list, populated list, load failure,
+long-task progress, one player state).
+
 ## M1–M6 gates (summary)
 
 - **M1 — test and package skeleton.** macOS CI job for Swift builds, logic tests and the
