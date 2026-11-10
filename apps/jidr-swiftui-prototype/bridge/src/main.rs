@@ -35,6 +35,45 @@ enum Command {
     AppUninstall { package: String },
 }
 
+/// One user-visible bridge notification: a stable machine code plus an English
+/// fallback message. The Swift player may translate the code; the bridge itself
+/// never sends Chinese UI text, so English mode cannot leak it.
+#[derive(Debug, Clone, Copy)]
+struct Diagnostic {
+    code: &'static str,
+    message: &'static str,
+}
+
+impl Diagnostic {
+    const fn new(code: &'static str, message: &'static str) -> Self {
+        Self { code, message }
+    }
+}
+
+const FILE_INVALID_PATH: Diagnostic =
+    Diagnostic::new("file.invalid_path", "Choose a valid local file path");
+const FILE_NOT_A_FILE: Diagnostic =
+    Diagnostic::new("file.not_a_file", "Choose a file, not a folder");
+const SCREENSHOT_SAVED: Diagnostic = Diagnostic::new("screenshot.saved", "Screenshot saved");
+const APP_INSTALLED: Diagnostic = Diagnostic::new("app.installed", "App installed");
+const FILE_SENT: Diagnostic =
+    Diagnostic::new("file.sent", "File sent to the device's Downloads folder");
+const RECORDING_INVALID_PATH: Diagnostic = Diagnostic::new(
+    "recording.invalid_path",
+    "Invalid recording path, or the file already exists",
+);
+const RECORDING_STARTED: Diagnostic = Diagnostic::new("recording.started", "Recording");
+const RECORDING_SAVED: Diagnostic = Diagnostic::new("recording.saved", "Recording saved");
+
+/// Codes for failures whose readable text carries the daemon's own error.
+const FILE_OPERATION_FAILED: &str = "file.operation_failed";
+const RECORDING_FAILED: &str = "recording.failed";
+const RECORDING_STOP_FAILED: &str = "recording.stop_failed";
+const APP_INSPECTED: &str = "app.inspected";
+const APP_INSPECT_FAILED: &str = "app.inspect_failed";
+const APP_UNINSTALLED: &str = "app.uninstalled";
+const APP_UNINSTALL_FAILED: &str = "app.uninstall_failed";
+
 fn panel_point(x: f64, y: f64, width: u32, height: u32, quarter: u32) -> Option<(i32, i32)> {
     if !x.is_finite()
         || !y.is_finite()
@@ -389,38 +428,68 @@ fn is_apk(path: &str) -> bool {
         .is_some_and(|ext| ext.eq_ignore_ascii_case("apk"))
 }
 
+/// A local validation failure or the daemon's own error. Daemon failures keep
+/// their raw English detail so the player can still classify `INSTALL_FAILED_*`.
+enum FileOperationError {
+    InvalidPath,
+    NotAFile,
+    Daemon(anyhow::Error),
+}
+
+impl FileOperationError {
+    fn code(&self) -> &'static str {
+        match self {
+            Self::InvalidPath => FILE_INVALID_PATH.code,
+            Self::NotAFile => FILE_NOT_A_FILE.code,
+            Self::Daemon(_) => FILE_OPERATION_FAILED,
+        }
+    }
+
+    fn message(&self) -> String {
+        match self {
+            Self::InvalidPath => FILE_INVALID_PATH.message.to_owned(),
+            Self::NotAFile => FILE_NOT_A_FILE.message.to_owned(),
+            Self::Daemon(error) => format!("{error:#}"),
+        }
+    }
+}
+
 async fn run_file_operation(
     client: &jidr_client::Client,
     device: &str,
     path: &str,
     screenshot: bool,
-) -> Result<()> {
+) -> std::result::Result<Diagnostic, FileOperationError> {
     let path = std::path::Path::new(path);
     if !path.is_absolute() || path.file_name().is_none() {
-        bail!("请选择有效的本地文件路径");
+        return Err(FileOperationError::InvalidPath);
     }
     if screenshot {
         client
             .call("media.screenshot", json!({"device":device,"path":path}))
-            .await?;
-    } else {
-        if !path.is_file() {
-            bail!("请选择本地文件，不支持文件夹");
-        }
-        if is_apk(&path.to_string_lossy()) {
-            client
-                .call(
-                    "file.install",
-                    json!({"device":device,"apk":path,"replace":true}),
-                )
-                .await?;
-        } else {
-            client
-                .call("file.push", json!({"device":device,"local":path}))
-                .await?;
-        }
+            .await
+            .map_err(|error| FileOperationError::Daemon(error.into()))?;
+        return Ok(SCREENSHOT_SAVED);
     }
-    Ok(())
+    if !path.is_file() {
+        return Err(FileOperationError::NotAFile);
+    }
+    if is_apk(&path.to_string_lossy()) {
+        client
+            .call(
+                "file.install",
+                json!({"device":device,"apk":path,"replace":true}),
+            )
+            .await
+            .map_err(|error| FileOperationError::Daemon(error.into()))?;
+        Ok(APP_INSTALLED)
+    } else {
+        client
+            .call("file.push", json!({"device":device,"local":path}))
+            .await
+            .map_err(|error| FileOperationError::Daemon(error.into()))?;
+        Ok(FILE_SENT)
+    }
 }
 
 /// Deterministic synthetic RGBA panel for the snapshot renderer: a status bar,
@@ -602,7 +671,7 @@ async fn main() -> Result<()> {
             line = input_rx.recv() => match line { Some(line) => match serde_json::from_str::<Command>(&line) { Ok(Command::Rotate { direction }) => { let current = physical_rotation.load(Ordering::Relaxed) as i32; let angle = (current + direction.signum()).rem_euclid(4) * 90; if let Err(e) = client.call("sensor.rotate", json!({"device":args[1], "angle":angle})).await { eprintln!("Rotate failed: {e}"); } }, Ok(Command::ToolKey { key }) => { if ["back", "home", "recents", "volume_up", "volume_down", "power"].contains(&key.as_str()) && let Err(e) = client.call("key.press", json!({"device":args[1], "key":key})).await { eprintln!("Key failed: {e}"); } }, Ok(Command::StartRecording { path }) => {
                 let path = std::path::PathBuf::from(path);
                 if !path.is_absolute() || path.exists() {
-                    eprintln!("JIDR_RECORD:{}", json!({"state":"failed", "message":"录屏路径无效或文件已存在"}));
+                    eprintln!("JIDR_RECORD:{}", json!({"state":"failed", "code":RECORDING_INVALID_PATH.code, "message":RECORDING_INVALID_PATH.message}));
                 } else {
                     let client = Arc::clone(&client);
                     let device = args[1].clone();
@@ -610,12 +679,12 @@ async fn main() -> Result<()> {
                         let announced = std::sync::atomic::AtomicBool::new(false);
                         let result = client.run("media.record", json!({"device":device,"path":path}), |_| {
                             if !announced.swap(true, Ordering::Relaxed) {
-                                eprintln!("JIDR_RECORD:{}", json!({"state":"recording", "message":"正在录屏"}));
+                                eprintln!("JIDR_RECORD:{}", json!({"state":"recording", "code":RECORDING_STARTED.code, "message":RECORDING_STARTED.message}));
                             }
                         }).await;
                         match result {
-                            Ok(value) => eprintln!("JIDR_RECORD:{}", json!({"state":"finished","message":"录屏已保存","result":value})),
-                            Err(error) => eprintln!("JIDR_RECORD:{}", json!({"state":"failed","message":format!("录屏失败：{error}")})),
+                            Ok(value) => eprintln!("JIDR_RECORD:{}", json!({"state":"finished","code":RECORDING_SAVED.code,"message":RECORDING_SAVED.message,"result":value})),
+                            Err(error) => eprintln!("JIDR_RECORD:{}", json!({"state":"failed","code":RECORDING_FAILED,"message":format!("Recording failed: {error}")})),
                         }
                     });
                 }
@@ -623,7 +692,7 @@ async fn main() -> Result<()> {
                 let client = Arc::clone(&client); let device = args[1].clone();
                 tokio::spawn(async move {
                     if let Err(error) = client.call("media.record_stop", json!({"device":device})).await {
-                        eprintln!("JIDR_RECORD:{}", json!({"state":"stop_failed", "message":format!("停止录屏失败：{error}")}));
+                        eprintln!("JIDR_RECORD:{}", json!({"state":"stop_failed", "code":RECORDING_STOP_FAILED, "message":format!("Could not stop recording: {error}")}));
                     }
                 });
             }, Ok(command @ (Command::Screenshot { .. } | Command::SendFile { .. })) => {
@@ -632,27 +701,25 @@ async fn main() -> Result<()> {
                 let client = Arc::clone(&client);
                 let device = args[1].clone();
                 tokio::spawn(async move {
-                    if let Err(error) = run_file_operation(&client, &device, &path, screenshot).await {
-                        eprintln!("JIDR_OPERATION:{}", json!({"ok":false,"message":format!("{error:#}")}));
-                    } else {
-                        let label = if screenshot { "截图已保存" } else if is_apk(&path) { "应用已安装" } else { "文件已发送到设备下载目录" };
-                        eprintln!("JIDR_OPERATION:{}", json!({"ok":true,"message":label,"path":path}));
+                    match run_file_operation(&client, &device, &path, screenshot).await {
+                        Ok(saved) => eprintln!("JIDR_OPERATION:{}", json!({"ok":true,"code":saved.code,"message":saved.message,"path":path})),
+                        Err(error) => eprintln!("JIDR_OPERATION:{}", json!({"ok":false,"code":error.code(),"message":error.message()})),
                     }
                 });
             }, Ok(Command::AppInspect { path }) => {
                 let client = Arc::clone(&client);
                 tokio::spawn(async move {
                     match client.call("app.inspect", json!({"apk": path})).await {
-                        Ok(value) => eprintln!("JIDR_APP:{}", json!({"op":"inspect","ok":true,"apk":path,"package":value.get("package"),"label":value.get("label")})),
-                        Err(error) => eprintln!("JIDR_APP:{}", json!({"op":"inspect","ok":false,"apk":path,"message":format!("{error}")})),
+                        Ok(value) => eprintln!("JIDR_APP:{}", json!({"op":"inspect","ok":true,"code":APP_INSPECTED,"apk":path,"package":value.get("package"),"label":value.get("label")})),
+                        Err(error) => eprintln!("JIDR_APP:{}", json!({"op":"inspect","ok":false,"code":APP_INSPECT_FAILED,"apk":path,"message":format!("{error}")})),
                     }
                 });
             }, Ok(Command::AppUninstall { package }) => {
                 let client = Arc::clone(&client); let device = args[1].clone();
                 tokio::spawn(async move {
                     match client.call("app.uninstall", json!({"device":device,"package":package})).await {
-                        Ok(_) => eprintln!("JIDR_APP:{}", json!({"op":"uninstall","ok":true,"package":package})),
-                        Err(error) => eprintln!("JIDR_APP:{}", json!({"op":"uninstall","ok":false,"package":package,"message":format!("{error}")})),
+                        Ok(_) => eprintln!("JIDR_APP:{}", json!({"op":"uninstall","ok":true,"code":APP_UNINSTALLED,"package":package})),
+                        Err(error) => eprintln!("JIDR_APP:{}", json!({"op":"uninstall","ok":false,"code":APP_UNINSTALL_FAILED,"package":package,"message":format!("{error}")})),
                     }
                 });
             }, Ok(command) => if let Err(e) = input(&mut ctl,command,(width,height),&rotation,&mut held).await { eprintln!("Input failed: {e:#}"); }, Err(e) => eprintln!("Invalid input: {e}") }, None => break },
@@ -665,6 +732,49 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The player's UI copy lives in Swift; the bridge must only send stable
+    /// codes and English fallbacks. This guards the contract M3 introduced.
+    #[test]
+    fn bridge_diagnostics_use_ascii_codes_and_english() {
+        for diagnostic in [
+            FILE_INVALID_PATH,
+            FILE_NOT_A_FILE,
+            SCREENSHOT_SAVED,
+            APP_INSTALLED,
+            FILE_SENT,
+            RECORDING_INVALID_PATH,
+            RECORDING_STARTED,
+            RECORDING_SAVED,
+        ] {
+            assert!(
+                diagnostic.code.is_ascii() && !diagnostic.code.contains(' '),
+                "code {:?}",
+                diagnostic.code
+            );
+            assert!(
+                diagnostic.message.is_ascii(),
+                "message {:?}",
+                diagnostic.message
+            );
+        }
+        assert_eq!(
+            FILE_INVALID_PATH.code,
+            FileOperationError::InvalidPath.code()
+        );
+        assert_eq!(FILE_NOT_A_FILE.code, FileOperationError::NotAFile.code());
+        for code in [
+            FILE_OPERATION_FAILED,
+            RECORDING_FAILED,
+            RECORDING_STOP_FAILED,
+            APP_INSPECTED,
+            APP_INSPECT_FAILED,
+            APP_UNINSTALLED,
+            APP_UNINSTALL_FAILED,
+        ] {
+            assert!(code.is_ascii() && code.contains('.'), "code {code:?}");
+        }
+    }
     #[test]
     fn app_commands_parse() {
         let inspect: Command =

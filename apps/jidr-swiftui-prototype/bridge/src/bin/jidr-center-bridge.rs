@@ -43,6 +43,61 @@ impl LogBatch {
     }
 }
 
+/// A user-visible local failure with a stable code for the Swift client. Bridge
+/// diagnostics stay English; the center UI can translate the code instead of
+/// leaking a Chinese string into English mode.
+#[derive(Debug)]
+struct DiagnosticError {
+    code: &'static str,
+    message: &'static str,
+}
+
+impl DiagnosticError {
+    const fn new(code: &'static str, message: &'static str) -> Self {
+        Self { code, message }
+    }
+}
+
+impl std::fmt::Display for DiagnosticError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.message)
+    }
+}
+
+impl std::error::Error for DiagnosticError {}
+
+/// An error reply that carries the code for typed local failures and falls back
+/// to the readable diagnostic chain for daemon and I/O errors.
+fn error_reply(id: u64, error: &anyhow::Error) -> Value {
+    match error.downcast_ref::<DiagnosticError>() {
+        Some(diagnostic) => {
+            json!({"id":id,"type":"error","code":diagnostic.code,"message":diagnostic.message})
+        }
+        None => json!({"id":id,"type":"error","message":format!("{error:#}")}),
+    }
+}
+
+/// Reads `gui-prefs.json`. A missing file is the defaults (an empty object);
+/// malformed JSON or a non-object root is reported so the file is never
+/// overwritten with a lossy rewrite.
+fn read_gui_prefs(path: &std::path::Path) -> Result<serde_json::Map<String, Value>> {
+    let prefs: Value = match std::fs::read(path) {
+        Ok(data) => serde_json::from_slice(&data)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Value::Object(serde_json::Map::new())
+        }
+        Err(error) => return Err(error.into()),
+    };
+    match prefs {
+        Value::Object(object) => Ok(object),
+        _ => Err(DiagnosticError::new(
+            "prefs.invalid",
+            "The preferences file is not a JSON object",
+        )
+        .into()),
+    }
+}
+
 fn send(value: Value) {
     let mut output = std::io::stdout().lock();
     let _ = writeln!(output, "{value}");
@@ -298,22 +353,18 @@ async fn main() -> Result<()> {
                 let result = (|| -> anyhow::Result<Value> {
                     let paths = JidrPaths::discover()?;
                     let path = paths.data.join("gui-prefs.json");
-                    let mut prefs: Value = match std::fs::read(&path) {
-                        Ok(data) => serde_json::from_slice(&data)?,
-                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => json!({}),
-                        Err(error) => return Err(error.into()),
-                    };
-                    let object = prefs
-                        .as_object_mut()
-                        .ok_or_else(|| anyhow::anyhow!("偏好设置格式错误"))?;
+                    let mut prefs = read_gui_prefs(&path)?;
                     if request.method == "center.prefs.set" {
                         for (field, max) in [("language", 1), ("appearance", 2)] {
                             if let Some(value) = request.params.get(field) {
-                                let number = value
-                                    .as_u64()
-                                    .filter(|n| *n <= max)
-                                    .ok_or_else(|| anyhow::anyhow!("无效的界面设置"))?;
-                                object.insert(field.into(), json!(number));
+                                let number =
+                                    value.as_u64().filter(|n| *n <= max).ok_or_else(|| {
+                                        DiagnosticError::new(
+                                            "prefs.invalid_setting",
+                                            "The interface setting is invalid",
+                                        )
+                                    })?;
+                                prefs.insert(field.into(), json!(number));
                             }
                         }
                         if let Some(value) = request.params.get("tile_url") {
@@ -331,10 +382,14 @@ async fn main() -> Result<()> {
                                     "Map tile URL must use HTTPS and contain {{z}}, {{x}} and {{y}}"
                                 );
                             }
-                            object.insert("tile_url".into(), json!(tile));
+                            prefs.insert("tile_url".into(), json!(tile));
                         }
                         if !paths.data.is_dir() {
-                            anyhow::bail!("数据目录不可用");
+                            return Err(DiagnosticError::new(
+                                "prefs.data_unavailable",
+                                "The data directory is unavailable",
+                            )
+                            .into());
                         }
                         let temp = paths
                             .data
@@ -355,13 +410,11 @@ async fn main() -> Result<()> {
                         }
                         result?;
                     }
-                    Ok(prefs)
+                    Ok(Value::Object(prefs))
                 })();
                 match result {
                     Ok(value) => send(json!({"id":id,"type":"result","result":value})),
-                    Err(error) => {
-                        send(json!({"id":id,"type":"error","message":format!("{error:#}")}))
-                    }
+                    Err(error) => send(error_reply(id, &error)),
                 }
                 return;
             }
@@ -385,11 +438,9 @@ async fn main() -> Result<()> {
                 }).await;
                 match result {
                     Ok(Ok(value)) => send(json!({"id":id,"type":"result","result":value})),
-                    Ok(Err(error)) => {
-                        send(json!({"id":id,"type":"error","message":format!("{error:#}")}))
-                    }
+                    Ok(Err(error)) => send(error_reply(id, &error)),
                     Err(error) => send(
-                        json!({"id":id,"type":"error","message":format!("preflight worker failed: {error}")}),
+                        json!({"id":id,"type":"error","code":"preflight.worker_failed","message":format!("preflight worker failed: {error}")}),
                     ),
                 }
                 return;
@@ -404,11 +455,22 @@ async fn main() -> Result<()> {
                             .params
                             .get("kind")
                             .and_then(Value::as_str)
-                            .ok_or_else(|| anyhow::anyhow!("缺少工具类型"))?;
+                            .ok_or_else(|| {
+                                DiagnosticError::new(
+                                    "toolpath.missing_kind",
+                                    "The tool path kind is missing",
+                                )
+                            })?;
                         let selected = match request.params.get("path") {
                             Some(Value::String(p)) => Some(std::path::PathBuf::from(p)),
                             Some(Value::Null) => None,
-                            _ => anyhow::bail!("缺少路径"),
+                            _ => {
+                                return Err(DiagnosticError::new(
+                                    "toolpath.missing_path",
+                                    "The tool path is missing",
+                                )
+                                .into());
+                            }
                         };
                         match kind {
                             "sdk" => tools.android_sdk = selected,
@@ -421,7 +483,13 @@ async fn main() -> Result<()> {
                                     }
                                 })
                             }
-                            _ => anyhow::bail!("未知工具类型"),
+                            _ => {
+                                return Err(DiagnosticError::new(
+                                    "toolpath.unknown_kind",
+                                    "The tool path kind is unknown",
+                                )
+                                .into());
+                            }
                         }
                         tools.save(&paths)?;
                     }
@@ -431,9 +499,7 @@ async fn main() -> Result<()> {
                 })();
                 match result {
                     Ok(value) => send(json!({"id":id,"type":"result","result":value})),
-                    Err(error) => {
-                        send(json!({"id":id,"type":"error","message":format!("{error:#}")}))
-                    }
+                    Err(error) => send(error_reply(id, &error)),
                 }
                 return;
             }
@@ -453,7 +519,9 @@ async fn main() -> Result<()> {
                         if exited {
                             send(json!({"id":id,"type":"result","result":null}));
                         } else {
-                            send(json!({"id":id,"type":"error","message":"后台进程没有正常退出"}));
+                            send(
+                                json!({"id":id,"type":"error","code":"quit.timeout","message":"The background process did not exit cleanly"}),
+                            );
                         }
                     }
                     Err(error) => send(json!({"id":id,"type":"error","message":error.message})),
@@ -506,7 +574,69 @@ async fn follow_logcat(paths: &JidrPaths, device: &str, filters: Vec<String>) ->
 
 #[cfg(test)]
 mod tests {
-    use super::LocalStateLocks;
+    use super::*;
+
+    /// Old Slint/pre-M2 `gui-prefs.json` is still a JSON object with these
+    /// fields; a missing file means defaults and a corrupt file is reported
+    /// instead of being rewritten.
+    #[test]
+    fn legacy_gui_prefs_are_read_and_corrupt_files_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gui-prefs.json");
+        assert!(read_gui_prefs(&path).unwrap().is_empty());
+
+        let legacy = br#"{"language":1,"appearance":0,"tile_url":""}"#;
+        std::fs::write(&path, legacy).unwrap();
+        let prefs = read_gui_prefs(&path).unwrap();
+        assert_eq!(prefs.get("language"), Some(&json!(1)));
+        assert_eq!(prefs.get("appearance"), Some(&json!(0)));
+        assert_eq!(std::fs::read(&path).unwrap(), legacy);
+
+        let corrupt = b"{ not json";
+        std::fs::write(&path, corrupt).unwrap();
+        assert!(read_gui_prefs(&path).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), corrupt);
+
+        std::fs::write(&path, b"[1,2,3]").unwrap();
+        let error = read_gui_prefs(&path).unwrap_err();
+        assert_eq!(
+            error
+                .downcast_ref::<DiagnosticError>()
+                .map(|entry| entry.code),
+            Some("prefs.invalid")
+        );
+        let reply = error_reply(7, &error);
+        assert_eq!(reply["id"], 7);
+        assert_eq!(reply["type"], "error");
+        assert_eq!(reply["code"], "prefs.invalid");
+        assert_eq!(
+            reply["message"],
+            "The preferences file is not a JSON object"
+        );
+    }
+
+    /// The center UI maps codes; the bridge must never ship Chinese UI text.
+    #[test]
+    fn local_diagnostics_use_ascii_codes_and_english() {
+        for diagnostic in [
+            DiagnosticError::new("prefs.invalid", "x"),
+            DiagnosticError::new("prefs.invalid_setting", "x"),
+            DiagnosticError::new("prefs.data_unavailable", "x"),
+            DiagnosticError::new("toolpath.missing_kind", "x"),
+            DiagnosticError::new("toolpath.missing_path", "x"),
+            DiagnosticError::new("toolpath.unknown_kind", "x"),
+        ] {
+            assert!(diagnostic.code.is_ascii() && diagnostic.code.contains('.'));
+            assert!(diagnostic.message.is_ascii());
+        }
+        for (code, message) in [(
+            "quit.timeout",
+            "The background process did not exit cleanly",
+        )] {
+            assert!(code.is_ascii() && code.contains('.'));
+            assert!(message.is_ascii());
+        }
+    }
 
     #[tokio::test]
     async fn preferences_do_not_block_tool_paths() {

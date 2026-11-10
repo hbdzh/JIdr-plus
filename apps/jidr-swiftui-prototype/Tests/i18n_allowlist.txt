@@ -4,26 +4,25 @@
 # strings that the three mechanisms cannot translate, so English mode renders
 # them verbatim. Tests/localization_coverage.py fails on every finding that is
 # NOT listed here, which keeps a new untranslated string from landing silently.
-# M2 fixes these one by one: when a finding is gone the gate reports the row as
-# stale - delete it then.
+# When a finding is gone the gate reports the row as stale - delete it then.
 #
 # Format, fields separated by " | ":
-#   <repo-relative path>:<line> | <rule> | <literal> | <audit id + why it leaks> | M2: <fix>
+#   <repo-relative path>:<line> | <rule> | <literal> | <audit id + why it leaks> | <fix>
 #
 # Matching uses (path, rule, literal); the line is informational, so moving code
 # around does not invalidate the baseline. A row also pins how many occurrences
 # of that literal the audit found (default 1, override with a trailing
-# "occurrences=N" field, e.g. A8 below); a new copy of a baselined literal in
-# the same file is still reported as a new leak.
+# "occurrences=N" field); a new copy of a baselined literal in the same file is
+# still reported as a new leak.
 #
-# Baseline: 47 distinct findings / 49 occurrences. Mapping to the M0 audit:
-# A 10 rows (A7 is 4 rows for 2 file names across two files, A8 is 1 row for
-# 3 occurrences), B 3, C 10, D 7, E 15. The Chinese unique strings are the
-# audit's 43; the 44th unique literal is B3's accessibility variable.
-# Pinned but not English-mode reachable today (kept so the bridge contract is
-# fixed too): E7 x3 (the Logcat panel masks the error with a fixed English
-# sentence) and D4 x4 (arguments the current center UI cannot produce). The
-# remaining 40 rows cover the ~36 unique English-mode leaks in the audit.
+# M3 close-out: the bridge diagnostics (17 rows), the player/key-map/log-stream/
+# window-quality dynamic errors (8 rows) and the device-center AppKit/dynamic
+# strings (10 rows) are fixed, so their rows were removed. What remains is one
+# file owned by the native-integration line:
+#   4 rows: Sources/GameWindowState.swift errorDescription copy (E2 in the M0
+#   audit). It is the native line's write scope, not the M3 localization line's.
+# Baseline: 4 findings / 4 occurrences. The gate reports stale rows, so deleting
+# them here is the only follow-up once that file is cleared.
 #
 # Rules, for reference:
 #   strings-key      Chinese literal used as LocalizedStringKey with no en.lproj entry
@@ -34,46 +33,4 @@
 #   player-status    player status bubble literal without en key or localized() prefix
 #   bridge-diagnostic  Chinese diagnostic in a bridge binary (player or center)
 #
-# --- A: device center (mechanism gaps) -------------------------------------
-apps/jidr-swiftui-prototype/Center/DeviceViews.swift:241 | dynamic-sink | 画质已保存，下次打开窗口生效。 | A1: @State qualityMessage is rendered by Text(String), which bypasses LocalizedStringKey lookup | M2: model.text("画质已保存，下次打开窗口生效。", "Quality saved; it applies next time the window opens.")
-apps/jidr-swiftui-prototype/Center/DeviceViews.swift:253 | dynamic-sink | 请检查名称、内存、CPU、分辨率和 DPI。 | A2: save validation error is assigned as a plain String to the rendered error state | M2: model.text(...) or reuse a DeviceCreation validation + creationError mapping
-apps/jidr-swiftui-prototype/Center/DeviceViews.swift:268 | dynamic-sink | 自动休眠时间必须介于 0 到 1440 分钟。 | A3: same plain String validation error path | M2: model.text("自动休眠时间必须介于 0 到 1440 分钟。", "Idle sleep must be between 0 and 1440 minutes.")
-apps/jidr-swiftui-prototype/Center/DeviceViews.swift:286 | dynamic-sink | 无法读取数据目录 | A4: qualityMessage gets the Chinese text directly (DeviceModel.swift:351 already has the bilingual pair) | M2: reuse model.text("无法读取数据目录", "Cannot read the data directory")
-apps/jidr-swiftui-prototype/Center/main.swift:47 | appkit-sink | Jidr SwiftUI 设备中心预览 | A6: NSWindow.title is an AppKit String (Mission Control / Window menu / accessibility still read it) | M2: model.text("Jidr SwiftUI 设备中心预览", "Jidr SwiftUI Device Center Preview")
-#
-# --- B: player window (static status without en keys) ----------------------
-#
-# --- C: player bridge diagnostics (JIDR_* protocol -> onStatus -> localized) --
-apps/jidr-swiftui-prototype/bridge/src/main.rs:396 | bridge-diagnostic | 请选择有效的本地文件路径 | C2: bail! message goes into JIDR_OPERATION and the player bubble verbatim | M2: send a stable code (or English) and translate in Swift
-apps/jidr-swiftui-prototype/bridge/src/main.rs:404 | bridge-diagnostic | 请选择本地文件，不支持文件夹 | C2: same file-operation error path | M2: send a stable code and translate in Swift
-apps/jidr-swiftui-prototype/bridge/src/main.rs:559 | bridge-diagnostic | 截图已保存 | C1: success label is embedded in JIDR_OPERATION.message, no en key in localized() | M2: send {"code":"screenshot.saved"} and map it in Swift
-apps/jidr-swiftui-prototype/bridge/src/main.rs:559 | bridge-diagnostic | 应用已安装 | C1: success label for APK installs | M2: send a code and map it in Swift
-apps/jidr-swiftui-prototype/bridge/src/main.rs:559 | bridge-diagnostic | 文件已发送到设备下载目录 | C1: success label for pushed files | M2: send a code and map it in Swift
-apps/jidr-swiftui-prototype/bridge/src/main.rs:526 | bridge-diagnostic | 录屏路径无效或文件已存在 | C3: JIDR_RECORD.message shown by the player bubble on every recording start | M2: send a recording error code and translate in Swift
-apps/jidr-swiftui-prototype/bridge/src/main.rs:534 | bridge-diagnostic | 正在录屏 | C3: recording state message | M2: send a code and translate in Swift
-apps/jidr-swiftui-prototype/bridge/src/main.rs:538 | bridge-diagnostic | 录屏已保存 | C3: recording finished message | M2: send a code and translate in Swift
-apps/jidr-swiftui-prototype/bridge/src/main.rs:539 | bridge-diagnostic | 录屏失败：{error} | C3: recording failure message with the error appended | M2: send a code plus the raw error and translate the wrapper in Swift
-apps/jidr-swiftui-prototype/bridge/src/main.rs:547 | bridge-diagnostic | 停止录屏失败：{error} | C3: stop-recording failure message | M2: send a code plus the raw error and translate the wrapper in Swift
-#
-# --- D: center bridge diagnostics (JSON-RPC error -> NSError.localizedDescription)
-apps/jidr-swiftui-prototype/bridge/src/bin/jidr-center-bridge.rs:121 | bridge-diagnostic | 偏好设置格式错误 | D1: corrupted gui-prefs.json error shown as notice/message verbatim | M2: return a prefs.invalid code and map it in OperationMessages
-apps/jidr-swiftui-prototype/bridge/src/bin/jidr-center-bridge.rs:150 | bridge-diagnostic | 数据目录不可用 | D2: missing data directory on preference save | M2: return a code and translate in Swift
-apps/jidr-swiftui-prototype/bridge/src/bin/jidr-center-bridge.rs:269 | bridge-diagnostic | 后台进程没有正常退出 | D3: safe-quit failure appended to the "Unable to quit safely:" notice | M2: return a code and translate in Swift (safe-quit flow, fix first)
-apps/jidr-swiftui-prototype/bridge/src/bin/jidr-center-bridge.rs:128 | bridge-diagnostic | 无效的界面设置 | D4: not reachable from the current UI (language/appearance values are fixed) but still a Chinese bridge diagnostic | M2: return a code and translate in Swift
-apps/jidr-swiftui-prototype/bridge/src/bin/jidr-center-bridge.rs:220 | bridge-diagnostic | 缺少工具类型 | D4: not reachable from the current UI (kind is always sdk/jdk), pinned so the contract gets fixed | M2: return a code and translate in Swift
-apps/jidr-swiftui-prototype/bridge/src/bin/jidr-center-bridge.rs:224 | bridge-diagnostic | 缺少路径 | D4: not reachable from the current UI (path is always set or null) | M2: return a code and translate in Swift
-apps/jidr-swiftui-prototype/bridge/src/bin/jidr-center-bridge.rs:237 | bridge-diagnostic | 未知工具类型 | D4: not reachable from the current UI (kind is always sdk/jdk) | M2: return a code and translate in Swift
-#
 # --- E: Swift dynamic errors (LocalizedError / NSError -> UI text) ---------
-apps/jidr-swiftui-prototype/Sources/WindowQuality.swift:52 | exposed-error | 设备标识无效。 | E1: LocalizedError.errorDescription shown through Text(qualityMessage) / notice without a translation layer | M2: replace the error text with a code and map it in the UI (or OperationMessages)
-apps/jidr-swiftui-prototype/Sources/WindowQuality.swift:52 | exposed-error | 游戏画质配置无效。 | E1: same quality-store error path | M2: replace with a code and map it in the UI
-apps/jidr-swiftui-prototype/Sources/GameWindowState.swift:77 | exposed-error | 设备标识无效。 | E2: window-state store error surfaces through player.onWarning -> center notice | M2: replace with a code and map it in the UI; also show it in the standalone player
-apps/jidr-swiftui-prototype/Sources/GameWindowState.swift:77 | exposed-error | 窗口设置无效，原文件未覆盖。 | E2: corrupted window-state file error | M2: replace with a code and map it in the UI
-apps/jidr-swiftui-prototype/Sources/GameWindowState.swift:77 | exposed-error | 窗口设置已被其他程序修改，未覆盖原文件。 | E2: concurrent window-state edit error | M2: replace with a code and map it in the UI
-apps/jidr-swiftui-prototype/Sources/GameWindowState.swift:77 | exposed-error | 数据目录不可用，未保存窗口设置。 | E2: unavailable data directory error | M2: replace with a code and map it in the UI
-apps/jidr-swiftui-prototype/Sources/KeyMapping.swift:49 | dynamic-sink | 键位方案无法读取，请检查原文件；未进行覆盖。 | E3: KeyMappingStore.error goes to onStatus -> localized(), which has no matching en key | M2: add the en.lproj entry (or store a mapping error code and translate in the UI)
-apps/jidr-swiftui-prototype/Sources/KeyMapping.swift:72 | exposed-error | 请先为选中的位置绑定按键 | E4: NSError.localizedDescription shown through the player status bubble | M2: use a mapping error code and translate in the UI
-apps/jidr-swiftui-prototype/Sources/KeyMapping.swift:76 | exposed-error | 键位方案已在其他位置修改，请取消编辑后重新打开。 | E5: same save-conflict error path | M2: use a mapping error code and translate in the UI
-apps/jidr-swiftui-prototype/Sources/LogStream.swift:48 | dynamic-sink | 日志连接已结束。 | E7: not English-mode reachable (AdvancedTools.swift:283 masks it with a fixed English sentence) but still unmechanized | M2: expose a stream error code and render text in both languages
-apps/jidr-swiftui-prototype/Sources/LogStream.swift:76 | dynamic-sink | 日志量过大，部分内容未接收。 | E7: same Logcat stream error path, masked in English mode | M2: expose a code and render text in both languages
-apps/jidr-swiftui-prototype/Sources/LogStream.swift:79 | dynamic-sink | 日志数据过大，连接已停止。 | E7: same Logcat stream error path, masked in English mode | M2: expose a code and render text in both languages

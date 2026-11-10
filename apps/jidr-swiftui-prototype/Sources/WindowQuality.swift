@@ -46,10 +46,21 @@ struct WindowQualityStore {
         try FileManager.default.createDirectory(at:directory,withIntermediateDirectories:true)
         try JSONEncoder().encode(value).write(to:qualityURL,options:.atomic)
     }
-    enum QualityError: LocalizedError {
+    /// The quality preference is a dynamic error: M3 keeps its copy English and
+    /// gives every case a stable code, so the UI can translate the code later.
+    enum QualityError: LocalizedError, CaseIterable {
         case invalidDevice, invalidValue
+        var code: String {
+            switch self {
+            case .invalidDevice: return "quality.invalid_device"
+            case .invalidValue: return "quality.invalid_value"
+            }
+        }
         var errorDescription: String? {
-            switch self { case .invalidDevice: return "设备标识无效。"; case .invalidValue: return "游戏画质配置无效。" }
+            switch self {
+            case .invalidDevice: return "The device identifier is invalid."
+            case .invalidValue: return "The window quality preference is invalid."
+            }
         }
     }
 }

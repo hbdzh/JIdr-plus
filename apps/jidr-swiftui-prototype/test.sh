@@ -79,6 +79,15 @@ swiftc -module-cache-path "$out/module-cache" \
   apps/jidr-swiftui-prototype/Center/SnapshotData.swift \
   apps/jidr-swiftui-prototype/Tests/SnapshotDialogs/main.swift -o "$out/snapshot-data-tests"
 "$out/snapshot-data-tests"
+swiftc -module-cache-path "$out/module-cache" \
+  apps/jidr-swiftui-prototype/Sources/OperationMessages.swift \
+  apps/jidr-swiftui-prototype/Sources/PlayerSession.swift \
+  apps/jidr-swiftui-prototype/Sources/WindowQuality.swift \
+  apps/jidr-swiftui-prototype/Sources/KeyMapping.swift \
+  apps/jidr-swiftui-prototype/Sources/LogFilter.swift \
+  apps/jidr-swiftui-prototype/Sources/LogStream.swift \
+  apps/jidr-swiftui-prototype/Tests/LocalizationEnglish/main.swift -o "$out/localization-english-tests"
+"$out/localization-english-tests"
 # Localization gate: mechanisms (a) .strings keys, (b) t()/model.text(),
 # (c) inline language switches, plus the AppKit sinks, dynamic strings, error
 # text and both Rust bridges. --self-test proves the rules catch violations

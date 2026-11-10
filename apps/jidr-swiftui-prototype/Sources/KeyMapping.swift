@@ -46,7 +46,7 @@ final class KeyMappingStore: ObservableObject {
             scheme = value; baseline = data; enabled = !value.bindings.isEmpty; error = nil
         } catch let e as NSError where e.domain == NSCocoaErrorDomain && e.code == NSFileReadNoSuchFileError {
             scheme = MappingScheme(); baseline = nil; enabled = false; error = nil
-        } catch { self.error = "键位方案无法读取，请检查原文件；未进行覆盖。" }
+        } catch { self.error = "The key map could not be read. Check the original file; it was not overwritten." }
     }
     func begin() -> Bool {
         guard location != nil, error == nil else { return false }
@@ -69,11 +69,11 @@ final class KeyMappingStore: ObservableObject {
     func clear() { guard editing else { return }; draft = MappingScheme(); point = nil; pending = false }
     func rotationChanged() { point = nil; pending = false; onChange?() }
     func save() throws {
-        guard editing, !pending, draft.validate(), let location else { throw NSError(domain: "JidrMapping", code: 1, userInfo: [NSLocalizedDescriptionKey:"请先为选中的位置绑定按键"] ) }
+        guard editing, !pending, draft.validate(), let location else { throw NSError(domain: "JidrMapping", code: 1, userInfo: [NSLocalizedDescriptionKey:"Bind a key to the selected position first"] ) }
         let current: Data?
         do { current = try Data(contentsOf: location) }
         catch let e as NSError where e.domain == NSCocoaErrorDomain && e.code == NSFileReadNoSuchFileError { current = nil }
-        guard current == baseline else { throw NSError(domain: "JidrMapping", code: 2, userInfo:[NSLocalizedDescriptionKey:"键位方案已在其他位置修改，请取消编辑后重新打开。"] ) }
+        guard current == baseline else { throw NSError(domain: "JidrMapping", code: 2, userInfo:[NSLocalizedDescriptionKey:"The key map changed elsewhere. Cancel the edit and open it again."] ) }
         try FileManager.default.createDirectory(at: location.deletingLastPathComponent(), withIntermediateDirectories: true)
         let bytes = try JSONEncoder().encode(draft)
         try bytes.write(to: location, options: .atomic)

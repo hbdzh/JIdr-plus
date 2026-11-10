@@ -12,6 +12,31 @@ struct LogLineBuffer {
     }
 }
 
+/// User-visible Logcat stream failures. M3 keeps the copy English and gives
+/// every case a stable code: the panel may translate the code later, and English
+/// mode never renders a Chinese error.
+enum LogStreamDiagnosis: String, CaseIterable {
+    case connectionEnded
+    case droppedLines
+    case dataTooLarge
+
+    var code: String {
+        switch self {
+        case .connectionEnded: return "logstream.ended"
+        case .droppedLines: return "logstream.dropped"
+        case .dataTooLarge: return "logstream.too_large"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .connectionEnded: return "The log connection ended."
+        case .droppedLines: return "Too much log data; some lines were dropped."
+        case .dataTooLarge: return "Too much log data; the connection stopped."
+        }
+    }
+}
+
 /// Owns one private logcat bridge connection; stopping it closes that connection.
 final class LogStream: ObservableObject {
     @Published private(set) var text = ""
@@ -49,7 +74,7 @@ final class LogStream: ObservableObject {
                 DispatchQueue.main.async {
                     guard let self, self.generation == token else { return }
                     self.process = nil; self.active = false
-                    self.error = "日志连接已结束。"
+                    self.error = LogStreamDiagnosis.connectionEnded.message
                 }
             }
             try child.run()
@@ -91,9 +116,9 @@ final class LogStream: ObservableObject {
                 lastError = buffer.lines.last(where: LogFilter.isError) ?? ""
                 revision += 1
             } else if event["type"] as? String == "dropped" {
-                error = "日志量过大，部分内容未接收。"
+                error = LogStreamDiagnosis.droppedLines.message
             }
         }
-        if pending.count > 2 * 1024 * 1024 { stop(); error = "日志数据过大，连接已停止。" }
+        if pending.count > 2 * 1024 * 1024 { stop(); error = LogStreamDiagnosis.dataTooLarge.message }
     }
 }
