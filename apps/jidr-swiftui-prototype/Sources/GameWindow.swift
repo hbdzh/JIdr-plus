@@ -940,18 +940,35 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         fitWindow()
     }
 
+    /// The player keeps the native titlebar and traffic lights; its two
+    /// accessory buttons pick up the dark chrome tokens so they sit in the
+    /// same visual system as the device toolbar.
+    private func styleTitlebarButton(_ button: NSButton, symbol: String, label: String,
+                                     tint: Color = JidrColor.textSecondary.dark) {
+        let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
+            .withSymbolConfiguration(configuration)
+        button.imagePosition = .imageOnly
+        button.isBordered = false
+        button.contentTintColor = NSColor(tint)
+        button.toolTip = label
+        button.setAccessibilityLabel(label)
+    }
+
     private func updateSidebarButton() {
         let label = sidebar.visible
             ? t("隐藏侧边栏", "Hide sidebar", transport.language)
             : t("显示侧边栏", "Show sidebar", transport.language)
-        sidebarButton?.toolTip = label
-        sidebarButton?.setAccessibilityLabel(label)
+        guard let sidebarButton else { return }
+        styleTitlebarButton(sidebarButton,
+                            symbol: sidebar.visible ? WbIcon.hideDetails : WbIcon.showDetails,
+                            label: label)
     }
 
     private func addSidebarButton(to window: NSWindow) {
         let accessory = NSTitlebarAccessoryViewController()
         accessory.layoutAttribute = .right
-        let button = NSButton(frame: NSRect(x: 0, y: 0, width: sidebarWidth, height: 28))
+        let button = NSButton(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
         button.bezelStyle = .inline
         button.isBordered = false
         button.imagePosition = .imageOnly
@@ -962,7 +979,6 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         sidebarButton = button
         window.addTitlebarAccessoryViewController(accessory)
         updateSidebarButton()
-        button.image = NSImage(systemSymbolName: WbIcon.hideDetails, accessibilityDescription: button.toolTip)
     }
 
     @objc private func togglePin() {
@@ -976,15 +992,17 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         let label = pinned
             ? t("取消窗口置顶", "Unpin window", transport.language)
             : t("窗口置顶", "Pin window", transport.language)
-        pinButton?.image = NSImage(systemSymbolName: pinned ? WbIcon.pinned : WbIcon.pin, accessibilityDescription: label)
-        pinButton?.toolTip = label
-        pinButton?.setAccessibilityLabel(label)
+        guard let pinButton else { return }
+        styleTitlebarButton(pinButton,
+                            symbol: pinned ? WbIcon.pinned : WbIcon.pin,
+                            label: label,
+                            tint: pinned ? JidrColor.accentText.dark : JidrColor.textSecondary.dark)
     }
 
     private func addPinButton(to window: NSWindow) {
         let accessory = NSTitlebarAccessoryViewController()
         accessory.layoutAttribute = .right
-        let button = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
+        let button = NSButton(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
         button.bezelStyle = .inline
         button.isBordered = false
         button.imagePosition = .imageOnly
@@ -1056,6 +1074,10 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         window.title = "\(displayName ?? device) — Jidr"
         window.delegate = self
         window.appearance = NSAppearance(named: .darkAqua)
+        // Chrome only: dark ground and a design-drawn hairline under the native
+        // titlebar (ContentView draws it) instead of the system separator.
+        window.backgroundColor = NSColor(JidrColor.surfaceChrome.dark)
+        window.titlebarSeparatorStyle = .none
         window.contentView = NSHostingView(rootView: ContentView(transport: transport, mapping: transport.mapping, sidebar: sidebar, chrome: chrome))
         addSidebarButton(to: window)
         self.window = window

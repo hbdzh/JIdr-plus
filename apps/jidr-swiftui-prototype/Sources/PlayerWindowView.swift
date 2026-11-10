@@ -2,6 +2,97 @@
 import AppKit
 import SwiftUI
 
+// MARK: - Player chrome
+//
+// The player window is always native dark chrome (GameWindow sets `darkAqua`),
+// and the approved design specifies the dark token values for it, so resolve
+// them explicitly. Colours still come from the generated token layer (D41);
+// no raw hex or system colour is used here.
+
+private enum PlayerChromePalette {
+    /// Window ground and the titlebar seam.
+    static let ground = JidrColor.surfaceChrome.dark
+    /// The device toolbar: one step darker than the chrome ground.
+    static let sidebar = JidrColor.surfaceBase.dark
+    /// The folded Logcat strip and the log well: the darkest surface.
+    static let logbar = JidrColor.logcatBackground.dark
+    static let hairline = JidrColor.borderSubtle.dark
+    /// The titlebar seam is one step stronger than the in-sidebar rules so the
+    /// native titlebar visibly separates from the dark content.
+    static let seam = JidrColor.borderDefault.dark
+    static let icon = JidrColor.textSecondary.dark
+    static let iconHover = JidrColor.textPrimary.dark
+    static let iconActive = JidrColor.accentText.dark
+    static let text = JidrColor.textSecondary.dark
+    static let textDim = JidrColor.textTertiary.dark
+    static let hover = JidrColor.surfaceControlHover.dark
+    static let active = JidrColor.surfaceSelected.dark
+    static let negative = JidrColor.negative.dark
+    static let negativeBadge = JidrColor.statusNegativeContainer.dark
+    static let negativeBadgeText = JidrColor.statusNegativeOnContainer.dark
+    static let accent = JidrColor.accentFill.dark
+}
+
+private enum PlayerChromeMetrics {
+    /// 48 pt toolbar (WbLayout.windowDeviceToolbarWidth), 28 x 28 icon targets.
+    static let toolButton: CGFloat = 28
+    static let toolGlyph: CGFloat = 13
+    static let toolRadius: CGFloat = WbRadius.md
+    static let toolSpacing: CGFloat = 3
+    static let groupSeparatorWidth: CGFloat = 26
+    static let logcatBarHeight: CGFloat = 30
+    static let hairline: CGFloat = 1
+}
+
+/// One toolbar icon: a 28 x 28 hit target with a restrained hover/active fill,
+/// the same interaction the design specifies for the device toolbar.
+private struct PlayerToolButton: View {
+    let symbol: String
+    let label: String
+    var enabled = true
+    var active = false
+    var activeTint: Color?
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: PlayerChromeMetrics.toolGlyph, weight: .medium))
+                .foregroundStyle(foreground)
+                .frame(width: PlayerChromeMetrics.toolButton, height: PlayerChromeMetrics.toolButton)
+                .background(
+                    RoundedRectangle(cornerRadius: PlayerChromeMetrics.toolRadius, style: .continuous)
+                        .fill(background)
+                )
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.38)
+        .onHover { inside in
+            guard enabled else { return }
+            hovering = inside
+        }
+        .help(label)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(active ? [.isSelected] : [])
+    }
+
+    private var foreground: Color {
+        if active { return activeTint ?? PlayerChromePalette.iconActive }
+        if hovering { return PlayerChromePalette.iconHover }
+        return PlayerChromePalette.icon
+    }
+
+    private var background: Color {
+        if active { return PlayerChromePalette.active }
+        if hovering { return PlayerChromePalette.hover }
+        return .clear
+    }
+}
+
 /// Player-window chrome that is view state only (never a protocol command):
 /// fullscreen + reveal, debug overlay, pixel-perfect chip, panels.
 final class PlayerChromeState: ObservableObject {
@@ -108,7 +199,6 @@ struct ContentView: View {
                     }
                 if chrome.reveal {
                     sidebarColumn
-                        .background(WbColor.chrome)
                         .wbShadow(WbShadow.popover)
                         .onHover { inside in
                             if inside { chrome.cancelHide() } else { chrome.hideRevealSoon() }
@@ -117,8 +207,16 @@ struct ContentView: View {
                 }
             }
         }
-        .tint(WbColor.accent)
-        .background(WbColor.chrome)
+        .tint(PlayerChromePalette.accent)
+        .background(PlayerChromePalette.ground)
+        .overlay(alignment: .top) {
+            if !chrome.fullscreen {
+                Rectangle()
+                    .fill(PlayerChromePalette.seam)
+                    .frame(height: PlayerChromeMetrics.hairline)
+                    .allowsHitTesting(false)
+            }
+        }
         .environment(\.locale, Locale(identifier: language == 0 ? "en" : "zh-Hans"))
         .onAppear(perform: installHandlers)
         .onChange(of: chrome.logcatOpen) { _, open in updateLogStream(open: open) }
@@ -360,70 +458,95 @@ struct ContentView: View {
     // MARK: Sidebar
 
     private func tool(_ title: String, _ symbol: String, enabled: Bool = true,
+                      active: Bool = false, activeTint: Color? = nil,
                       action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: WbIconSize.iconLg, weight: .medium))
-                .frame(width: sidebarWidth, height: 38)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.35)
-        .help(PlayerStatusText.translate(title, language: language))
-        .accessibilityLabel(PlayerStatusText.translate(title, language: language))
+        PlayerToolButton(symbol: symbol,
+                         label: PlayerStatusText.translate(title, language: language),
+                         enabled: enabled, active: active, activeTint: activeTint,
+                         action: action)
     }
 
     private var sidebarColumn: some View {
         ScrollView(.vertical) {
-            VStack(spacing: WbSpace.zero) {
-                tool("返回", WbIcon.back, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "back"]) }
-                tool("主页", WbIcon.circle, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "home"]) }
-                tool("最近使用", WbIcon.square, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "recents"]) }
-                separator
-                tool("电源", WbIcon.power, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "power"]) }
-                if transport.onAdvanced != nil {
-                    tool(t("高级工具", "Advanced tools", language), WbIcon.advancedTools) { chrome.advancedAction?() }
+            VStack(spacing: PlayerChromeMetrics.toolSpacing) {
+                sidebarGroup {
+                    tool("返回", WbIcon.back, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "back"]) }
+                    tool("主页", WbIcon.circle, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "home"]) }
+                    tool("最近使用", WbIcon.square, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "recents"]) }
                 }
-                tool("音量增大", WbIcon.volumeUp, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "volume_up"]) }
-                tool("音量减小", WbIcon.volumeDown, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "volume_down"]) }
-                tool("向左旋转", WbIcon.rotateLeft, enabled: linkState.isRunning) { transport.send(["type": "rotate", "direction": 1]) }
-                tool("向右旋转", WbIcon.rotateRight, enabled: linkState.isRunning) { transport.send(["type": "rotate", "direction": -1]) }
-                separator
-                tool("键位映射", WbIcon.keyboard, enabled: linkState.isRunning) {
-                    if !mapping.editing {
-                        if !mapping.begin() { transport.onStatus?(mapping.error ?? t("键位方案尚未加载", "The key mapping has not loaded", language)) }
+                sidebarSeparator
+                sidebarGroup {
+                    tool("电源", WbIcon.power, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "power"]) }
+                    if transport.onAdvanced != nil {
+                        tool(t("高级工具", "Advanced tools", language), WbIcon.advancedTools) { chrome.advancedAction?() }
                     }
+                    tool("音量增大", WbIcon.volumeUp, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "volume_up"]) }
+                    tool("音量减小", WbIcon.volumeDown, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "volume_down"]) }
+                    tool("向左旋转", WbIcon.rotateLeft, enabled: linkState.isRunning) { transport.send(["type": "rotate", "direction": 1]) }
+                    tool("向右旋转", WbIcon.rotateRight, enabled: linkState.isRunning) { transport.send(["type": "rotate", "direction": -1]) }
                 }
-                tool(t("快捷键", "Shortcuts", language), WbIcon.command) { chrome.shortcutsPanel.toggle() }
-                tool(transport.recording == .idle || transport.recording == .starting ? "开始录屏" : "停止录屏",
-                     transport.recording == .idle || transport.recording == .starting ? WbIcon.record : WbIcon.recordStop,
-                     enabled: linkState.isRunning) { chrome.toggleRecordingAction?() }
-                tool("截图", WbIcon.camera, enabled: linkState.isRunning) { chrome.chooseScreenshotAction?() }
-                tool("安装 APK", WbIcon.installAPK, enabled: linkState.isRunning) { chrome.chooseAPKAction?() }
-                tool("发送文件", WbIcon.folder, enabled: linkState.isRunning) { chrome.chooseFileAction?() }
-                separator
-                tool(t("调试浮层", "Debug overlay", language), WbIcon.performance, enabled: linkState.isRunning) { chrome.overlay.toggle() }
-                if canLogcat {
-                    tool(t("日志", "Logcat", language), WbIcon.logcat, enabled: linkState.isRunning) { chrome.logcatOpen.toggle() }
+                sidebarSeparator
+                sidebarGroup {
+                    tool("键位映射", WbIcon.keyboard, enabled: linkState.isRunning, active: mapping.editing) {
+                        if !mapping.editing {
+                            if !mapping.begin() { transport.onStatus?(mapping.error ?? t("键位方案尚未加载", "The key mapping has not loaded", language)) }
+                        }
+                    }
+                    tool(t("快捷键", "Shortcuts", language), WbIcon.command, active: chrome.shortcutsPanel) { chrome.shortcutsPanel.toggle() }
+                    tool(transport.recording == .idle || transport.recording == .starting ? "开始录屏" : "停止录屏",
+                         transport.recording == .idle || transport.recording == .starting ? WbIcon.record : WbIcon.recordStop,
+                         enabled: linkState.isRunning,
+                         active: transport.recording != .idle,
+                         activeTint: PlayerChromePalette.negative) { chrome.toggleRecordingAction?() }
+                    tool("截图", WbIcon.camera, enabled: linkState.isRunning) { chrome.chooseScreenshotAction?() }
+                    tool("安装 APK", WbIcon.installAPK, enabled: linkState.isRunning) { chrome.chooseAPKAction?() }
+                    tool("发送文件", WbIcon.folder, enabled: linkState.isRunning) { chrome.chooseFileAction?() }
+                    tool(t("卸载应用", "Uninstall app", language), WbIcon.trash,
+                         enabled: linkState.isRunning, active: showUninstall) { showUninstall = true }
                 }
-                tool(t("卸载应用", "Uninstall app", language), WbIcon.trash, enabled: linkState.isRunning) { showUninstall = true }
-                tool("画面原始像素大小", WbIcon.pixelPerfect, enabled: linkState.isRunning) { chrome.pixelPerfectAction?() }
-                tool(chrome.fullscreen ? t("退出全屏", "Exit fullscreen", language) : "全屏",
-                     iconForFullscreen, enabled: true) { chrome.toggleFullscreenAction?() }
+                sidebarSeparator
+                sidebarGroup {
+                    tool(t("调试浮层", "Debug overlay", language), WbIcon.performance,
+                         enabled: linkState.isRunning, active: chrome.overlay) { chrome.overlay.toggle() }
+                    if canLogcat {
+                        tool(t("日志", "Logcat", language), WbIcon.logcat,
+                             enabled: linkState.isRunning, active: chrome.logcatOpen) { chrome.logcatOpen.toggle() }
+                    }
+                    tool("画面原始像素大小", WbIcon.pixelPerfect,
+                         enabled: linkState.isRunning, active: chrome.pixelPerfect) { chrome.pixelPerfectAction?() }
+                    tool(chrome.fullscreen ? t("退出全屏", "Exit fullscreen", language) : "全屏",
+                         iconForFullscreen, enabled: true, active: chrome.fullscreen) { chrome.toggleFullscreenAction?() }
+                }
             }
+            .padding(.top, WbSpace.sm + 2)
+            .padding(.bottom, WbSpace.sm)
+            .frame(maxWidth: .infinity)
         }
         .scrollIndicators(.hidden)
-        .foregroundStyle(WbColor.textSecondary)
         .frame(width: sidebarWidth)
-        .background(WbColor.chrome)
+        .background(PlayerChromePalette.sidebar)
+        .overlay(alignment: .leading) {
+            Rectangle()
+                .fill(PlayerChromePalette.hairline)
+                .frame(width: PlayerChromeMetrics.hairline)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private func sidebarGroup<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(spacing: PlayerChromeMetrics.toolSpacing) { content() }
     }
 
     private var iconForFullscreen: String {
         chrome.fullscreen ? WbIcon.exitFullscreen : WbIcon.enterFullscreen
     }
 
-    private var separator: some View {
-        Divider().opacity(0.3).padding(.horizontal, WbSpace.md).padding(.vertical, WbSpace.xs)
+    private var sidebarSeparator: some View {
+        Rectangle()
+            .fill(PlayerChromePalette.hairline)
+            .frame(width: PlayerChromeMetrics.groupSeparatorWidth,
+                   height: PlayerChromeMetrics.hairline)
+            .padding(.vertical, PlayerChromeMetrics.toolSpacing)
     }
 
     // MARK: Panels
@@ -495,30 +618,45 @@ struct ContentView: View {
 
     @ViewBuilder private var logcatBar: some View {
         Button { chrome.logcatOpen = true } label: {
-        HStack(spacing: WbSpace.md) {
-            Image(systemName: WbIcon.logcat).wbFont(WbType.label)
-            Text("Logcat").wbFont(WbType.label.weighted(.semibold))
-            if logStream.errorCount > 0 {
-                Text(logStream.errorCount == 1 ? t("1 个错误", "1 error", language)
-                                               : t("\(logStream.errorCount) 个错误", "\(logStream.errorCount) errors", language))
-                    .wbFont(WbType.caption.weighted(.medium))
-                    .padding(.horizontal, WbSpace.sm).padding(.vertical, WbSpace.xxs)
-                    .background(WbStatus.negative.container, in: Capsule())
+            HStack(spacing: 7) {
+                Image(systemName: WbIcon.logcat)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(PlayerChromePalette.text)
+                Text("Logcat")
+                    .wbFont(WbType.label.weighted(.semibold))
+                    .foregroundStyle(PlayerChromePalette.text)
+                if logStream.errorCount > 0 {
+                    Text(logStream.errorCount == 1 ? t("1 个错误", "1 error", language)
+                                                   : t("\(logStream.errorCount) 个错误", "\(logStream.errorCount) errors", language))
+                        .wbFont(WbType.caption.weighted(.medium))
+                        .foregroundStyle(PlayerChromePalette.negativeBadgeText)
+                        .padding(.horizontal, WbSpace.sm)
+                        .padding(.vertical, 1)
+                        .background(PlayerChromePalette.negativeBadge, in: Capsule())
+                }
+                Text(logStream.lastError)
+                    .wbFont(WbType.code)
+                    .lineLimit(1)
+                    .foregroundStyle(PlayerChromePalette.negative)
+                Spacer(minLength: WbSpace.sm)
+                Text("⌘L")
+                    .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(PlayerChromePalette.textDim)
             }
-            Text(logStream.lastError).wbFont(WbType.code)
-                .lineLimit(1).foregroundStyle(WbColor.negative)
-            Spacer()
-            Text("⌘L").wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
-        }
-        .padding(.horizontal, WbSpace.lg)
-        .frame(height: 34)
-        .background(WbColor.chrome)
-        .contentShape(Rectangle())
+            .padding(.horizontal, 12)
+            .frame(height: PlayerChromeMetrics.logcatBarHeight)
+            .background(PlayerChromePalette.logbar)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .help(t("打开日志面板（⌘L）", "Open Logcat (⌘L)", language))
         .accessibilityLabel(t("打开日志面板", "Open Logcat", language))
-        .overlay(alignment: .top) { Divider().opacity(0.4) }
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(PlayerChromePalette.hairline)
+                .frame(height: PlayerChromeMetrics.hairline)
+                .allowsHitTesting(false)
+        }
     }
 
     private var logcatPanel: some View {
@@ -529,26 +667,40 @@ struct ContentView: View {
                     ForEach(["V", "D", "I", "W", "E", "F"], id: \.self) { Text($0).tag($0) }
                 }
                 .labelsHidden().frame(width: 66)
+                .tint(PlayerChromePalette.accent)
                 TextField(t("过滤标签、PID 或文本", "Filter tag, PID or text", language), text: $logFilter)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
                     .wbFont(WbType.caption)
+                    .foregroundStyle(JidrColor.textPrimary.dark)
+                    .padding(.horizontal, WbSpace.sm)
+                    .frame(height: 22)
+                    .background(JidrColor.surfaceControl.dark,
+                                in: RoundedRectangle(cornerRadius: WbRadius.sm, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: WbRadius.sm, style: .continuous)
+                            .strokeBorder(PlayerChromePalette.hairline, lineWidth: 1)
+                    )
                 Spacer()
                 if let error = logStream.error, !error.isEmpty {
                     Text(PlayerStatusText.translate(error, language: language))
                         .wbFont(WbType.caption).foregroundStyle(WbColor.warning).lineLimit(1)
                 }
-                Button { logStream.clear() } label: { Image(systemName: WbIcon.trash) }
-                    .buttonStyle(.borderless)
-                    .help(t("清空日志", "Clear log", language))
-                    .accessibilityLabel(t("清空日志", "Clear log", language))
-                Button { chrome.logcatOpen = false } label: { Image(systemName: WbIcon.close) }
-                    .buttonStyle(.borderless)
-                    .help(t("关闭日志面板", "Close Logcat", language))
-                    .accessibilityLabel(t("关闭日志面板", "Close Logcat", language))
+                Button { logStream.clear() } label: {
+                    Image(systemName: WbIcon.trash).foregroundStyle(PlayerChromePalette.text)
+                }
+                .buttonStyle(.borderless)
+                .help(t("清空日志", "Clear log", language))
+                .accessibilityLabel(t("清空日志", "Clear log", language))
+                Button { chrome.logcatOpen = false } label: {
+                    Image(systemName: WbIcon.close).foregroundStyle(PlayerChromePalette.text)
+                }
+                .buttonStyle(.borderless)
+                .help(t("关闭日志面板", "Close Logcat", language))
+                .accessibilityLabel(t("关闭日志面板", "Close Logcat", language))
             }
-            .padding(.horizontal, WbSpace.sm).frame(height: 34)
-            .background(WbColor.chrome)
-            Divider().opacity(0.4)
+            .padding(.horizontal, WbSpace.sm).frame(height: PlayerChromeMetrics.logcatBarHeight)
+            .background(PlayerChromePalette.ground)
+            Rectangle().fill(PlayerChromePalette.hairline).frame(height: PlayerChromeMetrics.hairline)
             ScrollViewReader { reader in
                 ScrollView {
                     Text(logStream.text)
@@ -558,18 +710,19 @@ struct ContentView: View {
                         .padding(WbSpace.sm)
                     Color.clear.frame(height: 1).id("log-end")
                 }
-                .background(WbColor.sunken)
+                .background(PlayerChromePalette.logbar)
                 .onChange(of: logStream.revision) { _, _ in
                     reader.scrollTo("log-end", anchor: .bottom)
                 }
             }
-            Divider().opacity(0.4)
+            Rectangle().fill(PlayerChromePalette.hairline).frame(height: PlayerChromeMetrics.hairline)
             Text(logStream.active
                  ? t("跟随中", "Following", language) + " · \(transport.device ?? "")"
                  : t("未连接", "Not connected", language))
-                .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
+                .wbFont(WbType.caption).foregroundStyle(PlayerChromePalette.textDim)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, WbSpace.sm).frame(height: 22)
+                .background(PlayerChromePalette.ground)
         }
         .frame(height: 232)
     }
