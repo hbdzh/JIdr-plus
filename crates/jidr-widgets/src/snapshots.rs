@@ -255,6 +255,16 @@ fn failed(what: &str, pkg: &pb::SnapshotPackage) -> JidrResult<()> {
     }
 }
 
+fn snapshot_restorable(
+    avd: &Path,
+    id: &str,
+    name: &str,
+    tag: Option<&Tag>,
+    mode: RootMode,
+) -> bool {
+    check_root(name, tag, mode).is_ok() && jidr_sdk::avd::check_snapshot(avd, id).is_ok()
+}
+
 pub async fn call(ctx: &CallCtx, method: &str, params: Value) -> JidrResult<Value> {
     match method {
         "snapshot.list" => {
@@ -278,7 +288,7 @@ pub async fn call(ctx: &CallCtx, method: &str, params: Value) -> JidrResult<Valu
                         "created_at": tag.map(|t| t.created_at).or(created),
                         "size_bytes": size,
                         "thumbnail": thumb,
-                        "restorable": check_root(&name, tag, d.root.mode).is_ok(),
+                        "restorable": snapshot_restorable(&avd, &id, &name, tag, d.root.mode),
                     })
                 })
                 .collect();
@@ -328,6 +338,7 @@ pub async fn call(ctx: &CallCtx, method: &str, params: Value) -> JidrResult<Valu
             let tags = read_tags(&avd);
             let id = resolve(&avd, &tags, &p.name)?;
             check_root(&p.name, tags.get(&id), d.root.mode)?;
+            jidr_sdk::avd::check_snapshot(&avd, &id)?;
             if !matches!(d.status, DeviceStatus::Running) {
                 return Err(JidrError::not_found(format!(
                     "start {} to restore a snapshot",
@@ -429,6 +440,36 @@ mod tests {
         );
         assert_eq!(e.data.unwrap()["refused"], "root_mode");
         assert!(check_root("old", None, RootMode::Adb).is_ok());
+    }
+
+    #[test]
+    fn incomplete_snapshot_is_not_reported_as_restorable() {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().join("snapshots/default_boot");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("snapshot.pb"), b"metadata").unwrap();
+        assert!(!snapshot_restorable(
+            temp.path(),
+            "default_boot",
+            "default_boot",
+            None,
+            RootMode::None
+        ));
+        std::fs::write(dir.join("ram.bin"), b"memory").unwrap();
+        assert!(snapshot_restorable(
+            temp.path(),
+            "default_boot",
+            "default_boot",
+            None,
+            RootMode::None
+        ));
+        assert!(!snapshot_restorable(
+            temp.path(),
+            "default_boot",
+            "default_boot",
+            Some(&tag(RootMode::Magisk)),
+            RootMode::None
+        ));
     }
 
     #[test]

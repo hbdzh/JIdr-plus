@@ -13,6 +13,7 @@ publish.workspace = true
 jidr-core.workspace = true
 jidr-adb.workspace = true
 jidr-backend.workspace = true
+jidr-sdk.workspace = true
 jidr-proto.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
@@ -42,7 +43,6 @@ objc2-core-video = "0.3"
 [dev-dependencies]
 jidr-daemon.workspace = true
 jidr-client.workspace = true
-jidr-sdk.workspace = true
 tempfile.workspace = true
 tracing-subscriber.workspace = true
 
