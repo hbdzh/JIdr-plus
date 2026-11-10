@@ -345,10 +345,7 @@ fn inspect_qcow_dir(root: &Path, dir: &Path, tool: &Path, count: &mut usize) -> 
                             .arg(&image_path)
                             .output()?;
                         if !check.status.success() {
-                            return Err(io::Error::other(format!(
-                                "qemu-img integrity check failed: {}",
-                                image_path.display()
-                            )));
+                            return Err(qcow_check_error(check.status.code(), &image_path));
                         }
                         let result: serde_json::Value = serde_json::from_slice(&check.stdout)?;
                         for key in ["check-errors", "corruptions", "leaks"] {
@@ -372,6 +369,15 @@ fn inspect_qcow_dir(root: &Path, dir: &Path, tool: &Path, count: &mut usize) -> 
         }
     }
     Ok(())
+}
+
+fn qcow_check_error(status: Option<i32>, path: &Path) -> io::Error {
+    let message = match status {
+        Some(3) => "qemu-img found leaked clusters; no repair was attempted",
+        Some(2) => "qemu-img reported image corruption",
+        _ => "qemu-img integrity check failed or did not complete",
+    };
+    io::Error::other(format!("{message}: {}", path.display()))
 }
 
 /// Android emulator disks may use `.img` despite containing QCOW2 data. The
@@ -823,28 +829,43 @@ fn scan_metadata(dir: &Path, needles: &[Vec<u8>]) -> io::Result<()> {
                 .extension()
                 .and_then(|e| e.to_str())
                 .is_some_and(|ext| matches!(ext, "ini" | "json" | "txt" | "pb" | "xml"))
+            && contains_stale_reference(&path, needles)?
         {
-            if entry.metadata()?.len() > 16 * 1024 * 1024 {
-                return Err(io::Error::other(format!(
-                    "metadata requires manual review: {}",
-                    path.display()
-                )));
-            }
-            let contents = fs::read(&path)?;
-            if needles.iter().any(|needle| {
-                !needle.is_empty()
-                    && contents
-                        .windows(needle.len())
-                        .any(|window| window == needle)
-            }) {
-                return Err(io::Error::other(format!(
-                    "old path remains in metadata: {}",
-                    path.display()
-                )));
-            }
+            return Err(io::Error::other(format!(
+                "old path remains in metadata: {}",
+                path.display()
+            )));
         }
     }
     Ok(())
+}
+
+/// Stream potentially large metadata without overlooking references spanning
+/// read boundaries. Memory use is bounded by the longest path plus one chunk.
+fn contains_stale_reference(path: &Path, needles: &[Vec<u8>]) -> io::Result<bool> {
+    let overlap = needles
+        .iter()
+        .map(Vec::len)
+        .max()
+        .unwrap_or(0)
+        .saturating_sub(1);
+    let mut file = File::open(path)?;
+    let mut data = Vec::with_capacity(64 * 1024 + overlap);
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut chunk)?;
+        if n == 0 {
+            return Ok(false);
+        }
+        data.extend_from_slice(&chunk[..n]);
+        if needles.iter().any(|needle| {
+            !needle.is_empty() && data.windows(needle.len()).any(|part| part == needle)
+        }) {
+            return Ok(true);
+        }
+        let keep = overlap.min(data.len());
+        data.drain(..data.len() - keep);
+    }
 }
 
 /// Rewrites recognized path references in a verified *copy*. The final
@@ -1332,6 +1353,44 @@ mod tests {
         assert!(reject_stale_metadata(&stage, &old).is_err());
         fs::write(stage.join("snapshot.pb"), b"independent metadata").unwrap();
         assert!(reject_stale_metadata(&stage, &old).is_ok());
+    }
+
+    #[test]
+    fn qcow_check_failure_reports_leaks_without_claiming_repair() {
+        let path = Path::new("/test/disk.qcow2");
+        assert!(
+            qcow_check_error(Some(3), path)
+                .to_string()
+                .contains("leaked clusters")
+        );
+        assert!(
+            qcow_check_error(Some(2), path)
+                .to_string()
+                .contains("corruption")
+        );
+        assert!(
+            qcow_check_error(None, path)
+                .to_string()
+                .contains("did not complete")
+        );
+    }
+
+    #[test]
+    fn scans_large_metadata_and_matches_across_chunk_boundaries() {
+        let root = tempfile::tempdir().unwrap();
+        let old = root.path().join("old");
+        let stage = root.path().join("stage");
+        fs::create_dir(&old).unwrap();
+        fs::create_dir(&stage).unwrap();
+        let file = stage.join("large.txt");
+        let mut content = vec![b'x'; 17 * 1024 * 1024];
+        fs::write(&file, &content).unwrap();
+        assert!(reject_stale_metadata(&stage, &old).is_ok());
+        let needle = old.to_string_lossy();
+        let start = 64 * 1024 - needle.len() / 2;
+        content[start..start + needle.len()].copy_from_slice(needle.as_bytes());
+        fs::write(&file, &content).unwrap();
+        assert!(reject_stale_metadata(&stage, &old).is_err());
     }
 
     #[test]
