@@ -60,15 +60,15 @@ private func wbTokenColor(_ rgb: UInt32, _ alpha: Double) -> Color {
 /// 150 colour tokens, light and dark. Semantic use goes through
 /// `WbColor`/`WbStatus` (Center/DesignTokens.swift); this layer is the data.
 enum JidrColor {
-    static let accentContainer = JidrColorPair(light: 0xe3eafb, dark: 0x1b2a4d)
-    static let accentFill = JidrColorPair(light: 0x2f5bd3, dark: 0x3d6bf0)
-    static let accentHover = JidrColorPair(light: 0x2850bf, dark: 0x3462e6)
+    static let accentContainer = JidrColorPair(light: 0xeaf3ff, dark: 0x1b2a4d)
+    static let accentFill = JidrColorPair(light: 0x0a7cff, dark: 0x3d6bf0)
+    static let accentHover = JidrColorPair(light: 0x0a6fe8, dark: 0x3462e6)
     static let accentOnAccent = JidrColorPair(light: 0xffffff, dark: 0xffffff)
-    static let accentPressed = JidrColorPair(light: 0x2346a8, dark: 0x2b55cc)
-    static let accentText = JidrColorPair(light: 0x2f5bd3, dark: 0x7aa2ff)
-    static let borderDefault = JidrColorPair(light: 0xdde1e7, dark: 0x262b33)
+    static let accentPressed = JidrColorPair(light: 0x0062d6, dark: 0x2b55cc)
+    static let accentText = JidrColorPair(light: 0x0a63d8, dark: 0x7aa2ff)
+    static let borderDefault = JidrColorPair(light: 0xe9e7ee, dark: 0x262b33)
     static let borderStrong = JidrColorPair(light: 0x7d8696, dark: 0x6e7785)
-    static let borderSubtle = JidrColorPair(light: 0xe7eaee, dark: 0x1e2229)
+    static let borderSubtle = JidrColorPair(light: 0xeceaef, dark: 0x1e2229)
     static let focusRing = JidrColorPair(light: 0x2f5bd3, dark: 0x7aa2ff)
     static let info = JidrColorPair(light: 0x2f5bd3, dark: 0x7aa2ff)
     static let negative = JidrColorPair(light: 0xc0322b, dark: 0xf27272)
@@ -78,25 +78,25 @@ enum JidrColor {
     static let root = JidrColorPair(light: 0x6d4ad8, dark: 0xa78bfa)
     static let scrim = JidrColorPair(light: 0x12151a, lightAlpha: 0.4, dark: 0x000000, darkAlpha: 0.639216)
     static let selection = JidrColorPair(light: 0xc9d7f8, dark: 0x2d4170)
-    static let surfaceBase = JidrColorPair(light: 0xf7f8fa, dark: 0x0e1014)
-    static let surfaceChrome = JidrColorPair(light: 0xeef0f3, dark: 0x13161b)
+    static let surfaceBase = JidrColorPair(light: 0xf8f7fa, dark: 0x0e1014)
+    static let surfaceChrome = JidrColorPair(light: 0xf2f1f6, dark: 0x13161b)
     static let surfaceControl = JidrColorPair(light: 0xf3f4f6, dark: 0x20242b)
     static let surfaceControlHover = JidrColorPair(light: 0xe9ecf0, dark: 0x272c34)
     static let surfaceControlPressed = JidrColorPair(light: 0xdfe3e9, dark: 0x2e343e)
     static let surfaceDeviceBezel = JidrColorPair(light: 0x1b1e24, dark: 0x1c1f25)
     static let surfaceOverlay = JidrColorPair(light: 0xffffff, dark: 0x22262e)
     static let surfaceRaised = JidrColorPair(light: 0xffffff, dark: 0x191c22)
-    static let surfaceSelected = JidrColorPair(light: 0xe8edf9, dark: 0x232936)
+    static let surfaceSelected = JidrColorPair(light: 0xeaf3ff, dark: 0x232936)
     static let surfaceSunken = JidrColorPair(light: 0xe9ecf0, dark: 0x0a0c0f)
     static let textCode = JidrColorPair(light: 0x2a3b66, dark: 0xb9c8e8)
     static let textDisabled = JidrColorPair(light: 0xa3aab5, dark: 0x5a616d)
-    static let textLink = JidrColorPair(light: 0x2f5bd3, dark: 0x7aa2ff)
+    static let textLink = JidrColorPair(light: 0x0a63d8, dark: 0x7aa2ff)
     static let textOnAccent = JidrColorPair(light: 0xffffff, dark: 0xffffff)
-    static let textPrimary = JidrColorPair(light: 0x12151a, dark: 0xe7e9ee)
-    static let textSecondary = JidrColorPair(light: 0x586170, dark: 0x9ba3b0)
-    static let textTertiary = JidrColorPair(light: 0x626a78, dark: 0x8f97a5)
+    static let textPrimary = JidrColorPair(light: 0x1b1b1f, dark: 0xe7e9ee)
+    static let textSecondary = JidrColorPair(light: 0x6f6e78, dark: 0x9ba3b0)
+    static let textTertiary = JidrColorPair(light: 0x8a8993, dark: 0x8f97a5)
     static let warning = JidrColorPair(light: 0x8f5b00, dark: 0xf2b94b)
-    static let elevation0Surface = JidrColorPair(light: 0xf7f8fa, dark: 0x0e1014)
+    static let elevation0Surface = JidrColorPair(light: 0xf8f7fa, dark: 0x0e1014)
     static let elevation1Surface = JidrColorPair(light: 0xffffff, dark: 0x191c22)
     static let elevation2Surface = JidrColorPair(light: 0xffffff, dark: 0x22262e)
     static let elevation3Surface = JidrColorPair(light: 0xffffff, dark: 0x252a33)
@@ -106,7 +106,7 @@ enum JidrColor {
     static let logcatFatal = JidrColorPair(light: 0xa3136b, dark: 0xff9ad5)
     static let logcatFatalRow = JidrColorPair(light: 0xfce7f3, dark: 0x3b1029)
     static let logcatInfo = JidrColorPair(light: 0x1b7340, dark: 0x6bd69a)
-    static let logcatMeta = JidrColorPair(light: 0x626a78, dark: 0x8f97a5)
+    static let logcatMeta = JidrColorPair(light: 0x8a8993, dark: 0x8f97a5)
     static let logcatRowAlt = JidrColorPair(light: 0xf7f8fa, dark: 0x0f1216)
     static let logcatTag = JidrColorPair(light: 0x2e3440, dark: 0xc9cfda)
     static let logcatVerbose = JidrColorPair(light: 0x5e6672, dark: 0x8c95a4)
@@ -229,8 +229,8 @@ enum JidrSpace {
 enum JidrRadius {
     static let xs: CGFloat = 4
     static let sm: CGFloat = 6
-    static let md: CGFloat = 8
-    static let lg: CGFloat = 12
+    static let md: CGFloat = 7
+    static let lg: CGFloat = 10
     static let xl: CGFloat = 14
     static let pill: CGFloat = 999
 }

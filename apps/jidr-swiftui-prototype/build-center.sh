@@ -4,9 +4,10 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 cargo build -p jidr-swiftui-bridge --bin jidr-center-bridge
-app="$root/target/swiftui-center/JidrSwiftUICenter.app"
-mkdir -p "$app/Contents/Resources" "$app/Contents/MacOS" "$root/target/swiftui-center/module-cache"
-swiftc -module-cache-path "$root/target/swiftui-center/module-cache" \
+out="${JIDR_CENTER_OUT:-$root/target/swiftui-center}"
+app="$out/JidrSwiftUICenter.app"
+mkdir -p "$app/Contents/Resources" "$app/Contents/MacOS" "$out/module-cache"
+swiftc -module-cache-path "$out/module-cache" \
   apps/jidr-swiftui-prototype/Sources/*.swift \
   apps/jidr-swiftui-prototype/Center/*.swift \
   -o "$app/Contents/MacOS/JidrSwiftUICenter"
