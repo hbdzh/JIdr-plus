@@ -120,6 +120,26 @@ Still open in M1: the fixture mode (success/failure/progress/cancel/disconnect s
 emulator) and the first SwiftUI screenshot baselines (empty list, populated list, load failure,
 long-task progress, one player state).
 
+## M2: behaviour parity (status 2026-11-11)
+
+Three work lines ran in parallel with disjoint write scopes and merged as three commits
+(`dff2601` player, `ec8c063` centre/tasks/palette, `ba69547` root/snapshots/tools):
+
+| Line | Delivered |
+|---|---|
+| Player | own link-state card (connecting/booting/running/stopped/disconnected) with start and reconnect, ⌥⌘I overlay, ⌃⌘F fullscreen with hover reveal and pixel chip, ⌥ pinch / ⇧⌥ pan, uninstall sheet with the signature-conflict reinstall chain, per-device shortcut editor mirroring the Slint schema, recording clock, logcat bar |
+| Centre and tasks | daemon/bridge reconnect with bounded backoff and heartbeat, task list with cancel and a visible quit-blocking reason, ⌘K palette, global shortcuts that do not steal text-editor keys, toasts, session/Magisk/busy details, APK signature-conflict reinstall |
+| Root, snapshots, tools | five-step root timeline, recent steps/log tail, stop-and-revert, Play Store guided grant countdown and unverified branch, snapshot save/restore/delete dialogs with refusal reasons, map click-to-set GPS, next-boot camera switching, root dev-tools page |
+
+Verification on this machine: `build-center.sh` and `build.sh` green; `test.sh` runs 14 logic
+groups plus the localization gate (0 new leaks); reconnect exercised with a real daemon killed
+and restarted; the root state machine driven end to end against a fake bridge; 18 off-screen
+renders in `target/m2c-renders` reviewed. Commits stay local; no push.
+
+What M2 did **not** do: any real-emulator/real-game verification (that is M3/M4), the device
+form's five-page layout (only `edit-device-data` remains from the parity gaps), the menu bar and
+Dock integration, the design-token mapping, and the visual English walkthrough (all M3).
+
 ## M1–M6 gates (summary)
 
 - **M1 — test and package skeleton.** macOS CI job for Swift builds, logic tests and the
@@ -157,6 +177,7 @@ concurrent edits.
 
 ## Task tracking
 
-Shared tasks are on the team board. M0: `M0 parity 初稿` and `M0 本地化走查` (both complete).
-M1: `M1 Swift CI 与本地化门禁` and `M1 可安装测试包`. Write scopes are disjoint; the Lead
-commits and runs the gates.
+Shared tasks are on the team board. M0 (parity, localization), M1 (CI, package, fixtures,
+baselines), M2-A/B/C (centre, player, root) and the player bridge increment are complete.
+Remaining: M2 visual baseline refresh (`M2 视觉冻结`), then M3 native/visual/localization.
+Write scopes are disjoint; the Lead commits and runs the gates.

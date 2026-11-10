@@ -1,6 +1,6 @@
 # SwiftUI parity matrix
 
-Status: **M0 audit complete** (2026-11-11, baseline `master` @ `b46a2f3` + M0 fixes).
+Status: **M2 implemented, real-device verification pending** (2026-11-11, baseline `master` @ `ba69547`).
 Plan, gates and tooling: [docs/swiftui-migration.md](swiftui-migration.md).
 Full evidence:
 [68-scene mapping](swiftui-parity-scenes.md) and
@@ -24,55 +24,57 @@ Missing scenes: `launcher-tasks`, `palette`, `palette-filtered`, `edit-device-da
 states to the standalone player window.
 
 An earlier count of 55 "entry points" measured screens, not behaviour; this table is the
-binding one.
+binding one. M2 implemented the whole missing list except `edit-device-data` (the device
+form still lacks a data page): palette, task list, player booting/stopped, overlay,
+fullscreen reveal, root awaiting-grant and no-auto-grant. A fresh scene audit runs in M4.
 
 ## Structural findings (these outweigh individual scenes)
 
-1. **Device window form (decided 2026-11-11).** Slint shows the device screen inside the main
+1. **Device window form (decided; implemented in M2).** Slint shows the device screen inside the main
    workbench as a device tab; this migration keeps **standalone device windows** and does not
    port the tab. The consequence is functional: the player window must handle the booting,
    stopped and disconnected states itself (`player-booting`/`player-stopped`), tracked in M2-B.
 2. **Widget panels are separate windows** in SwiftUI instead of the docked panel beside the
    device screen; discoverability and persistence differ.
-3. **Missing cross-cutting infrastructure**: daemon reconnect, background task list/cancel and
-   global keyboard shortcuts (⌘K/⌘L/⌘J/⌥⌘0/⌃⌘F/⌘N/⌘, /Esc). RTL is not required (decided
-   2026-11-11).
-4. **Root is a coarse success/failure state**; the 5-step timeline, log tail, stop-and-revert
-   and Play Store wait/countdown branches are missing.
-5. **Localization architecture drifts from Slint**: Chinese-key reverse tables plus three
-   mechanisms, with 36 reachable Chinese strings in English mode (screenshot/recording file
-   names, player status bubbles, snapshot root tags, settings validation, keymap errors).
+3. **Cross-cutting infrastructure (implemented in M2)**: daemon reconnect with bounded
+   backoff, background task list/cancel, command palette and global shortcuts, toasts.
+   RTL is not required (decided 2026-11-11).
+4. **Root flow (implemented in M2)**: 5-step timeline, recent steps and log tail,
+   stop-and-revert, Play Store guided grant with countdown and the unverified branch.
+5. **Localization**: M2 fixed the 13 baseline rows it touched; the gate now baselines 34
+   known leaks (down from 47), listed in `Tests/i18n_allowlist.txt`. The visual English
+   walkthrough is still pending (M3).
 
 ## Module matrix
 
 Legend — Impl.: ❌ not started · 🟡 skeleton · ✅ complete. Verified: ⬜ none · 🧪 offline
-(unit/binary tests; not module-level acceptance) · 📱 real emulator/game. No module has
-real-device evidence yet.
+(unit/binary tests; not module-level acceptance) · 📱 real emulator/game. M2 modules have offline
+evidence (unit tests, fixtures, screenshots); real-device verification runs in M3/M4.
 
 | # | Module | Slint reference | SwiftUI entry | Impl. | Verified | Remaining |
 |---|---|---|---|---|---|---|
-| 1 | Device center (list/search/details/lifecycle/delete) | `launcher/mod.rs`, `launcher-*` | `Center/DeviceViews.swift`, `DeviceModel.swift` | 🟡 | ⬜ | toasts/status pills, session+Magisk details, daemon reconnect |
+| 1 | Device center (list/search/details/lifecycle/delete) | `launcher/mod.rs`, `launcher-*` | `Center/DeviceViews.swift`, `DeviceModel.swift`, `Reconnect.swift` | ✅ | ⬜ | real-device walkthrough |
 | 2 | Create/edit device | `device_form/mod.rs`, `edit-device-*` | `NewDeviceView`, `EditDeviceView` | 🟡 | 🧪 validation | five-page form, data page missing, error copy localized |
 | 3 | First-run SDK setup | `wizard/mod.rs`, `setup-*` | `InstallSDKView` | 🟡 | 🧪 plan/cancel | step bar, detection, licence scroll, per-download rows |
 | 4 | Settings (+MCP, cache, update, storage preflight) | `settings/mod.rs`, `settings-*` | `SettingsView`, `MCPConfiguration.swift` | 🟡 | ⬜ | agents page, item walkthrough |
-| 5 | Snapshots | `snapshots/mod.rs`, `snapshots-*` | `SnapshotsView` | 🟡 | ⬜ | refusal/save dialogs, root tags, sizes |
-| 6 | Root (modes/verify/revert/modules/props/certs/auto-grant) | `root/mod.rs`, `root-*` | `FullRootView`, `AdvancedTools.swift` | 🟡 | ⬜ | 5-step timeline, log tail, stop+revert, Play Store wait/countdown |
-| 7 | Widget panels | `widgets/*`, `widgets-*` | `AdvancedTools.swift` (6 tabs) | 🟡 | ⬜ | docked-panel parity or accepted form difference, map click, sensor presets |
-| 8 | Game window (frame/input/IME/clipboard/recording/screenshot/drop/pixel-perfect/fullscreen/sidebar/on-top/state) | `player/*`, `player-*` | `Sources/GameWindow.swift` | 🟡 | ⬜ | fullscreen reveal, debug overlay, uninstall, recording/logcat status, app-tab form |
-| 9 | Key mapping and shortcuts | `player/keymap.rs`, `game_shortcuts.rs`, `edit_shortcuts.rs` | `Sources/KeyMapping.swift` | 🟡 | 🧪 keymap | global shortcuts, multi-touch mapping, conflict checks |
+| 5 | Snapshots | `snapshots/mod.rs`, `snapshots-*` | `SnapshotsView`, `SnapshotData.swift`, `SnapshotDialogs.swift` | ✅ | ⬜ | real-device save/load/refusal walkthrough |
+| 6 | Root (modes/verify/revert/modules/props/certs/auto-grant) | `root/mod.rs`, `root-*` | `RootFlow.swift`, `RootSteps.swift`, `RootDevTools.swift` | ✅ | ⬜ | real-device root cycle and Play Store grant |
+| 7 | Widget panels | `widgets/*`, `widgets-*` | `AdvancedTools.swift` (6 tabs) | ✅ | ⬜ | real-device widgets; separate-window form accepted; sensor presets thin |
+| 8 | Game window (frame/input/IME/clipboard/recording/screenshot/drop/pixel-perfect/fullscreen/sidebar/on-top/state) | `player/*`, `player-*` | `GameWindow.swift`, `PlayerWindowView.swift`, `PlayerSession.swift` | ✅ | ⬜ | real-device input/recording/gesture semantics |
+| 9 | Key mapping and shortcuts | `player/keymap.rs`, `game_shortcuts.rs`, `edit_shortcuts.rs` | `KeyMapping.swift`, `GameShortcuts.swift` | ✅ | 🧪 | real-device shortcut and multi-touch verification |
 | 10 | App/game library | `game_library.rs`, `launcher-game-list` | center app list | 🟡 | ⬜ | daemon copy, empty state, real device |
-| 11 | Command palette | `palette/mod.rs`, `palette-*` | — | ❌ | ⬜ | not ported |
-| 12 | Background task list | `app.rs` tasks, `launcher-tasks` | — | ❌ | ⬜ | not ported (only SDK cancel) |
+| 11 | Command palette | `palette/mod.rs`, `palette-*` | `CommandPalette.swift`, `PaletteView.swift` | ✅ | 🧪 | real UI run |
+| 12 | Background task list | `app.rs` tasks, `launcher-tasks` | `TaskCenter.swift`, `Overlays.swift` | ✅ | 🧪 | real jobs/cancel on a device |
 | 13 | Menu bar/Dock/single instance/window restore/activation/quit | `macos_dock.rs` | — | ❌ | ⬜ | M3 |
 | 14 | Design tokens/Lucide icons | `docs/design/tokens.json`, `ui/icons` | system colours/SF Symbols/2 PNGs | ❌ | ⬜ | generate/map in M3 |
-| 15 | Localization EN/ZH | `i18n.rs`, `zh_CN.po` | `.strings` 214 keys + `t()` 249 sites + ternary 26 | 🟡 | 🧪 strings only | 36 reachable leaks, CI rules, visual walkthrough |
-| 16 | Test assets | 130 unit tests, 204 goldens | 10 test binaries | ❌ | 🧪 narrow | SwiftPM/XCTest, rendered goldens, real-device tests |
-| 17 | Release chain/CI | `xtask/release.rs`, `packaging/macos`, CI | hand-written `swiftc` scripts | ❌ | ⬜ | Swift CI, release branch, signing/DMG |
-| 18 | Decisions/licence/docs | D2/D15/D18/D20, ADRs | ADR-0003 (proposed) | 🟡 | — | maintainer approval; D18 wording at M6 |
+| 15 | Localization EN/ZH | `i18n.rs`, `zh_CN.po` | `.strings` + `t()` + ternary, CI gate | 🟡 | 🧪 gate | 34 baselined leaks (was 47); visual EN walkthrough |
+| 16 | Test assets | 130 unit tests, 204 goldens | 14 logic test groups, SwiftUI screenshot harness | 🟡 | 🧪 | regenerate baselines, real-device tests |
+| 17 | Release chain/CI | `xtask/release.rs`, `packaging/macos`, CI | package-test.sh + swift-macos CI job | 🟡 | ⬜ | release branch, signing/notarization (M5) |
+| 18 | Decisions/licence/docs | D2/D15/D18/D20, ADRs | ADR-0003 accepted + D44 | ✅ | — | D18 wording at M6 |
 | 19 | Config compatibility | `window-state/*.json`, `keymaps/*`, `gui-prefs.json` | same keymaps/quality/prefs paths; geometry in `.swiftui.json` | 🟡 | 🧪 window state | bidirectional matrix + rollback rule |
 | 20 | Performance | ADR-0001, `display-performance.md` | not measured | ❌ | ⬜ | baseline A/B (M4) |
-| 21 | Daemon reconnect (center bridge) | `src/bridge.rs` reconnect | one `connect_or_spawn`, notice only | ❌ | ⬜ | P0 infrastructure |
-| 22 | Global shortcuts | `ui/app.slint` key handling | — | ❌ | ⬜ | P0 with palette |
+| 21 | Daemon reconnect (center bridge) | `src/bridge.rs` reconnect | `Reconnect.swift`, `DeviceModel.swift` | ✅ | 🧪 | real daemon kill/restart verified; device soak in M4 |
+| 22 | Global shortcuts | `ui/app.slint` key handling | `Shortcuts.swift`, `main.swift` monitor | ✅ | 🧪 | real keyboard end-to-end |
 | 23 | RTL / layout direction (D33) | `theme.slint` rtl, mirrored goldens | — | — | — | **not required** (2026-11-11): Chinese/English only; semantic leading/trailing where free |
 
 ## Flows the goldens do not cover
@@ -91,8 +93,9 @@ real-device evidence yet.
 
 ## Priorities
 
-- **P0 (blocks acceptance)**: daemon reconnect; task list/cancel; player-window booting/stopped/
+- **P0 done in M2**: daemon reconnect; task list/cancel; player-window booting/stopped/
   reconnect states; Root timeline/stop-and-revert/Play Store wait; global shortcuts + palette.
+  What remains before the switch is real-device verification, not new UI.
 - **P1 (visible in goldens)**: palette, snapshot dialogs, five-page device form (data page),
   settings IA/agents page, fullscreen reveal, debug overlay, recording clock.
 - **P2**: first-run wizard fidelity, docked widget panels, screenshot/recording semantics,
