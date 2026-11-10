@@ -419,6 +419,78 @@ async fn run_file_operation(
     Ok(())
 }
 
+/// Deterministic synthetic RGBA panel for the snapshot renderer: a status bar,
+/// a game-screen card and a two-axis gradient. No randomness, no gRPC.
+fn fixture_pixels(width: u32, height: u32) -> Vec<u8> {
+    let mut pixels = Vec::with_capacity(width as usize * height as usize * 4);
+    for y in 0..height {
+        for x in 0..width {
+            let fx = f64::from(x) / f64::from(width - 1).max(1.0);
+            let fy = f64::from(y) / f64::from(height - 1).max(1.0);
+            let (mut r, mut g, mut b) = (12.0 + 34.0 * fy, 16.0 + 48.0 * fx, 34.0 + 60.0 * fy);
+            if (0.14..=0.86).contains(&fx) && (0.22..=0.78).contains(&fy) {
+                r = 58.0 + 60.0 * fx;
+                g = 74.0 + 80.0 * fy;
+                b = 120.0 + 70.0 * fx;
+            }
+            if fy < 0.05 {
+                (r, g, b) = (20.0, 170.0, 120.0);
+            }
+            pixels.extend_from_slice(&[r as u8, g as u8, b as u8, 255]);
+        }
+    }
+    pixels
+}
+
+/// `JIDR_PLAYER_FIXTURE=1` replaces the gRPC stream with three identical
+/// synthetic frames and one fixed diagnostic line. The normal path below is
+/// untouched; only this process sees the variable.
+async fn player_fixture(width: u32, height: u32) -> Result<()> {
+    let frame_width = 360u32.min(width).max(1);
+    let frame_height = 640u32.min(height).max(1);
+    let (frame_tx, frame_rx) = mpsc::sync_channel::<Vec<u8>>(2);
+    std::thread::spawn(move || {
+        let mut out = std::io::stdout().lock();
+        for frame in frame_rx {
+            if out.write_all(&frame).is_err() {
+                break;
+            }
+        }
+    });
+    let (input_tx, mut input_rx) = async_mpsc::channel::<String>(128);
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            if line.len() <= 1024 * 1024 + 256 && input_tx.blocking_send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let pixels = fixture_pixels(frame_width, frame_height);
+    let packet =
+        frame_packet(frame_width, frame_height, 0, &pixels).context("invalid fixture frame")?;
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    eprintln!("fixture: connected");
+    for _ in 0..3 {
+        let mut pending = Some(packet.clone());
+        while let Some(frame) = pending {
+            match frame_tx.try_send(frame) {
+                Ok(()) => pending = None,
+                Err(mpsc::TrySendError::Full(frame)) => {
+                    pending = Some(frame);
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                Err(mpsc::TrySendError::Disconnected(_)) => return Ok(()),
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(40)).await;
+    }
+    // Drain UI commands until the player closes stdin so the lifecycle matches
+    // the real bridge. Toolbar commands are accepted and ignored.
+    while input_rx.recv().await.is_some() {}
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -436,6 +508,9 @@ async fn main() -> Result<()> {
         .context("invalid quality")?;
     if quality > 2 {
         bail!("invalid quality");
+    }
+    if std::env::var("JIDR_PLAYER_FIXTURE").is_ok_and(|value| value == "1") {
+        return player_fixture(width, height).await;
     }
     let client = Arc::new(
         jidr_client::Client::connect(&JidrPaths::discover()?.socket(), "swiftui-prototype").await?,

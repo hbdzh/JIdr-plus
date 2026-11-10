@@ -49,10 +49,186 @@ fn send(value: Value) {
     let _ = output.flush();
 }
 
+/// Fixed responses for the snapshot renderer. Only `JIDR_CENTER_FIXTURE` turns
+/// this on: when it is unset the normal daemon path below is untouched.
+fn fixture_case() -> Option<String> {
+    std::env::var("JIDR_CENTER_FIXTURE")
+        .ok()
+        .map(|case| case.trim().to_owned())
+        .filter(|case| !case.is_empty())
+}
+
+fn fixture_device(id: &str, name: &str, state: &str, api: i64, tag: &str) -> Value {
+    json!({
+        "root": {"mode": "none", "health": "ok"},
+        "runtime": {"adb_serial": format!("emulator-{}", id.strip_prefix("fixture-").unwrap_or(id))},
+        "profile": "pixel_7",
+        "sdk_root": "/tmp/jidr-fixture/sdk",
+        "launch": {"audio": true, "quick_boot": true, "camera_back": "none", "camera_front": "none"},
+        "auto_hibernate_minutes": 30,
+        "id": id,
+        "name": name,
+        "status": {"state": state},
+        "image": {"api": api, "tag": tag},
+    })
+}
+
+fn fixture_devices(case: &str) -> Vec<Value> {
+    match case {
+        "disconnect" | "populated" => vec![
+            fixture_device(
+                "fixture-running",
+                "Fixture Running Device",
+                "running",
+                35,
+                "google_apis_playstore",
+            ),
+            fixture_device(
+                "fixture-stopped",
+                "Fixture Stopped Device",
+                "stopped",
+                33,
+                "google_apis",
+            ),
+        ],
+        "long-task" => vec![fixture_device(
+            "fixture-long-task",
+            "Fixture Long Task Device",
+            "stopped",
+            35,
+            "google_apis",
+        )],
+        _ => Vec::new(),
+    }
+}
+
+fn fixture_result(request: &Request, case: &str) -> Value {
+    let id = request.id;
+    let device = || {
+        let id = request.params.get("device").and_then(Value::as_str);
+        fixture_devices(case)
+            .into_iter()
+            .find(|entry| id.is_none_or(|wanted| entry["id"] == wanted))
+            .unwrap_or_else(|| {
+                fixture_device(
+                    "fixture-running",
+                    "Fixture Device",
+                    "running",
+                    35,
+                    "google_apis",
+                )
+            })
+    };
+    match request.method.as_str() {
+        "center.prefs.get" => {
+            json!({"id":id,"type":"result","result":{"language":1,"appearance":0,"tile_url":""}})
+        }
+        "center.paths" => json!({"id":id,"type":"result","result":{
+            "data":"/tmp/jidr-fixture/data","cache":"/tmp/jidr-fixture/cache","logs":"/tmp/jidr-fixture/logs",
+            "tools":{"android_sdk":null,"jdk_home":null}
+        }}),
+        "center.about" => json!({"id":id,"type":"result","result":{
+            "version":env!("CARGO_PKG_VERSION"),"repository":"https://github.com/hbdzh/JIdr-plus"
+        }}),
+        "center.quit" => json!({"id":id,"type":"result","result":null}),
+        "device.list" => {
+            if case == "load-failure" {
+                json!({"id":id,"type":"error","message":"Unable to read devices: the daemon is not running (fixture: load-failure)"})
+            } else {
+                json!({"id":id,"type":"result","result":fixture_devices(case)})
+            }
+        }
+        "device.details" => {
+            let device = device();
+            json!({"id":id,"type":"result","result":{
+                "device": device,
+                "config": {
+                    "hw.cpu.ncore":"8",
+                    "hw.ramSize":"4096",
+                    "hw.lcd.width": if device["status"]["state"] == "running" { "1080" } else { "1600" },
+                    "hw.lcd.height": if device["status"]["state"] == "running" { "2400" } else { "2560" },
+                    "hw.lcd.density":"420"
+                },
+                "disk_usage": 2147483648u64
+            }})
+        }
+        "app.list" => json!({"id":id,"type":"result","result":{"apps":[
+            {"package":"com.fixture.sample","name":"Fixture Sample Game","icon":null}
+        ]}}),
+        "settings.get" => json!({"id":id,"type":"result","result":{
+            "default_root_mode":"none","quick_boot":true,"budget_percent":80,"auto_hibernate_minutes":0
+        }}),
+        "snapshot.list" => json!({"id":id,"type":"result","result":{"snapshots":[
+            {"name":"fixture-snapshot","quick_boot":true,"restorable":true,"root_mode":null,"size_bytes":1048576u64}
+        ]}}),
+        _ => {
+            json!({"id":id,"type":"error","message":format!("fixture case {case}: no response for {}", request.method)})
+        }
+    }
+}
+
+/// Serve the embedded fixture state instead of connecting to a daemon. The
+/// `disconnect` case answers a few messages and then closes stdout.
+async fn run_fixture(case: &str) -> Result<()> {
+    if ![
+        "empty",
+        "populated",
+        "load-failure",
+        "long-task",
+        "disconnect",
+    ]
+    .contains(&case)
+    {
+        anyhow::bail!(
+            "unknown JIDR_CENTER_FIXTURE case {case:?}; expected empty, populated, load-failure, long-task or disconnect"
+        );
+    }
+    let (tx, mut rx) = mpsc::channel::<String>(64);
+    std::thread::spawn(move || {
+        for line in std::io::stdin().lock().lines() {
+            let Ok(line) = line else { break };
+            if line.len() > 1024 * 1024 || tx.blocking_send(line).is_err() {
+                break;
+            }
+        }
+    });
+    while let Some(line) = rx.recv().await {
+        let Ok(request) = serde_json::from_str::<Request>(&line) else {
+            continue;
+        };
+        if case == "long-task" && request.method == "device.start" {
+            let id = request.id;
+            tokio::spawn(async move {
+                for (fraction, message) in [
+                    (0.25, "Preparing to start the device…"),
+                    (0.6, "Starting the device…"),
+                ] {
+                    tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+                    send(
+                        json!({"id":id,"type":"progress","job":"fixture-long-task","message":message,"progress":fraction}),
+                    );
+                }
+                // A long task deliberately never completes: the renderer captures
+                // the UI while the operation is still in flight.
+            });
+            continue;
+        }
+        send(fixture_result(&request, case));
+        if case == "disconnect" && request.method == "device.list" {
+            tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    let paths = JidrPaths::discover()?;
     let args: Vec<String> = std::env::args().collect();
+    if let Some(case) = fixture_case() {
+        return run_fixture(&case).await;
+    }
+    let paths = JidrPaths::discover()?;
     if args.get(1).is_some_and(|arg| arg == "--logcat") {
         let device = args
             .get(2)

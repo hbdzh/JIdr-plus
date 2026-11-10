@@ -33,6 +33,19 @@ DMG that run without a development environment, use `apps/jidr-swiftui-prototype
 (see `packaging/swiftui/README.md`; the test bundle uses its own `Jidr-SwiftUI-Test` data
 directory and never touches the user's Jidr data). On macOS with a GUI session, `bash apps/jidr-swiftui-prototype/test-window.sh` checks game-window lifetime without an emulator.
 
+Deterministic UI snapshots render offscreen from bridge fixtures, so no daemon or emulator is
+needed (`bash apps/jidr-swiftui-prototype/snapshot.sh --check` with a logged-in macOS GUI
+session; `--update` rewrites the baselines and `--only CASE` limits a run). The five baselines
+in `apps/jidr-swiftui-prototype/Tests/golden/` are `center-empty`, `center-populated`,
+`center-load-failure`, `center-long-task` and `player-running`; the rects are fixed, the
+appearance is dark, animations are disabled and the locale is zh-Hans, and `--check` compares
+pixels exactly (no tolerance). Fixture mode is opt-in per process: set `JIDR_CENTER_FIXTURE`
+to `empty`, `populated`, `load-failure`, `long-task` or `disconnect` for the center bridge, or
+set `JIDR_PLAYER_FIXTURE=1` for the player bridge; when unset, both bridges use their normal
+daemon/gRPC paths. The baselines are provisional until the M2 UI work lands: refresh them with
+`--update` after a deliberate visual change, and treat a `--check` failure before that refresh
+as expected.
+
 ## Device-center development preview
 
 Build with `apps/jidr-swiftui-prototype/build-center.sh`. This builds a separate app in `target/swiftui-center`, and does not replace the installed application. The center requires an explicit isolated `JIDR_HOME` and the paths of the center bridge, standalone player executable and player bridge as arguments. If a daemon is not running for that home, set `JIDR_DAEMON_BIN` to the intended test daemon executable.
