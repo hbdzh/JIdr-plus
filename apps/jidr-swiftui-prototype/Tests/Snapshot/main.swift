@@ -2,37 +2,70 @@
 // Deterministic offscreen renderer for the SwiftUI previews.
 //
 // The bridge fixtures (JIDR_CENTER_FIXTURE / JIDR_PLAYER_FIXTURE) provide fixed
-// state, so each case renders with fixed window geometry, a fixed dark
-// appearance, disabled animations and a fixed zh-Hans locale. Baselines live in
+// state, so each case renders with fixed geometry, disabled animations, a fixed
+// language/locale and a fixed light or dark appearance. The bundled OFL Geist
+// faces are registered with CoreText before the first view is built, matching
+// the packaged previews (ATSApplicationFontsPath). Baselines live in
 // Tests/golden; --check compares decoded pixels exactly (no tolerance).
 import AppKit
+import CoreText
 import Darwin
 import Foundation
 import SwiftUI
 
 // MARK: - Case table and geometry
 
+enum SnapshotAppearance: Equatable {
+    case dark
+    case light
+
+    var name: String { self == .light ? "light" : "dark" }
+
+    var nsAppearance: NSAppearance {
+        NSAppearance(named: self == .light ? .aqua : .darkAqua)
+            ?? NSAppearance(named: .darkAqua)
+            ?? NSAppearance.currentDrawing()
+    }
+}
+
 struct SnapshotCase {
     enum Kind {
         case center(fixture: String)
         case player
     }
+
     let name: String
     let kind: Kind
+    /// 0 = English, 1 = Chinese; matches `CenterModel.language`/`PlayerTransport.language`.
+    let language: Int
+    let appearance: SnapshotAppearance
+
+    var localeIdentifier: String { language == 0 ? "en" : "zh-Hans" }
+    var languageName: String { language == 0 ? "en" : "zh" }
 }
 
 let allCases: [SnapshotCase] = [
-    SnapshotCase(name: "center-empty", kind: .center(fixture: "empty")),
-    SnapshotCase(name: "center-populated", kind: .center(fixture: "populated")),
-    SnapshotCase(name: "center-load-failure", kind: .center(fixture: "load-failure")),
-    SnapshotCase(name: "center-long-task", kind: .center(fixture: "long-task")),
-    SnapshotCase(name: "player-running", kind: .player),
+    // The five original zh + dark baselines.
+    SnapshotCase(name: "center-empty", kind: .center(fixture: "empty"), language: 1, appearance: .dark),
+    SnapshotCase(name: "center-populated", kind: .center(fixture: "populated"), language: 1, appearance: .dark),
+    SnapshotCase(name: "center-load-failure", kind: .center(fixture: "load-failure"), language: 1, appearance: .dark),
+    SnapshotCase(name: "center-long-task", kind: .center(fixture: "long-task"), language: 1, appearance: .dark),
+    SnapshotCase(name: "player-running", kind: .player, language: 1, appearance: .dark),
+    // English mode.
+    SnapshotCase(name: "center-empty-en", kind: .center(fixture: "empty"), language: 0, appearance: .dark),
+    SnapshotCase(name: "center-populated-en", kind: .center(fixture: "populated"), language: 0, appearance: .dark),
+    SnapshotCase(name: "center-long-task-en", kind: .center(fixture: "long-task"), language: 0, appearance: .dark),
+    SnapshotCase(name: "player-running-en", kind: .player, language: 0, appearance: .dark),
+    // Light theme (player chrome is intentionally dark-only, so no light player).
+    SnapshotCase(name: "center-populated-light", kind: .center(fixture: "populated"), language: 1, appearance: .light),
+    SnapshotCase(name: "center-load-failure-light", kind: .center(fixture: "load-failure"), language: 1, appearance: .light),
 ]
 
-// Small enough that every baseline stays well under 100 KB while preserving the
+// Small enough that every baseline stays well under 150 KB while preserving the
 // real layout: the center window is 1050×700, the player content is 432×768.
 let centerSize = (width: 1000, height: 640)
 let playerSize = (width: 432, height: 768)
+
 
 // MARK: - CLI
 
@@ -43,6 +76,7 @@ struct Options {
     var centerBridge = ""
     var playerBridge = ""
     var golden = ""
+    var fonts = ""
 }
 
 func fail(_ message: String) -> Never {
@@ -67,7 +101,8 @@ while argumentIndex < arguments.count {
     case "--center-bridge": options.centerBridge = value("--center-bridge")
     case "--player-bridge": options.playerBridge = value("--player-bridge")
     case "--golden": options.golden = value("--golden")
-    default: fail("unknown argument \(argument); usage: snapshot --update|--check [--only CASE] --center-bridge PATH --player-bridge PATH --golden DIR")
+    case "--fonts": options.fonts = value("--fonts")
+    default: fail("unknown argument \(argument); usage: snapshot --update|--check [--only CASE] --center-bridge PATH --player-bridge PATH --golden DIR [--fonts DIR]")
     }
     argumentIndex += 1
 }
@@ -77,7 +112,50 @@ guard !options.centerBridge.isEmpty, !options.playerBridge.isEmpty, !options.gol
 }
 let goldenDirectory = URL(fileURLWithPath: options.golden, isDirectory: true)
 
-// MARK: - Deterministic application setup
+// MARK: - Bundled fonts and deterministic application setup
+
+/// Register the OFL Geist/Geist Mono faces with CoreText before any view is
+/// built. The packaged previews get this for free from ATSApplicationFontsPath;
+/// a bare swiftc executable does not, and `WbFontResolver` caches its fallback
+/// on first use. Prefers the explicit `--fonts` path, then the built preview
+/// bundles, then reports that the system font fallback is in use.
+func registerBundledFonts(explicitPath: String) {
+    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    var candidates: [String] = []
+    if !explicitPath.isEmpty { candidates.append(explicitPath) }
+    candidates.append(root.appendingPathComponent("apps/jidr-gui/assets/fonts").path)
+    candidates.append(root.appendingPathComponent("target/swiftui-center/JidrSwiftUICenter.app/Contents/Resources/fonts").path)
+    candidates.append(root.appendingPathComponent("target/swiftui-prototype/JidrSwiftUIPrototype.app/Contents/Resources/fonts").path)
+    for directory in candidates {
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory) else { continue }
+        let files = names.filter { $0.hasSuffix(".ttf") || $0.hasSuffix(".otf") }.sorted()
+        guard !files.isEmpty else { continue }
+        var registered = 0
+        var firstFailure: String?
+        for name in files {
+            var error: Unmanaged<CFError>?
+            let url = URL(fileURLWithPath: directory).appendingPathComponent(name)
+            if CTFontManagerRegisterFontsForURL(url as CFURL, .process, &error) {
+                registered += 1
+            } else if firstFailure == nil {
+                firstFailure = name
+            }
+        }
+        let live = WbFontResolver.usesBundledFonts
+        print("snapshot: registered \(registered)/\(files.count) font file(s) from \(directory); bundled Geist/Geist Mono live: \(live)")
+        if live {
+            let face = WbFontResolver.resolvedPostScriptName(family: .ui, weight: .regular) ?? "system"
+            print("snapshot: UI face = \(face)")
+            return
+        }
+        if let firstFailure {
+            fputs("snapshot: warning: \(firstFailure) did not provide a resolvable PostScript face\n", stderr)
+        }
+    }
+    fputs("snapshot: no bundled Geist fonts found (apps/jidr-gui/assets/fonts); rendering with the system font fallback\n", stderr)
+}
+
+registerBundledFonts(explicitPath: options.fonts)
 
 let application = NSApplication.shared
 application.setActivationPolicy(.accessory)
@@ -109,22 +187,24 @@ func require(_ condition: Bool, _ message: String) {
 final class Canvas {
     let width: Int
     let height: Int
+    private let appearance: SnapshotAppearance
     private var window: NSWindow?
     private var hosting: NSHostingView<AnyView>?
 
-    init(width: Int, height: Int) {
+    init(width: Int, height: Int, appearance: SnapshotAppearance) {
         self.width = width
         self.height = height
+        self.appearance = appearance
     }
 
     func mount<V: View>(_ view: V) {
         let hosting = NSHostingView(rootView: AnyView(view))
         hosting.frame = NSRect(x: 0, y: 0, width: width, height: height)
-        hosting.appearance = NSAppearance(named: .darkAqua)
+        hosting.appearance = appearance.nsAppearance
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: width, height: height),
             styleMask: [.borderless], backing: .buffered, defer: false)
-        window.appearance = NSAppearance(named: .darkAqua)
+        window.appearance = appearance.nsAppearance
         window.isReleasedWhenClosed = false
         window.contentView = hosting
         window.orderFrontRegardless()
@@ -200,7 +280,8 @@ func pixels(_ rep: NSBitmapImageRep) -> (width: Int, height: Int, bytes: [UInt8]
 
 let fixtureCases = ["empty", "populated", "load-failure", "long-task", "disconnect"]
 
-func renderCenter(fixture: String) -> NSBitmapImageRep {
+func renderCenter(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
+    guard case .center(let fixture) = snapshotCase.kind else { fail("\(snapshotCase.name) is not a center case") }
     require(fixtureCases.contains(fixture), "unknown center fixture \(fixture)")
     setenv("JIDR_CENTER_FIXTURE", fixture, 1)
     defer { unsetenv("JIDR_CENTER_FIXTURE") }
@@ -211,6 +292,7 @@ func renderCenter(fixture: String) -> NSBitmapImageRep {
         fail("cannot start the center bridge for fixture \(fixture): \(error)")
     }
     defer { model.closePlayers(); model.close() }
+    let language = snapshotCase.language
     switch fixture {
     case "empty":
         require(waitUpTo(5, until: { model.connection.isOnline && model.deviceListLoaded && model.devices.isEmpty }),
@@ -229,18 +311,27 @@ func renderCenter(fixture: String) -> NSBitmapImageRep {
             model.connection.isOnline && model.deviceListLoaded && model.devices.count == 1 && model.details != nil
         }), "fixture long-task: the device list or details never loaded")
         guard let id = model.selected else { fail("fixture long-task: no device selected") }
+        // Language drives the localized job-progress text, so switch it before
+        // the operation starts.
+        model.language = language
         // `start()` opens a booting player window now; the center-side job
         // progress is the same `operation` path, so drive it directly to keep
         // this case a single deterministic window.
         model.operation("device.start", id: id)
+        let progressText = language == 0 ? "Rebooting" : "正在重启设备"
         require(waitUpTo(5, until: {
-            model.progress(for: id) == "正在重启设备" && model.activeJobs.count == 1
+            model.progress(for: id) == progressText && model.activeJobs.count == 1
         }), "fixture long-task: no in-flight job progress or task button")
         pump(0.2)
     default:
         fail("unsupported center fixture \(fixture)")
     }
-    let canvas = Canvas(width: centerSize.width, height: centerSize.height)
+    // Apply the matrix language/appearance only after the async state loaded, so
+    // every view re-evaluates with the requested deterministic values.
+    model.language = language
+    model.appearance = snapshotCase.appearance == .light ? 1 : 2
+    pump(0.1)
+    let canvas = Canvas(width: centerSize.width, height: centerSize.height, appearance: snapshotCase.appearance)
     canvas.mount(CenterView(model: model))
     canvas.settle(0.4)
     let rep = canvas.capture()
@@ -249,12 +340,12 @@ func renderCenter(fixture: String) -> NSBitmapImageRep {
     return rep
 }
 
-func renderPlayer() -> NSBitmapImageRep {
+func renderPlayer(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
     setenv("JIDR_PLAYER_FIXTURE", "1", 1)
     defer { unsetenv("JIDR_PLAYER_FIXTURE") }
     let transport = PlayerTransport()
-    transport.language = 1
-    let canvas = Canvas(width: playerSize.width, height: playerSize.height)
+    transport.language = snapshotCase.language
+    let canvas = Canvas(width: playerSize.width, height: playerSize.height, appearance: snapshotCase.appearance)
     canvas.mount(ContentView(transport: transport, mapping: transport.mapping, sidebar: SidebarState()))
     // ContentView.onAppear installs transport.onStatus; wait for it so the
     // transient connecting notice can later be cleared deterministically.
@@ -287,8 +378,8 @@ func renderPlayer() -> NSBitmapImageRep {
 
 func render(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
     switch snapshotCase.kind {
-    case .center(let fixture): return renderCenter(fixture: fixture)
-    case .player: return renderPlayer()
+    case .center: return renderCenter(snapshotCase)
+    case .player: return renderPlayer(snapshotCase)
     }
 }
 
@@ -321,7 +412,7 @@ for snapshotCase in selected {
         } catch {
             fail("cannot write \(url.path): \(error)")
         }
-        print("updated \(snapshotCase.name) \(rendered.width)x\(rendered.height) \(data.count) bytes")
+        print("updated \(snapshotCase.name) [\(snapshotCase.languageName)/\(snapshotCase.appearance.name)] \(rendered.width)x\(rendered.height) \(data.count) bytes")
         continue
     }
     guard let baselineData = try? Data(contentsOf: url) else {
@@ -357,11 +448,11 @@ for snapshotCase in selected {
         }
     }
     if differing == 0 {
-        print("PASS \(snapshotCase.name) \(rendered.width)x\(rendered.height) (\(baselineData.count) baseline bytes)")
+        print("PASS \(snapshotCase.name) [\(snapshotCase.languageName)/\(snapshotCase.appearance.name)] \(rendered.width)x\(rendered.height) (\(baselineData.count) baseline bytes)")
     } else {
         failures += 1
         let at = first.map { "\($0.x),\($0.y)" } ?? "?"
-        print("FAIL \(snapshotCase.name): \(differing) of \(rendered.width * rendered.height) pixels differ (first at \(at))")
+        print("FAIL \(snapshotCase.name) [\(snapshotCase.languageName)/\(snapshotCase.appearance.name)]: \(differing) of \(rendered.width * rendered.height) pixels differ (first at \(at))")
     }
 }
 

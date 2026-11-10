@@ -35,25 +35,36 @@ directory and never touches the user's Jidr data). On macOS with a GUI session, 
 
 Deterministic UI snapshots render offscreen from bridge fixtures, so no daemon or emulator is
 needed (`bash apps/jidr-swiftui-prototype/snapshot.sh --check` with a logged-in macOS GUI
-session; `--update` rewrites the baselines and `--only CASE` limits a run). The five baselines
-in `apps/jidr-swiftui-prototype/Tests/golden/` are `center-empty`, `center-populated`,
-`center-load-failure`, `center-long-task` and `player-running`; the rects are fixed, the
-appearance is dark, animations are disabled and the locale is zh-Hans, and `--check` compares
-pixels exactly (no tolerance). Fixture mode is opt-in per process: set `JIDR_CENTER_FIXTURE`
-to `empty`, `populated`, `load-failure`, `long-task` or `disconnect` for the center bridge, or
-set `JIDR_PLAYER_FIXTURE=1` for the player bridge; when unset, both bridges use their normal
-daemon/gRPC paths. These baselines cover the frozen M2 UI and are the screenshot gate: CI runs
-`--check` and a failure means the rendering changed. `center-long-task` drives the center's
-in-flight `job.progress` state; the booting player window is not one of the five cases.
-Refresh the baselines with `--update` after a deliberate visual change and update this table.
+session; `--update` rewrites the baselines and `--only CASE` limits a run). Every case fixes the
+window rect, language/locale, appearance and animation duration (0), and `--check` compares
+decoded pixels exactly (no tolerance). The renderer registers the bundled OFL Geist/Geist Mono
+faces from `apps/jidr-gui/assets/fonts` with CoreText at startup (falling back to the built
+preview bundles, then to the system font with a printed notice), and `snapshot.sh` stages the
+`en`/`zh-Hans` string tables and the generated device art next to the executable so
+`Bundle.main` resolves them like the packaged preview. Fixture mode is opt-in per process: set
+`JIDR_CENTER_FIXTURE` to `empty`, `populated`, `load-failure`, `long-task` or `disconnect` for
+the center bridge, or set `JIDR_PLAYER_FIXTURE=1` for the player bridge; when unset, both
+bridges use their normal daemon/gRPC paths. These baselines cover the frozen M3 visual and are
+the screenshot gate: CI runs `--check` (currently as a reported step) and a failure means the
+rendering changed. `center-long-task` drives the center's in-flight `job.progress` state; the
+booting player window is not a case. The player chrome is intentionally dark-only and
+icon-only in the running state, so `player-running-en` is currently pixel-identical to
+`player-running`; it stays in the matrix to catch localized player text regressions. Refresh
+the baselines with `--update` after a deliberate visual change and update this table.
 
-| case | size | bytes | sha256 |
-|---|---|---|---|
-| `center-empty` | 1000×640 | 51736 | `58959955567ffea12cb305afeda14e75c92ee000b528e4aa4e3436fe865157dc` |
-| `center-populated` | 1000×640 | 88392 | `9145ffc21f656db9650917ddd09ad0d659f026a98783f0ec685fec29fddb944b` |
-| `center-load-failure` | 1000×640 | 44870 | `21ddf51b81571378b6b80784591b53455acc940185e37eabd83cf873b2ae645b` |
-| `center-long-task` | 1000×640 | 83669 | `d4eff216590be7f784d2cc2c8abbe6d0bc1fe463648053bec0ad48d40762ed01` |
-| `player-running` | 432×768 | 27764 | `a3a73b5951b6879317a2227aa8ed2a0fbdaab865dbceb4224d77b169514c9126` |
+| case | language | appearance | size | bytes | sha256 |
+|---|---|---|---|---|---|
+| `center-empty` | zh | dark | 1000×640 | 70924 | `25b2fca60828ce0e2bb1f22dbf1fb6022cf794d2b881ba7d998ed6b8a368275a` |
+| `center-populated` | zh | dark | 1000×640 | 125179 | `1dd417f66bbe12626f6c2a7d9365f1762cf84e87df1abc4c102f26e646da657e` |
+| `center-load-failure` | zh | dark | 1000×640 | 60603 | `4786feb842ba8906292117e3d36b36e779462ae6d23f53d668bce73f701352d1` |
+| `center-long-task` | zh | dark | 1000×640 | 117593 | `c08faa0db4835a40988f985870fd3dc1292d995076bfde18834cf472e531a189` |
+| `player-running` | zh | dark | 432×768 | 27852 | `00a892f29d6452bb0b4d7e98280000531e070046984e1d284bb46b34b9b6476c` |
+| `center-empty-en` | en | dark | 1000×640 | 77740 | `c6e983771a520c3e08aa0b2debee99e8d65ee779aae30a233e7a045ded65ef8f` |
+| `center-populated-en` | en | dark | 1000×640 | 132375 | `d0190bff3dfa972797fc47fc1d818114238518f982601783bf285e038d44eb5a` |
+| `center-long-task-en` | en | dark | 1000×640 | 123363 | `c9ca51949333c692bdda525664b57a4bd8e04f7555e071e1cfe3e2faca2ba569` |
+| `player-running-en` | en | dark | 432×768 | 27852 | `00a892f29d6452bb0b4d7e98280000531e070046984e1d284bb46b34b9b6476c` |
+| `center-populated-light` | zh | light | 1000×640 | 112704 | `fa68aa7289f72adf02245a7f728bfedce3610072f8cb04523dd397806e9e53eb` |
+| `center-load-failure-light` | zh | light | 1000×640 | 56065 | `60006896b7d69bb415b4928f29d0108f629b171451dfa89a4558317d3b75cfb6` |
 
 ## Device-center development preview
 

@@ -21,6 +21,15 @@ swiftc -module-cache-path "$out/module-cache" \
   "${center_sources[@]}" \
   "$root"/apps/jidr-swiftui-prototype/Tests/Snapshot/main.swift \
   -o "$out/jidr-snapshot"
+# Bundle.main for a bare executable is the executable's own directory: stage the
+# localized string tables and the generated device art the packaged preview
+# ships, so the EN cases resolve the real translations instead of falling back
+# to the Chinese keys (and the device art is present, as in the app bundle).
+mkdir -p "$out/en.lproj" "$out/zh-Hans.lproj"
+cp "$root/apps/jidr-swiftui-prototype/Resources/en.lproj/Localizable.strings" "$out/en.lproj/"
+cp "$root/apps/jidr-swiftui-prototype/Resources/zh-Hans.lproj/Localizable.strings" "$out/zh-Hans.lproj/"
+cp "$root/crates/jidr-ui/ui/assets/device-list-generated.png" "$out/device-list.png"
+cp "$root/crates/jidr-ui/ui/assets/device-detail-generated.png" "$out/device-detail.png"
 # The snapshots never touch the user's Jidr data; the fixtures do not look at
 # JIDR_HOME at all, but an isolated home keeps any accidental path usage local.
 home="$(mktemp -d "${TMPDIR:-/tmp}/jidr-snapshot-home.XXXXXX")"
@@ -29,4 +38,5 @@ JIDR_HOME="$home" "$out/jidr-snapshot" \
   --center-bridge "$root/target/debug/jidr-center-bridge" \
   --player-bridge "$root/target/debug/jidr-swiftui-bridge" \
   --golden "$root/apps/jidr-swiftui-prototype/Tests/golden" \
+  --fonts "$root/apps/jidr-gui/assets/fonts" \
   "$@"
