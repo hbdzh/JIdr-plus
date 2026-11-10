@@ -42,4 +42,9 @@ swiftc -module-cache-path "$out/module-cache" \
   apps/jidr-swiftui-prototype/Sources/LogStream.swift \
   apps/jidr-swiftui-prototype/Tests/LogFilter/main.swift -o "$out/log-filter-tests"
 "$out/log-filter-tests"
-python3 apps/jidr-swiftui-prototype/Tests/localization_coverage.py
+# Localization gate: mechanisms (a) .strings keys, (b) t()/model.text(),
+# (c) inline language switches, plus the AppKit sinks, dynamic strings, error
+# text and both Rust bridges. --self-test proves the rules catch violations
+# before the real tree is checked; the baseline allowlist lives in
+# Tests/i18n_allowlist.txt.
+python3 apps/jidr-swiftui-prototype/Tests/localization_coverage.py --self-test
