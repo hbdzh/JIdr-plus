@@ -27,7 +27,11 @@ The prototype sidebar can be hidden or shown and provides navigation, volume, ro
 
 The Logcat panel can filter by priority and follow a dedicated live log connection while the panel is active. It retains the latest 1,000 lines and warns when the stream reports dropped events; stopping or leaving the panel closes that connection.
 
-Run the local decoder, mapping, creation, quality and SDK-consent-plan checks with `apps/jidr-swiftui-prototype/test.sh`. On macOS with a GUI session, `bash apps/jidr-swiftui-prototype/test-window.sh` checks game-window lifetime without an emulator.
+Run the local decoder, mapping, creation, quality, log and localization-gate checks with
+`apps/jidr-swiftui-prototype/test.sh`. To build an installable ad-hoc-signed test bundle and
+DMG that run without a development environment, use `apps/jidr-swiftui-prototype/package-test.sh`
+(see `packaging/swiftui/README.md`; the test bundle uses its own `Jidr-SwiftUI-Test` data
+directory and never touches the user's Jidr data). On macOS with a GUI session, `bash apps/jidr-swiftui-prototype/test-window.sh` checks game-window lifetime without an emulator.
 
 ## Device-center development preview
 

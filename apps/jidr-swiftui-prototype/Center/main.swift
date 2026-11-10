@@ -7,11 +7,53 @@ import UniformTypeIdentifiers
 final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var model: CenterModel?
     var window: NSWindow?
+    /// The Rust helpers shipped in a packaged app: this executable's `Contents/Helpers`.
+    /// Returns nil when that layout is incomplete, so the caller prints the usage line.
+    private static func helpersInBundle() -> (center: String, game: String, bridge: String)? {
+        guard let executable = Bundle.main.executableURL ?? CommandLine.arguments.first.map({ URL(fileURLWithPath:$0) }) else { return nil }
+        let helpers = executable.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Helpers")
+        let center = helpers.appendingPathComponent("jidr-center-bridge")
+        let bridge = helpers.appendingPathComponent("jidr-swiftui-bridge")
+        let daemon = helpers.appendingPathComponent("jidr")
+        let player = helpers.appendingPathComponent("JidrSwiftUIPrototype.app")
+        let files = FileManager.default
+        guard files.isExecutableFile(atPath:center.path),
+              files.isExecutableFile(atPath:bridge.path),
+              files.isExecutableFile(atPath:daemon.path) else { return nil }
+        // The daemon auto-start in jidr-client already resolves Contents/Helpers/jidr
+        // next to the bridge; point it explicitly so the package never falls back to
+        // a `jidr` on PATH or a development build.
+        if ProcessInfo.processInfo.environment["JIDR_DAEMON_BIN"] == nil { setenv("JIDR_DAEMON_BIN", daemon.path, 1) }
+        // The standalone player is a development/test entry and may be absent from a
+        // package; the center draws game windows in-process through the player bridge.
+        return (center.path, files.fileExists(atPath:player.path) ? player.path : center.path, bridge.path)
+    }
+    /// A packaged test bundle carries the `test-package` sentinel. Without JIDR_HOME it
+    /// uses its own data directory, so a Finder double-click works and never touches the
+    /// user's Jidr data; development builds keep the explicit-JIDR_HOME requirement.
+    private static func useTestPackageHome() {
+        guard ProcessInfo.processInfo.environment["JIDR_HOME"]?.isEmpty != false,
+              let resources = Bundle.main.resourceURL,
+              FileManager.default.fileExists(atPath: resources.appendingPathComponent("test-package").path)
+        else { return }
+        let home = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Jidr-SwiftUI-Test")
+        setenv("JIDR_HOME", home.path, 1)
+    }
     func applicationDidFinishLaunching(_ notification: Notification) {
         let args = CommandLine.arguments
-        guard args.count == 4, ProcessInfo.processInfo.environment["JIDR_HOME"]?.isEmpty == false else { fputs("usage: JIDR_HOME=<isolated-home> Center CENTER_BRIDGE GAME_APP PLAYER_BRIDGE\n",stderr); NSApp.terminate(nil); return }
+        let usage = "usage: JIDR_HOME=<isolated-home> Center CENTER_BRIDGE GAME_APP PLAYER_BRIDGE\n       or launch the packaged app (its Contents/Helpers are found automatically)\n"
+        Self.useTestPackageHome()
+        guard ProcessInfo.processInfo.environment["JIDR_HOME"]?.isEmpty == false else { fputs(usage,stderr); NSApp.terminate(nil); return }
+        // The explicit three-path form used by run-center.sh keeps its behaviour;
+        // without arguments the packaged app resolves the helpers inside its bundle.
+        let paths: (center: String, game: String, bridge: String)?
+        if args.count == 4 { paths = (args[1], args[2], args[3]) }
+        else if args.count == 1 { paths = Self.helpersInBundle() }
+        else { paths = nil }
+        guard let paths else { fputs(usage,stderr); NSApp.terminate(nil); return }
         do {
-            let model = try CenterModel(center:args[1],game:args[2],bridge:args[3]); self.model = model
+            let model = try CenterModel(center:paths.center,game:paths.game,bridge:paths.bridge); self.model = model
             let window = NSWindow(contentRect:NSRect(x:0,y:0,width:1050,height:700),styleMask:[.titled,.closable,.miniaturizable,.resizable,.fullSizeContentView],backing:.buffered,defer:false)
             // Keep the native resize limit consistent with CenterView's minimum layout.
             window.contentMinSize = NSSize(width:800,height:550)
