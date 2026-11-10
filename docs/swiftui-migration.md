@@ -141,6 +141,26 @@ What M2 did **not** do: any real-emulator/real-game verification (that is M3/M4)
 form's five-page layout (only `edit-device-data` remains from the parity gaps), the menu bar and
 Dock integration, the design-token mapping, and the visual English walkthrough (all M3).
 
+## M3: native integration, visual and localization (status 2026-11-11)
+
+| Area | Delivered |
+|---|---|
+| Native shell | real menu bar (app/edit/device/view/window/help) driven through palette actions with target validation, Dock menu, per-JIDR_HOME flock single instance that activates the running window, close-to-hide/reopen, device-window focus instead of duplicates, key-window menu target resolution |
+| Layout and displays | centre collapses to one scrolling column below 940pt with a details toggle; sheets fit 900×600; player windows save their display id, restore on the saved/nearest screen and clamp when the screen set changes; Retina handled in points |
+| Design system | `generate-tokens.sh` renders the D41 tokens from `docs/design/tokens.json` into Swift (150 light/dark colour pairs, spacing, radii, borders, 30 type styles, durations, easings, shadows); 903 Wb* call sites across the centre and player; 69 semantic WbIcon constants with no bare SF Symbol names left; CI fails when the generated files drift |
+| Fonts | Geist, Geist Mono and Noto Kufi ship in both previews and the package with `ATSApplicationFontsPath`; WbFontResolver uses the real faces and falls back to the system font; the OFL licences ship in the package |
+| Localization | the audited baseline went 34 → **0**: bridge and Swift diagnostics now carry stable codes and English messages, `.strings` hygiene is clean (no duplicate, trailing-space or dead keys; en and zh both 190 keys), a new English corpus test asserts language 0 output has no CJK, and old window-state/keymaps/game-shortcuts/gui-prefs compatibility is covered by tests |
+
+Verification on this machine: both previews build, `test.sh` runs 21 test groups with the
+localization gate at zero findings, `test-window.sh` passes, the token generator is idempotent
+and `--check`-clean, and light/dark Geist renders are captured in `target/m3-tokens/` and
+`target/m3-tokens2/`. The CI macOS job gains the token-drift check; the screenshot check stays
+reported until the runner image is pinned.
+
+Remaining for M3 completion: the refreshed zh/en light/dark screenshot matrix (in progress)
+and the real-game/real-device part of the acceptance, which belongs to M4. A player window
+stays dark on purpose (matches Slint); Noto Kufi is registered but RTL is out of scope.
+
 ## M1–M6 gates (summary)
 
 - **M1 — test and package skeleton.** macOS CI job for Swift builds, logic tests and the

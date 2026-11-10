@@ -65,13 +65,13 @@ evidence (unit tests, fixtures, screenshots); real-device verification runs in M
 | 10 | App/game library | `game_library.rs`, `launcher-game-list` | center app list | 🟡 | ⬜ | daemon copy, empty state, real device |
 | 11 | Command palette | `palette/mod.rs`, `palette-*` | `CommandPalette.swift`, `PaletteView.swift` | ✅ | 🧪 | real UI run |
 | 12 | Background task list | `app.rs` tasks, `launcher-tasks` | `TaskCenter.swift`, `Overlays.swift` | ✅ | 🧪 | real jobs/cancel on a device |
-| 13 | Menu bar/Dock/single instance/window restore/activation/quit | `macos_dock.rs` | — | ❌ | ⬜ | M3 |
-| 14 | Design tokens/Lucide icons | `docs/design/tokens.json`, `ui/icons` | system colours/SF Symbols/2 PNGs | ❌ | ⬜ | generate/map in M3 |
-| 15 | Localization EN/ZH | `i18n.rs`, `zh_CN.po` | `.strings` + `t()` + ternary, CI gate | 🟡 | 🧪 gate | 34 baselined leaks (was 47); visual EN walkthrough |
+| 13 | Menu bar/Dock/single instance/window restore/activation/quit | `macos_dock.rs` | `MenuBar.swift`, `SingleInstance.swift`, `main.swift` | ✅ | 🧪 | real click-through needs accessibility permission |
+| 14 | Design tokens/Lucide icons | `docs/design/tokens.json`, `ui/icons` | `generate-tokens.sh`, `DesignTokens.swift`, `DesignTokenData.swift` | ✅ | 🧪 | 903 Wb* sites, 69 WbIcon constants; fonts bundled and resolved |
+| 15 | Localization EN/ZH | `i18n.rs`, `zh_CN.po` | coded bridge/Swift errors + `.strings` + CI gate | ✅ | 🧪 | baseline 0; English corpus test; EN screenshot variants |
 | 16 | Test assets | 130 unit tests, 204 goldens | 14 logic test groups, SwiftUI screenshot harness | 🟡 | 🧪 | regenerate baselines, real-device tests |
-| 17 | Release chain/CI | `xtask/release.rs`, `packaging/macos`, CI | package-test.sh + swift-macos CI job | 🟡 | ⬜ | release branch, signing/notarization (M5) |
+| 17 | Release chain/CI | `xtask/release.rs`, `packaging/macos`, CI | package-test.sh + swift-macos CI job + token-drift check | 🟡 | ⬜ | release branch, signing/notarization (M5) |
 | 18 | Decisions/licence/docs | D2/D15/D18/D20, ADRs | ADR-0003 accepted + D44 | ✅ | — | D18 wording at M6 |
-| 19 | Config compatibility | `window-state/*.json`, `keymaps/*`, `gui-prefs.json` | same keymaps/quality/prefs paths; geometry in `.swiftui.json` | 🟡 | 🧪 window state | bidirectional matrix + rollback rule |
+| 19 | Config compatibility | `window-state/*.json`, `keymaps/*`, `gui-prefs.json` | same paths, display id added, legacy readers tested | ✅ | 🧪 | covered by tests; real rollback run in M4 |
 | 20 | Performance | ADR-0001, `display-performance.md` | not measured | ❌ | ⬜ | baseline A/B (M4) |
 | 21 | Daemon reconnect (center bridge) | `src/bridge.rs` reconnect | `Reconnect.swift`, `DeviceModel.swift` | ✅ | 🧪 | real daemon kill/restart verified; device soak in M4 |
 | 22 | Global shortcuts | `ui/app.slint` key handling | `Shortcuts.swift`, `main.swift` monitor | ✅ | 🧪 | real keyboard end-to-end |
