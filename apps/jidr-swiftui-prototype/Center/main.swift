@@ -7,6 +7,12 @@ import UniformTypeIdentifiers
 final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var model: CenterModel?
     var window: NSWindow?
+    /// App-wide key monitor: the center's shortcuts (⌘K, ⌘N, ⌘,, ⌘R, /, Esc)
+    /// work from any responder, while unclaimed keys and text editing pass through.
+    private var shortcutMonitor: Any?
+    /// Bounds the safe-quit wait: a daemon that stops answering must not leave
+    /// the app stuck in "quitting" forever.
+    private var quitWatchdog: DispatchWorkItem?
     /// The Rust helpers shipped in a packaged app: this executable's `Contents/Helpers`.
     /// Returns nil when that layout is incomplete, so the caller prints the usage line.
     private static func helpersInBundle() -> (center: String, game: String, bridge: String)? {
@@ -61,6 +67,12 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.titlebarAppearsTransparent = true; window.delegate = self
             window.contentView = NSHostingView(rootView:CenterView(model:model)); self.window = window
             window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps:true)
+            shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching:.keyDown) { [weak self] event in
+                // Only the center window's keys: player and tool windows keep
+                // their own shortcuts (AppleScript events arrive without a window).
+                guard let self, let model = self.model, event.window === self.window || event.window == nil else { return event }
+                return model.handleShortcutEvent(event) ? nil : event
+            }
         } catch { fputs("\(error)\n",stderr); NSApp.terminate(nil) }
     }
     private var shuttingDown = false
@@ -70,26 +82,57 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
     func applicationShouldTerminate(_ sender:NSApplication) -> NSApplication.TerminateReply {
         guard let model else { return .terminateNow }
-        guard !model.hasExternalPlayer else { model.notice = model.text("请先关闭独立运行的旧版测试窗口。", "Close the standalone test window first."); return .terminateCancel }
-        guard !model.hasActiveRecording && model.recording.isEmpty else { model.notice = model.text("请先停止录屏并等待保存完成。", "Stop recording and wait for it to be saved first."); return .terminateCancel }
         guard !shuttingDown else { return .terminateLater }
-        guard model.busy.isEmpty && !model.hasMutations else { model.notice = model.text("请等待当前操作完成后再退出。", "Wait for the current operation to finish before quitting."); return .terminateCancel }
         model.closePlayers()
-        guard !model.hasPlayers else { model.notice = model.text("请先关闭游戏窗口。", "Close the game window first."); return .terminateCancel }
+        // Do not block silently: show the task list with the concrete reason
+        // (recording, open windows, running jobs, in-flight operations) so the
+        // user can cancel the work or wait for it right there.
+        if let reason = model.quitBlockReason {
+            window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps:true)
+            model.presentQuitBlocker()
+            model.showError(reason)
+            return .terminateCancel
+        }
+        // Nothing to stop safely when the daemon is already unreachable.
+        if !model.connection.isOnline {
+            model.beginSafeQuit()
+            DispatchQueue.main.async { NSApp.reply(toApplicationShouldTerminate:true) }
+            return .terminateLater
+        }
         shuttingDown = true
+        model.beginSafeQuit()
         model.notice = model.text("正在安全停止设备并退出…", "Stopping devices safely and quitting…")
+        let watchdog = DispatchWorkItem { [weak self] in
+            guard let self, self.shuttingDown else { return }
+            self.shuttingDown = false
+            model.resumeAfterFailedQuit()
+            model.notice = model.text("安全退出超时：后台没有及时响应。", "Safe quit timed out: the daemon did not answer in time.")
+            model.showError(model.notice)
+            NSApp.reply(toApplicationShouldTerminate:false)
+        }
+        quitWatchdog = watchdog
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: watchdog)
         model.call("center.quit") { [weak self] result in
             guard let self else { return }
+            self.quitWatchdog?.cancel(); self.quitWatchdog = nil
             self.shuttingDown = false
             switch result {
             case .success: NSApp.reply(toApplicationShouldTerminate:true)
-            case .failure(let error): model.notice = model.text("无法安全退出：", "Unable to quit safely: ") + error.localizedDescription; NSApp.reply(toApplicationShouldTerminate:false)
+            case .failure(let error):
+                model.resumeAfterFailedQuit()
+                model.notice = model.text("无法安全退出：", "Unable to quit safely: ") + error.localizedDescription
+                model.showError(model.notice)
+                NSApp.reply(toApplicationShouldTerminate:false)
             }
         }
         return .terminateLater
     }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender:NSApplication)->Bool { false }
-    func applicationWillTerminate(_ notification:Notification) { model?.close() }
+    func applicationWillTerminate(_ notification:Notification) {
+        quitWatchdog?.cancel(); quitWatchdog = nil
+        if let monitor = shortcutMonitor { NSEvent.removeMonitor(monitor); shortcutMonitor = nil }
+        model?.close()
+    }
 }
 let app = NSApplication.shared
 let delegate = Delegate()

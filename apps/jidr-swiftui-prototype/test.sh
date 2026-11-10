@@ -55,6 +55,22 @@ swiftc -module-cache-path "$out/module-cache" \
   apps/jidr-swiftui-prototype/Sources/PlayerSession.swift \
   apps/jidr-swiftui-prototype/Tests/PlayerSession/main.swift -o "$out/player-session-tests"
 "$out/player-session-tests"
+swiftc -module-cache-path "$out/module-cache" \
+  apps/jidr-swiftui-prototype/Center/Reconnect.swift \
+  apps/jidr-swiftui-prototype/Tests/Reconnect/main.swift -o "$out/reconnect-tests"
+"$out/reconnect-tests"
+swiftc -module-cache-path "$out/module-cache" \
+  apps/jidr-swiftui-prototype/Center/Shortcuts.swift \
+  apps/jidr-swiftui-prototype/Tests/Shortcuts/main.swift -o "$out/shortcut-tests"
+"$out/shortcut-tests"
+swiftc -module-cache-path "$out/module-cache" \
+  apps/jidr-swiftui-prototype/Center/CommandPalette.swift \
+  apps/jidr-swiftui-prototype/Tests/Palette/main.swift -o "$out/palette-tests"
+"$out/palette-tests"
+swiftc -module-cache-path "$out/module-cache" \
+  apps/jidr-swiftui-prototype/Center/TaskCenter.swift \
+  apps/jidr-swiftui-prototype/Tests/Tasks/main.swift -o "$out/task-center-tests"
+"$out/task-center-tests"
 # Localization gate: mechanisms (a) .strings keys, (b) t()/model.text(),
 # (c) inline language switches, plus the AppKit sinks, dynamic strings, error
 # text and both Rust bridges. --self-test proves the rules catch violations
