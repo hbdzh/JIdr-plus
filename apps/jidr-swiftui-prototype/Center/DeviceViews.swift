@@ -79,14 +79,12 @@ private struct DeviceSheetHeader: View {
             Spacer(minLength: WbSpace.md)
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(WbColor.textSecondary)
                     .frame(width: 24, height: 24)
-                    .background(WbColor.control, in: Circle())
-                    .overlay(Circle().strokeBorder(WbColor.borderDefault, lineWidth: 1))
-                    .contentShape(Circle())
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.borderless)
             .help(closeLabel)
             .accessibilityLabel(closeLabel)
         }
@@ -220,13 +218,13 @@ struct DeviceDetailsView: View {
             HStack(spacing: WbSpace.sm) {
                 if details.device.running {
                     Button(model.text("打开设备", "Open device")) { model.focusOrOpenDeviceWindow(details.device.id) }
-                        .buttonStyle(WbPrimaryButtonStyle())
+                        .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
                     Button(model.text("停止", "Stop"), systemImage: WbIcon.stop) { model.stop(details.device.id) }
-                        .buttonStyle(WbSecondaryButtonStyle())
+                        .buttonStyle(.bordered).controlSize(.regular)
                         .disabled(model.busy.contains(details.device.id))
                 } else if details.device.stopped {
                     Button(model.text("启动设备", "Start device")) { model.start(details.device.id) }
-                        .buttonStyle(WbPrimaryButtonStyle())
+                        .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
                         .disabled(model.busy.contains(details.device.id))
                 }
             }
@@ -378,24 +376,24 @@ struct DeviceDetailsView: View {
                 Button(model.text("Root 高级工具…", "Root tools…")) {
                     model.openAdvanced(details.device.id, name: details.device.name, root: true)
                 }
-                .buttonStyle(WbSecondaryButtonStyle())
+                .buttonStyle(.bordered).controlSize(.regular)
                 .disabled(!details.device.running)
                 Button(model.text("更改 Root 模式…", "Change root mode…")) { confirmRootChange = true }
-                    .buttonStyle(WbSecondaryButtonStyle())
+                    .buttonStyle(.bordered).controlSize(.regular)
                     .disabled(!details.device.stopped || selectedRoot == details.device.root.mode)
                 if details.device.root.mode == "magisk" {
                     Button(model.text("设置或重试完整 Root…", "Set up or retry full root…")) { confirmRootSetup = true }
-                        .buttonStyle(WbSecondaryButtonStyle())
+                        .buttonStyle(.bordered).controlSize(.regular)
                         .disabled(model.busy.contains(details.device.id))
                 }
                 Spacer(minLength: 0)
             }
             HStack(spacing: WbSpace.sm) {
                 Button(model.text("再次验证", "Verify again")) { model.operation("root.verify",id:details.device.id) }
-                    .buttonStyle(WbSecondaryButtonStyle())
+                    .buttonStyle(.bordered).controlSize(.regular)
                     .disabled(!details.device.running)
                 Button(model.text("恢复为无 Root", "Revert to no root"), role: .destructive) { confirmRevert = true }
-                    .buttonStyle(WbSecondaryButtonStyle())
+                    .buttonStyle(.bordered).controlSize(.regular)
                     .disabled(!details.device.stopped || details.device.root.mode == "none")
                 Spacer(minLength: 0)
             }
@@ -483,7 +481,7 @@ struct EditDeviceView: View {
                     }
                     HStack(spacing: WbSpace.sm) {
                         Button(model.text("冷启动一次…", "Cold boot once…")) { confirmColdBoot = true }
-                            .buttonStyle(WbSecondaryButtonStyle())
+                            .buttonStyle(.bordered).controlSize(.regular)
                             .disabled(!details.device.stopped || saving)
                         Spacer(minLength: 0)
                     }
@@ -494,11 +492,11 @@ struct EditDeviceView: View {
             }
             DeviceSheetFooter(note: model.text("部分更改将在下次启动设备时生效。", "Some changes apply the next time the device starts.")) {
                 Button(model.text("取消", "Cancel")) { dismiss() }
-                    .buttonStyle(WbSecondaryButtonStyle())
+                    .buttonStyle(.bordered).controlSize(.regular)
                     .disabled(saving)
                     .keyboardShortcut(.cancelAction)
                 Button(model.text("保存", "Save")) { save() }
-                    .buttonStyle(WbPrimaryButtonStyle())
+                    .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
                     .disabled(saving)
                     .keyboardShortcut(.defaultAction)
             }
@@ -650,7 +648,7 @@ struct EditDeviceView: View {
                     .disabled(!qualityLoaded)
                     .accessibilityLabel(model.text("游戏窗口画质", "Game window quality"))
                     Button(model.text("保存画质", "Save quality")) { saveQuality() }
-                        .buttonStyle(WbSecondaryButtonStyle())
+                        .buttonStyle(.bordered).controlSize(.regular)
                         .disabled(!qualityLoaded)
                 }
             }
@@ -1006,7 +1004,7 @@ struct NewDeviceView: View {
                     }
                     HStack(spacing: WbSpace.sm) {
                         Button(model.text("安装 SDK 和系统镜像…", "Install SDK & system images…")) { installing = true }
-                            .buttonStyle(WbSecondaryButtonStyle())
+                            .buttonStyle(.bordered).controlSize(.regular)
                             .disabled(saving)
                         Spacer(minLength: 0)
                     }
@@ -1023,11 +1021,11 @@ struct NewDeviceView: View {
             }
             DeviceSheetFooter(note: model.text("创建后可随时在设备设置中调整。", "You can adjust these settings after creating the device.")) {
                 Button(model.text("取消", "Cancel")) { dismiss() }
-                    .buttonStyle(WbSecondaryButtonStyle())
+                    .buttonStyle(.bordered).controlSize(.regular)
                     .disabled(saving)
                     .keyboardShortcut(.cancelAction)
                 Button(model.text("创建", "Create")) { create() }
-                    .buttonStyle(WbPrimaryButtonStyle())
+                    .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
                     .disabled(saving || images.isEmpty || profiles.isEmpty)
                     .keyboardShortcut(.defaultAction)
             }
@@ -1426,7 +1424,7 @@ struct SettingsView: View {
                     .foregroundStyle(WbColor.textPrimary)
                 Spacer(minLength: WbSpace.sm)
                 Button(model.text("关闭", "Close")) { dismiss() }
-                    .buttonStyle(WbSecondaryButtonStyle())
+                    .buttonStyle(.bordered).controlSize(.regular)
                     .disabled(saving)
                     .keyboardShortcut(.cancelAction)
             }
@@ -1632,7 +1630,7 @@ struct SettingsView: View {
                         switch result { case .success: message = model.text("已保存", "Saved"); case .failure(let failure): message = failure.localizedDescription }
                     }
                 }
-                .buttonStyle(WbPrimaryButtonStyle())
+                .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
                 .disabled(!loaded || saving)
             }
             .padding(.top, WbSpace.xxs)
@@ -1648,14 +1646,14 @@ struct SettingsView: View {
                 SettingsPathRow(title: model.text("数据目录", "Data folder"),
                                 path: paths?.data ?? model.text("读取中…", "Loading…")) {
                     Button(model.text("显示数据目录", "Show data folder")) { showFolder(paths?.data) }
-                        .buttonStyle(WbSecondaryButtonStyle())
+                        .buttonStyle(.bordered).controlSize(.regular)
                         .disabled(paths == nil)
                 }
                 WbRowDivider(inset: 0)
                 SettingsPathRow(title: "Android SDK",
                                 path: paths?.tools.android_sdk ?? sdkStatus?.tools_sdk ?? model.text("自动选择", "Automatic")) {
                     Button(model.text("选择 SDK", "Choose SDK")) { choose("sdk") }
-                        .buttonStyle(WbSecondaryButtonStyle())
+                        .buttonStyle(.bordered).controlSize(.regular)
                         .disabled(paths == nil || saving)
                     linkButton(model.text("恢复自动选择", "Restore automatic"), disabled: paths == nil || saving) { tool("sdk",path:NSNull()) }
                     linkButton(model.text("显示目录", "Show folder"), disabled: paths?.tools.android_sdk == nil && sdkStatus?.tools_sdk == nil) {
@@ -1663,14 +1661,14 @@ struct SettingsView: View {
                     }
                     Spacer(minLength: 0)
                     Button(model.text("安装 SDK 和系统镜像…", "Install SDK & system images…")) { installing = true }
-                        .buttonStyle(WbSecondaryButtonStyle())
+                        .buttonStyle(.bordered).controlSize(.regular)
                         .disabled(saving)
                 }
                 WbRowDivider(inset: 0)
                 SettingsPathRow(title: "JDK",
                                 path: paths?.tools.jdk_home ?? model.text("系统默认", "System default")) {
                     Button(model.text("选择 JDK", "Choose JDK")) { choose("jdk") }
-                        .buttonStyle(WbSecondaryButtonStyle())
+                        .buttonStyle(.bordered).controlSize(.regular)
                         .disabled(paths == nil || saving)
                     linkButton(model.text("恢复系统默认", "Restore system default"), disabled: paths == nil || saving) { tool("jdk",path:NSNull()) }
                 }
@@ -1678,10 +1676,10 @@ struct SettingsView: View {
                 SettingsPathRow(title: model.text("迁移目标", "Migration destination"),
                                 path: migrationParent.map { $0.appendingPathComponent("Jidr").path } ?? model.text("未选择", "Not selected")) {
                     Button(model.text("选择目标位置…", "Choose destination…")) { chooseMigrationParent() }
-                        .buttonStyle(WbSecondaryButtonStyle())
+                        .buttonStyle(.bordered).controlSize(.regular)
                         .disabled(saving || migrationChecking)
                     Button(model.text("初步检查", "Preliminary check")) { checkMigration() }
-                        .buttonStyle(WbSecondaryButtonStyle())
+                        .buttonStyle(.bordered).controlSize(.regular)
                         .disabled(migrationParent == nil || saving || migrationChecking)
                 }
             }
@@ -1707,7 +1705,7 @@ struct SettingsView: View {
                     .truncationMode(.tail)
                 Spacer(minLength: WbSpace.sm)
                 Button(model.text("清理下载缓存…", "Clear download cache…")) { confirmCacheClear = true }
-                    .buttonStyle(WbSecondaryButtonStyle())
+                    .buttonStyle(.bordered).controlSize(.regular)
                     .disabled(saving || cacheBytes == nil || cacheBytes == 0)
             }
             .padding(.horizontal, WbSpace.lg)
@@ -1759,7 +1757,7 @@ struct SettingsView: View {
                                 }
                             }
                         }
-                        .buttonStyle(WbSecondaryButtonStyle())
+                        .buttonStyle(.bordered).controlSize(.regular)
                         .disabled(saving)
                     }
                 }
@@ -1785,14 +1783,14 @@ struct SettingsView: View {
                     HStack(spacing: WbSpace.sm) {
                         Spacer(minLength: 0)
                         Button(model.text("配置 Claude Desktop…", "Configure Claude Desktop…")) { confirmClaudeConfig = true }
-                            .buttonStyle(WbSecondaryButtonStyle())
+                            .buttonStyle(.bordered).controlSize(.regular)
                             .disabled(saving)
                         Button(model.text("复制 MCP 配置", "Copy MCP configuration")) {
                             guard !mcpBinary.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty, let data = try? JSONSerialization.data(withJSONObject:["mcpServers":["jidr":["command":mcpBinary,"args":["mcp"]]]],options:[.prettyPrinted,.sortedKeys]), let text = String(data:data,encoding:.utf8) else { return }
                             NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text,forType:.string)
                             message = model.text("MCP 配置已复制。", "MCP configuration copied.")
                         }
-                        .buttonStyle(WbSecondaryButtonStyle())
+                        .buttonStyle(.bordered).controlSize(.regular)
                     }
                 }
                 .padding(.horizontal, WbSpace.lg)
@@ -1819,21 +1817,21 @@ struct SettingsView: View {
             WbFormGroup {
                 HStack(spacing: WbSpace.sm) {
                     Button(model.text("检查更新", "Check for updates")) { checkUpdate() }
-                        .buttonStyle(WbPrimaryButtonStyle())
+                        .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
                         .disabled(checkingUpdate || about == nil)
                     if let releaseURL {
                         Button(model.text("查看新版本", "View new version")) { NSWorkspace.shared.open(releaseURL) }
-                            .buttonStyle(WbSecondaryButtonStyle())
+                            .buttonStyle(.bordered).controlSize(.regular)
                     }
                     Button(model.text("源代码", "Source code")) {
                         if let value = about?.repository, let url = URL(string:value) { NSWorkspace.shared.open(url) }
                     }
-                    .buttonStyle(WbSecondaryButtonStyle())
+                    .buttonStyle(.bordered).controlSize(.regular)
                     .disabled(about == nil)
                     Button(model.text("许可证", "Licenses")) {
                         if let value = about?.repository, let url = URL(string:value + "/blob/master/NOTICE") { NSWorkspace.shared.open(url) }
                     }
-                    .buttonStyle(WbSecondaryButtonStyle())
+                    .buttonStyle(.bordered).controlSize(.regular)
                     .disabled(about == nil)
                     Spacer(minLength: 0)
                 }
@@ -2072,7 +2070,7 @@ struct CenterView: View {
                 .accessibilityLabel(model.text("新建设备（⌘N）", "New device (⌘N)"))
             } else {
                 Button(model.text("添加设备", "Add device"), systemImage: WbIcon.plus) { model.present(.newDevice) }
-                    .buttonStyle(WbPrimaryButtonStyle())
+                    .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
                     .help(model.text("新建设备（⌘N）", "New device (⌘N)"))
             }
             toolbarIcon(WbIcon.settings, help: model.text("设置（⌘,）", "Settings (⌘,)")) { model.present(.settings) }
@@ -2250,9 +2248,9 @@ struct CenterView: View {
                 .padding(.horizontal, WbSpace.xl)
             HStack(spacing: WbSpace.sm) {
                 Button(model.text("创建设备", "Create device")) { model.present(.newDevice) }
-                    .buttonStyle(WbPrimaryButtonStyle())
+                    .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
                 Button(model.text("设置 Android SDK…", "Set up Android SDK…")) { model.present(.setupSDK) }
-                    .buttonStyle(WbSecondaryButtonStyle())
+                    .buttonStyle(.bordered).controlSize(.regular)
             }
             .padding(.top, WbSpace.xs)
             Spacer(minLength: WbSpace.lg)
@@ -2332,18 +2330,18 @@ struct CenterView: View {
         switch device.status.state {
         case "running":
             Button(model.text("打开", "Open")) { model.focusOrOpenDeviceWindow(device.id) }
-                .buttonStyle(WbPrimaryButtonStyle())
+                .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
         case "starting", "booting":
             Button(model.text("取消", "Cancel")) { model.stop(device.id) }
-                .buttonStyle(WbSecondaryButtonStyle())
+                .buttonStyle(.bordered).controlSize(.regular)
                 .disabled(busy)
         case "stopping":
             Button(model.text("停止中…", "Stopping…")) { }
-                .buttonStyle(WbSecondaryButtonStyle())
+                .buttonStyle(.bordered).controlSize(.regular)
                 .disabled(true)
         default:
             Button(model.text("启动", "Start")) { model.start(device.id) }
-                .buttonStyle(WbPrimaryButtonStyle())
+                .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
                 .disabled(busy)
         }
     }
@@ -2529,7 +2527,7 @@ struct CenterView: View {
                         Button(model.text("查看 Root 配置", "View root setup")) {
                             model.rootPresentation = RootPresentation(id:device.id, name:device.name)
                         }
-                        .buttonStyle(WbSecondaryButtonStyle())
+                        .buttonStyle(.bordered).controlSize(.regular)
                     }
                 }
                 .padding(.horizontal, WbSpace.lg)
@@ -2548,14 +2546,14 @@ struct CenterView: View {
         switch device.status.state {
         case "running":
             Button(model.text("打开设备", "Open device")) { model.focusOrOpenDeviceWindow(device.id) }
-                .buttonStyle(WbPrimaryButtonStyle())
+                .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
         case "starting", "booting":
             Button(model.text("取消启动", "Cancel start")) { model.stop(device.id) }
-                .buttonStyle(WbSecondaryButtonStyle())
+                .buttonStyle(.bordered).controlSize(.regular)
                 .disabled(model.busy.contains(device.id))
         default:
             Button(model.text("启动设备", "Start device")) { model.start(device.id) }
-                .buttonStyle(WbPrimaryButtonStyle())
+                .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
                 .disabled(model.busy.contains(device.id))
         }
     }
@@ -2594,18 +2592,18 @@ struct CenterView: View {
     @ViewBuilder private func detailStartStopButton(_ device: Device) -> some View {
         if device.running {
             Button(model.text("停止", "Stop"), systemImage: WbIcon.stop) { model.stop(device.id) }
-                .buttonStyle(WbSecondaryButtonStyle())
+                .buttonStyle(.bordered).controlSize(.regular)
                 .disabled(model.busy.contains(device.id))
         } else {
             Button(model.text("启动", "Start"), systemImage: WbIcon.play) { model.start(device.id) }
-                .buttonStyle(WbSecondaryButtonStyle())
+                .buttonStyle(.bordered).controlSize(.regular)
                 .disabled(model.busy.contains(device.id) || !device.stopped)
         }
     }
 
     private func restartButton(_ device: Device) -> some View {
         Button(model.text("重启", "Restart"), systemImage: WbIcon.refresh) { model.restart(device.id) }
-            .buttonStyle(WbSecondaryButtonStyle())
+            .buttonStyle(.bordered).controlSize(.regular)
             .disabled(!device.running || model.busy.contains(device.id))
     }
 
@@ -2613,7 +2611,7 @@ struct CenterView: View {
         Button(model.text("设备设置", "Device settings"), systemImage: WbIcon.settings) {
             model.presentDeviceSheet(.edit, device: device.id)
         }
-        .buttonStyle(WbSecondaryButtonStyle())
+        .buttonStyle(.bordered).controlSize(.regular)
         .disabled(model.busy.contains(device.id))
     }
 
@@ -2622,7 +2620,7 @@ struct CenterView: View {
             model.select(device.id)
             model.deleteRequested = true
         }
-        .buttonStyle(WbSecondaryButtonStyle())
+        .buttonStyle(.bordered).controlSize(.regular)
         .disabled(!device.stopped || model.busy.contains(device.id))
     }
 
@@ -2651,7 +2649,7 @@ struct CenterView: View {
                 Button(model.text("安装 APK", "Install APK"), systemImage: WbIcon.installAPK) {
                     if let device = selectedDevice { model.chooseFile(device: device.id, apk: true) }
                 }
-                .buttonStyle(WbSecondaryButtonStyle())
+                .buttonStyle(.bordered).controlSize(.regular)
                 .disabled(selectedDevice?.running != true)
             }
             .padding(.horizontal, WbSpace.lg)
@@ -2682,7 +2680,7 @@ struct CenterView: View {
                                         .truncationMode(.middle)
                                     Spacer(minLength: WbSpace.sm)
                                     Button(model.text("启动", "Launch")) { model.launch(app, device: device.id) }
-                                        .buttonStyle(WbSecondaryButtonStyle())
+                                        .buttonStyle(.bordered).controlSize(.regular)
                                 }
                                 .padding(.horizontal, WbSpace.lg)
                                 .frame(minHeight: 44)

@@ -237,7 +237,7 @@ struct AdvancedToolsView: View {
     }
     private var battery: some View {
         VStack(alignment:.leading,spacing:WbSpace.md) {
-            HStack { Text(t("电池状态", "Battery status")).wbFont(WbType.title); Spacer(); Button(t("读取状态", "Read status"),action:loadBattery).buttonStyle(WbSecondaryButtonStyle()) }
+            HStack { Text(t("电池状态", "Battery status")).wbFont(WbType.title); Spacer(); Button(t("读取状态", "Read status"),action:loadBattery).buttonStyle(.bordered).controlSize(.regular) }
             WbDivider()
             Grid(alignment:.leading, horizontalSpacing:24, verticalSpacing:14) {
                 GridRow { Text(t("电量（0–100）", "Charge (0–100)")).foregroundStyle(WbColor.textSecondary); TextField("%",text:$level).frame(width:150) }
@@ -246,7 +246,7 @@ struct AdvancedToolsView: View {
             Button(t("应用", "Apply")) {
                 guard let n = Int(level), (0...100).contains(n) else { message = t("电量必须为 0–100 的整数。", "Charge must be an integer from 0 to 100."); return }
                 call("battery.set",["level":n,"charger":charger])
-            }.buttonStyle(WbPrimaryButtonStyle()).disabled(!batteryLoaded)
+            }.buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent).disabled(!batteryLoaded)
         }.frame(maxWidth:480, alignment:.leading)
     }
     private var gps: some View {
@@ -257,7 +257,7 @@ struct AdvancedToolsView: View {
                 Button(t("设置位置", "Set location")) {
                     guard let a = Double(lat), a.isFinite, (-90...90).contains(a), let o = Double(lon), o.isFinite, (-180...180).contains(o) else { message = t("请输入有效的经纬度。", "Enter valid latitude and longitude."); return }
                     call("gps.set",["latitude":a,"longitude":o])
-                }.buttonStyle(WbPrimaryButtonStyle())
+                }.buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
                 Button(t("显示地图", "Show map")) { showingMap = true }
                     .sheet(isPresented:$showingMap) {
                         GPSMapSheet(model:model, device:id, latitude:Double(lat) ?? 0, longitude:Double(lon) ?? 0, tileURL:model.tileURL) { latitude, longitude in
@@ -407,7 +407,7 @@ struct AdvancedToolsView: View {
             HStack {
                 Button(t("读取摄像头配置", "Read cameras"), action: loadCamera)
                 Button(t("应用（下次启动生效）", "Apply (next start)")) { applyCamera() }
-                    .buttonStyle(WbPrimaryButtonStyle()).disabled(!cameraLoaded)
+                    .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent).disabled(!cameraLoaded)
             }
             Text(t("摄像头切换在下次启动设备时生效。虚拟场景只支持后置摄像头。",
                    "Camera changes apply the next time the device starts. The virtual scene is a back camera only."))

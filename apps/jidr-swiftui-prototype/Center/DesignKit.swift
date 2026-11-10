@@ -176,41 +176,6 @@ struct WbAppIcon: View {
 
 // MARK: - Buttons
 
-struct WbPrimaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .wbFont(WbType.label.weighted(.medium))
-            .foregroundStyle(WbColor.accentOnAccent)
-            .padding(.horizontal, WbSpace.md)
-            .frame(height: 27)
-            .background(
-                configuration.isPressed ? WbColor.accentPressed : WbColor.accent,
-                in: RoundedRectangle(cornerRadius: WbRadius.md, style: .continuous)
-            )
-            .opacity(configuration.isPressed ? 0.92 : 1)
-            .contentShape(RoundedRectangle(cornerRadius: WbRadius.md, style: .continuous))
-    }
-}
-
-struct WbSecondaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .wbFont(WbType.label.weighted(.medium))
-            .foregroundStyle(WbColor.textPrimary)
-            .padding(.horizontal, WbSpace.md)
-            .frame(height: 27)
-            .background(
-                configuration.isPressed ? WbColor.controlPressed : WbColor.control,
-                in: RoundedRectangle(cornerRadius: WbRadius.md, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: WbRadius.md, style: .continuous)
-                    .strokeBorder(WbColor.borderStrong, lineWidth: 0.75)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: WbRadius.md, style: .continuous))
-    }
-}
-
 /// A compact flat action used in the "common actions" strip: icon + label with
 /// a hover background and no permanent fill.
 struct WbFlatActionLabel: View {

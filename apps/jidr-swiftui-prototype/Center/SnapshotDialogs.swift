@@ -95,10 +95,10 @@ struct SnapshotSaveDialog: View {
             HStack(spacing: WbSpace.sm) {
                 Spacer()
                 Button(t("取消", "Cancel")) { dismiss() }
-                    .buttonStyle(WbSecondaryButtonStyle())
+                    .buttonStyle(.bordered).controlSize(.regular)
                     .disabled(saving)
                 Button(saving ? t("正在保存…", "Saving…") : t("保存", "Save")) { save() }
-                    .buttonStyle(WbPrimaryButtonStyle())
+                    .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
                     .keyboardShortcut(.defaultAction)
                     .disabled(saving || !device.running)
             }

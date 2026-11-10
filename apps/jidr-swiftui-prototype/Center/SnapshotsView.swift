@@ -121,7 +121,7 @@ struct SnapshotsView: View {
             Button { showSave = true } label: {
                 Label(t("保存当前快照", "Save snapshot"), systemImage: WbIcon.plus)
             }
-            .buttonStyle(WbPrimaryButtonStyle())
+            .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
             .disabled(!running || busy)
             .help(t("保存当前快照", "Save snapshot"))
             .accessibilityLabel(t("保存当前快照", "Save snapshot"))
@@ -230,7 +230,7 @@ struct SnapshotsView: View {
 
             HStack(spacing: WbSpace.sm) {
                 Button(t("恢复", "Restore")) { requestRestore(snapshot) }
-                    .buttonStyle(WbSecondaryButtonStyle())
+                    .buttonStyle(.bordered).controlSize(.regular)
                     .disabled(!running || busy)
                     .help(t("恢复此快照", "Restore this snapshot"))
                 if !snapshot.quick_boot {
@@ -238,16 +238,12 @@ struct SnapshotsView: View {
                         alertItem = .delete(snapshot)
                     } label: {
                         Image(systemName: WbIcon.trash)
-                            .font(.system(size: 11.5, weight: .medium))
+                            .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(WbColor.negative)
-                            .frame(width: 27, height: 27)
-                            .background(WbColor.raised, in: RoundedRectangle(cornerRadius: WbRadius.md, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: WbRadius.md, style: .continuous)
-                                    .strokeBorder(WbColor.borderStrong, lineWidth: 0.75)
-                            )
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
                     .disabled(busy)
                     .help(t("删除此快照", "Delete this snapshot"))
                     .accessibilityLabel(t("删除此快照", "Delete this snapshot"))
@@ -478,17 +474,12 @@ private struct SnapshotsIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(.system(size: 12.5, weight: .medium))
                 .foregroundStyle(WbColor.textSecondary)
-                .frame(width: 27, height: 27)
-                .background(WbColor.raised, in: RoundedRectangle(cornerRadius: WbRadius.md, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: WbRadius.md, style: .continuous)
-                        .strokeBorder(WbColor.borderDefault, lineWidth: 1)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: WbRadius.md, style: .continuous))
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
         .accessibilityLabel(label)
         .help(label)
     }
