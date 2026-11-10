@@ -150,6 +150,8 @@ Dock integration, the design-token mapping, and the visual English walkthrough (
 | Design system | `generate-tokens.sh` renders the D41 tokens from `docs/design/tokens.json` into Swift (150 light/dark colour pairs, spacing, radii, borders, 30 type styles, durations, easings, shadows); 903 Wb* call sites across the centre and player; 69 semantic WbIcon constants with no bare SF Symbol names left; CI fails when the generated files drift |
 | Fonts | Geist, Geist Mono and Noto Kufi ship in both previews and the package with `ATSApplicationFontsPath`; WbFontResolver uses the real faces and falls back to the system font; the OFL licences ship in the package |
 | Localization | the audited baseline went 34 → **0**: bridge and Swift diagnostics now carry stable codes and English messages, `.strings` hygiene is clean (no duplicate, trailing-space or dead keys; en and zh both 190 keys), a new English corpus test asserts language 0 output has no CJK, and old window-state/keymaps/game-shortcuts/gui-prefs compatibility is covered by tests |
+| Accessibility | icon-only controls across the centre toolbar, device rows, palette, overlays and player chrome carry labels and hide decorative images; palette rows and the logcat bar are focusable buttons; sheets answer Esc/Return; the a11y tree and Tab order were validated at the API level because this session cannot use AX inspection or VoiceOver |
+| Screenshot matrix | 11 baselines now cover zh/en × dark and the light centre states, rendered with the registered Geist fonts and pixel-exact checks (byte-identical across two `--update` runs) |
 
 Verification on this machine: both previews build, `test.sh` runs 21 test groups with the
 localization gate at zero findings, `test-window.sh` passes, the token generator is idempotent
@@ -157,9 +159,11 @@ and `--check`-clean, and light/dark Geist renders are captured in `target/m3-tok
 `target/m3-tokens2/`. The CI macOS job gains the token-drift check; the screenshot check stays
 reported until the runner image is pinned.
 
-Remaining for M3 completion: the refreshed zh/en light/dark screenshot matrix (in progress)
-and the real-game/real-device part of the acceptance, which belongs to M4. A player window
-stays dark on purpose (matches Slint); Noto Kufi is registered but RTL is out of scope.
+**M3 gate status: met** with documented limits. The zh/en light/dark matrix is committed, the
+localization gate is at zero, the compact layouts and sheets fit the target sizes, and old
+configs are readable. The real-device and real-game part of the acceptance is M4; a player
+window stays dark on purpose (matches Slint) and Noto Kufi is registered but RTL is out of
+scope. Accessibility end-to-end (VoiceOver/Tab order) remains a manual check.
 
 ## M1–M6 gates (summary)
 
