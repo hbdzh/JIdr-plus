@@ -100,6 +100,13 @@ jobs:
         # Fails only on leaks outside the audited baseline
         # (Tests/i18n_allowlist.txt); .strings hygiene issues are warnings.
         run: python3 apps/jidr-swiftui-prototype/Tests/localization_coverage.py
+      - name: Screenshot baselines (needs a macOS GUI session; reported, not gating)
+        # Rendered offscreen at fixed size, appearance and locale and compared
+        # pixel-for-pixel. Font/control metrics and the backing scale differ
+        # between macOS runner images, so this is reported rather than gating
+        # until the runner image is pinned; see docs/swiftui-migration.md.
+        continue-on-error: true
+        run: bash apps/jidr-swiftui-prototype/snapshot.sh --check
       - name: GUI window lifecycle (needs a macOS GUI session; reported, not gating)
         # test-window.sh drives real AppKit windows and needs a logged-in
         # WindowServer session. Hosted runners usually have one, but not
