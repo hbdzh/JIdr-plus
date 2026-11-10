@@ -52,19 +52,34 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             .appendingPathComponent("Library/Application Support/Jidr-SwiftUI-Test")
         setenv("JIDR_HOME", home.path, 1)
     }
+    /// The data directory a plain (`JIDR_HOME` unset) launch resolves to: the same
+    /// `~/Library/Application Support/Jidr` the CLI and daemon use.
+    private static func standardDataDirectory() -> String {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Jidr").path
+    }
     func applicationDidFinishLaunching(_ notification: Notification) {
         let args = CommandLine.arguments
         let usage = "usage: JIDR_HOME=<isolated-home> Center CENTER_BRIDGE GAME_APP PLAYER_BRIDGE\n       or launch the packaged app (its Contents/Helpers are found automatically)\n"
         Self.useTestPackageHome()
-        guard let home = ProcessInfo.processInfo.environment["JIDR_HOME"], !home.isEmpty else {
+        // A packaged production app has no sentinel and is launched without
+        // arguments: leave JIDR_HOME unset so the bridge and daemon use the same
+        // standard paths as the CLI (`~/Library/Application Support/Jidr` as the
+        // data directory). Development builds pass three helper arguments and
+        // keep requiring an explicit JIDR_HOME, so a stray target/ launch never
+        // writes real data.
+        let environmentHome = ProcessInfo.processInfo.environment["JIDR_HOME"]
+            .flatMap { $0.isEmpty ? nil : $0 }
+        if args.count != 1, environmentHome == nil {
             fputs(usage,stderr); NSApp.terminate(nil); return
         }
+        let homeKey = environmentHome ?? Self.standardDataDirectory()
         // Single instance: take the per-data-directory lock before anything
         // spawns a bridge (or a daemon). A second launch only asks the running
         // center to show itself and exits, so it opens no window of its own.
-        guard let instance = CenterSingleInstance.acquire(home: home) else {
-            CenterSingleInstance.requestActivation(home: home)
-            fputs("jidr center: already running for \(home); activating it\n", stderr)
+        guard let instance = CenterSingleInstance.acquire(home: homeKey) else {
+            CenterSingleInstance.requestActivation(home: homeKey)
+            fputs("jidr center: already running for \(homeKey); activating it\n", stderr)
             Thread.sleep(forTimeInterval: 0.4)
             exit(0)
         }
@@ -87,7 +102,7 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.contentView = NSHostingView(rootView:CenterView(model:model)); self.window = window
             menuController = CenterMenuController(model:model, presenter:self)
             menuController?.install()
-            activationObserver = CenterSingleInstance.observeActivation(home: home) { [weak self] in
+            activationObserver = CenterSingleInstance.observeActivation(home: homeKey) { [weak self] in
                 self?.showCenterWindow()
             }
             window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps:true)

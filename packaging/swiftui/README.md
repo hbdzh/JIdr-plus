@@ -1,17 +1,24 @@
-# SwiftUI test package
+# SwiftUI packaging
 
-The M1 test package for the SwiftUI/AppKit device center: an ad-hoc-signed
-`JidrSwiftUICenter.app` and `Jidr-<version>-test.dmg`, built by
-`apps/jidr-swiftui-prototype/package-test.sh`. This is not the production
-release chain (that is M5 and reuses the Slint packaging in `../macos/`); it
-exists so packaging, signing, localisation, licences and the forbidden-content
-scan are exercised on a real bundle.
+Packaging for the SwiftUI/AppKit device center:
+
+1. the **M1 test package** — an ad-hoc-signed `JidrSwiftUICenter.app` and
+   `Jidr-<version>-test.dmg` built by
+   `apps/jidr-swiftui-prototype/package-test.sh`; it exists so packaging,
+   signing, localisation, licences and the forbidden-content scan are
+   exercised on a real bundle; and
+2. the **M5 production release chain** — `cargo xtask release --gui swiftui`
+   in `xtask/src/release.rs`, with `Jidr-Info.plist.in` and
+   `apps/jidr-swiftui-prototype/build-release.sh`. Since M6 this is the default
+   release GUI; the Slint app is the `--gui slint` fallback.
 
 | File | What |
 |---|---|
-| `Info.plist.in` | bundle metadata; `@VERSION@` becomes the workspace version |
+| `Info.plist.in` | M1 test-bundle metadata (`ly.jidr.JidrSwiftUICenter.test`); `@VERSION@` becomes the workspace version |
+| `Jidr-Info.plist.in` | M5 production bundle metadata (`ly.jidr.Jidr`), used by `cargo xtask release --gui swiftui` |
+| `apps/jidr-swiftui-prototype/package-test.sh` | builds, assembles, signs, packs and verifies the M1 test package |
+| `apps/jidr-swiftui-prototype/build-release.sh` | builds the optimised (`swiftc -O`) SwiftUI center for the release chain |
 | `../swiftui/README.md` | this file |
-| `apps/jidr-swiftui-prototype/package-test.sh` | builds, assembles, signs, packs and verifies the package |
 
 ## Output
 
@@ -125,13 +132,62 @@ exercised; the built app scans clean (20 files, 16 directories). Jidr downloads
 those artefacts on the user's machine and never ships them (NOTICE, clean-room
 rules).
 
+## M5 production release chain (`cargo xtask release --gui swiftui`)
+
+The production chain is `xtask/src/release.rs`; this folder only holds its
+Info.plist template. It does not replace the installed app and it is separate
+from the M1 test package above.
+
+```bash
+PATH="$PWD/target/tools/bin:$PATH" PROTOC="$PWD/target/tools/protoc/bin/protoc" \
+  cargo xtask release --gui swiftui --rehearsal   # ad-hoc, local, writes report.md
+cargo xtask release --gui swiftui                 # real SwiftUI release (credentials for notarization)
+cargo xtask release                               # SwiftUI default since M6
+```
+
+- `--gui swiftui` is the default since M6. `--gui slint` builds the
+  Rust helpers in the release profile (`jidr`, `jidr-center-bridge`,
+  `jidr-swiftui-bridge`), compiles the device center with
+  `apps/jidr-swiftui-prototype/build-release.sh` (`swiftc -O`) and assembles
+  `Jidr.app/Contents/MacOS/Jidr` plus `Contents/Helpers/{jidr,
+  jidr-center-bridge, jidr-swiftui-bridge}`.
+- The production bundle keeps the `ly.jidr.Jidr` identity, `Jidr.icns`,
+  `LSMinimumSystemVersion 13.0`, `NSHighResolutionCapable`,
+  `ATSApplicationFontsPath=fonts` and the en/zh-Hans localisations. It ships
+  `Contents/Resources/fonts/` (the 8 Geist / Geist Mono / Noto Kufi Arabic TTF
+  files plus their OFL texts), the center device art, and
+  `Contents/Resources/licenses/` with LICENSE-APACHE, LICENSE-GPL and NOTICE.
+  It never contains the standalone player app (ADR-0003) or the M1
+  `test-package` sentinel.
+- `--rehearsal` implies `--scan`, always signs ad-hoc (never a Developer ID,
+  never notarizes), writes to `target/release-rehearsal/` (DMG, MCP bundle,
+  `SHA256SUMS.txt`, `VERSION`, `report.md`) and runs the mounted-DMG checks:
+  bundle structure, inside-out `codesign --verify --strict`, the same
+  forbidden-content scan as `--scan`, `Contents/Helpers/jidr --version` from
+  the mounted image, an isolated `JIDR_HOME` install/launch/`daemon status`,
+  `jidr uninstall --purge` in that isolated home, `/Applications` and the real
+  Jidr data left untouched, and the observed Gatekeeper verdict.
+- Signing honesty: with no Developer ID credentials the rehearsal signs ad-hoc,
+  Gatekeeper rejects the copy and `report.md` records that as expected, with
+  Developer ID signing, notarization and stapling explicitly marked **NOT
+  VERIFIED**. `--gui swiftui` refuses the Developer ID path until
+  `packaging/macos/sign.sh` also signs the two bridge helpers (M5b), rather
+  than shipping an unverified signature.
+- The production app still requires an explicit `JIDR_HOME` because the
+  production bundle intentionally has no sentinel; since M6 the centre defaults
+  to the standard Jidr home when launched without arguments and without
+  JIDR_HOME (development builds still require it).
+- `report.md` also lists the unverified items (Developer ID/notarization,
+  upgrade from an older installer, Finder launch without `JIDR_HOME`,
+  real-device acceptance) and the notes for the M6 switch.
+
 ## Open items
 
-- Not notarized and not signed with a Developer ID; that is M5 work.
-- The Swift center binary is compiled by the existing preview script
-  (`build-center.sh`, unoptimized) so there is one source list for the center;
-  a release profile revisits that in M5.
-- The test package defaults to an isolated data directory
-  (`~/Library/Application Support/Jidr-SwiftUI-Test`). The production app will
-  default to the standard `~/Library/Application Support/Jidr` path; that
-  decision belongs to M5 packaging, not to the test bundle.
+- The M1 test package stays debug-built and ad-hoc; it is a packaging and
+  behaviour rehearsal, not a release artifact.
+- The M5 SwiftUI chain is ad-hoc in rehearsal. The Developer ID +
+  notarization path needs `packaging/macos/sign.sh` extended to the two bridge
+  helpers before the first signed SwiftUI release; until then the rehearsal
+  reports it as unverified instead of passing it.
+- Since M6 the production bundle defaults to `~/Library/Application Support/Jidr`
+  on a plain launch; development builds keep the explicit JIDR_HOME requirement.
