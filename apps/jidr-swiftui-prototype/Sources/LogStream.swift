@@ -18,6 +18,10 @@ final class LogStream: ObservableObject {
     @Published private(set) var error: String?
     @Published private(set) var active = false
     @Published private(set) var revision = 0
+    /// Current lines and error roll-up for the player's folded logcat bar.
+    @Published private(set) var lines: [String] = []
+    @Published private(set) var errorCount = 0
+    @Published private(set) var lastError = ""
     private var process: Process?
     private var pending = Data()
     private var buffer = LogLineBuffer(limit: 1000)
@@ -50,7 +54,8 @@ final class LogStream: ObservableObject {
             }
             try child.run()
             process = child; active = true; error = nil; pending.removeAll()
-            buffer = LogLineBuffer(limit: 1000); text = ""; revision += 1
+            buffer = LogLineBuffer(limit: 1000); text = ""; lines = []; errorCount = 0; lastError = ""
+            revision += 1
         } catch {
             self.error = error.localizedDescription
             active = false
@@ -64,14 +69,27 @@ final class LogStream: ObservableObject {
         pending.removeAll()
     }
 
+    /// Clears the panel's own buffer; the device log is untouched.
+    func clear() {
+        buffer = LogLineBuffer(limit: 1000)
+        text = ""; lines = []; errorCount = 0; lastError = ""
+        revision += 1
+        error = nil
+    }
+
     private func consume(_ data: Data, generation token: UUID) {
         guard generation == token else { return }
         pending.append(data)
         while let end = pending.firstIndex(of: 10) {
             let line = Data(pending.prefix(upTo: end)); pending.removeSubrange(...end)
             guard let event = (try? JSONSerialization.jsonObject(with: line)) as? [String:Any] else { continue }
-            if event["type"] as? String == "lines", let lines = event["lines"] as? [String] {
-                buffer.append(lines); text = buffer.lines.joined(separator: "\n"); revision += 1
+            if event["type"] as? String == "lines", let newLines = event["lines"] as? [String] {
+                buffer.append(newLines)
+                text = buffer.lines.joined(separator: "\n")
+                lines = buffer.lines
+                errorCount = buffer.lines.filter(LogFilter.isError).count
+                lastError = buffer.lines.last(where: LogFilter.isError) ?? ""
+                revision += 1
             } else if event["type"] as? String == "dropped" {
                 error = "日志量过大，部分内容未接收。"
             }

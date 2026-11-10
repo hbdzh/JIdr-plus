@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import AppKit
+import Combine
 import CoreGraphics
 import Foundation
 import SwiftUI
@@ -9,28 +10,57 @@ import UniformTypeIdentifiers
 // It never starts, stops, or changes the configuration of an emulator.
 final class PlayerTransport: ObservableObject {
     enum RecordingState { case idle, starting, recording, stopping }
-    @Published var recording: RecordingState = .idle
+
+    @Published var recording: RecordingState = .idle {
+        didSet { if recording == .idle { recordingStartedAt = nil } }
+    }
     @Published var connectionEnded = false
     @Published var recordingStateUnknown = false
     @Published var language = 1
+    /// What the window shows when there is no live frame (booting/stopped/lost).
+    @Published private(set) var linkState: PlayerLinkState = .connecting
+    @Published private(set) var recordingStartedAt: Date?
+    @Published private(set) var dropHover: PlayerDrop.Label?
+    @Published private(set) var reinstallPrompt: PlayerReinstallPrompt?
+    @Published private(set) var frameWidth = 0
+    @Published private(set) var frameHeight = 0
+    @Published private(set) var device: String?
+    @Published private(set) var dataDirectory: String?
+    /// A sibling `jidr-center-bridge` exposes `--logcat`; discovered once so the
+    /// player can show the folded logcat bar without changing the player bridge.
+    @Published private(set) var logcatExecutable: String?
+    /// Per-device rebindable shortcuts, loaded by the window controller.
+    let shortcuts = GameShortcutsStore()
     let mapping = KeyMappingStore()
-    private let process = Process()
-    private let input = Pipe()
-    private let frames = Pipe()
-    private let diagnostics = Pipe()
-    private let inputQueue = DispatchQueue(label: "jidr.prototype.input")
+
     var onFrame: ((CGImage, Int) -> Void)?
     var onStatus: ((String) -> Void)?
     var onFrameSize: ((Int, Int) -> Void)?
     var onReconnect: (() -> Void)?
     var onAdvanced: (() -> Void)?
     var onPixelPerfect: (() -> Void)?
+    var onFitScreen: (() -> Void)?
+    var onStartDevice: (() -> Void)?
+    var onDataDirectory: ((String) -> Void)?
+
+    private var process: Process?
+    private var input: Pipe?
+    private var frames: Pipe?
+    private var diagnostics: Pipe?
+    private let inputQueue = DispatchQueue(label: "jidr.prototype.input")
     private let decoder = FrameDecoder()
     private let decoderLock = NSLock()
     private var pendingFrame: (CGImage, Int)?
     private var frameScheduled = false
     private let frameLock = NSLock()
     private var diagnosticBuffer = Data()
+    private var lastDiagnostic = ""
+    private var generation = UUID()
+    private var stopping = false
+    private var startParameters: (device: String, width: Int, height: Int, executable: String, quality: UInt8)?
+    private var stats = PlayerFrameStats()
+    private var reinstallAPK: URL?
+    private var pendingUninstallAPK: URL?
     private let pasteboard: NSPasteboard = {
         if let name = ProcessInfo.processInfo.environment["JIDR_PROTOTYPE_TEST_PASTEBOARD"], !name.isEmpty {
             return NSPasteboard(name: NSPasteboard.Name(name))
@@ -41,55 +71,177 @@ final class PlayerTransport: ObservableObject {
     private var pendingCopy: (id: Int, changeCount: Int)?
     private var didReceiveFrame = false
 
+    /// Records how to reach this device without opening a stream, so a window
+    /// opened for a stopped/booting device can start streaming later
+    /// (`applyLaunchState(.running)`).
+    func prepareStreaming(device: String, width: Int, height: Int, executable: String, quality: UInt8 = 1) {
+        self.device = device
+        startParameters = (device, width, height, executable, quality)
+        discoverLogcatExecutable(playerBridge: executable)
+    }
+
     func start(device: String, width: Int, height: Int, executable: String, quality: UInt8 = 1) throws {
+        prepareStreaming(device: device, width: width, height: height, executable: executable, quality: quality)
+        try launch()
+    }
+
+    private func discoverLogcatExecutable(playerBridge: String) {
+        let sibling = URL(fileURLWithPath: playerBridge).deletingLastPathComponent()
+            .appendingPathComponent("jidr-center-bridge")
+        logcatExecutable = FileManager.default.isExecutableFile(atPath: sibling.path) ? sibling.path : nil
+    }
+
+    private func launch() throws {
+        guard let parameters = startParameters, process == nil else { return }
+        stopping = false
         connectionEnded = false
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = [device, String(width), String(height), String(quality)]
-        process.standardInput = input
-        process.standardOutput = frames
-        process.standardError = diagnostics
-        frames.fileHandleForReading.readabilityHandler = { [weak self] handle in
+        didReceiveFrame = false
+        lastDiagnostic = ""
+        diagnosticBuffer.removeAll()
+        decoder.reset()
+        let token = UUID()
+        generation = token
+        let child = Process(), stdin = Pipe(), framePipe = Pipe(), diagnosticPipe = Pipe()
+        child.executableURL = URL(fileURLWithPath: parameters.executable)
+        child.arguments = [parameters.device, String(parameters.width), String(parameters.height), String(parameters.quality)]
+        child.standardInput = stdin
+        child.standardOutput = framePipe
+        child.standardError = diagnosticPipe
+        framePipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else { handle.readabilityHandler = nil; return }
             self?.consumeFrames(data)
         }
-        diagnostics.fileHandleForReading.readabilityHandler = { [weak self] handle in
+        diagnosticPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else { handle.readabilityHandler = nil; return }
             self?.consumeDiagnostics(data)
         }
-        process.terminationHandler = { [weak self] process in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.connectionEnded = true
-                if self.recording != .idle {
-                    self.recordingStateUnknown = true
-                    self.recording = .idle
-                    self.onStatus?("连接已结束，录屏状态未知；请在设备中心检查录屏。")
-                } else { self.onStatus?("连接已结束（\(process.terminationStatus)）") }
+        child.terminationHandler = { [weak self] _ in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.generation == token, !self.stopping else { return }
+                self.processEnded()
             }
         }
-        try process.run()
-        onStatus?("正在连接测试设备…")
+        process = child
+        input = stdin
+        frames = framePipe
+        diagnostics = diagnosticPipe
+        try child.run()
+        linkState = .connecting
+        onStatus?(t("正在连接设备…", "Connecting to the device…", language))
     }
+
+    /// Starts pulling frames for a device the caller already reported running.
+    func beginStreaming() {
+        guard process == nil else { return }
+        do { try launch() }
+        catch { startFailed(error) }
+    }
+
+    private func startFailed(_ error: Error) {
+        connectionEnded = true
+        linkState = .disconnected(reason: error.localizedDescription)
+        onStatus?(t("无法启动桥接：", "Unable to start the connection: ", language) + error.localizedDescription)
+    }
+
+    private func processEnded() {
+        process = nil
+        input = nil
+        frames = nil
+        diagnostics = nil
+        connectionEnded = true
+        linkState = PlayerExitClassifier.classify(diagnostic: lastDiagnostic)
+        onStatus?("")
+        if recording != .idle {
+            recordingStateUnknown = true
+            recording = .idle
+            onStatus?(t("连接已结束，录屏状态未知；请在设备中心检查录屏。",
+                        "The connection ended and the recording state is unknown. Check it in the device center.",
+                        language))
+        }
+        reconnectPromptIfEditing()
+    }
+
+    private func reconnectPromptIfEditing() {
+        // The state card disables Reconnect while an edit or recording is open;
+        // this hint explains why, using the same policy as the center.
+        if mapping.editing {
+            onStatus?(t("请先保存或取消键位编辑。", "Save or cancel the key-mapping edit first", language))
+        }
+    }
+
+    /// Applies a state the device center owns (device starting or stopped).
+    func applyLaunchState(_ state: PlayerLaunchState) {
+        switch state {
+        case .running:
+            connectionEnded = false
+            if process == nil {
+                beginStreaming()
+            } else if !didReceiveFrame {
+                linkState = .connecting
+            }
+        case .booting(let progress, let message):
+            stopProcess()
+            connectionEnded = false
+            onStatus?("")
+            linkState = .booting(progress: progress.map { min(1, max(0, $0)) }, message: message)
+        case .stopped(let reason):
+            stopProcess()
+            connectionEnded = false
+            onStatus?("")
+            linkState = .stopped(reason: reason)
+        }
+    }
+
+    func reconnect() {
+        guard GameReconnectPolicy.permits(disconnected: linkState.canReconnect || connectionEnded,
+                                          editing: mapping.editing,
+                                          recording: recording != .idle,
+                                          recordingUnknown: recordingStateUnknown) else { return }
+        if let onReconnect {
+            connectionEnded = false
+            onReconnect()
+            return
+        }
+        beginStreaming()
+    }
+
+    func startDevice() { onStartDevice?() }
 
     func send(_ message: [String: Any]) {
         guard JSONSerialization.isValidJSONObject(message),
               let data = try? JSONSerialization.data(withJSONObject: message) else { return }
         inputQueue.async { [weak self] in
-            guard let self, self.process.isRunning else { return }
-            var line = data; line.append(10)
-            try? self.input.fileHandleForWriting.write(contentsOf: line)
+            guard let self, let process = self.process, process.isRunning, let input = self.input else { return }
+            var line = data
+            line.append(10)
+            try? input.fileHandleForWriting.write(contentsOf: line)
         }
     }
+
+    func noteInput(at now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
+        stats.recordInput(at: now)
+    }
+
+    func frameSnapshot() -> PlayerFrameStats.Snapshot {
+        stats.snapshot(at: ProcessInfo.processInfo.systemUptime)
+    }
+
+    func setDropHover(_ url: URL?) {
+        guard let url else { dropHover = nil; return }
+        dropHover = PlayerDrop.label(for: PlayerDrop.classify(url), device: device ?? "", language: language)
+    }
+
+    // MARK: Commands
 
     func chooseScreenshot() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
-        panel.nameFieldStringValue = "Jidr 截图.png"
+        panel.nameFieldStringValue = t("Jidr 截图.png", "Jidr screenshot.png", language)
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        send(["type":"screenshot", "path":url.path])
-        onStatus?("正在保存截图…")
+        send(["type": "screenshot", "path": url.path])
+        onStatus?(t("正在保存截图…", "Saving the screenshot…", language))
     }
 
     func toggleRecording() {
@@ -97,17 +249,22 @@ final class PlayerTransport: ObservableObject {
         case .idle:
             let panel = NSSavePanel()
             panel.allowedContentTypes = [.mpeg4Movie]
-            panel.nameFieldStringValue = "Jidr 录屏.mp4"
+            panel.nameFieldStringValue = t("Jidr 录屏.mp4", "Jidr recording.mp4", language)
             guard panel.runModal() == .OK, let url = panel.url else { return }
-            guard !FileManager.default.fileExists(atPath: url.path) else { onStatus?("录屏文件已存在，请选择新文件名。") ; return }
+            guard !FileManager.default.fileExists(atPath: url.path) else {
+                onStatus?(t("录屏文件已存在，请选择新文件名。", "The recording file already exists. Choose a new name.", language))
+                return
+            }
             recording = .starting
-            send(["type":"start_recording", "path":url.path])
-            onStatus?("正在启动录屏…")
+            recordingStartedAt = Date()
+            send(["type": "start_recording", "path": url.path])
+            onStatus?(t("正在启动录屏…", "Starting the recording…", language))
         case .recording:
             recording = .stopping
-            send(["type":"stop_recording"])
-            onStatus?("正在保存录屏…")
-        case .starting, .stopping: break
+            send(["type": "stop_recording"])
+            onStatus?(t("正在保存录屏…", "Saving the recording…", language))
+        case .starting, .stopping:
+            break
         }
     }
 
@@ -121,26 +278,89 @@ final class PlayerTransport: ObservableObject {
     }
 
     func sendFile(_ url: URL) {
-        guard url.isFileURL else { onStatus?("请选择本地文件"); return }
-        send(["type":"send_file", "path":url.path])
-        onStatus?(url.pathExtension.lowercased() == "apk" ? "正在安装应用…" : "正在发送文件…")
+        guard url.isFileURL else {
+            onStatus?(t("请选择有效的本地文件路径", "Choose a valid local file path", language))
+            return
+        }
+        if url.pathExtension.lowercased() == "apk" { reinstallAPK = url }
+        send(["type": "send_file", "path": url.path])
+        onStatus?(url.pathExtension.lowercased() == "apk"
+                  ? t("正在安装应用…", "Installing the app…", language)
+                  : t("正在发送文件…", "Sending the file…", language))
     }
 
+    /// Direct uninstall entry (player bridge command, pending the M1 increment).
+    func uninstall(package: String) {
+        let value = package.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            onStatus?(t("请输入要卸载的应用包名。", "Enter the package name to uninstall.", language))
+            return
+        }
+        pendingUninstallAPK = nil
+        send(["type": "app_uninstall", "package": value])
+        onStatus?(t("正在卸载应用…", "Uninstalling the app…", language))
+    }
+
+    /// Confirms a signature-conflict reinstall: inspect the APK to find its
+    /// package, uninstall it (data is lost) and install the APK again.
+    func confirmReinstall() {
+        guard let prompt = reinstallPrompt else { return }
+        reinstallPrompt = nil
+        guard !prompt.apkPath.isEmpty else {
+            onStatus?(t("无法确定要重装的应用；请重新选择 APK。", "Cannot tell which app to reinstall. Choose the APK again.", language))
+            return
+        }
+        pendingUninstallAPK = URL(fileURLWithPath: prompt.apkPath)
+        send(["type": "app_inspect", "path": prompt.apkPath])
+        onStatus?(t("正在检查应用包名…", "Checking the app package…", language))
+    }
+
+    func cancelReinstall() { reinstallPrompt = nil }
+
     func paste() {
-        if let text = pasteboard.string(forType: .string) { send(["type": "paste", "text": text]) }
+        guard let text = pasteboard.string(forType: .string), !text.isEmpty else {
+            onStatus?(t("Mac 剪贴板中没有可粘贴的文本", "The Mac clipboard has no text to paste", language))
+            return
+        }
+        send(["type": "paste", "text": text])
     }
 
     func copy(cut: Bool) {
         copySequence += 1
-        pendingCopy = (copySequence, pasteboard.changeCount)
-        send(["type": cut ? "cut" : "copy", "request_id": copySequence])
+        let id = copySequence
+        pendingCopy = (id, pasteboard.changeCount)
+        send(["type": cut ? "cut" : "copy", "request_id": id])
+        // The bridge answers from the Android clipboard stream; tell the user
+        // when no new Android clipboard event arrives instead of staying silent.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self, let pending = self.pendingCopy, pending.id == id else { return }
+            self.pendingCopy = nil
+            self.onStatus?(t("复制超时：Android 剪贴板没有更新。", "Copy timed out: the Android clipboard did not update.", self.language))
+        }
     }
 
-    func stop() {
-        frames.fileHandleForReading.readabilityHandler = nil
-        diagnostics.fileHandleForReading.readabilityHandler = nil
-        try? input.fileHandleForWriting.close()
+    @discardableResult
+    func stop() -> Bool {
+        stopping = true
+        stopProcess()
+        return true
     }
+
+    private func stopProcess() {
+        stopping = true
+        generation = UUID()
+        frames?.fileHandleForReading.readabilityHandler = nil
+        diagnostics?.fileHandleForReading.readabilityHandler = nil
+        try? input?.fileHandleForWriting.close()
+        let child = process
+        process = nil
+        input = nil
+        frames = nil
+        diagnostics = nil
+        if child?.isRunning == true { child?.terminate() }
+    }
+
+    // MARK: Frame and diagnostic streams
 
     private func consumeFrames(_ data: Data) {
         decoderLock.lock()
@@ -162,13 +382,13 @@ final class PlayerTransport: ObservableObject {
                 if schedule {
                     DispatchQueue.main.async { [weak self] in
                         guard let self else { return }
-                        self.frameLock.lock(); let frame = self.pendingFrame
-                        self.pendingFrame = nil; self.frameScheduled = false; self.frameLock.unlock()
-                        if let frame {
-                            if !self.didReceiveFrame { self.didReceiveFrame = true; self.onStatus?("已连接") }
-                            self.onFrameSize?(frame.0.width, frame.0.height)
-                            self.onFrame?(frame.0, frame.1)
-                        }
+                        self.frameLock.lock()
+                        let frame = self.pendingFrame
+                        self.pendingFrame = nil
+                        self.frameScheduled = false
+                        self.frameLock.unlock()
+                        guard let frame else { return }
+                        self.display(frame.0, width: width, height: height, rotation: frame.1)
                     }
                 }
             }
@@ -176,64 +396,191 @@ final class PlayerTransport: ObservableObject {
         if !valid { stop() }
     }
 
+    private func display(_ image: CGImage, width: Int, height: Int, rotation: Int) {
+        stats.recordFrame(width: width, height: height, rotation: rotation,
+                          at: ProcessInfo.processInfo.systemUptime)
+        if !didReceiveFrame {
+            didReceiveFrame = true
+            connectionEnded = false
+            linkState = .running
+        }
+        if frameWidth != width || frameHeight != height {
+            frameWidth = width
+            frameHeight = height
+            onFrameSize?(width, height)
+        }
+        onFrame?(image, rotation)
+    }
+
     private func consumeDiagnostics(_ data: Data) {
         diagnosticBuffer.append(data)
         while let newline = diagnosticBuffer.firstIndex(of: 10) {
             let line = String(decoding: diagnosticBuffer.prefix(upTo: newline), as: UTF8.self)
             diagnosticBuffer.removeSubrange(...newline)
-            if line.hasPrefix("JIDR_CLIPBOARD:") {
-                let payload = String(line.dropFirst("JIDR_CLIPBOARD:".count))
-                if let bytes = payload.data(using: .utf8), let value = try? JSONSerialization.jsonObject(with: bytes) as? [String: Any], let id = value["request_id"] as? Int, let text = value["text"] as? String {
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self, let pending = self.pendingCopy, pending.id == id else { return }
-                        self.pendingCopy = nil
-                        guard self.pasteboard.changeCount == pending.changeCount else { self.onStatus?("Mac 剪贴板已变化，请重新复制"); return }
-                        self.pasteboard.clearContents()
-                        self.pasteboard.setString(text, forType: .string)
-                    }
-                }
-            } else if line.hasPrefix("JIDR_MAPPING_PATH:") {
-                let payload = String(line.dropFirst("JIDR_MAPPING_PATH:".count))
-                if let data = payload.data(using: .utf8), let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let path = result["path"] as? String {
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self else { return }
-                        self.mapping.load(path: path)
-                        let prefs = URL(fileURLWithPath:path).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("gui-prefs.json")
-                        if let data = try? Data(contentsOf:prefs), let object = (try? JSONSerialization.jsonObject(with:data)) as? [String:Any], let value = object["language"] as? Int, (0...1).contains(value) { self.language = value }
-                    }
-                }
-            } else if line.hasPrefix("JIDR_RECORD:") {
-                let payload = String(line.dropFirst("JIDR_RECORD:".count))
-                if let data = payload.data(using: .utf8), let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let state = result["state"] as? String, let message = result["message"] as? String {
-                    DispatchQueue.main.async { [weak self] in
-                        guard let self else { return }
-                        switch state {
-                        case "recording": self.recording = .recording
-                        case "finished", "failed": self.recording = .idle
-                        case "stop_failed": if self.recording == .stopping { self.recording = .recording }
-                        default: break
-                        }
-                        self.onStatus?(message)
-                    }
-                }
-            } else if line.hasPrefix("JIDR_OPERATION:") {
-                let payload = String(line.dropFirst("JIDR_OPERATION:".count))
-                guard let data = payload.data(using: .utf8),
-                      let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-                      let message = result["message"] as? String else { continue }
-                let readable: String
-                if message.contains("INSTALL_FAILED_INSUFFICIENT_STORAGE") {
-                    readable = "安装失败：模拟器存储空间不足，请先释放空间。"
-                } else if message.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE") {
-                    readable = "安装失败：应用签名不匹配，原应用及数据未删除。"
-                } else {
-                    readable = message
-                }
-                DispatchQueue.main.async { [weak self] in self?.onStatus?(readable) }
-            } else if !line.isEmpty {
-                DispatchQueue.main.async { [weak self] in self?.onStatus?(line) }
-            }
+            if !line.isEmpty { lastDiagnostic = line }
+            handleDiagnostic(line)
         }
+    }
+
+    private func handleDiagnostic(_ line: String) {
+        if line.hasPrefix("JIDR_CLIPBOARD:") {
+            let payload = String(line.dropFirst("JIDR_CLIPBOARD:".count))
+            if let data = payload.data(using: .utf8),
+               let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let id = value["request_id"] as? Int, let text = value["text"] as? String {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, let pending = self.pendingCopy, pending.id == id else { return }
+                    self.pendingCopy = nil
+                    guard self.pasteboard.changeCount == pending.changeCount else {
+                        self.onStatus?(t("Mac 剪贴板已变化，请重新复制", "The Mac clipboard changed. Copy again", self.language))
+                        return
+                    }
+                    self.pasteboard.clearContents()
+                    self.pasteboard.setString(text, forType: .string)
+                }
+            }
+        } else if line.hasPrefix("JIDR_MAPPING_PATH:") {
+            let payload = String(line.dropFirst("JIDR_MAPPING_PATH:".count))
+            if let data = payload.data(using: .utf8),
+               let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+               let path = result["path"] as? String {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.mapping.load(path: path)
+                    let url = URL(fileURLWithPath: path)
+                    let root = url.deletingLastPathComponent().deletingLastPathComponent().path
+                    self.dataDirectory = root
+                    self.onDataDirectory?(root)
+                    let prefs = url.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("gui-prefs.json")
+                    if let data = try? Data(contentsOf: prefs),
+                       let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                       let value = object["language"] as? Int, (0...1).contains(value) {
+                        self.language = value
+                    }
+                }
+            }
+        } else if line.hasPrefix("JIDR_RECORD:") {
+            let payload = String(line.dropFirst("JIDR_RECORD:".count))
+            if let data = payload.data(using: .utf8),
+               let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+               let state = result["state"] as? String, let message = result["message"] as? String {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    switch state {
+                    case "recording":
+                        self.recording = .recording
+                        if self.recordingStartedAt == nil { self.recordingStartedAt = Date() }
+                    case "finished", "failed":
+                        self.recording = .idle
+                    case "stop_failed":
+                        if self.recording == .stopping { self.recording = .recording }
+                    default:
+                        break
+                    }
+                    self.onStatus?(message)
+                }
+            }
+        } else if line.hasPrefix("JIDR_APP:") {
+            let payload = String(line.dropFirst("JIDR_APP:".count))
+            guard let data = payload.data(using: .utf8),
+                  let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let ok = result["ok"] as? Bool == true
+                switch result["op"] as? String {
+                case "inspect":
+                    if ok, let package = result["package"] as? String, !package.isEmpty {
+                        self.send(["type": "app_uninstall", "package": package])
+                        self.onStatus?(t("正在卸载旧版本…", "Uninstalling the installed version…", self.language))
+                    } else {
+                        self.pendingUninstallAPK = nil
+                        self.onStatus?(self.appFailureMessage(result["message"] as? String))
+                    }
+                case "uninstall":
+                    if ok {
+                        guard let apk = self.pendingUninstallAPK else {
+                            let package = result["package"] as? String ?? ""
+                            self.onStatus?(t("已卸载 %@", "Uninstalled %@", self.language)
+                                .replacingOccurrences(of: "%@", with: package))
+                            return
+                        }
+                        self.pendingUninstallAPK = nil
+                        self.sendFile(apk)
+                        self.onStatus?(t("旧版本已卸载，正在重新安装…", "The old version was uninstalled; reinstalling…", self.language))
+                    } else {
+                        self.pendingUninstallAPK = nil
+                        self.onStatus?(self.appFailureMessage(result["message"] as? String))
+                    }
+                default:
+                    break
+                }
+            }
+        } else if line.hasPrefix("JIDR_OPERATION:") {
+            let payload = String(line.dropFirst("JIDR_OPERATION:".count))
+            guard let data = payload.data(using: .utf8),
+                  let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let message = result["message"] as? String else { return }
+            let readable: String
+            if message.contains("INSTALL_FAILED_INSUFFICIENT_STORAGE") {
+                readable = t("安装失败：模拟器存储空间不足，请先释放空间。",
+                             "Install failed: the emulator is out of storage. Free some space first.",
+                             language)
+            } else if message.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE") || message.contains("signatures do not match") {
+                readable = t("安装失败：应用签名不匹配，原应用及数据未删除。",
+                             "Install failed: the app signature does not match. The installed app and its data were not deleted.",
+                             language)
+            } else {
+                readable = message
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if result["ok"] as? Bool == false,
+                   message.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE") || message.contains("signatures do not match"),
+                   let apk = self.reinstallAPK {
+                    self.reinstallPrompt = PlayerReinstallPrompt(apkPath: apk.path,
+                                                                 fileName: apk.lastPathComponent,
+                                                                 signatureMismatch: true)
+                }
+                self.onStatus?(readable)
+            }
+        } else if line.hasPrefix("Invalid input") || line.contains("unknown variant") {
+            // The player bridge does not know a command yet (the M2 commands
+            // arrive with the pending bridge increment); say so instead of
+            // presenting the raw serde error as a successful action.
+            let detail = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.onStatus?(self.unsupportedBridgeMessage(detail))
+            }
+        } else if !line.isEmpty {
+            // A bridge crash prints its final Rust error; the state card shows
+            // the translated diagnosis, so do not duplicate it as a transient
+            // status bubble.
+            guard !line.hasPrefix("Error:") else { return }
+            let value = line
+            DispatchQueue.main.async { [weak self] in self?.onStatus?(value) }
+        }
+    }
+
+    private func unsupportedBridgeMessage(_ detail: String?) -> String {
+        let base = t("桥接暂不支持该操作（等待 M1 桥接增量）。",
+                     "The bridge does not support this action yet (waiting for the M1 bridge increment).",
+                     language)
+        guard let detail, !detail.isEmpty else { return base }
+        return base + " " + detail
+    }
+
+    /// Readable text for an app.inspect/app.uninstall failure: never present a
+    /// failure as success and keep the package lookup failure actionable.
+    private func appFailureMessage(_ raw: String?) -> String {
+        let detail = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if detail.isEmpty {
+            return t("操作未完成，请重试。", "The operation did not complete. Try again.", language)
+        }
+        if detail.contains("not_found") || detail.contains("not found") {
+            return t("设备上找不到该应用，请确认包名。", "The app was not found on the device. Check the package name.", language)
+        }
+        return t("操作失败：", "The operation failed: ", language) + detail
     }
 }
 
@@ -250,6 +597,9 @@ final class ScreenView: NSView, NSTextInputClient {
     private var markedSelection = NSRange(location: 0, length: 0)
     private var dragging = false
     private var lastTouch: (CGFloat, CGFloat)?
+    private var gesture: PlayerGesture = .single
+    private var secondFingerDown = false
+    private var secondFinger: (x: Double, y: Double)?
     private var pendingKey: (UInt16, String)?
     private var pressedKeys: [UInt16: String] = [:]
     private var pressedModifiers: Set<String> = []
@@ -261,12 +611,21 @@ final class ScreenView: NSView, NSTextInputClient {
     }
     required init?(coder: NSCoder) { super.init(coder: coder); registerForDraggedTypes([.fileURL]) }
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) ? .copy : []
+        guard sender.draggingPasteboard.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) else { return [] }
+        transport?.setDropHover(draggedURL(sender))
+        return .copy
     }
+    override func draggingExited(_ sender: NSDraggingInfo?) { transport?.setDropHover(nil) }
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        guard let urls = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], urls.count == 1 else { return false }
-        transport?.sendFile(urls[0])
+        guard let url = draggedURL(sender), sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])?.count == 1 else { return false }
+        transport?.setDropHover(nil)
+        transport?.sendFile(url)
         return true
+    }
+    private func draggedURL(_ sender: NSDraggingInfo) -> URL? {
+        guard let url = (sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL])?.first,
+              url.isFileURL else { return nil }
+        return url
     }
     override var isFlipped: Bool { true }
     override func viewDidMoveToWindow() {
@@ -274,7 +633,9 @@ final class ScreenView: NSView, NSTextInputClient {
         if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) }
         if let window {
             windowObserver = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in self?.releaseHeldInputs() }
-        } else { windowObserver = nil }
+        } else {
+            windowObserver = nil
+        }
     }
     deinit { if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) } }
 
@@ -285,7 +646,8 @@ final class ScreenView: NSView, NSTextInputClient {
         return NSRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
     }
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.black.setFill(); dirtyRect.fill()
+        NSColor.black.setFill()
+        dirtyRect.fill()
         if let image {
             let backing = window?.backingScaleFactor ?? 1
             let exact = abs(imageRect.width * backing - CGFloat(image.width)) < 0.5 && abs(imageRect.height * backing - CGFloat(image.height)) < 0.5
@@ -295,19 +657,28 @@ final class ScreenView: NSView, NSTextInputClient {
         if let mapping = transport?.mapping {
             for binding in mapping.visibleBindings where binding.rotation == rotation {
                 let p = NSPoint(x: imageRect.minX + imageRect.width * binding.x, y: imageRect.minY + imageRect.height * binding.y)
-                let circle = NSRect(x:p.x - 17, y:p.y - 17, width:34, height:34)
-                NSColor.systemBlue.withAlphaComponent(0.8).setFill(); NSBezierPath(ovalIn: circle).fill()
+                let circle = NSRect(x: p.x - 17, y: p.y - 17, width: 34, height: 34)
+                NSColor.systemBlue.withAlphaComponent(0.8).setFill()
+                NSBezierPath(ovalIn: circle).fill()
                 let label = binding.key == "SPACE" ? "SPC" : binding.key
-                let attrs: [NSAttributedString.Key: Any] = [.font:NSFont.boldSystemFont(ofSize:12), .foregroundColor:NSColor.white]
+                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.boldSystemFont(ofSize: 12), .foregroundColor: NSColor.white]
                 let size = label.size(withAttributes: attrs)
-                label.draw(at:NSPoint(x:p.x - size.width / 2, y:p.y - size.height / 2), withAttributes:attrs)
+                label.draw(at: NSPoint(x: p.x - size.width / 2, y: p.y - size.height / 2), withAttributes: attrs)
             }
         }
         if marked.length > 0 {
             let box = NSRect(x: 12, y: max(12, bounds.height - 46), width: max(0, bounds.width - 24), height: 34)
-            NSColor.windowBackgroundColor.withAlphaComponent(0.95).setFill(); NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6).fill()
+            NSColor.windowBackgroundColor.withAlphaComponent(0.95).setFill()
+            NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6).fill()
             marked.draw(at: NSPoint(x: box.minX + 8, y: box.minY + 6))
         }
+    }
+    private func normalized(_ event: NSEvent) -> (CGFloat, CGFloat)? {
+        let rect = imageRect
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        let point = convert(event.locationInWindow, from: nil)
+        return (min(1, max(0, (point.x - rect.minX) / rect.width)),
+                min(1, max(0, (point.y - rect.minY) / rect.height)))
     }
     private func sendTouch(_ event: NSEvent, down: Bool) {
         let rect = imageRect, point = convert(event.locationInWindow, from: nil)
@@ -316,7 +687,20 @@ final class ScreenView: NSView, NSTextInputClient {
         let x = min(1, max(0, (point.x - rect.minX) / rect.width))
         let y = min(1, max(0, (point.y - rect.minY) / rect.height))
         lastTouch = (x, y)
+        transport?.noteInput()
         transport?.send(["type": "touch", "x": x, "y": y, "down": down])
+    }
+    /// ⌥ drag = pinch, ⇧⌥ drag = two-finger pan. The second finger travels as a
+    /// mapped touch (identifier 3) and goes through the same rotation mapping.
+    private func secondFingerPoint(_ event: NSEvent) -> (x: Double, y: Double)? {
+        guard let image, let (x, y) = normalized(event) else { return nil }
+        return PlayerTouch.secondFinger(gesture, x: Double(x), y: Double(y),
+                                        shownWidth: Double(image.width), shownHeight: Double(image.height))
+    }
+    private func sendSecondFinger(_ point: (x: Double, y: Double), down: Bool) {
+        transport?.noteInput()
+        transport?.send(["type": "mapped_touch", "id": PlayerTouch.secondFingerID,
+                         "x": point.x, "y": point.y, "down": down])
     }
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
@@ -327,19 +711,50 @@ final class ScreenView: NSView, NSTextInputClient {
             transport?.onStatus?("请按一个字母、数字或空格绑定")
             return
         }
-        dragging = true; sendTouch(event, down: true)
+        gesture = PlayerGesture.from(option: event.modifierFlags.contains(.option),
+                                     shift: event.modifierFlags.contains(.shift))
+        dragging = true
+        if gesture.needsSecondFinger, let second = secondFingerPoint(event) {
+            secondFinger = second
+            secondFingerDown = true
+            sendSecondFinger(second, down: true)
+        }
+        sendTouch(event, down: true)
     }
-    override func mouseDragged(with event: NSEvent) { if dragging { sendTouch(event, down: true) } }
-    override func mouseUp(with event: NSEvent) { if dragging { sendTouch(event, down: false); dragging = false } }
+    override func mouseDragged(with event: NSEvent) {
+        guard dragging else { return }
+        if secondFingerDown, let second = secondFingerPoint(event) {
+            secondFinger = second
+            sendSecondFinger(second, down: true)
+        }
+        sendTouch(event, down: true)
+    }
+    override func mouseUp(with event: NSEvent) {
+        guard dragging else { return }
+        if secondFingerDown, let second = secondFinger {
+            sendSecondFinger(second, down: false)
+        }
+        sendTouch(event, down: false)
+        dragging = false
+        secondFingerDown = false
+        secondFinger = nil
+        gesture = .single
+    }
     private func releaseMappedKeys() {
-        for value in mappedKeys.values { transport?.send(["type":"mapped_touch", "id":value.id, "x":value.x, "y":value.y, "down":false]) }
+        for value in mappedKeys.values { transport?.send(["type": "mapped_touch", "id": value.id, "x": value.x, "y": value.y, "down": false]) }
         mappedKeys.removeAll()
     }
     fileprivate func releaseHeldInputs() {
         releaseMappedKeys()
-        if dragging, let lastTouch { transport?.send(["type":"touch", "x":lastTouch.0, "y":lastTouch.1, "down":false]); dragging = false }
-        for key in pressedKeys.values { transport?.send(["type":"key", "key":key, "down":false]) }
-        for key in pressedModifiers { transport?.send(["type":"key", "key":key, "down":false]) }
+        if secondFingerDown, let secondFinger { sendSecondFinger(secondFinger, down: false) }
+        secondFingerDown = false
+        secondFinger = nil
+        if dragging, let lastTouch {
+            transport?.send(["type": "touch", "x": lastTouch.0, "y": lastTouch.1, "down": false])
+            dragging = false
+        }
+        for key in pressedKeys.values { transport?.send(["type": "key", "key": key, "down": false]) }
+        for key in pressedModifiers { transport?.send(["type": "key", "key": key, "down": false]) }
         pressedKeys.removeAll()
         pressedModifiers.removeAll()
     }
@@ -352,9 +767,9 @@ final class ScreenView: NSView, NSTextInputClient {
             let down = event.modifierFlags.contains(flag)
             if down && !pressedModifiers.contains(key) {
                 pressedModifiers.insert(key)
-                transport?.send(["type":"key", "key":key, "down":true])
+                transport?.send(["type": "key", "key": key, "down": true])
             } else if !down && pressedModifiers.remove(key) != nil {
-                transport?.send(["type":"key", "key":key, "down":false])
+                transport?.send(["type": "key", "key": key, "down": false])
             }
         }
     }
@@ -371,7 +786,8 @@ final class ScreenView: NSView, NSTextInputClient {
             if mapping.enabled, let binding = mapping.scheme.bindings.first(where: { $0.key == key && $0.rotation == rotation }) {
                 guard let id = (3...9).first(where: { id in !mappedKeys.values.contains(where: { $0.id == id }) }) else { return }
                 mappedKeys[event.keyCode] = (id, binding.x, binding.y)
-                transport?.send(["type":"mapped_touch", "id":id, "x":binding.x, "y":binding.y, "down":true])
+                transport?.noteInput()
+                transport?.send(["type": "mapped_touch", "id": id, "x": binding.x, "y": binding.y, "down": true])
                 return
             }
         }
@@ -381,14 +797,16 @@ final class ScreenView: NSView, NSTextInputClient {
             case "v": transport?.paste(); return
             case "c": transport?.copy(cut: false); return
             case "x": transport?.copy(cut: true); return
-            case "a": transport?.send(["type":"select_all"]); return
+            case "a": transport?.send(["type": "select_all"]); return
             default: break
             }
         }
-        let specials: [UInt16: String] = [36:"Enter", 48:"Tab", 51:"Backspace", 53:"Escape", 117:"Delete", 123:"ArrowLeft", 124:"ArrowRight", 125:"ArrowDown", 126:"ArrowUp"]
+        let specials: [UInt16: String] = [36: "Enter", 48: "Tab", 51: "Backspace", 53: "Escape", 117: "Delete", 123: "ArrowLeft", 124: "ArrowRight", 125: "ArrowDown", 126: "ArrowUp"]
         if let key = specials[event.keyCode], !hasMarkedText() {
             pressedKeys[event.keyCode] = key
-            transport?.send(["type":"key", "key":key, "down":true]); return
+            transport?.noteInput()
+            transport?.send(["type": "key", "key": key, "down": true])
+            return
         }
         if !event.isARepeat, let value = event.charactersIgnoringModifiers, value.unicodeScalars.count == 1, let scalar = value.unicodeScalars.first, scalar.isASCII, !CharacterSet.controlCharacters.contains(scalar) {
             pendingKey = (event.keyCode, value.lowercased())
@@ -398,23 +816,29 @@ final class ScreenView: NSView, NSTextInputClient {
     }
     override func keyUp(with event: NSEvent) {
         if let value = mappedKeys.removeValue(forKey: event.keyCode) {
-            transport?.send(["type":"mapped_touch", "id":value.id, "x":value.x, "y":value.y, "down":false]); return
+            transport?.send(["type": "mapped_touch", "id": value.id, "x": value.x, "y": value.y, "down": false])
+            return
         }
-        if let key = pressedKeys.removeValue(forKey: event.keyCode) { transport?.send(["type":"key", "key":key, "down":false]) }
+        if let key = pressedKeys.removeValue(forKey: event.keyCode) { transport?.send(["type": "key", "key": key, "down": false]) }
     }
     func insertText(_ string: Any, replacementRange: NSRange) {
         let text = (string as? NSAttributedString)?.string ?? (string as? String ?? "")
         let wasComposing = hasMarkedText()
-        marked = NSMutableAttributedString(string: ""); markedSelection = NSRange(location: 0, length: 0); needsDisplay = true
+        marked = NSMutableAttributedString(string: "")
+        markedSelection = NSRange(location: 0, length: 0)
+        needsDisplay = true
         if !wasComposing, let pendingKey, text.unicodeScalars.count == 1, text.unicodeScalars.first?.isASCII == true {
             pressedKeys[pendingKey.0] = pendingKey.1
-            transport?.send(["type":"key", "key":pendingKey.1, "down":true])
-        } else if !text.isEmpty { transport?.send(["type":"text", "text":text]) }
+            transport?.send(["type": "key", "key": pendingKey.1, "down": true])
+        } else if !text.isEmpty {
+            transport?.send(["type": "text", "text": text])
+        }
     }
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         let value = (string as? NSAttributedString)?.string ?? (string as? String ?? "")
-        marked = NSMutableAttributedString(string: value, attributes: [.foregroundColor:NSColor.labelColor, .font:NSFont.systemFont(ofSize:16)])
-        markedSelection = selectedRange; needsDisplay = true
+        marked = NSMutableAttributedString(string: value, attributes: [.foregroundColor: NSColor.labelColor, .font: NSFont.systemFont(ofSize: 16)])
+        markedSelection = selectedRange
+        needsDisplay = true
     }
     func unmarkText() { marked = NSMutableAttributedString(string: ""); needsDisplay = true }
     func selectedRange() -> NSRange { hasMarkedText() ? markedSelection : NSRange(location: NSNotFound, length: 0) }
@@ -422,7 +846,8 @@ final class ScreenView: NSView, NSTextInputClient {
     func hasMarkedText() -> Bool { marked.length > 0 }
     func attributedSubstring(forProposedRange range: NSRange, actualRange: NSRangePointer?) -> NSAttributedString? {
         guard range.location != NSNotFound, NSMaxRange(range) <= marked.length else { return nil }
-        actualRange?.pointee = range; return marked.attributedSubstring(from: range)
+        actualRange?.pointee = range
+        return marked.attributedSubstring(from: range)
     }
     func validAttributesForMarkedText() -> [NSAttributedString.Key] { [.foregroundColor, .font] }
     func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
@@ -437,7 +862,8 @@ final class ScreenView: NSView, NSTextInputClient {
 struct PlayerView: NSViewRepresentable {
     let transport: PlayerTransport
     func makeNSView(context: Context) -> ScreenView {
-        let view = ScreenView(); view.transport = transport
+        let view = ScreenView()
+        view.transport = transport
         transport.mapping.onChange = { [weak view, weak transport] in
             guard let view else { return }
             if let mapping = transport?.mapping, !mapping.enabled || mapping.editing { view.releaseHeldInputs() }
@@ -455,122 +881,11 @@ final class SidebarState: ObservableObject {
     @Published var visible = true
 }
 
-struct ContentView: View {
-    @ObservedObject var transport: PlayerTransport
-    @ObservedObject var mapping: KeyMappingStore
-    @ObservedObject var sidebar: SidebarState
-    @State private var status = "准备中"
-    @State private var connected = false
-
-    private func tool(_ title: String, _ symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 17, weight: .medium))
-                .frame(width: sidebarWidth, height: 38)
-                .contentShape(Rectangle())
-        }.buttonStyle(.plain).help(localized(title)).accessibilityLabel(localized(title))
-    }
-    private func localized(_ text: String) -> String {
-        guard transport.language == 0, let path = Bundle.main.path(forResource:"en",ofType:"lproj"), let bundle = Bundle(path:path) else { return text }
-        for (prefix, translation) in [("连接已结束（", "Connection ended ("), ("已绑定 ", "Bound "), ("无法启动桥接：", "Unable to start the connection: ")] {
-            if text.hasPrefix(prefix) {
-                var suffix = String(text.dropFirst(prefix.count))
-                if prefix == "连接已结束（", suffix.hasSuffix("）") { suffix.removeLast(); suffix += ")" }
-                return translation + suffix
-            }
-        }
-        return bundle.localizedString(forKey:text,value:text,table:nil)
-    }
-    private func key(_ name: String) { transport.send(["type":"tool_key", "key":name]) }
-    var body: some View {
-        ZStack(alignment: .topTrailing) {
-            HStack(spacing: 0) {
-                PlayerView(transport: transport)
-                if sidebar.visible {
-                    ScrollView(.vertical) {
-                    VStack(spacing: 0) {
-                        tool("返回", "arrow.left") { key("back") }
-                        tool("主页", "circle") { key("home") }
-                        tool("最近使用", "square") { key("recents") }
-                        Divider().opacity(0.3).padding(.horizontal, 10).padding(.vertical, 3)
-                        tool("电源", "power") { key("power") }
-                        if transport.onAdvanced != nil { tool("高级工具", "slider.horizontal.3") { transport.onAdvanced?() } }
-                        tool("音量增大", "speaker.wave.2") { key("volume_up") }
-                        tool("音量减小", "speaker.wave.1") { key("volume_down") }
-                        tool("向左旋转", "rotate.left") { transport.send(["type":"rotate", "direction":1]) }
-                        tool("向右旋转", "rotate.right") { transport.send(["type":"rotate", "direction":-1]) }
-                        Divider().opacity(0.3).padding(.horizontal, 10).padding(.vertical, 3)
-                        tool("键位映射", "keyboard") {
-                            if !mapping.editing {
-                                if !mapping.begin() { transport.onStatus?(mapping.error ?? "键位方案尚未加载") }
-                            }
-                        }
-                        tool(transport.recording == .idle ? "开始录屏" : "停止录屏", transport.recording == .idle ? "record.circle" : "stop.circle") { transport.toggleRecording() }
-                        tool("截图", "camera") { transport.chooseScreenshot() }
-                        tool("安装 APK", "square.and.arrow.down") { transport.chooseFile(apkOnly: true) }
-                        tool("发送文件", "folder") { transport.chooseFile(apkOnly: false) }
-                        Divider().opacity(0.3).padding(.horizontal, 10).padding(.vertical, 3)
-                        tool("画面原始像素大小", "1.magnifyingglass") { transport.onPixelPerfect?() }
-                        tool("全屏", "arrow.up.left.and.arrow.down.right") { NSApp.keyWindow?.toggleFullScreen(nil) }
-                    }
-                    }.scrollIndicators(.hidden)
-                    .foregroundStyle(Color(red: 0.65, green: 0.69, blue: 0.75))
-                    .frame(width: sidebarWidth)
-                    .background(Color(red: 0.07, green: 0.08, blue: 0.1))
-                }
-            }
-            if mapping.editing {
-                VStack {
-                    HStack(spacing: 8) {
-                        Text(mapping.pending ? "按键绑定中…" : "点击画面添加键位").font(.caption)
-                        Button("清空") { mapping.clear() }
-                        Button("取消") { mapping.cancel() }
-                        Button("保存") {
-                            do { try mapping.save(); transport.onStatus?("键位方案已保存") }
-                            catch { transport.onStatus?(error.localizedDescription) }
-                        }
-                    }.padding(8).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                    Spacer()
-                }.padding(8).padding(.trailing, sidebar.visible ? sidebarWidth : 0)
-            } else if !mapping.scheme.bindings.isEmpty {
-                VStack { HStack {
-                    Button(mapping.enabled ? "停用键位" : "启用键位") { mapping.enabled.toggle() }
-                    Button(mapping.hints ? "隐藏提示" : "显示提示") { mapping.hints.toggle() }
-                    Spacer()
-                }.font(.caption).padding(6).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8)); Spacer() }.padding(8).padding(.trailing, sidebar.visible ? sidebarWidth : 0)
-            }
-            if status != "准备中" && status != "已连接" {
-                VStack {
-                    Spacer()
-                    VStack(spacing:8) {
-                        Text(localized(status)).font(.callout)
-                        if transport.connectionEnded, transport.onReconnect != nil {
-                            Button("重新连接") { transport.onReconnect?() }
-                                .disabled(mapping.editing || transport.recordingStateUnknown)
-                            if mapping.editing { Text("请先保存或取消键位编辑。 ").font(.caption) }
-                        }
-                    }.padding(10).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8)).padding(8)
-                }
-            }
-        }
-        .environment(\.locale, Locale(identifier:transport.language == 0 ? "en" : "zh-Hans"))
-        .onAppear { transport.onStatus = { message in
-            status = message
-            if message == "已连接" { connected = true }
-            if message.hasPrefix("连接已结束") || message.hasPrefix("无法启动桥接") { connected = false }
-            if connected && message != "已连接" {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
-                    if connected && status == message { status = "已连接" }
-                }
-            }
-        } }
-        .accessibilityValue(status)
-    }
-}
-
 final class GameWindowController: NSObject, NSWindowDelegate {
     var onClose: (() -> Void)?
     var onWarning: ((String) -> Void)?
     let transport = PlayerTransport()
+    let chrome = PlayerChromeState()
     private let sidebar = SidebarState()
     private var sidebarButton: NSButton?
     private var pinButton: NSButton?
@@ -581,6 +896,9 @@ final class GameWindowController: NSObject, NSWindowDelegate {
     private var didReceiveSize = false
     private var frameWidth = 0
     private var frameHeight = 0
+    private var keyMonitor: Any?
+    private var languageCancellable: AnyCancellable?
+    private var fullscreenObservers: [NSObjectProtocol] = []
 
     private func fitWindow() {
         guard let window else { return }
@@ -614,9 +932,9 @@ final class GameWindowController: NSObject, NSWindowDelegate {
     }
 
     private func updateSidebarButton() {
-        let label = transport.language == 0
-            ? (sidebar.visible ? "Hide sidebar" : "Show sidebar")
-            : (sidebar.visible ? "隐藏侧边栏" : "显示侧边栏")
+        let label = sidebar.visible
+            ? t("隐藏侧边栏", "Hide sidebar", transport.language)
+            : t("显示侧边栏", "Show sidebar", transport.language)
         sidebarButton?.toolTip = label
         sidebarButton?.setAccessibilityLabel(label)
     }
@@ -627,15 +945,14 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         let button = NSButton(frame: NSRect(x: 0, y: 0, width: sidebarWidth, height: 28))
         button.bezelStyle = .inline
         button.isBordered = false
-        button.image = NSImage(systemSymbolName: "sidebar.right", accessibilityDescription: "隐藏侧边栏")
         button.imagePosition = .imageOnly
-        button.toolTip = "隐藏侧边栏"
-        button.setAccessibilityLabel("隐藏侧边栏")
         button.target = self
         button.action = #selector(toggleSidebar)
         accessory.view = button
         sidebarButton = button
         window.addTitlebarAccessoryViewController(accessory)
+        updateSidebarButton()
+        button.image = NSImage(systemSymbolName: "sidebar.right", accessibilityDescription: button.toolTip)
     }
 
     @objc private func togglePin() {
@@ -646,98 +963,292 @@ final class GameWindowController: NSObject, NSWindowDelegate {
 
     private func updatePinButton() {
         let pinned = window?.level == .floating
-        let label = transport.language == 0
-            ? (pinned ? "Unpin window" : "Pin window")
-            : (pinned ? "取消窗口置顶" : "窗口置顶")
-        pinButton?.image = NSImage(systemSymbolName:pinned ? "pin.fill" : "pin",accessibilityDescription:label)
+        let label = pinned
+            ? t("取消窗口置顶", "Unpin window", transport.language)
+            : t("窗口置顶", "Pin window", transport.language)
+        pinButton?.image = NSImage(systemSymbolName: pinned ? "pin.fill" : "pin", accessibilityDescription: label)
         pinButton?.toolTip = label
         pinButton?.setAccessibilityLabel(label)
     }
 
-    private func addPinButton(to window:NSWindow) {
-        let accessory = NSTitlebarAccessoryViewController(); accessory.layoutAttribute = .right
-        let button = NSButton(frame:NSRect(x:0,y:0,width:36,height:28))
-        button.bezelStyle = .inline; button.isBordered = false; button.imagePosition = .imageOnly
-        button.target = self; button.action = #selector(togglePin); accessory.view = button
-        pinButton = button; window.addTitlebarAccessoryViewController(accessory)
+    private func addPinButton(to window: NSWindow) {
+        let accessory = NSTitlebarAccessoryViewController()
+        accessory.layoutAttribute = .right
+        let button = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
+        button.bezelStyle = .inline
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.target = self
+        button.action = #selector(togglePin)
+        accessory.view = button
+        pinButton = button
+        window.addTitlebarAccessoryViewController(accessory)
         updatePinButton()
     }
 
     private func saveState() {
         guard let window, let stateStore, !window.styleMask.contains(.fullScreen), !window.isMiniaturized else { return }
         let frame = window.frame
-        let state = GameWindowState(x:frame.minX,y:frame.minY,width:frame.width,height:frame.height,
-                                    sidebar:sidebar.visible,onTop:window.level == .floating,landscape:aspect > 1)
+        let state = GameWindowState(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height,
+                                    sidebar: sidebar.visible, onTop: window.level == .floating, landscape: aspect > 1)
         do { try stateStore.save(state) } catch { onWarning?(error.localizedDescription) }
     }
 
-    func open(device: String, width: Int, height: Int, executable: String, displayName: String? = nil, quality: UInt8 = 1, dataDirectory: String? = nil) {
+    func open(device: String, width: Int, height: Int, executable: String, displayName: String? = nil,
+              quality: UInt8 = 1, dataDirectory: String? = nil,
+              launch: PlayerLaunchState = .running, onStartDevice: (() -> Void)? = nil) {
         guard width > 0, height > 0 else { return }
         aspect = CGFloat(width) / CGFloat(height)
         var saved: GameWindowState?
-        var legacy: (sidebar:Bool,onTop:Bool)?
+        var legacy: (sidebar: Bool, onTop: Bool)?
         if let dataDirectory {
             do {
-                let store = try GameWindowStateStore(dataDirectory:dataDirectory,device:device)
-                saved = try store.load(); stateStore = store
+                let store = try GameWindowStateStore(dataDirectory: dataDirectory, device: device)
+                saved = try store.load()
+                stateStore = store
                 if saved == nil { legacy = try store.legacyPreferences() }
-            } catch { onWarning?(error.localizedDescription) }
+            } catch {
+                onWarning?(error.localizedDescription)
+            }
+            transport.shortcuts.load(dataDirectory: dataDirectory, device: device)
         }
-        if let sidebarVisible = saved?.sidebar ?? legacy?.sidebar { sidebar.visible = sidebarVisible; side = sidebarVisible ? sidebarWidth : 0 }
+        if let sidebarVisible = saved?.sidebar ?? legacy?.sidebar {
+            sidebar.visible = sidebarVisible
+            side = sidebarVisible ? sidebarWidth : 0
+        }
         let initialHeight: CGFloat = 740
-        let window = NSWindow(contentRect:NSRect(x:0,y:0,width:initialHeight * aspect + side,height:initialHeight), styleMask:[.titled,.closable,.miniaturizable,.resizable], backing:.buffered, defer:false)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: initialHeight * aspect + side, height: initialHeight),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                              backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.title = "\(displayName ?? device) — Jidr"
         window.delegate = self
         window.appearance = NSAppearance(named: .darkAqua)
-        window.contentView = NSHostingView(rootView: ContentView(transport: transport, mapping: transport.mapping, sidebar: sidebar))
+        window.contentView = NSHostingView(rootView: ContentView(transport: transport, mapping: transport.mapping, sidebar: sidebar, chrome: chrome))
         addSidebarButton(to: window)
         self.window = window
         window.level = (saved?.onTop ?? legacy?.onTop ?? false) ? .floating : .normal
-        addPinButton(to:window)
+        addPinButton(to: window)
         updateSidebarButton()
-        transport.onPixelPerfect = { [weak self] in
-            guard let self, let window = self.window, self.frameWidth > 0, self.frameHeight > 0, let screen = window.screen else { return }
-            let scale = window.backingScaleFactor
-            let size = NSSize(width:CGFloat(self.frameWidth) / scale + self.side,height:CGFloat(self.frameHeight) / scale)
-            let full = window.frameRect(forContentRect:NSRect(origin:.zero,size:size))
-            guard !window.styleMask.contains(.fullScreen), full.width <= screen.visibleFrame.width, full.height <= screen.visibleFrame.height else {
-                self.transport.onStatus?(self.transport.language == 0 ? "Original size does not fit this display" : "原始像素大小超出当前屏幕")
-                return
-            }
-            window.setContentSize(size)
-            let frame = window.frame, visible = screen.visibleFrame
-            window.setFrameOrigin(NSPoint(x:min(max(frame.minX,visible.minX),visible.maxX-frame.width), y:min(max(frame.minY,visible.minY),visible.maxY-frame.height)))
+        observeFullscreen(window)
+        installKeyMonitor()
+        languageCancellable = transport.$language.sink { [weak self] _ in
+            self?.updateSidebarButton()
+            self?.updatePinButton()
         }
+        wireChrome()
+        transport.onPixelPerfect = { [weak self] in self?.applyPixelPerfectSize() }
+        transport.onFitScreen = { [weak self] in self?.fitScreen() }
         transport.onFrameSize = { [weak self] width, height in
             guard let self, width > 0, height > 0 else { return }
-            self.frameWidth = width; self.frameHeight = height
+            self.frameWidth = width
+            self.frameHeight = height
             let next = CGFloat(width) / CGFloat(height)
             if !self.didReceiveSize || abs(next - self.aspect) > 0.001 {
                 self.aspect = next
                 self.didReceiveSize = true
                 self.fitWindow()
+                if self.chrome.pixelPerfect { self.applyPixelPerfectSize() }
             }
         }
+        transport.onDataDirectory = { [weak self] path in
+            guard let self else { return }
+            self.transport.shortcuts.load(dataDirectory: path, device: device)
+        }
+        transport.onStartDevice = onStartDevice
         if let saved {
-            let frame = NSRect(x:saved.x,y:saved.y,width:saved.width,height:saved.height)
-            let title = NSRect(x:frame.minX,y:frame.maxY - 24,width:frame.width,height:24)
-            if NSScreen.screens.contains(where: { screen in let overlap = screen.visibleFrame.intersection(title); return !overlap.isNull && overlap.width >= 80 && overlap.height >= 12 }) {
-                window.setFrame(frame,display:false)
+            let frame = NSRect(x: saved.x, y: saved.y, width: saved.width, height: saved.height)
+            let title = NSRect(x: frame.minX, y: frame.maxY - 24, width: frame.width, height: 24)
+            if NSScreen.screens.contains(where: { screen in
+                let overlap = screen.visibleFrame.intersection(title)
+                return !overlap.isNull && overlap.width >= 80 && overlap.height >= 12
+            }) {
+                window.setFrame(frame, display: false)
                 if saved.landscape != (aspect > 1) { fitWindow() }
-            } else { fitWindow(); window.center() }
-        } else { fitWindow(); window.center() }
+            } else {
+                fitWindow()
+                window.center()
+            }
+        } else {
+            fitWindow()
+            window.center()
+        }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        do { try transport.start(device:device,width:width,height:height,executable:executable,quality:quality) }
-        catch { transport.onStatus?("无法启动桥接：\(error.localizedDescription)") }
+        transport.prepareStreaming(device: device, width: width, height: height,
+                                   executable: executable, quality: quality)
+        switch launch {
+        case .running:
+            do {
+                try transport.start(device: device, width: width, height: height, executable: executable, quality: quality)
+            } catch {
+                transport.onStatus?(t("无法启动桥接：", "Unable to start the connection: ", transport.language) + error.localizedDescription)
+            }
+        case .booting, .stopped:
+            transport.applyLaunchState(launch)
+        }
     }
+
+    // MARK: Chrome state
+
+    private func wireChrome() {
+        chrome.pixelPerfectAction = { [weak self] in self?.applyPixelPerfectSize() }
+        chrome.fitAction = { [weak self] in self?.fitScreen() }
+        chrome.toggleFullscreenAction = { [weak self] in self?.toggleFullscreen() }
+        chrome.toggleSidebarAction = { [weak self] in self?.toggleSidebar() }
+        chrome.chooseScreenshotAction = { [weak self] in self?.transport.chooseScreenshot() }
+        chrome.toggleRecordingAction = { [weak self] in self?.transport.toggleRecording() }
+        chrome.chooseAPKAction = { [weak self] in self?.transport.chooseFile(apkOnly: true) }
+        chrome.chooseFileAction = { [weak self] in self?.transport.chooseFile(apkOnly: false) }
+        chrome.advancedAction = { [weak self] in self?.transport.onAdvanced?() }
+        chrome.uninstallAction = { [weak self] package in self?.transport.uninstall(package: package) }
+    }
+
+    private func fitScreen() {
+        chrome.pixelPerfect = false
+        fitWindow()
+    }
+
+    private func applyPixelPerfectSize() {
+        guard let window, frameWidth > 0, frameHeight > 0, let screen = window.screen else { return }
+        let scale = window.backingScaleFactor
+        let size = NSSize(width: CGFloat(frameWidth) / scale + side, height: CGFloat(frameHeight) / scale)
+        let full = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+        guard !window.styleMask.contains(.fullScreen),
+              full.width <= screen.visibleFrame.width, full.height <= screen.visibleFrame.height else {
+            transport.onStatus?(t("原始像素大小超出当前屏幕", "The original size does not fit this display", transport.language))
+            return
+        }
+        window.setContentSize(size)
+        let frame = window.frame, visible = screen.visibleFrame
+        window.setFrameOrigin(NSPoint(x: min(max(frame.minX, visible.minX), visible.maxX - frame.width),
+                                      y: min(max(frame.minY, visible.minY), visible.maxY - frame.height)))
+        chrome.pixelPerfect = true
+    }
+
+    private func toggleFullscreen() {
+        window?.toggleFullScreen(nil)
+    }
+
+    private func toggleOverlay() {
+        chrome.overlay.toggle()
+    }
+
+    private func observeFullscreen(_ window: NSWindow) {
+        let center = NotificationCenter.default
+        fullscreenObservers.append(center.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { [weak self] _ in
+            self?.chrome.fullscreen = true
+            self?.chrome.reveal = false
+        })
+        fullscreenObservers.append(center.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.chrome.fullscreen = false
+            self.chrome.reveal = false
+            self.side = self.sidebar.visible ? sidebarWidth : 0
+            self.fitWindow()
+        })
+    }
+
+    // MARK: Window shortcuts
+
+    private func installKeyMonitor() {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, self.window != nil, event.window === self.window else { return event }
+            return self.handleKeyDown(event) ? nil : event
+        }
+    }
+
+    private func removeMonitors() {
+        languageCancellable?.cancel()
+        languageCancellable = nil
+        if let keyMonitor {
+            NSEvent.removeMonitor(keyMonitor)
+            self.keyMonitor = nil
+        }
+        for observer in fullscreenObservers { NotificationCenter.default.removeObserver(observer) }
+        fullscreenObservers.removeAll()
+    }
+
+    /// Returns true when the player consumed the key (it then never reaches the
+    /// device). Esc only leaves fullscreen; otherwise it is a game key.
+    private func handleKeyDown(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        let characters = event.charactersIgnoringModifiers ?? ""
+        let key = characters.lowercased()
+        let language = transport.language
+        if transport.shortcuts.capture != nil {
+            if event.keyCode == 53 {
+                transport.shortcuts.cancelCapture()
+                return true
+            }
+            if let failure = transport.shortcuts.assign(key: characters,
+                                                        command: flags.contains(.command),
+                                                        control: flags.contains(.control),
+                                                        shift: flags.contains(.shift),
+                                                        alt: flags.contains(.option)) {
+                onStatusNotice(ShortcutFailure.describe(failure, language: language))
+            } else {
+                onStatusNotice(t("快捷键已更新。", "Shortcut updated.", language))
+            }
+            return true
+        }
+        if event.keyCode == 53 && chrome.fullscreen, NSApp.modalWindow == nil, window?.attachedSheet == nil {
+            toggleFullscreen()
+            return true
+        }
+        if flags == [.control, .command], key == "f" {
+            toggleFullscreen()
+            return true
+        }
+        if flags == [.command, .option], key == "i" {
+            toggleOverlay()
+            return true
+        }
+        if flags == [.command, .option], key == "0" {
+            applyPixelPerfectSize()
+            return true
+        }
+        if flags == [.command], key == "l", transport.logcatExecutable != nil, transport.linkState.isRunning {
+            chrome.logcatOpen.toggle()
+            return true
+        }
+        if let binding = ShortcutBinding.make(key: characters,
+                                              command: flags.contains(.command),
+                                              control: flags.contains(.control),
+                                              shift: flags.contains(.shift),
+                                              alt: flags.contains(.option)),
+           let action = transport.shortcuts.action(for: binding) {
+            perform(action)
+            return true
+        }
+        return false
+    }
+
+    private func perform(_ action: GameShortcutAction) {
+        switch action {
+        case .screenshot: transport.chooseScreenshot()
+        case .fullscreen: toggleFullscreen()
+        case .sidebar: toggleSidebar()
+        case .overlay: toggleOverlay()
+        case .advanced: transport.onAdvanced?()
+        }
+    }
+
+    private func onStatusNotice(_ text: String) {
+        transport.onStatus?(text)
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard transport.recording == .idle else { transport.onStatus?("请先停止录屏并等待保存完成"); return false }
+        guard transport.recording == .idle else {
+            transport.onStatus?(t("请先停止录屏并等待保存完成", "Stop recording and wait for it to finish saving first", transport.language))
+            return false
+        }
         return true
     }
+
     func windowWillClose(_ notification: Notification) {
         saveState()
+        removeMonitors()
         transport.stop()
         onClose?()
         // AppKit may still be processing the close event after its delegate returns.

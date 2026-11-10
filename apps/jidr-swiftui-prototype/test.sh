@@ -42,6 +42,19 @@ swiftc -module-cache-path "$out/module-cache" \
   apps/jidr-swiftui-prototype/Sources/LogStream.swift \
   apps/jidr-swiftui-prototype/Tests/LogFilter/main.swift -o "$out/log-filter-tests"
 "$out/log-filter-tests"
+swiftc -module-cache-path "$out/module-cache" \
+  apps/jidr-swiftui-prototype/Sources/PlayerInput.swift \
+  apps/jidr-swiftui-prototype/Tests/PlayerInput/main.swift -o "$out/player-input-tests"
+"$out/player-input-tests"
+swiftc -module-cache-path "$out/module-cache" \
+  apps/jidr-swiftui-prototype/Sources/PlayerSession.swift \
+  apps/jidr-swiftui-prototype/Sources/GameShortcuts.swift \
+  apps/jidr-swiftui-prototype/Tests/GameShortcuts/main.swift -o "$out/game-shortcut-tests"
+"$out/game-shortcut-tests"
+swiftc -module-cache-path "$out/module-cache" \
+  apps/jidr-swiftui-prototype/Sources/PlayerSession.swift \
+  apps/jidr-swiftui-prototype/Tests/PlayerSession/main.swift -o "$out/player-session-tests"
+"$out/player-session-tests"
 # Localization gate: mechanisms (a) .strings keys, (b) t()/model.text(),
 # (c) inline language switches, plus the AppKit sinks, dynamic strings, error
 # text and both Rust bridges. --self-test proves the rules catch violations

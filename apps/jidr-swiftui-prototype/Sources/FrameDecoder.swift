@@ -17,6 +17,14 @@ final class FrameDecoder {
     private var pixels = Data()
     private var written = 0
 
+    /// Drops any partially buffered frame, e.g. when a bridge restarts.
+    func reset() {
+        header.removeAll(keepingCapacity: true)
+        metadata = nil
+        pixels = Data()
+        written = 0
+    }
+
     /// Returns false on an invalid header; the caller must close the stream.
     func consume(_ chunk: Data, onFrame: (DecodedFrame) -> Void) -> Bool {
         chunk.withUnsafeBytes { source in

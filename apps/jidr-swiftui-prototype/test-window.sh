@@ -6,9 +6,6 @@ cd "$root"
 out="$root/target/swiftui-prototype"
 mkdir -p "$out/module-cache"
 swiftc -module-cache-path "$out/module-cache" \
-  apps/jidr-swiftui-prototype/Sources/FrameDecoder.swift \
-  apps/jidr-swiftui-prototype/Sources/KeyMapping.swift \
-  apps/jidr-swiftui-prototype/Sources/GameWindowState.swift \
-  apps/jidr-swiftui-prototype/Sources/GameWindow.swift \
+  apps/jidr-swiftui-prototype/Sources/*.swift \
   apps/jidr-swiftui-prototype/Tests/Window/main.swift -o "$out/window-lifecycle-tests"
 "$out/window-lifecycle-tests"
