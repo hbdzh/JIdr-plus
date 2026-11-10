@@ -19,7 +19,7 @@ struct ConnectionStatusPill: View {
         } else {
             HStack(spacing: WbSpace.sm) {
                 if model.connectionNeedsRetry {
-                    Image(systemName: "exclamationmark.triangle.fill").wbFont(WbType.caption)
+                    Image(systemName: WbIcon.warningFill).wbFont(WbType.caption)
                 } else {
                     ProgressView().controlSize(.mini)
                 }
@@ -62,7 +62,7 @@ struct TaskCenterView: View {
                 }
                 if let reason = model.quitReason {
                     HStack(alignment: .top, spacing: WbSpace.sm) {
-                        Image(systemName: "hand.raised.fill").foregroundStyle(WbColor.warning)
+                        Image(systemName: WbIcon.quitGuard).foregroundStyle(WbColor.warning)
                         Text(reason).wbFont(WbType.body)
                     }
                     .padding(WbSpace.md)
@@ -70,12 +70,12 @@ struct TaskCenterView: View {
                     .background(WbStatus.warning.container, in: RoundedRectangle(cornerRadius: WbRadius.md))
                 }
                 if let error = model.jobsError {
-                    Label(error, systemImage: "exclamationmark.triangle")
+                    Label(error, systemImage: WbIcon.warning)
                         .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).textSelection(.enabled)
                 }
                 if rows.isEmpty {
                     Label(model.text("没有正在运行或最近完成的任务", "No running or recently finished tasks"),
-                          systemImage: "checkmark.circle")
+                          systemImage: WbIcon.checkCircle)
                         .foregroundStyle(WbColor.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.vertical, WbSpace.xl)
@@ -122,17 +122,17 @@ private struct TaskRowView: View {
     }
     private var symbol: String {
         switch row.tone {
-        case .queued: return "clock"
-        case .running: return "arrow.down.circle"
-        case .done: return "checkmark.circle.fill"
-        case .failed: return "xmark.circle.fill"
-        case .cancelled: return "slash.circle"
+        case .queued: return WbIcon.clock
+        case .running: return WbIcon.download
+        case .done: return WbIcon.checkCircleFill
+        case .failed: return WbIcon.errorCircle
+        case .cancelled: return WbIcon.cancelled
         }
     }
 
     var body: some View {
         HStack(alignment: .center, spacing: WbSpace.md) {
-            Image(systemName: symbol).foregroundStyle(tint).frame(width: WbIcon.iconLg)
+            Image(systemName: symbol).foregroundStyle(tint).frame(width: WbIconSize.iconLg)
             VStack(alignment: .leading, spacing: WbSpace.xs) {
                 Text(row.title).wbFont(WbType.body.weighted(.semibold)).lineLimit(1).truncationMode(.middle)
                 if let progress = row.progress {
@@ -145,7 +145,7 @@ private struct TaskRowView: View {
             Spacer(minLength: 8)
             if row.cancellable {
                 Button(action: cancel) {
-                    Image(systemName: "xmark")
+                    Image(systemName: WbIcon.close)
                 }
                 .buttonStyle(.borderless)
                 .help(model.text("取消任务", "Cancel task"))
@@ -164,7 +164,7 @@ struct ToastOverlay: View {
     let dismiss: () -> Void
 
     private var tint: Color { toast.tone == .negative ? WbColor.negative : WbColor.positive }
-    private var symbol: String { toast.tone == .negative ? "exclamationmark.triangle.fill" : "checkmark.circle.fill" }
+    private var symbol: String { toast.tone == .negative ? WbIcon.warningFill : WbIcon.checkCircleFill }
 
     var body: some View {
         HStack(alignment: .top, spacing: WbSpace.sm) {

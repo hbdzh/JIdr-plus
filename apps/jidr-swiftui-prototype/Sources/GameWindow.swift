@@ -658,17 +658,18 @@ final class ScreenView: NSView, NSTextInputClient {
             for binding in mapping.visibleBindings where binding.rotation == rotation {
                 let p = NSPoint(x: imageRect.minX + imageRect.width * binding.x, y: imageRect.minY + imageRect.height * binding.y)
                 let circle = NSRect(x: p.x - 17, y: p.y - 17, width: 34, height: 34)
-                NSColor.systemBlue.withAlphaComponent(0.8).setFill()
+                NSColor(WbColor.accentContainer).withAlphaComponent(0.85).setFill()
                 NSBezierPath(ovalIn: circle).fill()
                 let label = binding.key == "SPACE" ? "SPC" : binding.key
-                let attrs: [NSAttributedString.Key: Any] = [.font: NSFont.boldSystemFont(ofSize: 12), .foregroundColor: NSColor.white]
+                let markerFont = WbFontResolver.nsFont(family: WbType.label.family, weight: .semibold, size: WbType.label.size)
+                let attrs: [NSAttributedString.Key: Any] = [.font: markerFont, .foregroundColor: NSColor(WbColor.textOnAccent)]
                 let size = label.size(withAttributes: attrs)
                 label.draw(at: NSPoint(x: p.x - size.width / 2, y: p.y - size.height / 2), withAttributes: attrs)
             }
         }
         if marked.length > 0 {
             let box = NSRect(x: 12, y: max(12, bounds.height - 46), width: max(0, bounds.width - 24), height: 34)
-            NSColor.windowBackgroundColor.withAlphaComponent(0.95).setFill()
+            NSColor(WbColor.chrome).withAlphaComponent(0.95).setFill()
             NSBezierPath(roundedRect: box, xRadius: 6, yRadius: 6).fill()
             marked.draw(at: NSPoint(x: box.minX + 8, y: box.minY + 6))
         }
@@ -836,7 +837,8 @@ final class ScreenView: NSView, NSTextInputClient {
     }
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
         let value = (string as? NSAttributedString)?.string ?? (string as? String ?? "")
-        marked = NSMutableAttributedString(string: value, attributes: [.foregroundColor: NSColor.labelColor, .font: NSFont.systemFont(ofSize: 16)])
+        let markedFont = WbFontResolver.nsFont(family: WbType.body.family, weight: .regular, size: WbType.title.size)
+        marked = NSMutableAttributedString(string: value, attributes: [.foregroundColor: NSColor(WbColor.textPrimary), .font: markedFont])
         markedSelection = selectedRange
         needsDisplay = true
     }
@@ -959,7 +961,7 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         sidebarButton = button
         window.addTitlebarAccessoryViewController(accessory)
         updateSidebarButton()
-        button.image = NSImage(systemSymbolName: "sidebar.right", accessibilityDescription: button.toolTip)
+        button.image = NSImage(systemSymbolName: WbIcon.hideDetails, accessibilityDescription: button.toolTip)
     }
 
     @objc private func togglePin() {
@@ -973,7 +975,7 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         let label = pinned
             ? t("取消窗口置顶", "Unpin window", transport.language)
             : t("窗口置顶", "Pin window", transport.language)
-        pinButton?.image = NSImage(systemSymbolName: pinned ? "pin.fill" : "pin", accessibilityDescription: label)
+        pinButton?.image = NSImage(systemSymbolName: pinned ? WbIcon.pinned : WbIcon.pin, accessibilityDescription: label)
         pinButton?.toolTip = label
         pinButton?.setAccessibilityLabel(label)
     }

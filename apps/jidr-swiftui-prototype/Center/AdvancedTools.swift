@@ -100,13 +100,13 @@ struct AdvancedToolsView: View {
         HStack(spacing: WbSpace.zero) {
             VStack(alignment: .leading, spacing: WbSpace.xs) {
                 Text(t("环境模拟", "Simulation")).wbFont(WbType.label.weighted(.semibold)).foregroundStyle(WbColor.textSecondary).padding(.horizontal, WbSpace.md).padding(.bottom, WbSpace.xs)
-                JidrNavigationItem(title:t("电池", "Battery"), symbol:"battery.100", selected:tab == 0) { tab = 0 }
-                JidrNavigationItem(title:"GPS", symbol:"location", selected:tab == 1) { tab = 1 }
-                JidrNavigationItem(title:t("网络与传感器", "Network"), symbol:"network", selected:tab == 2) { tab = 2 }
+                JidrNavigationItem(title:t("电池", "Battery"), symbol:WbIcon.battery, selected:tab == 0) { tab = 0 }
+                JidrNavigationItem(title:"GPS", symbol:WbIcon.location, selected:tab == 1) { tab = 1 }
+                JidrNavigationItem(title:t("网络与传感器", "Network"), symbol:WbIcon.network, selected:tab == 2) { tab = 2 }
                 Text(t("开发与调试", "Development")).wbFont(WbType.label.weighted(.semibold)).foregroundStyle(WbColor.textSecondary).padding(.horizontal, WbSpace.md).padding(.top, WbSpace.xl).padding(.bottom, WbSpace.xs)
-                JidrNavigationItem(title:"Logcat", symbol:"text.alignleft", selected:tab == 3) { tab = 3 }
-                JidrNavigationItem(title:t("Root 管理", "Root"), symbol:"key", selected:tab == 4) { tab = 4 }
-                JidrNavigationItem(title:t("更多", "More"), symbol:"ellipsis.circle", selected:tab == 5) { tab = 5 }
+                JidrNavigationItem(title:"Logcat", symbol:WbIcon.logcat, selected:tab == 3) { tab = 3 }
+                JidrNavigationItem(title:t("Root 管理", "Root"), symbol:WbIcon.rootTab, selected:tab == 4) { tab = 4 }
+                JidrNavigationItem(title:t("更多", "More"), symbol:WbIcon.more, selected:tab == 5) { tab = 5 }
                 Spacer()
             }.padding(WbSpace.md).frame(width: 175).background(WbColor.chrome)
             Divider()
@@ -119,7 +119,7 @@ struct AdvancedToolsView: View {
                   t("管理 Root、证书和系统属性。", "Manage root, certificates and system properties."),
                   t("使用电话、剪贴板和调试工具。", "Use phone, clipboard and debugging tools.")][tab])
                 .wbFont(WbType.body).foregroundStyle(WbColor.textSecondary)
-            if !running { Label(t("设备未运行，请启动设备后使用这些工具。", "Start the device to use these tools."), systemImage:"info.circle").wbFont(WbType.body).foregroundStyle(WbColor.textSecondary) }
+            if !running { Label(t("设备未运行，请启动设备后使用这些工具。", "Start the device to use these tools."), systemImage:WbIcon.info).wbFont(WbType.body).foregroundStyle(WbColor.textSecondary) }
             ScrollView {
                 VStack(alignment:.leading,spacing:WbSpace.lg) {
                     switch tab {
@@ -287,7 +287,7 @@ struct AdvancedToolsView: View {
                 ScrollView {
                     let displayed = followLog ? logStream.text : log
                     if displayed.isEmpty {
-                        Label(t("点击刷新读取设备日志。", "Refresh to load device logs."), systemImage:"text.alignleft")
+                        Label(t("点击刷新读取设备日志。", "Refresh to load device logs."), systemImage:WbIcon.logcat)
                             .wbFont(WbType.body).foregroundStyle(WbColor.textSecondary)
                             .frame(maxWidth:.infinity, minHeight:220)
                     } else {

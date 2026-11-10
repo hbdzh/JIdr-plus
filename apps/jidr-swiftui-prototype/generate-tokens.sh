@@ -64,41 +64,107 @@ GENERATED_HEADER = (
 # owns. Kept here so the mapping is regenerated with the tokens and reviewed in
 # one place. Slint draws crates/jidr-ui/ui/icons/*.svg (Lucide, ISC).
 # ---------------------------------------------------------------------------
-ICON_MAPPING = [
-    ("battery", "battery.100", "AdvancedTools: Battery tab"),
-    ("battery-charging", "battery.100.bolt", "AdvancedTools: charger state"),
-    ("map-pin", "location", "AdvancedTools: GPS tab"),
-    ("wifi", "wifi", "AdvancedTools: Network tab"),
-    ("globe", "network", "AdvancedTools: Network section (no exact Lucide network glyph; globe is closest)"),
-    ("scroll-text", "text.alignleft", "AdvancedTools: Logcat tab / empty log"),
-    ("key-round", "key", "AdvancedTools: Root tab; RootDevTools: needs-root hint"),
-    ("badge-check", "checkmark.seal.fill", "RootFlow: rooted seal"),
-    ("ellipsis", "ellipsis.circle", "AdvancedTools: More tab"),
-    ("info", "info.circle", "SnapshotDialogs / RootFlow / Overlays: neutral note"),
-    ("triangle-alert", "exclamationmark.triangle", "SnapshotsView / RootDevTools / Overlays: warning and error (toasts use .fill)"),
-    ("circle-help", "questionmark.circle", "RootFlow: unverified seal (uses .fill)"),
-    ("circle-x", "xmark.circle", "RootFlow: failed seal and failed step (error toasts use .fill)"),
-    ("minus", "minus.circle", "RootFlow: skipped step"),
-    ("ban", "nosign", "RootFlow: stopped state (Overlays uses slash.circle for cancelled jobs)"),
-    ("clock", "clock", "RootDevTools: pending restart; Overlays: queued job"),
-    ("loader-circle", "circle.dashed", "RootFlow: queued step"),
-    ("check", "checkmark", "RootFlow: done step (Overlays/Toasts use checkmark.circle(.fill) for finished jobs)"),
-    ("x", "xmark", "Overlays: cancel job"),
-    ("refresh-cw", "arrow.clockwise", "SnapshotsView / RootDevTools: refresh"),
-    ("sliders-horizontal", "slider.horizontal.3", "RootDevTools: edit props; PaletteView: setting entry"),
-    ("camera", "camera", "SnapshotsView: snapshot rows and empty state"),
-    ("zap", "bolt.fill", "SnapshotsView: quick-boot (Auto) row"),
-    ("hand", "hand.raised.fill", "Overlays: quit guard / pending mutation (RootFlow uses hand.tap.fill for the guided tap)"),
-    ("shield-alert", "exclamationmark.shield", "RootFlow / RootDevTools: Play Integrity banner (current code uses shield.slash)"),
-    ("search", "magnifyingglass", "PaletteView: search field"),
-    ("command", "command", "PaletteView: action entries"),
-    ("smartphone", "smartphone", "PaletteView: device entries"),
-    ("fingerprint", "touchid", "AdvancedTools: fingerprint tools"),
-    ("clipboard", "doc.on.clipboard", "AdvancedTools: device clipboard"),
-    ("trash-2", "trash", "SnapshotsView / RootDevTools: delete and remove"),
-    ("download", "arrow.down.circle", "Overlays: running job"),
-    ("folder-open", "folder", "AdvancedTools / RootDevTools: choose a file"),
-    ("lock", "lock", "RootDevTools: capability unavailable (needs a newer daemon)"),
+# Font files shipped by the app (apps/jidr-gui/assets/fonts, OFL). The generator
+# checks every file exists and emits the PostScript names the app can register
+# through ATSApplicationFontsPath=fonts (see build.sh / build-center.sh).
+FONT_FILES = {
+    "ui": {400: "Geist-Regular.ttf", 500: "Geist-Medium.ttf", 600: "Geist-SemiBold.ttf", 700: "Geist-Bold.ttf"},
+    "mono": {400: "GeistMono-Regular.ttf", 500: "GeistMono-Medium.ttf", 600: "GeistMono-SemiBold.ttf"},
+    "arabic": {
+        400: "NotoKufiArabic.ttf",
+        500: "NotoKufiArabic.ttf",
+        600: "NotoKufiArabic.ttf",
+        700: "NotoKufiArabic.ttf",
+    },
+}
+# PostScript face names verified by reading the font files with CoreText
+# (CTFontManagerCreateFontDescriptorsFromURL); see the evidence report.
+FONT_POSTSCRIPT = {
+    "ui": {400: "Geist-Regular", 500: "Geist-Medium", 600: "Geist-SemiBold", 700: "Geist-Bold"},
+    "mono": {400: "GeistMono-Regular", 500: "GeistMono-Medium", 600: "GeistMono-SemiBold"},
+    "arabic": {
+        400: "NotoKufiArabic-Regular",
+        500: "NotoKufiArabic-Regular_Medium",
+        600: "NotoKufiArabic-Regular_SemiBold",
+        700: "NotoKufiArabic-Regular_Bold",
+    },
+}
+
+# Semantic SwiftUI icon names (WbIcon.<name>) with the SF Symbol they render and
+# the Lucide source glyph (crates/jidr-ui/ui/icons) where one exists. "SF-native"
+# marks a symbol with no Lucide counterpart in the repository set. Every icon
+# literal in the files this line owns must go through WbIcon; the generated
+# Center/DesignTokens.swift documents the same table.
+ICON_SYMBOLS = [
+    ("appEmpty", "app.dashed", "SF-native", "device center: no launchable apps"),
+    ("advancedConfig", "wrench.and.screwdriver", "SF-native", "settings: advanced category"),
+    ("advancedTools", "slider.horizontal.3", "sliders-horizontal", "device settings / advanced tools entry"),
+    ("back", "arrow.left", "arrow-left", "player: Android Back"),
+    ("battery", "battery.100", "battery", "advanced tools: battery tab"),
+    ("busy", "person.fill", "SF-native", "device detail: busy holder"),
+    ("camera", "camera", "camera", "screenshots and snapshots"),
+    ("cancelled", "slash.circle", "ban", "task center: cancelled job"),
+    ("checkCircle", "checkmark.circle", "check", "detected SDK and empty task list"),
+    ("checkCircleFill", "checkmark.circle.fill", "check", "task center: finished job"),
+    ("chevronDown", "chevron.down", "chevron-down", "new device: advanced disclosure"),
+    ("chevronRight", "chevron.right", "chevron-right", "device row disclosure"),
+    ("circle", "circle", "circle", "player: Android Home"),
+    ("clock", "clock", "clock", "queued job / pending restart"),
+    ("close", "xmark", "x", "close and cancel buttons"),
+    ("command", "command", "command", "shortcuts and command palette"),
+    ("copy", "doc.on.doc", "copy", "device detail: copy device id"),
+    ("dataTools", "externaldrive", "hard-drive", "settings: data and tools category"),
+    ("deviceEmpty", "iphone", "smartphone", "device center: empty device list"),
+    ("disconnected", "wifi.slash", "wifi-off", "player: connection lost"),
+    ("download", "arrow.down.circle", "download", "task center: running job"),
+    ("enterFullscreen", "arrow.up.left.and.arrow.down.right", "maximize-2", "player: enter fullscreen"),
+    ("errorCircle", "xmark.circle.fill", "circle-x", "failed job / failed root seal"),
+    ("exitFullscreen", "arrow.down.right.and.arrow.up.left", "minimize-2", "player: exit fullscreen"),
+    ("folder", "folder", "folder-open", "send file / show folder"),
+    ("hideDetails", "sidebar.right", "panel-right", "device center: hide detail column"),
+    ("info", "info.circle", "info", "informational note"),
+    ("installAPK", "square.and.arrow.down", "download", "install an APK"),
+    ("integrity", "shield.slash", "shield-alert", "Play Integrity banner"),
+    ("keyboard", "keyboard", "keyboard", "player: key mapping"),
+    ("location", "location", "map-pin", "advanced tools: GPS tab"),
+    ("lock", "lock", "lock", "capability requires a newer daemon"),
+    ("logcat", "text.alignleft", "scroll-text", "logcat bar, panel and tab"),
+    ("minusCircle", "minus.circle", "minus", "root: skipped step"),
+    ("more", "ellipsis.circle", "ellipsis", "advanced tools: more tab"),
+    ("network", "network", "globe", "advanced tools: network tab (globe is the closest Lucide glyph)"),
+    ("performance", "gauge", "gauge", "player: performance and quality"),
+    ("pin", "pin", "pin", "player window: pin (off)"),
+    ("pinned", "pin.fill", "pin", "player window: pin (on)"),
+    ("pixelPerfect", "1.magnifyingglass", "scan", "player: pixel-perfect size"),
+    ("play", "play", "play", "start buttons and launch"),
+    ("plus", "plus", "plus", "add device"),
+    ("power", "power", "power", "player: power button / stopped state"),
+    ("progressRing", "circle.dashed", "loader-circle", "root: queued step"),
+    ("quickBoot", "bolt.fill", "zap", "quick-boot snapshot row"),
+    ("quitGuard", "hand.raised.fill", "hand", "quit guard banner"),
+    ("record", "record.circle", "circle-dot", "start recording"),
+    ("recordStop", "stop.circle", "circle-dot", "stop recording"),
+    ("refresh", "arrow.clockwise", "refresh-cw", "refresh buttons"),
+    ("rootKey", "key.fill", "key-round", "root sheet seal (in progress)"),
+    ("rootTab", "key", "key-round", "advanced tools: root tab"),
+    ("rootUnverified", "questionmark.circle.fill", "circle-help", "root sheet: unverified seal"),
+    ("rootVerified", "checkmark.seal.fill", "badge-check", "root sheet: verified seal"),
+    ("rotateLeft", "rotate.left", "rotate-ccw", "player: rotate left"),
+    ("rotateRight", "rotate.right", "rotate-cw", "player: rotate right"),
+    ("search", "magnifyingglass", "search", "search and command palette"),
+    ("settings", "gearshape", "settings", "settings windows and toolbar"),
+    ("showDetails", "sidebar.leading", "panel-left", "device center: show detail column"),
+    ("smartphone", "smartphone", "smartphone", "command palette: device entry"),
+    ("square", "square", "square", "player: Android Recents"),
+    ("stop", "stop", "square", "stop the device"),
+    ("stopped", "minus.circle.fill", "minus", "root sheet: stopped seal"),
+    ("tap", "hand.tap.fill", "hand", "root: guided grant"),
+    ("tasks", "list.bullet.rectangle", "SF-native", "toolbar: background tasks"),
+    ("trash", "trash", "trash-2", "delete device / uninstall app"),
+    ("volumeDown", "speaker.wave.1", "volume-1", "player: volume down"),
+    ("volumeUp", "speaker.wave.2", "volume-2", "player: volume up"),
+    ("warning", "exclamationmark.triangle", "triangle-alert", "inline warning"),
+    ("warningFill", "exclamationmark.triangle.fill", "triangle-alert", "toast warning"),
 ]
 
 EXACT_LUCIDE_FALLBACK = """\
@@ -118,7 +184,7 @@ EXACT_LUCIDE_FALLBACK = """\
 //      paths use arcs are listed by the parser and skipped until that lands.
 //   3. Emit one `static func <name>(in rect: CGRect) -> Path` per icon (scale
 //      24 -> rect) into a generated Sources/IconPaths.swift.
-//   4. Draw with `.stroke(style: StrokeStyle(lineWidth: WbIcon.stroke,
+//   4. Draw with `.stroke(style: StrokeStyle(lineWidth: WbIconSize.iconStroke,
 //      lineCap: .round, lineJoin: .round))` and tint with `.foregroundStyle`.
 //
 // Trade-offs, which is why it is opt-in: ~100 generated lines per icon (the
@@ -600,10 +666,11 @@ def render_raw(tf: TokenFile, reduced: dict[str, str]) -> str:
     styles = tf.typography()
     w("// MARK: - Type")
     w("")
-    w("/// Typography roles from `type.groups` (App, Arabic, Landing). The SwiftUI")
-    w("/// prototype does not bundle Geist/Noto Kufi yet, so `font` renders with the")
-    w("/// system font; `mono` roles use the monospaced design. The token sizes,")
-    w("/// weights, line heights and tracking are exact.")
+    w("/// Typography roles from `type.groups` (App, Arabic, Landing). The token")
+    w("/// families are Geist / Geist Mono / Noto Kufi Arabic; `font` resolves the")
+    w("/// bundled face when the app registered it and falls back to the system font")
+    w("/// otherwise (see WbFontResolver). Sizes, weights, line heights and tracking")
+    w("/// are exact token values.")
     w("enum JidrType {")
     for style_name, family, style in styles:
         size = px(style["fontSize"], style_name)
@@ -613,9 +680,9 @@ def render_raw(tf: TokenFile, reduced: dict[str, str]) -> str:
         weight_name = WEIGHTS.get(weight)
         if weight_name is None:
             fail(f"type {style_name}: unknown fontWeight {weight}")
-        is_mono = family == "mono"
+        family_case = {"mono": ".mono", "arabic": ".arabic"}.get(family, ".ui")
         w(f"    static let {camel(style_name)} = JidrTextStyle(size: {size:g}, weight: .{weight_name},")
-        w(f"        lineHeight: {line:g}, tracking: {tracking:g}, mono: {str(is_mono).lower()})")
+        w(f"        lineHeight: {line:g}, tracking: {tracking:g}, family: {family_case})")
     w("}")
     w("")
     w("struct JidrTextStyle {")
@@ -623,12 +690,11 @@ def render_raw(tf: TokenFile, reduced: dict[str, str]) -> str:
     w("    let weight: Font.Weight")
     w("    let lineHeight: CGFloat")
     w("    let tracking: CGFloat")
-    w("    let mono: Bool")
+    w("    let family: JidrFontFamily")
     w("")
-    w("    var font: Font {")
-    w("        mono ? .system(size: size, weight: weight, design: .monospaced)")
-    w("             : .system(size: size, weight: weight)")
-    w("    }")
+    w("    /// The bundled face for this role, or the system font when the app did")
+    w("    /// not register the font files (see WbFontResolver).")
+    w("    var font: Font { WbFontResolver.font(family: family, weight: weight, size: size) }")
     w("")
     w("    /// Extra line spacing to approximate the token line height (SwiftUI has")
     w("    /// no direct line-height control; 1.2x the size is the system default).")
@@ -636,18 +702,8 @@ def render_raw(tf: TokenFile, reduced: dict[str, str]) -> str:
     w("")
     w("    func weighted(_ weight: Font.Weight) -> JidrTextStyle {")
     w("        JidrTextStyle(size: size, weight: weight, lineHeight: lineHeight,")
-    w("                      tracking: tracking, mono: mono)")
+    w("                      tracking: tracking, family: family)")
     w("    }")
-    w("}")
-    w("")
-    families = tf.data["type"].get("families", {})
-    w("/// The token font stacks (CSS order). Bundling the font files is a later")
-    w("/// line; these strings are kept so the mapping to D41 stays visible.")
-    w("enum JidrFontFamily {")
-    for key in ("ui", "mono", "arabic"):
-        stack = families.get(key, "")
-        first = stack.split(",")[0].strip().strip('"')
-        w(f"    static let {key} = \"{first}\"")
     w("}")
     w("")
     return "\n".join(out)
@@ -709,19 +765,113 @@ STATUS_FAMILIES = {
 }
 
 
-def render_semantic(tf: TokenFile) -> str:
+def font_face_code() -> str:
+    """Font family enum, PostScript face map and resolver (shared build)."""
     out: list[str] = []
     w = out.append
-    w(GENERATED_HEADER)
-    w("// Semantic Workbench layer (D41) used by the SwiftUI center. Values come from")
-    w("// the raw layer in Sources/DesignTokens.swift; nothing here is a raw hex.")
+    w("// MARK: - Fonts")
+    w("")
+    w("/// The bundled font families from apps/jidr-gui/assets/fonts (OFL). The")
+    w("/// preview apps copy the TTFs into Contents/Resources/fonts and set")
+    w("/// ATSApplicationFontsPath=fonts, so the faces are available by PostScript")
+    w("/// name before the first view is built.")
+    w("enum JidrFontFamily: String {")
+    w('    case ui = "Geist"')
+    w('    case mono = "Geist Mono"')
+    w('    case arabic = "Noto Kufi Arabic"')
+    w("}")
+    w("")
+    w("/// Token weight -> bundled PostScript face. Faces verified from the font")
+    w("/// files with CoreText; a family without the exact weight uses the nearest")
+    w("/// face it ships.")
+    w("enum JidrFontFace {")
+    w("    static let allPostScriptNames: [String] = [")
+    names = sorted({name for faces in FONT_POSTSCRIPT.values() for name in faces.values()})
+    for name in names:
+        w(f'        "{name}",')
+    w("    ]")
+    w("")
+    w("    static func postScriptName(family: JidrFontFamily, weight: Font.Weight) -> String? {")
+    w("        let value = numericWeight(weight)")
+    w("        switch family {")
+    for key, family_case in (("ui", "ui"), ("mono", "mono"), ("arabic", "arabic")):
+        w(f"        case .{family_case}:")
+        for weight in sorted(FONT_POSTSCRIPT[key], reverse=True):
+            threshold = ">=" if weight == max(FONT_POSTSCRIPT[key]) else ">="
+            condition = f"value >= {weight}"
+            w(f'            if {condition} {{ return "{FONT_POSTSCRIPT[key][weight]}" }}')
+        w('            return "' + FONT_POSTSCRIPT[key][min(FONT_POSTSCRIPT[key])] + '"')
+    w("        }")
+    w("    }")
+    w("")
+    w("    /// Font.Weight -> the numeric weights the tokens use (400/500/600/700).")
+    w("    static func numericWeight(_ weight: Font.Weight) -> Int {")
+    w("        if weight == .ultraLight { return 100 }")
+    w("        if weight == .thin { return 200 }")
+    w("        if weight == .light { return 300 }")
+    w("        if weight == .medium { return 500 }")
+    w("        if weight == .semibold { return 600 }")
+    w("        if weight == .bold { return 700 }")
+    w("        if weight == .heavy { return 800 }")
+    w("        if weight == .black { return 900 }")
+    w("        return 400")
+    w("    }")
+    w("}")
+    w("")
+    w("/// Resolves a token style to a bundled font, falling back to the system font")
+    w("/// when the app did not register the font files (previews started straight")
+    w("/// from swiftc, tests, or a bundle without ATSApplicationFontsPath).")
+    w("enum WbFontResolver {")
+    w("    private static let registered: Set<String> = Set(")
+    w("        JidrFontFace.allPostScriptNames.filter { NSFont(name: $0, size: 12) != nil })")
+    w("")
+    w("    static func font(family: JidrFontFamily, weight: Font.Weight, size: CGFloat) -> Font {")
+    w("        if let name = resolvedPostScriptName(family: family, weight: weight) {")
+    w("            return .custom(name, size: size)")
+    w("        }")
+    w("        switch family {")
+    w("        case .mono: return .system(size: size, weight: weight, design: .monospaced)")
+    w("        case .ui, .arabic: return .system(size: size, weight: weight)")
+    w("        }")
+    w("    }")
+    w("")
+    w("    /// The PostScript name actually used, or nil when the system fallback")
+    w("    /// applies. Exposed so tests/evidence can prove the custom font is live.")
+    w("    static func resolvedPostScriptName(family: JidrFontFamily, weight: Font.Weight) -> String? {")
+    w("        guard let name = JidrFontFace.postScriptName(family: family, weight: weight),")
+    w("              registered.contains(name) else { return nil }")
+    w("        return name")
+    w("    }")
+    w("")
+    w("    /// The bundled face as an AppKit font, for the NSView drawing in the")
+    w("    /// player window (key-mapping markers, IME box). Falls back to the system")
+    w("    /// font exactly like `font(family:weight:size:)`.")
+    w("    static func nsFont(family: JidrFontFamily, weight: Font.Weight, size: CGFloat) -> NSFont {")
+    w("        if let name = resolvedPostScriptName(family: family, weight: weight),")
+    w("           let font = NSFont(name: name, size: size) { return font }")
+    w("        return .systemFont(ofSize: size)")
+    w("    }")
+    w("")
+    w("    /// True when the bundled families are registered in this process.")
+    w("    static var usesBundledFonts: Bool { !registered.isEmpty }")
+    w("}")
+    w("")
+    return "\n".join(out)
+
+
+def render_shared_semantic() -> str:
+    """Semantic layer appended to Sources/DesignTokenData.swift.
+
+    Lives in the shared source set so both the center and the standalone player
+    can use WbColor/WbType/WbIcon; the player build does not compile Center/.
+    """
+    out: list[str] = []
+    w = out.append
+    w("// MARK: - Semantic Workbench layer (shared)")
     w("//")
-    w("// Dark and light resolve automatically: every value is a dynamic `Color` built")
-    w("// from the token's light/dark pair, so a view follows the window appearance.")
-    w("")
-    w("import SwiftUI")
-    w("")
-    w("// MARK: - Colour")
+    w("// Used by both the center and the standalone player. Values come from the raw")
+    w("// layer above; nothing here is a raw hex. Dark and light resolve automatically")
+    w("// because every colour is a dynamic `Color` built from the token pair.")
     w("")
     w("/// Semantic colours. Use these names in views; never a raw hex or a system")
     w("/// colour such as `.secondary` (that would bypass D41).")
@@ -779,32 +929,23 @@ def render_semantic(tf: TokenFile) -> str:
         w(f"    static let {swift_name} = JidrBorder.{swift_name}")
     w("}")
     w("")
-    w("enum WbIcon {")
+    w("/// Icon and control sizes (the Semantic `WbIcon` enum below holds the glyph names).")
+    w("enum WbIconSize {")
     for swift_name in ("iconSm", "iconMd", "iconLg", "iconStroke", "controlHeightSm", "controlHeightMd", "controlHeightLg"):
         w(f"    static let {swift_name} = JidrSize.{swift_name}")
     w("}")
     w("")
-    w("// MARK: - Type")
-    w("")
-    w("/// App type roles (D41 `type-*`). `wbFont(_:)` below applies the font and")
-    w("/// tracking together; line height is available as `lineSpacing` for long copy.")
-    w("enum WbType {")
-    for swift_name in ("hero", "display", "headline", "title", "body", "label", "caption", "code", "metric", "metricLg"):
-        w(f"    static let {swift_name} = JidrType.{swift_name}")
+    w("/// Window, panel and breakpoint sizes from `layout` (design rules, not view state).")
+    w("enum WbLayout {")
+    for swift_name in ("windowLauncherMinWidth", "windowLauncherMinHeight", "windowTitlebarHeight",
+                       "windowSidebarWidth", "windowInspectorWidth", "windowDeviceToolbarWidth",
+                       "windowDeviceWidgetPanelWidth", "windowDeviceMinScreenHeight",
+                       "breakpointSm", "breakpointMd", "breakpointLg", "breakpointXl"):
+        w(f"    static let {swift_name} = JidrLayout.{swift_name}")
     w("}")
     w("")
-    w("extension View {")
-    w("    /// Applies a type role's font and tracking.")
-    w("    func wbFont(_ style: JidrTextStyle) -> some View {")
-    w("        font(style.font).tracking(style.tracking)")
-    w("    }")
-    w("")
-    w("    /// Hides the view when Reduce Motion is on but keeps layout otherwise.")
-    w("    func wbAnimation<V: Equatable>(_ value: V, _ motion: JidrMotionPair, reduceMotion: Bool) -> some View {")
-    w("        animation(motion.animation(reduceMotion: reduceMotion), value: value)")
-    w("    }")
-    w("}")
-    w("")
+    w(render_typography_helpers())
+    w(font_face_code())
     w("// MARK: - Motion")
     w("")
     w("/// Motion pairs with their Reduce Motion fallback (bundle.css overrides are")
@@ -842,18 +983,77 @@ def render_semantic(tf: TokenFile) -> str:
     w("")
     w("// MARK: - Icons")
     w("")
-    w(EXACT_LUCIDE_FALLBACK)
-    w("// Lucide (Slint) -> SF Symbol (SwiftUI), covering the icons used by the files")
-    w("// this line owns. The full Lucide set lives in crates/jidr-ui/ui/icons/.")
-    w("//")
-    w("//   | Lucide             | SF Symbol                  | used by                       |")
-    w("//   |--------------------|----------------------------|-------------------------------|")
-    for lucide, symbol, usage in ICON_MAPPING:
-        w(f"//   | {lucide:<18} | {symbol:<26} | {usage}")
-    w("//")
-    w("// Keep this table in sync with generate-tokens.sh (ICON_MAPPING); it is")
-    w("// reviewed with the tokens instead of drifting with the code.")
+    w("/// SF Symbol names by meaning. Generated from the semantic table in")
+    w("/// generate-tokens.sh (see Center/DesignTokens.swift for the Lucide mapping);")
+    w("/// views must use these instead of raw system image names.")
+    w("enum WbIcon {")
+    for name, symbol, lucide, usage in ICON_SYMBOLS:
+        provenance = f"Lucide {lucide}" if lucide not in ("", "SF-native") else "SF-native"
+        w(f"    /// {usage} ({symbol}; {provenance})")
+        w(f'    static let {name} = "{symbol}"')
+    w("}")
     w("")
+    return "\n".join(out)
+
+
+def render_typography_helpers() -> str:
+    """WbType + the View helpers (shared build)."""
+    out: list[str] = []
+    w = out.append
+    w("// MARK: - Type")
+    w("")
+    w("/// App type roles (D41 `type-*`). `wbFont(_:)` applies the font and tracking")
+    w("/// together; line height is available as `lineSpacing` for long copy.")
+    w("enum WbType {")
+    for swift_name in ("hero", "display", "headline", "title", "body", "label", "caption", "code", "metric", "metricLg"):
+        w(f"    static let {swift_name} = JidrType.{swift_name}")
+    w("}")
+    w("")
+    w("extension View {")
+    w("    /// Applies a type role's font and tracking.")
+    w("    func wbFont(_ style: JidrTextStyle) -> some View {")
+    w("        font(style.font).tracking(style.tracking)")
+    w("    }")
+    w("")
+    w("    /// Animates `value` with a token motion pair and its Reduce Motion fallback.")
+    w("    func wbAnimation<V: Equatable>(_ value: V, _ motion: JidrMotionPair, reduceMotion: Bool) -> some View {")
+    w("        animation(motion.animation(reduceMotion: reduceMotion), value: value)")
+    w("    }")
+    w("}")
+    w("")
+    return "\n".join(out)
+
+
+def render_center_doc() -> str:
+    """Center/DesignTokens.swift: generated mapping/design documentation.
+
+    The executable shared layer lives in Sources/DesignTokenData.swift because the
+    standalone player build only compiles Sources/*.swift; this file keeps the
+    Lucide -> SF Symbol table and the exact-Lucide fallback docs in the center.
+    """
+    out: list[str] = []
+    w = out.append
+    w(GENERATED_HEADER)
+    w("// Icon and design-token reference for the SwiftUI center.")
+    w("//")
+    w("// The executable token layer (WbColor/WbStatus/WbSpace/WbRadius/WbBorder/")
+    w("// WbIcon/WbType/WbFontResolver/WbMotion/WbShadow) is generated into")
+    w("// Sources/DesignTokenData.swift, so the standalone player shares it too.")
+    w("// This file carries the Lucide (Slint) -> SF Symbol mapping table and the")
+    w("// exact-Lucide fallback plan; both are reviewed with the token generation.")
+    w("")
+    w(EXACT_LUCIDE_FALLBACK)
+    w("// WbIcon -> SF Symbol -> Lucide source. Every icon literal in the center and")
+    w("// player views uses the WbIcon name in the first column.")
+    w("//")
+    w("//   | WbIcon                   | SF Symbol                            | source                  | used by")
+    w("//   |--------------------------|--------------------------------------|-------------------------|--------")
+    for name, symbol, lucide, usage in ICON_SYMBOLS:
+        source = f"Lucide {lucide}" if lucide not in ("", "SF-native") else "SF-native"
+        w(f"//   | {name:<24} | {symbol:<36} | {source:<23} | {usage}")
+    w("//")
+    w("// Keep this table in sync with generate-tokens.sh (ICON_SYMBOLS); it is")
+    w("// reviewed with the tokens instead of drifting with the code.")
     return "\n".join(out)
 
 
@@ -1022,7 +1222,7 @@ def icon_snippet(svg_path: Path) -> str:
         "// Minimal SVG -> SwiftUI Path snippet, generated by generate-tokens.sh --icon-snippet.",
         f"// Source: {svg_path.name} ({size:g}x{size:g} viewBox, Lucide ISC).",
         "// Paste into a Shape; stroke it with:",
-        "//   .stroke(style: StrokeStyle(lineWidth: WbIcon.iconStroke, lineCap: .round, lineJoin: .round))",
+        "//   .stroke(style: StrokeStyle(lineWidth: WbIconSize.iconStroke, lineCap: .round, lineJoin: .round))",
         "// Supported commands: M/m L/l H/h V/v C/c S/s Q/q T/t Z/z.",
     ]
     if unsupported:
@@ -1107,12 +1307,18 @@ def main(argv: list[str]) -> int:
     tf = TokenFile(data)
     reduced = reduced_motion(REDUCED_CSS_PATH)
 
-    raw = render_raw(tf, reduced)
-    semantic = render_semantic(tf)
+    font_directory = ROOT / "apps/jidr-gui/assets/fonts"
+    for family, faces in FONT_FILES.items():
+        for weight, filename in faces.items():
+            if not (font_directory / filename).is_file():
+                fail(f"bundled font missing: apps/jidr-gui/assets/fonts/{filename} (family {family}, weight {weight})")
+
+    sources = render_raw(tf, reduced) + "\n" + render_shared_semantic()
+    center = render_center_doc()
 
     stale = False
-    stale |= write_if_changed(SOURCES_OUT, raw, check)
-    stale |= write_if_changed(CENTER_OUT, semantic, check)
+    stale |= write_if_changed(SOURCES_OUT, sources, check)
+    stale |= write_if_changed(CENTER_OUT, center, check)
     if check and stale:
         return 1
     print(

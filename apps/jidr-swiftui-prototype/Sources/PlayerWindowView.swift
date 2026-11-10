@@ -86,8 +86,8 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .trailing) {
-            HStack(spacing: 0) {
-                VStack(spacing: 0) {
+            HStack(spacing: WbSpace.zero) {
+                VStack(spacing: WbSpace.zero) {
                     screenArea
                     if !chrome.fullscreen && chrome.logcatOpen && canLogcat {
                         logcatPanel
@@ -108,8 +108,8 @@ struct ContentView: View {
                     }
                 if chrome.reveal {
                     sidebarColumn
-                        .background(Color(red: 0.07, green: 0.08, blue: 0.1))
-                        .shadow(color: .black.opacity(0.6), radius: 12, x: -4)
+                        .background(WbColor.chrome)
+                        .wbShadow(WbShadow.popover)
                         .onHover { inside in
                             if inside { chrome.cancelHide() } else { chrome.hideRevealSoon() }
                         }
@@ -117,6 +117,8 @@ struct ContentView: View {
                 }
             }
         }
+        .tint(WbColor.accent)
+        .background(WbColor.chrome)
         .environment(\.locale, Locale(identifier: language == 0 ? "en" : "zh-Hans"))
         .onAppear(perform: installHandlers)
         .onChange(of: chrome.logcatOpen) { _, open in updateLogStream(open: open) }
@@ -169,31 +171,31 @@ struct ContentView: View {
     }
 
     private var stateCard: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: WbSpace.md) {
             switch linkState {
             case .running:
                 EmptyView()
             case .connecting:
                 ProgressView().controlSize(.small)
-                Text(t("正在连接设备…", "Connecting to the device…", language)).font(.callout)
+                Text(t("正在连接设备…", "Connecting to the device…", language)).wbFont(WbType.body)
             case .booting(let progress, let message):
                 if let progress {
                     ProgressView(value: progress).frame(width: 220)
                 } else {
                     ProgressView().controlSize(.small)
                 }
-                Text(t("正在启动设备…", "Starting the device…", language)).font(.callout)
+                Text(t("正在启动设备…", "Starting the device…", language)).wbFont(WbType.body)
                 if !message.isEmpty {
-                    Text(message).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    Text(message).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).multilineTextAlignment(.center)
                 }
                 Text(t("设备启动后画面会自动出现。", "The screen appears once the device has started.", language))
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
             case .stopped(let reason):
-                Image(systemName: "power").font(.system(size: 22)).foregroundStyle(.secondary)
-                Text(t("设备已停止", "The device is stopped", language)).font(.headline)
+                Image(systemName: WbIcon.power).font(.system(size: WbIconSize.iconLg)).foregroundStyle(WbColor.textSecondary)
+                Text(t("设备已停止", "The device is stopped", language)).wbFont(WbType.title)
                 Text(PlayerDiagnosis.describe(reason, language: language))
-                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                HStack(spacing: 8) {
+                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).multilineTextAlignment(.center)
+                HStack(spacing: WbSpace.sm) {
                     if transport.onStartDevice != nil {
                         Button(t("启动设备", "Start device", language)) { transport.startDevice() }
                             .buttonStyle(.borderedProminent)
@@ -202,22 +204,22 @@ struct ContentView: View {
                         .disabled(!canReconnect)
                 }
             case .disconnected(let reason):
-                Image(systemName: "wifi.slash").font(.system(size: 22)).foregroundStyle(.secondary)
-                Text(t("连接已断开", "The connection was lost", language)).font(.headline)
+                Image(systemName: WbIcon.disconnected).font(.system(size: WbIconSize.iconLg)).foregroundStyle(WbColor.textSecondary)
+                Text(t("连接已断开", "The connection was lost", language)).wbFont(WbType.title)
                 Text(PlayerDiagnosis.describe(reason, language: language))
-                    .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).multilineTextAlignment(.center)
                 Button(t("重新连接", "Reconnect", language)) { transport.reconnect() }
                     .buttonStyle(.borderedProminent)
                     .disabled(!canReconnect)
                 if !canReconnect {
-                    Text(reconnectBlocker).font(.caption2).foregroundStyle(.secondary)
+                    Text(reconnectBlocker).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                 }
             }
         }
-        .padding(18)
-        .frame(maxWidth: 320)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-        .padding(24)
+        .padding(WbSpace.lg)
+        .frame(maxWidth: WbLayout.windowDeviceWidgetPanelWidth)
+        .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.lg))
+        .padding(WbSpace.xl)
     }
 
     private var reconnectBlocker: String {
@@ -229,15 +231,15 @@ struct ContentView: View {
     @ViewBuilder private var mappingToggles: some View {
         if !mapping.editing && !mapping.scheme.bindings.isEmpty {
             VStack {
-                HStack(spacing: 8) {
+                HStack(spacing: WbSpace.sm) {
                     Button(mapping.enabled ? "停用键位" : "启用键位") { mapping.enabled.toggle() }
                     Button(mapping.hints ? "隐藏提示" : "显示提示") { mapping.hints.toggle() }
                     Spacer()
                 }
-                .font(.caption)
-                .padding(6)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                .padding(.horizontal, 8)
+                .wbFont(WbType.caption)
+                .padding(WbSpace.sm)
+                .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.md))
+                .padding(.horizontal, WbSpace.sm)
                 .padding(.top, 44)
                 Spacer()
             }
@@ -247,36 +249,36 @@ struct ContentView: View {
 
     private var pixelChip: some View {
         VStack {
-            HStack(spacing: 8) {
+            HStack(spacing: WbSpace.sm) {
                 Text(t("原始像素 · 1 设备像素 = 1 屏幕像素", "Pixel-perfect · 1 device pixel = 1 screen pixel", language))
-                    .font(.system(size: 12))
+                    .wbFont(WbType.label)
                 Text("\(transport.frameWidth)×\(transport.frameHeight)")
-                    .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
+                    .wbFont(WbType.code).foregroundStyle(WbColor.textSecondary)
                 Button(t("适应", "Fit", language)) { transport.onFitScreen?() }.controlSize(.small)
             }
-            .padding(.horizontal, 10).padding(.vertical, 6)
-            .background(.regularMaterial, in: Capsule())
+            .padding(.horizontal, WbSpace.md).padding(.vertical, WbSpace.sm)
+            .background(WbColor.overlay, in: Capsule())
             Spacer()
         }
-        .padding(12)
+        .padding(WbSpace.md)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func dropOverlay(_ drop: PlayerDrop.Label) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(Color.accentColor, lineWidth: 2)
-                .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 16))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(drop.title).font(.system(size: 13, weight: .semibold))
-                Text(drop.body).font(.system(size: 12)).foregroundStyle(.secondary)
+            RoundedRectangle(cornerRadius: WbRadius.xl)
+                .strokeBorder(WbColor.accent, lineWidth: WbBorder.focus)
+                .background(WbColor.accentContainer.opacity(0.6), in: RoundedRectangle(cornerRadius: WbRadius.xl))
+            VStack(alignment: .leading, spacing: WbSpace.xs) {
+                Text(drop.title).wbFont(WbType.body.weighted(.semibold))
+                Text(drop.body).wbFont(WbType.label).foregroundStyle(WbColor.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(14)
+            .padding(WbSpace.lg)
             .frame(width: 290, alignment: .leading)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.lg))
         }
-        .padding(12)
+        .padding(WbSpace.md)
         .allowsHitTesting(false)
     }
 
@@ -284,10 +286,10 @@ struct ContentView: View {
         VStack {
             Spacer()
             Text(PlayerStatusText.translate(text, language: language))
-                .font(.callout)
-                .padding(10)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                .padding(8)
+                .wbFont(WbType.body)
+                .padding(WbSpace.md)
+                .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.md))
+                .padding(WbSpace.sm)
         }
         .allowsHitTesting(false)
     }
@@ -295,19 +297,19 @@ struct ContentView: View {
     @ViewBuilder private var recordingPill: some View {
         if transport.recording != .idle {
             VStack {
-                HStack(spacing: 6) {
-                    Circle().fill(.red).frame(width: 8, height: 8)
+                HStack(spacing: WbSpace.sm) {
+                    Circle().fill(WbColor.negative).frame(width: 8, height: 8)
                     TimelineView(.periodic(from: Date(), by: 1)) { _ in
                         Text(recordingText)
-                            .font(.system(size: 12, weight: .medium))
+                            .wbFont(WbType.label.weighted(.medium))
                             .monospacedDigit()
                     }
                 }
-                .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(.regularMaterial, in: Capsule())
+                .padding(.horizontal, WbSpace.md).padding(.vertical, WbSpace.xs)
+                .background(WbColor.overlay, in: Capsule())
                 Spacer()
             }
-            .padding(12)
+            .padding(WbSpace.md)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         }
     }
@@ -332,12 +334,13 @@ struct ContentView: View {
             TimelineView(.periodic(from: Date(), by: 0.5)) { _ in
                 let snapshot = transport.frameSnapshot()
                 Text(debugText(snapshot))
-                    .font(.system(size: 11, design: .monospaced))
+                    .wbFont(WbType.code)
+                    // No design token for it: the debug overlay keeps the terminal green of the Slint build.
                     .foregroundStyle(Color(red: 0.49, green: 0.99, blue: 0))
-                    .padding(6)
-                    .background(Color.black.opacity(0.7), in: RoundedRectangle(cornerRadius: 6))
+                    .padding(WbSpace.sm)
+                    .background(WbColor.scrim, in: RoundedRectangle(cornerRadius: WbRadius.sm))
             }
-            .padding(8)
+            .padding(WbSpace.sm)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .allowsHitTesting(false)
@@ -357,7 +360,7 @@ struct ContentView: View {
     private func tool(_ title: String, _ symbol: String, enabled: Bool = true,
                       action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 17, weight: .medium))
+            Image(systemName: symbol).font(.system(size: WbIconSize.iconLg, weight: .medium))
                 .frame(width: sidebarWidth, height: 38)
                 .contentShape(Rectangle())
         }
@@ -370,63 +373,63 @@ struct ContentView: View {
 
     private var sidebarColumn: some View {
         ScrollView(.vertical) {
-            VStack(spacing: 0) {
-                tool("返回", "arrow.left", enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "back"]) }
-                tool("主页", "circle", enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "home"]) }
-                tool("最近使用", "square", enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "recents"]) }
+            VStack(spacing: WbSpace.zero) {
+                tool("返回", WbIcon.back, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "back"]) }
+                tool("主页", WbIcon.circle, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "home"]) }
+                tool("最近使用", WbIcon.square, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "recents"]) }
                 separator
-                tool("电源", "power", enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "power"]) }
+                tool("电源", WbIcon.power, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "power"]) }
                 if transport.onAdvanced != nil {
-                    tool(t("高级工具", "Advanced tools", language), "slider.horizontal.3") { chrome.advancedAction?() }
+                    tool(t("高级工具", "Advanced tools", language), WbIcon.advancedTools) { chrome.advancedAction?() }
                 }
-                tool("音量增大", "speaker.wave.2", enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "volume_up"]) }
-                tool("音量减小", "speaker.wave.1", enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "volume_down"]) }
-                tool("向左旋转", "rotate.left", enabled: linkState.isRunning) { transport.send(["type": "rotate", "direction": 1]) }
-                tool("向右旋转", "rotate.right", enabled: linkState.isRunning) { transport.send(["type": "rotate", "direction": -1]) }
+                tool("音量增大", WbIcon.volumeUp, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "volume_up"]) }
+                tool("音量减小", WbIcon.volumeDown, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "volume_down"]) }
+                tool("向左旋转", WbIcon.rotateLeft, enabled: linkState.isRunning) { transport.send(["type": "rotate", "direction": 1]) }
+                tool("向右旋转", WbIcon.rotateRight, enabled: linkState.isRunning) { transport.send(["type": "rotate", "direction": -1]) }
                 separator
-                tool("键位映射", "keyboard", enabled: linkState.isRunning) {
+                tool("键位映射", WbIcon.keyboard, enabled: linkState.isRunning) {
                     if !mapping.editing {
                         if !mapping.begin() { transport.onStatus?(mapping.error ?? t("键位方案尚未加载", "The key mapping has not loaded", language)) }
                     }
                 }
-                tool(t("快捷键", "Shortcuts", language), "command") { chrome.shortcutsPanel.toggle() }
+                tool(t("快捷键", "Shortcuts", language), WbIcon.command) { chrome.shortcutsPanel.toggle() }
                 tool(transport.recording == .idle || transport.recording == .starting ? "开始录屏" : "停止录屏",
-                     transport.recording == .idle || transport.recording == .starting ? "record.circle" : "stop.circle",
+                     transport.recording == .idle || transport.recording == .starting ? WbIcon.record : WbIcon.recordStop,
                      enabled: linkState.isRunning) { chrome.toggleRecordingAction?() }
-                tool("截图", "camera", enabled: linkState.isRunning) { chrome.chooseScreenshotAction?() }
-                tool("安装 APK", "square.and.arrow.down", enabled: linkState.isRunning) { chrome.chooseAPKAction?() }
-                tool("发送文件", "folder", enabled: linkState.isRunning) { chrome.chooseFileAction?() }
+                tool("截图", WbIcon.camera, enabled: linkState.isRunning) { chrome.chooseScreenshotAction?() }
+                tool("安装 APK", WbIcon.installAPK, enabled: linkState.isRunning) { chrome.chooseAPKAction?() }
+                tool("发送文件", WbIcon.folder, enabled: linkState.isRunning) { chrome.chooseFileAction?() }
                 separator
-                tool(t("调试浮层", "Debug overlay", language), "gauge", enabled: linkState.isRunning) { chrome.overlay.toggle() }
+                tool(t("调试浮层", "Debug overlay", language), WbIcon.performance, enabled: linkState.isRunning) { chrome.overlay.toggle() }
                 if canLogcat {
-                    tool(t("日志", "Logcat", language), "text.alignleft", enabled: linkState.isRunning) { chrome.logcatOpen.toggle() }
+                    tool(t("日志", "Logcat", language), WbIcon.logcat, enabled: linkState.isRunning) { chrome.logcatOpen.toggle() }
                 }
-                tool(t("卸载应用", "Uninstall app", language), "trash", enabled: linkState.isRunning) { showUninstall = true }
-                tool("画面原始像素大小", "1.magnifyingglass", enabled: linkState.isRunning) { chrome.pixelPerfectAction?() }
+                tool(t("卸载应用", "Uninstall app", language), WbIcon.trash, enabled: linkState.isRunning) { showUninstall = true }
+                tool("画面原始像素大小", WbIcon.pixelPerfect, enabled: linkState.isRunning) { chrome.pixelPerfectAction?() }
                 tool(chrome.fullscreen ? t("退出全屏", "Exit fullscreen", language) : "全屏",
                      iconForFullscreen, enabled: true) { chrome.toggleFullscreenAction?() }
             }
         }
         .scrollIndicators(.hidden)
-        .foregroundStyle(Color(red: 0.65, green: 0.69, blue: 0.75))
+        .foregroundStyle(WbColor.textSecondary)
         .frame(width: sidebarWidth)
-        .background(Color(red: 0.07, green: 0.08, blue: 0.1))
+        .background(WbColor.chrome)
     }
 
     private var iconForFullscreen: String {
-        chrome.fullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"
+        chrome.fullscreen ? WbIcon.exitFullscreen : WbIcon.enterFullscreen
     }
 
     private var separator: some View {
-        Divider().opacity(0.3).padding(.horizontal, 10).padding(.vertical, 3)
+        Divider().opacity(0.3).padding(.horizontal, WbSpace.md).padding(.vertical, WbSpace.xs)
     }
 
     // MARK: Panels
 
     private var mappingBar: some View {
         VStack {
-            HStack(spacing: 8) {
-                Text(mapping.pending ? "按键绑定中…" : "点击画面添加键位").font(.caption)
+            HStack(spacing: WbSpace.sm) {
+                Text(mapping.pending ? "按键绑定中…" : "点击画面添加键位").wbFont(WbType.caption)
                 Button("清空") { mapping.clear() }
                 Button("取消") { mapping.cancel() }
                 Button("保存") {
@@ -438,22 +441,22 @@ struct ContentView: View {
                     }
                 }
             }
-            .padding(8)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .padding(WbSpace.sm)
+            .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.md))
             Spacer()
         }
-        .padding(8)
+        .padding(WbSpace.sm)
         .padding(.trailing, sidebar.visible && !chrome.fullscreen ? sidebarWidth : 0)
     }
 
     private var shortcutsPanel: some View {
         VStack {
             HStack {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: WbSpace.sm) {
                     Text(shortcuts.capture == nil
                          ? t("快捷键（点击编辑，Esc 取消）", "Shortcuts (click to edit, Esc cancels)", language)
                          : t("按下新的快捷键", "Press a new shortcut", language))
-                        .font(.system(size: 11, weight: .semibold))
+                        .wbFont(WbType.caption.weighted(.semibold))
                     ForEach(GameShortcutAction.allCases, id: \.rawValue) { action in
                         Button {
                             shortcutError = nil
@@ -462,90 +465,90 @@ struct ContentView: View {
                             }
                         } label: {
                             HStack {
-                                Text(GameShortcutsStore.actionLabel(action, language: language)).font(.caption)
+                                Text(GameShortcutsStore.actionLabel(action, language: language)).wbFont(WbType.caption)
                                 Spacer()
                                 Text(shortcuts.binding(for: action)?.display ?? "—")
-                                    .font(.system(size: 11, design: .monospaced))
-                                    .foregroundStyle(.secondary)
+                                    .wbFont(WbType.code)
+                                    .foregroundStyle(WbColor.textSecondary)
                             }
                         }
                         .buttonStyle(.bordered)
                     }
                     if let shortcutError {
-                        Text(shortcutError).font(.caption2).foregroundStyle(.red)
+                        Text(shortcutError).wbFont(WbType.caption).foregroundStyle(WbColor.negative)
                     }
                     if let failure = shortcuts.failure {
-                        Text(ShortcutFailure.describe(failure, language: language)).font(.caption2).foregroundStyle(.orange)
+                        Text(ShortcutFailure.describe(failure, language: language)).wbFont(WbType.caption).foregroundStyle(WbColor.warning)
                     }
                 }
-                .padding(10)
-                .frame(width: 300)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .padding(WbSpace.md)
+                .frame(width: WbLayout.windowInspectorWidth)
+                .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.md))
                 Spacer()
             }
-            .padding(8)
+            .padding(WbSpace.sm)
             Spacer()
         }
     }
 
     @ViewBuilder private var logcatBar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "text.alignleft").font(.system(size: 12))
-            Text("Logcat").font(.system(size: 12, weight: .semibold))
+        HStack(spacing: WbSpace.md) {
+            Image(systemName: WbIcon.logcat).wbFont(WbType.label)
+            Text("Logcat").wbFont(WbType.label.weighted(.semibold))
             if logStream.errorCount > 0 {
                 Text(logStream.errorCount == 1 ? t("1 个错误", "1 error", language)
                                                : t("\(logStream.errorCount) 个错误", "\(logStream.errorCount) errors", language))
-                    .font(.system(size: 10, weight: .medium))
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Color.red.opacity(0.25), in: Capsule())
+                    .wbFont(WbType.caption.weighted(.medium))
+                    .padding(.horizontal, WbSpace.sm).padding(.vertical, WbSpace.xxs)
+                    .background(WbStatus.negative.container, in: Capsule())
             }
-            Text(logStream.lastError).font(.system(size: 11, design: .monospaced))
-                .lineLimit(1).foregroundStyle(Color(red: 0.9, green: 0.45, blue: 0.45))
+            Text(logStream.lastError).wbFont(WbType.code)
+                .lineLimit(1).foregroundStyle(WbColor.negative)
             Spacer()
-            Text("⌘L").font(.system(size: 10)).foregroundStyle(.secondary)
+            Text("⌘L").wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, WbSpace.lg)
         .frame(height: 34)
-        .background(Color(red: 0.07, green: 0.08, blue: 0.1))
+        .background(WbColor.chrome)
         .contentShape(Rectangle())
         .onTapGesture { chrome.logcatOpen = true }
         .overlay(alignment: .top) { Divider().opacity(0.4) }
     }
 
     private var logcatPanel: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Text("Logcat").font(.system(size: 12, weight: .semibold))
+        VStack(spacing: WbSpace.zero) {
+            HStack(spacing: WbSpace.sm) {
+                Text("Logcat").wbFont(WbType.label.weighted(.semibold))
                 Picker("", selection: $logLevel) {
                     ForEach(["V", "D", "I", "W", "E", "F"], id: \.self) { Text($0).tag($0) }
                 }
                 .labelsHidden().frame(width: 66)
                 TextField(t("过滤标签、PID 或文本", "Filter tag, PID or text", language), text: $logFilter)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 11))
+                    .wbFont(WbType.caption)
                 Spacer()
                 if let error = logStream.error, !error.isEmpty {
                     Text(PlayerStatusText.translate(error, language: language))
-                        .font(.caption2).foregroundStyle(.orange).lineLimit(1)
+                        .wbFont(WbType.caption).foregroundStyle(WbColor.warning).lineLimit(1)
                 }
-                Button { logStream.clear() } label: { Image(systemName: "trash") }
+                Button { logStream.clear() } label: { Image(systemName: WbIcon.trash) }
                     .buttonStyle(.borderless)
-                Button { chrome.logcatOpen = false } label: { Image(systemName: "xmark") }
+                Button { chrome.logcatOpen = false } label: { Image(systemName: WbIcon.close) }
                     .buttonStyle(.borderless)
             }
-            .padding(.horizontal, 8).frame(height: 34)
-            .background(Color(red: 0.09, green: 0.1, blue: 0.12))
+            .padding(.horizontal, WbSpace.sm).frame(height: 34)
+            .background(WbColor.chrome)
             Divider().opacity(0.4)
             ScrollViewReader { reader in
                 ScrollView {
                     Text(logStream.text)
-                        .font(.system(size: 10, design: .monospaced))
+                        .wbFont(WbType.code)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(6)
+                        .padding(WbSpace.sm)
                     Color.clear.frame(height: 1).id("log-end")
                 }
-                .background(Color(red: 0.045, green: 0.05, blue: 0.06))
+                .background(WbColor.sunken)
                 .onChange(of: logStream.revision) { _, _ in
                     reader.scrollTo("log-end", anchor: .bottom)
                 }
@@ -554,20 +557,20 @@ struct ContentView: View {
             Text(logStream.active
                  ? t("跟随中", "Following", language) + " · \(transport.device ?? "")"
                  : t("未连接", "Not connected", language))
-                .font(.system(size: 10)).foregroundStyle(.secondary)
+                .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8).frame(height: 22)
+                .padding(.horizontal, WbSpace.sm).frame(height: 22)
         }
         .frame(height: 232)
     }
 
     private var uninstallSheet: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(t("卸载应用", "Uninstall app", language)).font(.headline)
+        VStack(alignment: .leading, spacing: WbSpace.md) {
+            Text(t("卸载应用", "Uninstall app", language)).wbFont(WbType.title)
             Text(t("可通过应用包名卸载设备中的应用。卸载会删除该应用的应用数据，无法撤销。",
                    "Uninstall an app from the device by package name. Uninstalling deletes the app's data and cannot be undone.",
                    language))
-                .font(.caption).foregroundStyle(.secondary)
+                .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             TextField(t("应用包名，例如 com.example.game", "Package name, e.g. com.example.game", language),
                       text: $uninstallPackage)
@@ -583,7 +586,7 @@ struct ContentView: View {
                 .disabled(uninstallPackage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
-        .padding(20)
+        .padding(WbSpace.xl)
         .frame(width: 420)
     }
 
@@ -619,4 +622,4 @@ struct ContentView: View {
     }
 }
 
-private let sidebarWidth: CGFloat = 48
+private let sidebarWidth = WbLayout.windowDeviceToolbarWidth

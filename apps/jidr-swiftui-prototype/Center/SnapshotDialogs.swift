@@ -58,7 +58,7 @@ struct SnapshotSaveDialog: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             if !device.running {
-                Label(t("启动设备后才能保存快照。", "Start the device to save a snapshot."), systemImage: "info.circle")
+                Label(t("启动设备后才能保存快照。", "Start the device to save a snapshot."), systemImage: WbIcon.info)
                     .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
             }
             if saving {

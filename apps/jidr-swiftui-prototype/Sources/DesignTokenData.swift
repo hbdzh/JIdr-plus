@@ -395,71 +395,72 @@ struct JidrShadowStyle {
 
 // MARK: - Type
 
-/// Typography roles from `type.groups` (App, Arabic, Landing). The SwiftUI
-/// prototype does not bundle Geist/Noto Kufi yet, so `font` renders with the
-/// system font; `mono` roles use the monospaced design. The token sizes,
-/// weights, line heights and tracking are exact.
+/// Typography roles from `type.groups` (App, Arabic, Landing). The token
+/// families are Geist / Geist Mono / Noto Kufi Arabic; `font` resolves the
+/// bundled face when the app registered it and falls back to the system font
+/// otherwise (see WbFontResolver). Sizes, weights, line heights and tracking
+/// are exact token values.
 enum JidrType {
     static let hero = JidrTextStyle(size: 32, weight: .semibold,
-        lineHeight: 38, tracking: -0.8, mono: false)
+        lineHeight: 38, tracking: -0.8, family: .ui)
     static let display = JidrTextStyle(size: 28, weight: .semibold,
-        lineHeight: 34, tracking: -0.56, mono: false)
+        lineHeight: 34, tracking: -0.56, family: .ui)
     static let headline = JidrTextStyle(size: 20, weight: .semibold,
-        lineHeight: 26, tracking: -0.3, mono: false)
+        lineHeight: 26, tracking: -0.3, family: .ui)
     static let title = JidrTextStyle(size: 15, weight: .semibold,
-        lineHeight: 20, tracking: -0.07, mono: false)
+        lineHeight: 20, tracking: -0.07, family: .ui)
     static let body = JidrTextStyle(size: 13, weight: .regular,
-        lineHeight: 18, tracking: 0, mono: false)
+        lineHeight: 18, tracking: 0, family: .ui)
     static let label = JidrTextStyle(size: 12, weight: .medium,
-        lineHeight: 16, tracking: 0, mono: false)
+        lineHeight: 16, tracking: 0, family: .ui)
     static let caption = JidrTextStyle(size: 11, weight: .regular,
-        lineHeight: 14, tracking: 0.11, mono: false)
+        lineHeight: 14, tracking: 0.11, family: .ui)
     static let code = JidrTextStyle(size: 12, weight: .regular,
-        lineHeight: 18, tracking: 0, mono: true)
+        lineHeight: 18, tracking: 0, family: .mono)
     static let metric = JidrTextStyle(size: 13, weight: .medium,
-        lineHeight: 18, tracking: 0, mono: true)
+        lineHeight: 18, tracking: 0, family: .mono)
     static let metricLg = JidrTextStyle(size: 22, weight: .medium,
-        lineHeight: 28, tracking: -0.22, mono: true)
+        lineHeight: 28, tracking: -0.22, family: .mono)
     static let heroAr = JidrTextStyle(size: 30, weight: .semibold,
-        lineHeight: 52, tracking: 0, mono: false)
+        lineHeight: 52, tracking: 0, family: .arabic)
     static let displayAr = JidrTextStyle(size: 26, weight: .semibold,
-        lineHeight: 46, tracking: 0, mono: false)
+        lineHeight: 46, tracking: 0, family: .arabic)
     static let headlineAr = JidrTextStyle(size: 19, weight: .semibold,
-        lineHeight: 34, tracking: 0, mono: false)
+        lineHeight: 34, tracking: 0, family: .arabic)
     static let titleAr = JidrTextStyle(size: 15, weight: .semibold,
-        lineHeight: 26, tracking: 0, mono: false)
+        lineHeight: 26, tracking: 0, family: .arabic)
     static let bodyAr = JidrTextStyle(size: 14, weight: .regular,
-        lineHeight: 24, tracking: 0, mono: false)
+        lineHeight: 24, tracking: 0, family: .arabic)
     static let labelAr = JidrTextStyle(size: 13, weight: .medium,
-        lineHeight: 20, tracking: 0, mono: false)
+        lineHeight: 20, tracking: 0, family: .arabic)
     static let captionAr = JidrTextStyle(size: 12, weight: .regular,
-        lineHeight: 18, tracking: 0, mono: false)
+        lineHeight: 18, tracking: 0, family: .arabic)
     static let webHeroAr = JidrTextStyle(size: 52, weight: .semibold,
-        lineHeight: 80, tracking: 0, mono: false)
+        lineHeight: 80, tracking: 0, family: .arabic)
     static let webHeroSmAr = JidrTextStyle(size: 34, weight: .semibold,
-        lineHeight: 56, tracking: 0, mono: false)
+        lineHeight: 56, tracking: 0, family: .arabic)
     static let webDisplayAr = JidrTextStyle(size: 34, weight: .semibold,
-        lineHeight: 56, tracking: 0, mono: false)
+        lineHeight: 56, tracking: 0, family: .arabic)
     static let webHeadlineAr = JidrTextStyle(size: 21, weight: .semibold,
-        lineHeight: 36, tracking: 0, mono: false)
+        lineHeight: 36, tracking: 0, family: .arabic)
     static let webLedeAr = JidrTextStyle(size: 19, weight: .regular,
-        lineHeight: 34, tracking: 0, mono: false)
+        lineHeight: 34, tracking: 0, family: .arabic)
     static let webBodyAr = JidrTextStyle(size: 17, weight: .regular,
-        lineHeight: 30, tracking: 0, mono: false)
+        lineHeight: 30, tracking: 0, family: .arabic)
     static let webHero = JidrTextStyle(size: 64, weight: .bold,
-        lineHeight: 66, tracking: -2.24, mono: false)
+        lineHeight: 66, tracking: -2.24, family: .ui)
     static let webHeroSm = JidrTextStyle(size: 40, weight: .bold,
-        lineHeight: 44, tracking: -1.2, mono: false)
+        lineHeight: 44, tracking: -1.2, family: .ui)
     static let webDisplay = JidrTextStyle(size: 40, weight: .semibold,
-        lineHeight: 46, tracking: -1, mono: false)
+        lineHeight: 46, tracking: -1, family: .ui)
     static let webHeadline = JidrTextStyle(size: 22, weight: .semibold,
-        lineHeight: 28, tracking: -0.33, mono: false)
+        lineHeight: 28, tracking: -0.33, family: .ui)
     static let webLede = JidrTextStyle(size: 19, weight: .regular,
-        lineHeight: 30, tracking: 0, mono: false)
+        lineHeight: 30, tracking: 0, family: .ui)
     static let webBody = JidrTextStyle(size: 16, weight: .regular,
-        lineHeight: 26, tracking: 0, mono: false)
+        lineHeight: 26, tracking: 0, family: .ui)
     static let webCode = JidrTextStyle(size: 14, weight: .regular,
-        lineHeight: 22, tracking: 0, mono: true)
+        lineHeight: 22, tracking: 0, family: .mono)
 }
 
 struct JidrTextStyle {
@@ -467,12 +468,11 @@ struct JidrTextStyle {
     let weight: Font.Weight
     let lineHeight: CGFloat
     let tracking: CGFloat
-    let mono: Bool
+    let family: JidrFontFamily
 
-    var font: Font {
-        mono ? .system(size: size, weight: weight, design: .monospaced)
-             : .system(size: size, weight: weight)
-    }
+    /// The bundled face for this role, or the system font when the app did
+    /// not register the font files (see WbFontResolver).
+    var font: Font { WbFontResolver.font(family: family, weight: weight, size: size) }
 
     /// Extra line spacing to approximate the token line height (SwiftUI has
     /// no direct line-height control; 1.2x the size is the system default).
@@ -480,14 +480,626 @@ struct JidrTextStyle {
 
     func weighted(_ weight: Font.Weight) -> JidrTextStyle {
         JidrTextStyle(size: size, weight: weight, lineHeight: lineHeight,
-                      tracking: tracking, mono: mono)
+                      tracking: tracking, family: family)
     }
 }
 
-/// The token font stacks (CSS order). Bundling the font files is a later
-/// line; these strings are kept so the mapping to D41 stays visible.
-enum JidrFontFamily {
-    static let ui = "Geist"
-    static let mono = "Geist Mono"
-    static let arabic = "Noto Kufi Arabic"
+// MARK: - Semantic Workbench layer (shared)
+//
+// Used by both the center and the standalone player. Values come from the raw
+// layer above; nothing here is a raw hex. Dark and light resolve automatically
+// because every colour is a dynamic `Color` built from the token pair.
+
+/// Semantic colours. Use these names in views; never a raw hex or a system
+/// colour such as `.secondary` (that would bypass D41).
+enum WbColor {
+    /// window ground and content
+    static let surface = JidrColor.surfaceBase.color
+    /// titlebar, sidebar, toolbars
+    static let chrome = JidrColor.surfaceChrome.color
+    /// cards, inspector, panels
+    static let raised = JidrColor.surfaceRaised.color
+    /// wells: code, map, log, tracks
+    static let sunken = JidrColor.surfaceSunken.color
+    /// buttons and inputs
+    static let control = JidrColor.surfaceControl.color
+    /// control fill on hover
+    static let controlHover = JidrColor.surfaceControlHover.color
+    /// control fill while pressed
+    static let controlPressed = JidrColor.surfaceControlPressed.color
+    /// selected row
+    static let selected = JidrColor.surfaceSelected.color
+    /// popovers, menus, command palette
+    static let overlay = JidrColor.surfaceOverlay.color
+    /// device bezel
+    static let bezel = JidrColor.surfaceDeviceBezel.color
+    /// body text
+    static let textPrimary = JidrColor.textPrimary.color
+    /// metadata and labels
+    static let textSecondary = JidrColor.textSecondary.color
+    /// faint metadata
+    static let textTertiary = JidrColor.textTertiary.color
+    /// disabled text only
+    static let textDisabled = JidrColor.textDisabled.color
+    /// text on the accent fill
+    static let textOnAccent = JidrColor.textOnAccent.color
+    /// serials, code
+    static let textCode = JidrColor.textCode.color
+    /// links
+    static let textLink = JidrColor.textLink.color
+    /// action and selection
+    static let accent = JidrColor.accentFill.color
+    /// accent hover
+    static let accentHover = JidrColor.accentHover.color
+    /// accent pressed
+    static let accentPressed = JidrColor.accentPressed.color
+    /// accent-coloured text
+    static let accentText = JidrColor.accentText.color
+    /// text on the accent fill
+    static let accentOnAccent = JidrColor.accentOnAccent.color
+    /// tinted accent surface
+    static let accentContainer = JidrColor.accentContainer.color
+    /// dividers
+    static let borderSubtle = JidrColor.borderSubtle.color
+    /// card and panel outlines
+    static let borderDefault = JidrColor.borderDefault.color
+    /// input outlines
+    static let borderStrong = JidrColor.borderStrong.color
+    /// focus outline
+    static let focusRing = JidrColor.focusRing.color
+    /// behind sheets and dialogs
+    static let scrim = JidrColor.scrim.color
+    /// text selection
+    static let selection = JidrColor.selection.color
+    /// informational text
+    static let info = JidrColor.info.color
+    /// positive text
+    static let positive = JidrColor.positive.color
+    /// negative text
+    static let negative = JidrColor.negative.color
+    /// negative button fill
+    static let negativeFill = JidrColor.negativeFill.color
+    /// negative button hover
+    static let negativeFillHover = JidrColor.negativeFillHover.color
+    /// warning text
+    static let warning = JidrColor.warning.color
+    /// root violet (root only)
+    static let root = JidrColor.root.color
+}
+
+/// A status pair from the design system: container (fill), on-container
+/// (text/icon) and border. Status is never conveyed by colour alone: pair it
+/// with the label/icon the design system specifies.
+struct WbStatusColor {
+    let container: Color
+    let onContainer: Color
+    let border: Color
+}
+
+enum WbStatus {
+    /// neutral status
+    static let neutral = WbStatusColor(
+        container: JidrColor.statusNeutralContainer.color,
+        onContainer: JidrColor.statusNeutralOnContainer.color,
+        border: JidrColor.statusNeutralBorder.color)
+    /// positive status
+    static let positive = WbStatusColor(
+        container: JidrColor.statusPositiveContainer.color,
+        onContainer: JidrColor.statusPositiveOnContainer.color,
+        border: JidrColor.statusPositiveBorder.color)
+    /// transition status
+    static let transition = WbStatusColor(
+        container: JidrColor.statusTransitionContainer.color,
+        onContainer: JidrColor.statusTransitionOnContainer.color,
+        border: JidrColor.statusTransitionBorder.color)
+    /// warning status
+    static let warning = WbStatusColor(
+        container: JidrColor.statusWarningContainer.color,
+        onContainer: JidrColor.statusWarningOnContainer.color,
+        border: JidrColor.statusWarningBorder.color)
+    /// negative status
+    static let negative = WbStatusColor(
+        container: JidrColor.statusNegativeContainer.color,
+        onContainer: JidrColor.statusNegativeOnContainer.color,
+        border: JidrColor.statusNegativeBorder.color)
+    static let deviceStopped = WbStatusColor(
+        container: JidrColor.statusDeviceStoppedContainer.color,
+        onContainer: JidrColor.statusDeviceStoppedOnContainer.color,
+        border: JidrColor.statusDeviceStoppedBorder.color)
+    static let deviceStarting = WbStatusColor(
+        container: JidrColor.statusDeviceStartingContainer.color,
+        onContainer: JidrColor.statusDeviceStartingOnContainer.color,
+        border: JidrColor.statusDeviceStartingBorder.color)
+    static let deviceBooting = WbStatusColor(
+        container: JidrColor.statusDeviceBootingContainer.color,
+        onContainer: JidrColor.statusDeviceBootingOnContainer.color,
+        border: JidrColor.statusDeviceBootingBorder.color)
+    static let deviceRunning = WbStatusColor(
+        container: JidrColor.statusDeviceRunningContainer.color,
+        onContainer: JidrColor.statusDeviceRunningOnContainer.color,
+        border: JidrColor.statusDeviceRunningBorder.color)
+    static let devicePaused = WbStatusColor(
+        container: JidrColor.statusDevicePausedContainer.color,
+        onContainer: JidrColor.statusDevicePausedOnContainer.color,
+        border: JidrColor.statusDevicePausedBorder.color)
+    static let deviceStopping = WbStatusColor(
+        container: JidrColor.statusDeviceStoppingContainer.color,
+        onContainer: JidrColor.statusDeviceStoppingOnContainer.color,
+        border: JidrColor.statusDeviceStoppingBorder.color)
+    static let deviceCrashed = WbStatusColor(
+        container: JidrColor.statusDeviceCrashedContainer.color,
+        onContainer: JidrColor.statusDeviceCrashedOnContainer.color,
+        border: JidrColor.statusDeviceCrashedBorder.color)
+    static let deviceBusy = WbStatusColor(
+        container: JidrColor.statusDeviceBusyContainer.color,
+        onContainer: JidrColor.statusDeviceBusyOnContainer.color,
+        border: JidrColor.statusDeviceBusyBorder.color)
+    static let jobQueued = WbStatusColor(
+        container: JidrColor.statusJobQueuedContainer.color,
+        onContainer: JidrColor.statusJobQueuedOnContainer.color,
+        border: JidrColor.statusJobQueuedBorder.color)
+    static let jobRunning = WbStatusColor(
+        container: JidrColor.statusJobRunningContainer.color,
+        onContainer: JidrColor.statusJobRunningOnContainer.color,
+        border: JidrColor.statusJobRunningBorder.color)
+    static let jobDone = WbStatusColor(
+        container: JidrColor.statusJobDoneContainer.color,
+        onContainer: JidrColor.statusJobDoneOnContainer.color,
+        border: JidrColor.statusJobDoneBorder.color)
+    static let jobFailed = WbStatusColor(
+        container: JidrColor.statusJobFailedContainer.color,
+        onContainer: JidrColor.statusJobFailedOnContainer.color,
+        border: JidrColor.statusJobFailedBorder.color)
+    static let jobCancelled = WbStatusColor(
+        container: JidrColor.statusJobCancelledContainer.color,
+        onContainer: JidrColor.statusJobCancelledOnContainer.color,
+        border: JidrColor.statusJobCancelledBorder.color)
+    static let rootSoft = WbStatusColor(
+        container: JidrColor.statusRootSoftContainer.color,
+        onContainer: JidrColor.statusRootSoftOnContainer.color,
+        border: JidrColor.statusRootSoftBorder.color)
+    static let rootStrong = WbStatusColor(
+        container: JidrColor.statusRootStrongContainer.color,
+        onContainer: JidrColor.statusRootStrongOnContainer.color,
+        border: JidrColor.statusRootStrongBorder.color)
+    static let rootNotRooted = WbStatusColor(
+        container: JidrColor.statusRootNotRootedContainer.color,
+        onContainer: JidrColor.statusRootNotRootedOnContainer.color,
+        border: JidrColor.statusRootNotRootedBorder.color)
+    static let rootShell = WbStatusColor(
+        container: JidrColor.statusRootShellContainer.color,
+        onContainer: JidrColor.statusRootShellOnContainer.color,
+        border: JidrColor.statusRootShellBorder.color)
+    static let rootFull = WbStatusColor(
+        container: JidrColor.statusRootFullContainer.color,
+        onContainer: JidrColor.statusRootFullOnContainer.color,
+        border: JidrColor.statusRootFullBorder.color)
+    static let rootSettingUp = WbStatusColor(
+        container: JidrColor.statusRootSettingUpContainer.color,
+        onContainer: JidrColor.statusRootSettingUpOnContainer.color,
+        border: JidrColor.statusRootSettingUpBorder.color)
+    static let rootVerified = WbStatusColor(
+        container: JidrColor.statusRootVerifiedContainer.color,
+        onContainer: JidrColor.statusRootVerifiedOnContainer.color,
+        border: JidrColor.statusRootVerifiedBorder.color)
+    static let rootUnverified = WbStatusColor(
+        container: JidrColor.statusRootUnverifiedContainer.color,
+        onContainer: JidrColor.statusRootUnverifiedOnContainer.color,
+        border: JidrColor.statusRootUnverifiedBorder.color)
+    static let rootFailed = WbStatusColor(
+        container: JidrColor.statusRootFailedContainer.color,
+        onContainer: JidrColor.statusRootFailedOnContainer.color,
+        border: JidrColor.statusRootFailedBorder.color)
+    static let rootBeta = WbStatusColor(
+        container: JidrColor.statusRootBetaContainer.color,
+        onContainer: JidrColor.statusRootBetaOnContainer.color,
+        border: JidrColor.statusRootBetaBorder.color)
+    static let sdkNotInstalled = WbStatusColor(
+        container: JidrColor.statusSdkNotInstalledContainer.color,
+        onContainer: JidrColor.statusSdkNotInstalledOnContainer.color,
+        border: JidrColor.statusSdkNotInstalledBorder.color)
+    static let sdkLicense = WbStatusColor(
+        container: JidrColor.statusSdkLicenseContainer.color,
+        onContainer: JidrColor.statusSdkLicenseOnContainer.color,
+        border: JidrColor.statusSdkLicenseBorder.color)
+    static let sdkInstalling = WbStatusColor(
+        container: JidrColor.statusSdkInstallingContainer.color,
+        onContainer: JidrColor.statusSdkInstallingOnContainer.color,
+        border: JidrColor.statusSdkInstallingBorder.color)
+    static let sdkReady = WbStatusColor(
+        container: JidrColor.statusSdkReadyContainer.color,
+        onContainer: JidrColor.statusSdkReadyOnContainer.color,
+        border: JidrColor.statusSdkReadyBorder.color)
+    static let sdkUpdate = WbStatusColor(
+        container: JidrColor.statusSdkUpdateContainer.color,
+        onContainer: JidrColor.statusSdkUpdateOnContainer.color,
+        border: JidrColor.statusSdkUpdateBorder.color)
+}
+
+// MARK: - Space, shape, borders
+
+/// 4 px base; components use sm/md/lg, sections xl and up (design rules).
+enum WbSpace {
+    static let zero = JidrSpace.zero
+    static let xxs = JidrSpace.xxs
+    static let xs = JidrSpace.xs
+    static let sm = JidrSpace.sm
+    static let md = JidrSpace.md
+    static let lg = JidrSpace.lg
+    static let xl = JidrSpace.xl
+    static let xxl = JidrSpace.xxl
+    static let xxxl = JidrSpace.xxxl
+    static let xxxxl = JidrSpace.xxxxl
+    static let xxxxxl = JidrSpace.xxxxxl
+}
+
+/// Radii: pill for status, md for controls and rows, lg for cards, xl for sheets.
+enum WbRadius {
+    static let xs = JidrRadius.xs
+    static let sm = JidrRadius.sm
+    static let md = JidrRadius.md
+    static let lg = JidrRadius.lg
+    static let xl = JidrRadius.xl
+    static let pill = JidrRadius.pill
+}
+
+enum WbBorder {
+    static let hairline = JidrBorder.hairline
+    static let emphasis = JidrBorder.emphasis
+    static let focus = JidrBorder.focus
+    static let focusOffset = JidrBorder.focusOffset
+}
+
+/// Icon and control sizes (the Semantic `WbIcon` enum below holds the glyph names).
+enum WbIconSize {
+    static let iconSm = JidrSize.iconSm
+    static let iconMd = JidrSize.iconMd
+    static let iconLg = JidrSize.iconLg
+    static let iconStroke = JidrSize.iconStroke
+    static let controlHeightSm = JidrSize.controlHeightSm
+    static let controlHeightMd = JidrSize.controlHeightMd
+    static let controlHeightLg = JidrSize.controlHeightLg
+}
+
+/// Window, panel and breakpoint sizes from `layout` (design rules, not view state).
+enum WbLayout {
+    static let windowLauncherMinWidth = JidrLayout.windowLauncherMinWidth
+    static let windowLauncherMinHeight = JidrLayout.windowLauncherMinHeight
+    static let windowTitlebarHeight = JidrLayout.windowTitlebarHeight
+    static let windowSidebarWidth = JidrLayout.windowSidebarWidth
+    static let windowInspectorWidth = JidrLayout.windowInspectorWidth
+    static let windowDeviceToolbarWidth = JidrLayout.windowDeviceToolbarWidth
+    static let windowDeviceWidgetPanelWidth = JidrLayout.windowDeviceWidgetPanelWidth
+    static let windowDeviceMinScreenHeight = JidrLayout.windowDeviceMinScreenHeight
+    static let breakpointSm = JidrLayout.breakpointSm
+    static let breakpointMd = JidrLayout.breakpointMd
+    static let breakpointLg = JidrLayout.breakpointLg
+    static let breakpointXl = JidrLayout.breakpointXl
+}
+
+// MARK: - Type
+
+/// App type roles (D41 `type-*`). `wbFont(_:)` applies the font and tracking
+/// together; line height is available as `lineSpacing` for long copy.
+enum WbType {
+    static let hero = JidrType.hero
+    static let display = JidrType.display
+    static let headline = JidrType.headline
+    static let title = JidrType.title
+    static let body = JidrType.body
+    static let label = JidrType.label
+    static let caption = JidrType.caption
+    static let code = JidrType.code
+    static let metric = JidrType.metric
+    static let metricLg = JidrType.metricLg
+}
+
+extension View {
+    /// Applies a type role's font and tracking.
+    func wbFont(_ style: JidrTextStyle) -> some View {
+        font(style.font).tracking(style.tracking)
+    }
+
+    /// Animates `value` with a token motion pair and its Reduce Motion fallback.
+    func wbAnimation<V: Equatable>(_ value: V, _ motion: JidrMotionPair, reduceMotion: Bool) -> some View {
+        animation(motion.animation(reduceMotion: reduceMotion), value: value)
+    }
+}
+
+// MARK: - Fonts
+
+/// The bundled font families from apps/jidr-gui/assets/fonts (OFL). The
+/// preview apps copy the TTFs into Contents/Resources/fonts and set
+/// ATSApplicationFontsPath=fonts, so the faces are available by PostScript
+/// name before the first view is built.
+enum JidrFontFamily: String {
+    case ui = "Geist"
+    case mono = "Geist Mono"
+    case arabic = "Noto Kufi Arabic"
+}
+
+/// Token weight -> bundled PostScript face. Faces verified from the font
+/// files with CoreText; a family without the exact weight uses the nearest
+/// face it ships.
+enum JidrFontFace {
+    static let allPostScriptNames: [String] = [
+        "Geist-Bold",
+        "Geist-Medium",
+        "Geist-Regular",
+        "Geist-SemiBold",
+        "GeistMono-Medium",
+        "GeistMono-Regular",
+        "GeistMono-SemiBold",
+        "NotoKufiArabic-Regular",
+        "NotoKufiArabic-Regular_Bold",
+        "NotoKufiArabic-Regular_Medium",
+        "NotoKufiArabic-Regular_SemiBold",
+    ]
+
+    static func postScriptName(family: JidrFontFamily, weight: Font.Weight) -> String? {
+        let value = numericWeight(weight)
+        switch family {
+        case .ui:
+            if value >= 700 { return "Geist-Bold" }
+            if value >= 600 { return "Geist-SemiBold" }
+            if value >= 500 { return "Geist-Medium" }
+            if value >= 400 { return "Geist-Regular" }
+            return "Geist-Regular"
+        case .mono:
+            if value >= 600 { return "GeistMono-SemiBold" }
+            if value >= 500 { return "GeistMono-Medium" }
+            if value >= 400 { return "GeistMono-Regular" }
+            return "GeistMono-Regular"
+        case .arabic:
+            if value >= 700 { return "NotoKufiArabic-Regular_Bold" }
+            if value >= 600 { return "NotoKufiArabic-Regular_SemiBold" }
+            if value >= 500 { return "NotoKufiArabic-Regular_Medium" }
+            if value >= 400 { return "NotoKufiArabic-Regular" }
+            return "NotoKufiArabic-Regular"
+        }
+    }
+
+    /// Font.Weight -> the numeric weights the tokens use (400/500/600/700).
+    static func numericWeight(_ weight: Font.Weight) -> Int {
+        if weight == .ultraLight { return 100 }
+        if weight == .thin { return 200 }
+        if weight == .light { return 300 }
+        if weight == .medium { return 500 }
+        if weight == .semibold { return 600 }
+        if weight == .bold { return 700 }
+        if weight == .heavy { return 800 }
+        if weight == .black { return 900 }
+        return 400
+    }
+}
+
+/// Resolves a token style to a bundled font, falling back to the system font
+/// when the app did not register the font files (previews started straight
+/// from swiftc, tests, or a bundle without ATSApplicationFontsPath).
+enum WbFontResolver {
+    private static let registered: Set<String> = Set(
+        JidrFontFace.allPostScriptNames.filter { NSFont(name: $0, size: 12) != nil })
+
+    static func font(family: JidrFontFamily, weight: Font.Weight, size: CGFloat) -> Font {
+        if let name = resolvedPostScriptName(family: family, weight: weight) {
+            return .custom(name, size: size)
+        }
+        switch family {
+        case .mono: return .system(size: size, weight: weight, design: .monospaced)
+        case .ui, .arabic: return .system(size: size, weight: weight)
+        }
+    }
+
+    /// The PostScript name actually used, or nil when the system fallback
+    /// applies. Exposed so tests/evidence can prove the custom font is live.
+    static func resolvedPostScriptName(family: JidrFontFamily, weight: Font.Weight) -> String? {
+        guard let name = JidrFontFace.postScriptName(family: family, weight: weight),
+              registered.contains(name) else { return nil }
+        return name
+    }
+
+    /// The bundled face as an AppKit font, for the NSView drawing in the
+    /// player window (key-mapping markers, IME box). Falls back to the system
+    /// font exactly like `font(family:weight:size:)`.
+    static func nsFont(family: JidrFontFamily, weight: Font.Weight, size: CGFloat) -> NSFont {
+        if let name = resolvedPostScriptName(family: family, weight: weight),
+           let font = NSFont(name: name, size: size) { return font }
+        return .systemFont(ofSize: size)
+    }
+
+    /// True when the bundled families are registered in this process.
+    static var usesBundledFonts: Bool { !registered.isEmpty }
+}
+
+// MARK: - Motion
+
+/// Motion pairs with their Reduce Motion fallback (bundle.css overrides are
+/// generated into the raw layer). Pass the current Reduce Motion setting.
+enum WbMotion {
+    static let hover = JidrMotion.hover
+    static let popover = JidrMotion.popover
+    static let sheet = JidrMotion.sheet
+    static let panel = JidrMotion.panel
+    static let status = JidrMotion.status
+    static let progress = JidrMotion.progress
+    static let rootSuccess = JidrMotion.rootSuccess
+    static let skeleton = JidrMotion.skeleton
+    static let spinner = JidrMotion.spinner
+    /// Palette scroll-to-selection: hover-speed, no distance.
+    static let scroll = JidrMotion.hover
+}
+
+enum WbDuration {
+    static let instant = JidrDuration.instant
+    static let fast = JidrDuration.fast
+    static let base = JidrDuration.base
+    static let slow = JidrDuration.slow
+    static let deliberate = JidrDuration.deliberate
+    static let spin = JidrDuration.spin
+    static let shimmer = JidrDuration.shimmer
+}
+
+// MARK: - Elevation
+
+enum WbShadow {
+    static let ground = JidrShadow.elevation0
+    static let card = JidrShadow.elevation1
+    static let popover = JidrShadow.elevation2
+    static let sheet = JidrShadow.elevation3
+}
+
+extension View {
+    /// Applies one token shadow. Dark tokens are clear (elevation is the
+    /// surface tint plus border there), so the same call is correct in both
+    /// themes; pair it with `WbColor.borderDefault` where a border is needed.
+    func wbShadow(_ shadow: JidrShadowStyle) -> some View {
+        self.shadow(color: shadow.color.color,
+                    radius: shadow.blur / 2, x: shadow.x, y: shadow.y)
+    }
+}
+
+// MARK: - Icons
+
+/// SF Symbol names by meaning. Generated from the semantic table in
+/// generate-tokens.sh (see Center/DesignTokens.swift for the Lucide mapping);
+/// views must use these instead of raw system image names.
+enum WbIcon {
+    /// device center: no launchable apps (app.dashed; SF-native)
+    static let appEmpty = "app.dashed"
+    /// settings: advanced category (wrench.and.screwdriver; SF-native)
+    static let advancedConfig = "wrench.and.screwdriver"
+    /// device settings / advanced tools entry (slider.horizontal.3; Lucide sliders-horizontal)
+    static let advancedTools = "slider.horizontal.3"
+    /// player: Android Back (arrow.left; Lucide arrow-left)
+    static let back = "arrow.left"
+    /// advanced tools: battery tab (battery.100; Lucide battery)
+    static let battery = "battery.100"
+    /// device detail: busy holder (person.fill; SF-native)
+    static let busy = "person.fill"
+    /// screenshots and snapshots (camera; Lucide camera)
+    static let camera = "camera"
+    /// task center: cancelled job (slash.circle; Lucide ban)
+    static let cancelled = "slash.circle"
+    /// detected SDK and empty task list (checkmark.circle; Lucide check)
+    static let checkCircle = "checkmark.circle"
+    /// task center: finished job (checkmark.circle.fill; Lucide check)
+    static let checkCircleFill = "checkmark.circle.fill"
+    /// new device: advanced disclosure (chevron.down; Lucide chevron-down)
+    static let chevronDown = "chevron.down"
+    /// device row disclosure (chevron.right; Lucide chevron-right)
+    static let chevronRight = "chevron.right"
+    /// player: Android Home (circle; Lucide circle)
+    static let circle = "circle"
+    /// queued job / pending restart (clock; Lucide clock)
+    static let clock = "clock"
+    /// close and cancel buttons (xmark; Lucide x)
+    static let close = "xmark"
+    /// shortcuts and command palette (command; Lucide command)
+    static let command = "command"
+    /// device detail: copy device id (doc.on.doc; Lucide copy)
+    static let copy = "doc.on.doc"
+    /// settings: data and tools category (externaldrive; Lucide hard-drive)
+    static let dataTools = "externaldrive"
+    /// device center: empty device list (iphone; Lucide smartphone)
+    static let deviceEmpty = "iphone"
+    /// player: connection lost (wifi.slash; Lucide wifi-off)
+    static let disconnected = "wifi.slash"
+    /// task center: running job (arrow.down.circle; Lucide download)
+    static let download = "arrow.down.circle"
+    /// player: enter fullscreen (arrow.up.left.and.arrow.down.right; Lucide maximize-2)
+    static let enterFullscreen = "arrow.up.left.and.arrow.down.right"
+    /// failed job / failed root seal (xmark.circle.fill; Lucide circle-x)
+    static let errorCircle = "xmark.circle.fill"
+    /// player: exit fullscreen (arrow.down.right.and.arrow.up.left; Lucide minimize-2)
+    static let exitFullscreen = "arrow.down.right.and.arrow.up.left"
+    /// send file / show folder (folder; Lucide folder-open)
+    static let folder = "folder"
+    /// device center: hide detail column (sidebar.right; Lucide panel-right)
+    static let hideDetails = "sidebar.right"
+    /// informational note (info.circle; Lucide info)
+    static let info = "info.circle"
+    /// install an APK (square.and.arrow.down; Lucide download)
+    static let installAPK = "square.and.arrow.down"
+    /// Play Integrity banner (shield.slash; Lucide shield-alert)
+    static let integrity = "shield.slash"
+    /// player: key mapping (keyboard; Lucide keyboard)
+    static let keyboard = "keyboard"
+    /// advanced tools: GPS tab (location; Lucide map-pin)
+    static let location = "location"
+    /// capability requires a newer daemon (lock; Lucide lock)
+    static let lock = "lock"
+    /// logcat bar, panel and tab (text.alignleft; Lucide scroll-text)
+    static let logcat = "text.alignleft"
+    /// root: skipped step (minus.circle; Lucide minus)
+    static let minusCircle = "minus.circle"
+    /// advanced tools: more tab (ellipsis.circle; Lucide ellipsis)
+    static let more = "ellipsis.circle"
+    /// advanced tools: network tab (globe is the closest Lucide glyph) (network; Lucide globe)
+    static let network = "network"
+    /// player: performance and quality (gauge; Lucide gauge)
+    static let performance = "gauge"
+    /// player window: pin (off) (pin; Lucide pin)
+    static let pin = "pin"
+    /// player window: pin (on) (pin.fill; Lucide pin)
+    static let pinned = "pin.fill"
+    /// player: pixel-perfect size (1.magnifyingglass; Lucide scan)
+    static let pixelPerfect = "1.magnifyingglass"
+    /// start buttons and launch (play; Lucide play)
+    static let play = "play"
+    /// add device (plus; Lucide plus)
+    static let plus = "plus"
+    /// player: power button / stopped state (power; Lucide power)
+    static let power = "power"
+    /// root: queued step (circle.dashed; Lucide loader-circle)
+    static let progressRing = "circle.dashed"
+    /// quick-boot snapshot row (bolt.fill; Lucide zap)
+    static let quickBoot = "bolt.fill"
+    /// quit guard banner (hand.raised.fill; Lucide hand)
+    static let quitGuard = "hand.raised.fill"
+    /// start recording (record.circle; Lucide circle-dot)
+    static let record = "record.circle"
+    /// stop recording (stop.circle; Lucide circle-dot)
+    static let recordStop = "stop.circle"
+    /// refresh buttons (arrow.clockwise; Lucide refresh-cw)
+    static let refresh = "arrow.clockwise"
+    /// root sheet seal (in progress) (key.fill; Lucide key-round)
+    static let rootKey = "key.fill"
+    /// advanced tools: root tab (key; Lucide key-round)
+    static let rootTab = "key"
+    /// root sheet: unverified seal (questionmark.circle.fill; Lucide circle-help)
+    static let rootUnverified = "questionmark.circle.fill"
+    /// root sheet: verified seal (checkmark.seal.fill; Lucide badge-check)
+    static let rootVerified = "checkmark.seal.fill"
+    /// player: rotate left (rotate.left; Lucide rotate-ccw)
+    static let rotateLeft = "rotate.left"
+    /// player: rotate right (rotate.right; Lucide rotate-cw)
+    static let rotateRight = "rotate.right"
+    /// search and command palette (magnifyingglass; Lucide search)
+    static let search = "magnifyingglass"
+    /// settings windows and toolbar (gearshape; Lucide settings)
+    static let settings = "gearshape"
+    /// device center: show detail column (sidebar.leading; Lucide panel-left)
+    static let showDetails = "sidebar.leading"
+    /// command palette: device entry (smartphone; Lucide smartphone)
+    static let smartphone = "smartphone"
+    /// player: Android Recents (square; Lucide square)
+    static let square = "square"
+    /// stop the device (stop; Lucide square)
+    static let stop = "stop"
+    /// root sheet: stopped seal (minus.circle.fill; Lucide minus)
+    static let stopped = "minus.circle.fill"
+    /// root: guided grant (hand.tap.fill; Lucide hand)
+    static let tap = "hand.tap.fill"
+    /// toolbar: background tasks (list.bullet.rectangle; SF-native)
+    static let tasks = "list.bullet.rectangle"
+    /// delete device / uninstall app (trash; Lucide trash-2)
+    static let trash = "trash"
+    /// player: volume down (speaker.wave.1; Lucide volume-1)
+    static let volumeDown = "speaker.wave.1"
+    /// player: volume up (speaker.wave.2; Lucide volume-2)
+    static let volumeUp = "speaker.wave.2"
+    /// inline warning (exclamationmark.triangle; Lucide triangle-alert)
+    static let warning = "exclamationmark.triangle"
+    /// toast warning (exclamationmark.triangle.fill; Lucide triangle-alert)
+    static let warningFill = "exclamationmark.triangle.fill"
 }

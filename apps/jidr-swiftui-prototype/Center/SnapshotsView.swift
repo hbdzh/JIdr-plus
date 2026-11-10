@@ -45,7 +45,7 @@ struct SnapshotsView: View {
             header
             if let banner = banner { bannerView(banner) }
             if !error.isEmpty {
-                Label(error, systemImage: "exclamationmark.triangle").wbFont(WbType.caption)
+                Label(error, systemImage: WbIcon.warning).wbFont(WbType.caption)
                     .foregroundStyle(WbColor.negative).textSelection(.enabled)
             }
             if busy {
@@ -102,7 +102,7 @@ struct SnapshotsView: View {
             if loading || busy {
                 ProgressView().controlSize(.small)
             } else {
-                Button(t("刷新", "Refresh"), systemImage: "arrow.clockwise") { load() }
+                Button(t("刷新", "Refresh"), systemImage: WbIcon.refresh) { load() }
             }
             Button(t("保存快照…", "Save snapshot…")) { showSave = true }
                 .buttonStyle(.borderedProminent)
@@ -119,7 +119,7 @@ struct SnapshotsView: View {
     private func bannerView(_ banner: (String, Bool)) -> some View {
         let tone = banner.1 ? WbStatus.warning : WbStatus.neutral
         return HStack(alignment: .top, spacing: WbSpace.sm) {
-            Image(systemName: banner.1 ? "exclamationmark.triangle" : "info.circle")
+            Image(systemName: banner.1 ? WbIcon.warning : WbIcon.info)
                 .foregroundStyle(tone.onContainer)
             Text(banner.0).wbFont(WbType.caption)
                 .foregroundStyle(tone.onContainer)
@@ -137,7 +137,7 @@ struct SnapshotsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if snapshots.isEmpty {
             VStack(spacing: WbSpace.sm) {
-                Label(t("暂无快照", "No snapshots"), systemImage: "camera")
+                Label(t("暂无快照", "No snapshots"), systemImage: WbIcon.camera)
                     .wbFont(WbType.body).foregroundStyle(WbColor.textSecondary)
                 Text(t("快照会按当前状态保存内存和磁盘，并记录保存时的 Root 模式。",
                        "A snapshot saves memory and disk as they are, tagged with the root mode."))
@@ -183,7 +183,7 @@ struct SnapshotsView: View {
                     }
                 }.wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                 if !snapshot.restorable {
-                    Label(refusalLine(snapshot), systemImage: "exclamationmark.triangle")
+                    Label(refusalLine(snapshot), systemImage: WbIcon.warning)
                         .wbFont(WbType.caption).foregroundStyle(WbColor.warning)
                 }
             }
@@ -220,7 +220,7 @@ struct SnapshotsView: View {
                 .frame(width: 44, height: 78).clipShape(RoundedRectangle(cornerRadius: WbRadius.xs))
                 .overlay(RoundedRectangle(cornerRadius: WbRadius.xs).strokeBorder(WbColor.borderDefault, lineWidth: WbBorder.hairline))
         } else {
-            Image(systemName: snapshot.quick_boot ? "bolt.fill" : "camera")
+            Image(systemName: snapshot.quick_boot ? WbIcon.quickBoot : WbIcon.camera)
                 .foregroundStyle(WbColor.textSecondary)
                 .frame(width: 44, height: 78)
                 .background(WbStatus.neutral.container, in: RoundedRectangle(cornerRadius: WbRadius.xs))

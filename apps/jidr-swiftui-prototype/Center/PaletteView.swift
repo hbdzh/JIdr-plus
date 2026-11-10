@@ -21,7 +21,7 @@ struct CommandPaletteView: View {
                 .onTapGesture { model.closeOverlay() }
             VStack(spacing: WbSpace.zero) {
                 HStack(spacing: WbSpace.md) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(WbColor.textSecondary)
+                    Image(systemName: WbIcon.search).foregroundStyle(WbColor.textSecondary)
                     TextField(model.text("输入命令或设备名称", "Type a command or a device name"), text: $model.paletteQuery)
                         .textFieldStyle(.plain)
                         .wbFont(WbType.title.weighted(.regular))
@@ -82,16 +82,16 @@ private struct PaletteRow: View {
 
     private var symbol: String {
         switch entry.kind {
-        case .device: return "smartphone"
-        case .action: return "command"
-        case .setting: return "slider.horizontal.3"
+        case .device: return WbIcon.smartphone
+        case .action: return WbIcon.command
+        case .setting: return WbIcon.advancedTools
         }
     }
 
     var body: some View {
         HStack(spacing: WbSpace.md) {
             Image(systemName: symbol)
-                .frame(width: WbIcon.iconMd)
+                .frame(width: WbIconSize.iconMd)
                 .foregroundStyle(WbColor.textSecondary)
             VStack(alignment: .leading, spacing: WbSpace.xxs) {
                 Text(entry.title).lineLimit(1).wbFont(WbType.body)

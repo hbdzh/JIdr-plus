@@ -93,7 +93,7 @@ struct RootDevToolsView: View {
             if !fullRoot {
                 Label(t("以下功能需要完整 Root（Magisk）。请在设备详情中设置完整 Root。",
                         "These tools require Full root (Magisk). Set up Full root in the device details."),
-                      systemImage: "key")
+                      systemImage: WbIcon.rootTab)
                     .wbFont(WbType.body).foregroundStyle(WbColor.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -106,7 +106,7 @@ struct RootDevToolsView: View {
                         certsBlock
                     } else if capabilitiesLoaded {
                         HStack(alignment: .top, spacing: WbSpace.sm) {
-                            Image(systemName: "lock").foregroundStyle(WbColor.textSecondary)
+                            Image(systemName: WbIcon.lock).foregroundStyle(WbColor.textSecondary)
                             Text(t("需要更新 Jidr 后台才支持系统 CA 证书。", "Needs a newer Jidr daemon to manage system CA certificates."))
                                 .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                         }.padding(WbSpace.md)
@@ -116,11 +116,11 @@ struct RootDevToolsView: View {
                 }
             }.disabled(!fullRoot || !running || working)
             if !statusText.isEmpty {
-                Label(statusText, systemImage: "info.circle").wbFont(WbType.caption)
+                Label(statusText, systemImage: WbIcon.info).wbFont(WbType.caption)
                     .foregroundStyle(WbColor.textSecondary).textSelection(.enabled)
             }
             if !errorText.isEmpty {
-                Label(errorText, systemImage: "exclamationmark.triangle").wbFont(WbType.caption)
+                Label(errorText, systemImage: WbIcon.warning).wbFont(WbType.caption)
                     .foregroundStyle(WbColor.negative).textSelection(.enabled)
             }
         }
@@ -144,11 +144,11 @@ struct RootDevToolsView: View {
                 if statusLoading {
                     ProgressView().controlSize(.small)
                 } else {
-                    Button(t("刷新", "Refresh"), systemImage: "arrow.clockwise") { load() }.disabled(working)
+                    Button(t("刷新", "Refresh"), systemImage: WbIcon.refresh) { load() }.disabled(working)
                 }
             }
             if !statusError.isEmpty {
-                Label(statusError, systemImage: "exclamationmark.triangle").wbFont(WbType.caption).foregroundStyle(WbColor.negative)
+                Label(statusError, systemImage: WbIcon.warning).wbFont(WbType.caption).foregroundStyle(WbColor.negative)
             }
             Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 6) {
                 GridRow {
@@ -179,7 +179,7 @@ struct RootDevToolsView: View {
             if playStore, fullRoot, let notice = status?.play_integrity, !notice.isEmpty {
                 Label(t("已 Root 的模拟器无法通过 Play Integrity。银行应用和部分 Play 商店游戏会拒绝运行。",
                         "Rooted emulators can't pass Play Integrity. Banking apps and some Play Store games will refuse to run."),
-                      systemImage: "shield.slash").wbFont(WbType.caption).foregroundStyle(WbColor.warning)
+                      systemImage: WbIcon.integrity).wbFont(WbType.caption).foregroundStyle(WbColor.warning)
             }
         }.padding(WbSpace.md)
             .background(WbColor.raised, in: RoundedRectangle(cornerRadius: WbRadius.md))
@@ -281,7 +281,7 @@ struct RootDevToolsView: View {
                 Text(t("设备标识（构建属性）", "Build identity")).wbFont(WbType.title)
                 Spacer()
                 if canProps, !propsEditing {
-                    Button(t("编辑…", "Edit…"), systemImage: "slider.horizontal.3") {
+                    Button(t("编辑…", "Edit…"), systemImage: WbIcon.advancedTools) {
                         propsDraft = props
                         propsEditing = true
                         propsError = ""
@@ -300,7 +300,7 @@ struct RootDevToolsView: View {
                 if propsPendingRestart {
                     HStack(spacing: WbSpace.sm) {
                         Label(t("已保存，下次启动（冷启动）时生效。", "Saved; applies on the next start (a cold boot)."),
-                              systemImage: "clock").wbFont(WbType.caption).foregroundStyle(WbColor.warning)
+                              systemImage: WbIcon.clock).wbFont(WbType.caption).foregroundStyle(WbColor.warning)
                         Button(t("立即重启", "Restart now")) { model.restart(id) }
                             .disabled(!running || working)
                     }

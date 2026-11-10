@@ -381,7 +381,7 @@ struct FullRootView: View {
                     if presentation.phase == .grant { grantBlock }
                     if presentation.phase == .failed || presentation.phase == .unverified { failureBlocks }
                     if presentation.phase == .idle {
-                        Label(t("没有正在进行的 Root 配置。", "No root setup is running."), systemImage: "info.circle")
+                        Label(t("没有正在进行的 Root 配置。", "No root setup is running."), systemImage: WbIcon.info)
                             .foregroundStyle(WbColor.textSecondary)
                     }
                 }.padding(WbSpace.xl)
@@ -442,12 +442,12 @@ struct FullRootView: View {
     private var seal: some View {
         let (symbol, status): (String, WbStatusColor) = {
             switch presentation.phase {
-            case .success: return ("checkmark.seal.fill", WbStatus.positive)
-            case .failed: return ("xmark.circle.fill", WbStatus.negative)
-            case .unverified: return ("questionmark.circle.fill", WbStatus.warning)
-            case .stopped: return ("minus.circle.fill", WbStatus.neutral)
-            case .grant: return ("key.fill", WbStatus.warning)
-            default: return ("key.fill", WbStatus.transition)
+            case .success: return (WbIcon.rootVerified, WbStatus.positive)
+            case .failed: return (WbIcon.errorCircle, WbStatus.negative)
+            case .unverified: return (WbIcon.rootUnverified, WbStatus.warning)
+            case .stopped: return (WbIcon.stopped, WbStatus.neutral)
+            case .grant: return (WbIcon.rootKey, WbStatus.warning)
+            default: return (WbIcon.rootKey, WbStatus.transition)
             }
         }()
         return Image(systemName: symbol).font(.system(size: WbType.hero.size, weight: WbType.hero.weight))
@@ -561,11 +561,11 @@ struct FullRootView: View {
     @ViewBuilder
     private func stepIcon(_ row: RootStepRow) -> some View {
         switch row.state {
-        case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(WbColor.positive)
+        case .done: Image(systemName: WbIcon.checkCircleFill).foregroundStyle(WbColor.positive)
         case .current: ProgressView().controlSize(.small).frame(width: 18, height: 18)
-        case .waiting: Image(systemName: "circle.dashed").foregroundStyle(WbColor.textSecondary)
-        case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(WbColor.negative)
-        case .skipped: Image(systemName: "minus.circle").foregroundStyle(WbColor.textSecondary)
+        case .waiting: Image(systemName: WbIcon.progressRing).foregroundStyle(WbColor.textSecondary)
+        case .failed: Image(systemName: WbIcon.errorCircle).foregroundStyle(WbColor.negative)
+        case .skipped: Image(systemName: WbIcon.minusCircle).foregroundStyle(WbColor.textSecondary)
         }
     }
 
@@ -585,7 +585,7 @@ struct FullRootView: View {
 
     private var grantBlock: some View {
         HStack(spacing: WbSpace.md) {
-            Image(systemName: "hand.tap.fill").foregroundStyle(WbColor.warning)
+            Image(systemName: WbIcon.tap).foregroundStyle(WbColor.warning)
             Text(t("等待你点按“允许”：还剩 \(presentation.grantLeft)", "Waiting for your tap: \(presentation.grantLeft) left"))
                 .wbFont(WbType.body.weighted(.medium))
             Spacer()
@@ -615,7 +615,7 @@ struct FullRootView: View {
 
     private var integrityBanner: some View {
         HStack(alignment: .top, spacing: WbSpace.sm) {
-            Image(systemName: "shield.slash").foregroundStyle(WbColor.warning)
+            Image(systemName: WbIcon.integrity).foregroundStyle(WbColor.warning)
             Text(presentation.playStore
                  ? t("已 Root 的模拟器无法通过 Play Integrity。一旦 Root，Play 商店里的银行应用和部分游戏会拒绝运行。",
                      "Rooted emulators can't pass Play Integrity. Banking apps and some games from the Play Store will refuse to run once it is rooted.")

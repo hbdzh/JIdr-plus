@@ -82,7 +82,7 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             // Keep the native resize limit consistent with CenterView's minimum layout.
             window.contentMinSize = NSSize(width:800,height:550)
             window.title = model.text("Jidr 设备中心", "Jidr Device Center"); window.titleVisibility = .hidden
-            window.titlebarAppearsTransparent = true; window.delegate = self
+            window.titlebarAppearsTransparent = true; window.backgroundColor = NSColor(WbColor.surface); window.delegate = self
             window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView:CenterView(model:model)); self.window = window
             menuController = CenterMenuController(model:model, presenter:self)
