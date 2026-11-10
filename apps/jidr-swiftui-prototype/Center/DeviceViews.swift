@@ -146,7 +146,7 @@ struct DeviceDetailsView: View {
                     }
                 }
             }.formStyle(.grouped)
-        }.padding(24).frame(width:620,height:640)
+        }.padding(24).frame(width:620,height:560)
         .onAppear { selectedRoot = details.device.root.mode }
         .alert("更改 Root 模式？",isPresented:$confirmRootChange) {
             Button("取消",role:.cancel) { }
@@ -251,7 +251,7 @@ struct EditDeviceView: View {
                     do {
                         guard let path = model.dataDirectory else { return }
                         try WindowQualityStore(dataDirectory:path,device:details.device.id).save(UInt8(quality))
-                        qualityMessage = "画质已保存，下次打开窗口生效。"
+                        qualityMessage = model.text("画质已保存，下次打开窗口生效。", "Quality saved; it applies next time the window opens.")
                     } catch { qualityMessage = error.localizedDescription }
                 }.disabled(!qualityLoaded)
             }
@@ -263,7 +263,7 @@ struct EditDeviceView: View {
             if !error.isEmpty { Text(error).foregroundStyle(.red) }
             HStack { Spacer(); Button("取消") { dismiss() }.disabled(saving); Button("保存") {
                 let trimmed = name.trimmingCharacters(in:.whitespacesAndNewlines)
-                guard !trimmed.isEmpty, let r = Int(ram), (512...65536).contains(r), let c = Int(cores), (1...16).contains(c), let w = Int(width), (240...4096).contains(w), let h = Int(height), (240...4096).contains(h), let dpi = Int(density), (72...1000).contains(dpi) else { error = "请检查名称、内存、CPU、分辨率和 DPI。"; return }
+                guard !trimmed.isEmpty, let r = Int(ram), (512...65536).contains(r), let c = Int(cores), (1...16).contains(c), let w = Int(width), (240...4096).contains(w), let h = Int(height), (240...4096).contains(h), let dpi = Int(density), (72...1000).contains(dpi) else { error = model.text("请检查名称、内存、CPU、分辨率和 DPI。", "Check the name, memory, CPU, resolution and DPI."); return }
                 var values: [String:Any] = [:]
                 if trimmed != details.device.name { values["name"] = trimmed }
                 for (key,value,old) in [("ram_mb",r,details.config["hw.ramSize"]),("cpus",c,details.config["hw.cpu.ncore"]),("width",w,details.config["hw.lcd.width"]),("height",h,details.config["hw.lcd.height"]),("density",dpi,details.config["hw.lcd.density"])] {
@@ -278,7 +278,7 @@ struct EditDeviceView: View {
                     if sleepMinutes != (details.device.auto_hibernate_minutes.map(String.init) ?? "") {
                         if sleepMinutes.isEmpty { values["auto_hibernate_minutes"] = NSNull() }
                         else if let minutes = Int(sleepMinutes), (0...1440).contains(minutes) { values["auto_hibernate_minutes"] = minutes }
-                        else { error = "自动休眠时间必须介于 0 到 1440 分钟。"; return }
+                        else { error = model.text("自动休眠时间必须介于 0 到 1440 分钟。", "Idle sleep must be between 0 and 1440 minutes."); return }
                     }
                 }
                 if !details.device.stopped { values = values.filter { $0.key == "audio" } }
@@ -293,10 +293,10 @@ struct EditDeviceView: View {
                     }
                 }
             }.buttonStyle(.borderedProminent).disabled(saving) }
-        }.padding(24).frame(width:560,height:660)
+        }.padding(24).frame(width:560,height:560)
         .onAppear {
             do {
-                guard let path = model.dataDirectory else { qualityMessage = "无法读取数据目录"; return }
+                guard let path = model.dataDirectory else { qualityMessage = model.text("无法读取数据目录", "Cannot read the data directory"); return }
                 quality = Int(try WindowQualityStore(dataDirectory:path,device:details.device.id).load())
                 qualityLoaded = true
             } catch { qualityMessage = error.localizedDescription }
@@ -548,7 +548,7 @@ struct NewDeviceView: View {
                     }
                 }
             }.formStyle(.grouped)
-            if images.isEmpty { Text("没有找到已安装的系统镜像。 ").font(.caption).foregroundStyle(.secondary) }
+            if images.isEmpty { Text("没有找到已安装的系统镜像。").font(.caption).foregroundStyle(.secondary) }
             Button("安装 SDK 和系统镜像…") { installing = true }
             if !error.isEmpty { Text(error).foregroundStyle(.red) }
             HStack { Spacer(); Button("取消") { dismiss() }.disabled(saving)
@@ -847,7 +847,7 @@ struct SettingsView: View {
             }
             if !message.isEmpty { Text(message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
             }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }.frame(width:780,height:580).onAppear(perform:load)
+        }.frame(width:780,height:540).onAppear(perform:load)
         .sheet(isPresented:$installing,onDismiss:load) {
             InstallSDKView(model:model).environment(\.locale,Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
         }
@@ -875,6 +875,7 @@ struct SettingsView: View {
 struct CenterView: View {
     @ObservedObject var model: CenterModel
     @State private var query = ""
+    @State private var detailsVisible = true
     @FocusState private var searchFocused: Bool
     var selectedDevice: Device? { model.devices.first(where:{$0.id == model.selected}) }
     private var filteredDevices: [Device] {
@@ -895,13 +896,13 @@ struct CenterView: View {
         Button("设备设置",systemImage:"gearshape") { model.presentDeviceSheet(.edit, device:device.id) }.disabled(model.details == nil || model.busy.contains(device.id))
     }
 
-    private var toolbar: some View {
-        HStack(spacing: 8) {
+    private func toolbar(compact: Bool) -> some View {
+        HStack(spacing: compact ? 6 : 8) {
             Text("安卓模拟器").font(.headline)
             Spacer()
             TextField("搜索设备", text:$query)
                 .textFieldStyle(.roundedBorder)
-                .frame(width:200)
+                .frame(width:compact ? 150 : 200)
                 .focused($searchFocused)
             Button { model.openPalette() } label: { Image(systemName:"magnifyingglass") }
                 .help(model.text("搜索命令和设备（⌘K）", "Search commands and devices (⌘K)"))
@@ -911,14 +912,46 @@ struct CenterView: View {
                     HStack(spacing:4) { Image(systemName:"list.bullet.rectangle"); Text("\(model.activeJobs.count)") }
                 }.help(model.text("后台任务", "Background tasks"))
             }
-            Button("添加设备",systemImage:"plus") { model.present(.newDevice) }
-                .help(model.text("新建设备（⌘N）", "New device (⌘N)"))
+            if compact {
+                Button { model.present(.newDevice) } label: { Image(systemName:"plus") }
+                    .help(model.text("新建设备（⌘N）", "New device (⌘N)"))
+            } else {
+                Button("添加设备",systemImage:"plus") { model.present(.newDevice) }
+                    .help(model.text("新建设备（⌘N）", "New device (⌘N)"))
+            }
             Button { model.present(.settings) } label: { Image(systemName:"gearshape") }
                 .help(model.text("设置（⌘,）", "Settings (⌘,)"))
             Button { model.refresh() } label: { Image(systemName:"arrow.clockwise") }
                 .help(model.text("刷新设备（⌘R）", "Refresh devices (⌘R)"))
-        }.padding(.leading,94).padding(.trailing,12).frame(height:44)
+            Button { detailsVisible.toggle() } label: {
+                Image(systemName:detailsVisible ? "sidebar.right" : "sidebar.leading")
+            }.help(detailsVisible ? model.text("隐藏详情", "Hide details") : model.text("显示详情", "Show details"))
+        }.padding(.leading, compact ? 84 : 94).padding(.trailing,12).frame(height:44)
         .background(Color(nsColor:.windowBackgroundColor))
+    }
+
+    /// Wide windows keep the two-column layout; narrow ones (800×550 minimum)
+    /// collapse to one scrollable column with the detail/app column collapsible.
+    @ViewBuilder private func layout(compact: Bool, height: CGFloat) -> some View {
+        if compact {
+            ScrollView {
+                VStack(spacing:16) {
+                    deviceList.frame(height:max(200, min(320, height * 0.32)))
+                    quickActions
+                    if detailsVisible {
+                        detailCard
+                        appList.frame(height:210)
+                    }
+                }.padding(16)
+            }
+        } else {
+            HStack(alignment:.top,spacing:16) {
+                VStack(spacing:16) { deviceList; quickActions }.frame(maxWidth:.infinity,maxHeight:.infinity)
+                if detailsVisible {
+                    VStack(spacing:16) { detailCard; appList }.frame(maxWidth:.infinity,maxHeight:.infinity)
+                }
+            }.padding(16)
+        }
     }
 
     private var deviceList: some View {
@@ -942,7 +975,7 @@ struct CenterView: View {
                             HStack { DeviceArt(name:"device-list", width:40); VStack(alignment:.leading) { Text(device.name).font(.headline).lineLimit(1).truncationMode(.middle); HStack(spacing:6) { Circle().fill(device.running ? Color.green : Color.secondary).frame(width:6,height:6); Text(device.statusText(language:model.language)) }.font(.caption).foregroundStyle(.secondary); if let progress = model.progress(for:device.id) { Text(progress).font(.caption).foregroundStyle(.secondary).lineLimit(1) } else { Text(device.androidVersion).font(.caption).foregroundStyle(.secondary) } }; Spacer(); Image(systemName:"chevron.right") }.padding(12).frame(maxWidth:.infinity,alignment:.leading).background(model.selected == device.id ? Color.accentColor.opacity(0.15) : Color.secondary.opacity(0.06),in:RoundedRectangle(cornerRadius:10))
                         }.buttonStyle(.plain)
                             .simultaneousGesture(TapGesture(count:2).onEnded {
-                                if device.running { model.openGame(device.id) }
+                                model.focusOrOpenDeviceWindow(device.id)
                             })
                     }
                 }
@@ -1045,14 +1078,14 @@ struct CenterView: View {
 
     var body: some View {
         ZStack {
-            VStack(spacing:0) {
-                toolbar
-                Divider()
-                HStack(alignment:.top,spacing:16) {
-                    VStack(spacing:16) { deviceList; quickActions }.frame(maxWidth:.infinity,maxHeight:.infinity)
-                    VStack(spacing:16) { detailCard; appList }.frame(maxWidth:.infinity,maxHeight:.infinity)
-                }.padding(16)
-                if !model.notice.isEmpty { Text(model.displayNotice).font(.caption).padding(6) }
+            GeometryReader { geometry in
+                let compact = geometry.size.width < 940
+                VStack(spacing:0) {
+                    toolbar(compact: compact)
+                    Divider()
+                    layout(compact: compact, height: geometry.size.height)
+                    if !model.notice.isEmpty { Text(model.displayNotice).font(.caption).padding(6) }
+                }
             }
             if model.paletteOpen { CommandPaletteView(model:model) }
             if model.tasksOpen { TaskCenterView(model:model) }

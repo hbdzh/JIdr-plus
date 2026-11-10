@@ -13,6 +13,12 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// Bounds the safe-quit wait: a daemon that stops answering must not leave
     /// the app stuck in "quitting" forever.
     private var quitWatchdog: DispatchWorkItem?
+    /// One center per JIDR_HOME; a second launch activates this one.
+    private var singleInstance: CenterSingleInstance?
+    /// Distributed-notification handler for "another launch wants this window".
+    private var activationObserver: NSObjectProtocol?
+    /// Native menu bar + Dock menu.
+    private var menuController: CenterMenuController?
     /// The Rust helpers shipped in a packaged app: this executable's `Contents/Helpers`.
     /// Returns nil when that layout is incomplete, so the caller prints the usage line.
     private static func helpersInBundle() -> (center: String, game: String, bridge: String)? {
@@ -50,7 +56,19 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let args = CommandLine.arguments
         let usage = "usage: JIDR_HOME=<isolated-home> Center CENTER_BRIDGE GAME_APP PLAYER_BRIDGE\n       or launch the packaged app (its Contents/Helpers are found automatically)\n"
         Self.useTestPackageHome()
-        guard ProcessInfo.processInfo.environment["JIDR_HOME"]?.isEmpty == false else { fputs(usage,stderr); NSApp.terminate(nil); return }
+        guard let home = ProcessInfo.processInfo.environment["JIDR_HOME"], !home.isEmpty else {
+            fputs(usage,stderr); NSApp.terminate(nil); return
+        }
+        // Single instance: take the per-data-directory lock before anything
+        // spawns a bridge (or a daemon). A second launch only asks the running
+        // center to show itself and exits, so it opens no window of its own.
+        guard let instance = CenterSingleInstance.acquire(home: home) else {
+            CenterSingleInstance.requestActivation(home: home)
+            fputs("jidr center: already running for \(home); activating it\n", stderr)
+            Thread.sleep(forTimeInterval: 0.4)
+            exit(0)
+        }
+        singleInstance = instance
         // The explicit three-path form used by run-center.sh keeps its behaviour;
         // without arguments the packaged app resolves the helpers inside its bundle.
         let paths: (center: String, game: String, bridge: String)?
@@ -63,23 +81,58 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let window = NSWindow(contentRect:NSRect(x:0,y:0,width:1050,height:700),styleMask:[.titled,.closable,.miniaturizable,.resizable,.fullSizeContentView],backing:.buffered,defer:false)
             // Keep the native resize limit consistent with CenterView's minimum layout.
             window.contentMinSize = NSSize(width:800,height:550)
-            window.title = "Jidr SwiftUI 设备中心预览"; window.titleVisibility = .hidden
+            window.title = model.text("Jidr 设备中心", "Jidr Device Center"); window.titleVisibility = .hidden
             window.titlebarAppearsTransparent = true; window.delegate = self
+            window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView:CenterView(model:model)); self.window = window
+            menuController = CenterMenuController(model:model, presenter:self)
+            menuController?.install()
+            activationObserver = CenterSingleInstance.observeActivation(home: home) { [weak self] in
+                self?.showCenterWindow()
+            }
             window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps:true)
             shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching:.keyDown) { [weak self] event in
-                // Only the center window's keys: player and tool windows keep
-                // their own shortcuts (AppleScript events arrive without a window).
+                // Only the center window's plain keys (", Esc, palette arrows).
+                // Command shortcuts belong to the menu key equivalents, and
+                // player/tool windows keep their own shortcuts.
                 guard let self, let model = self.model, event.window === self.window || event.window == nil else { return event }
+                if event.modifierFlags.contains(.command) { return event }
                 return model.handleShortcutEvent(event) ? nil : event
             }
         } catch { fputs("\(error)\n",stderr); NSApp.terminate(nil) }
     }
     private var shuttingDown = false
+    /// Closing the center window does not quit: hide it so the Dock icon and
+    /// the menu bar can bring it back (macOS single-window app convention).
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        NSApp.terminate(nil)
+        guard sender === window else { return true }
+        sender.orderOut(nil)
         return false
     }
+
+    /// Dock icon click (or AppleScript `reopen`) restores the hidden center;
+    /// when a window is already visible this only activates the app.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag || window?.isVisible != true {
+            showCenterWindow()
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        return true
+    }
+
+    func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
+        menuController?.dockMenu()
+    }
+    /// Brings the center window forward, from the Dock, a menu action or a
+    /// second launch; deminiaturizes it when needed.
+    func showCenterWindow() {
+        guard let window else { return }
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
     func applicationShouldTerminate(_ sender:NSApplication) -> NSApplication.TerminateReply {
         guard let model else { return .terminateNow }
         guard !shuttingDown else { return .terminateLater }
@@ -88,7 +141,7 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // (recording, open windows, running jobs, in-flight operations) so the
         // user can cancel the work or wait for it right there.
         if let reason = model.quitBlockReason {
-            window?.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps:true)
+            showCenterWindow()
             model.presentQuitBlocker()
             model.showError(reason)
             return .terminateCancel
@@ -131,8 +184,16 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationWillTerminate(_ notification:Notification) {
         quitWatchdog?.cancel(); quitWatchdog = nil
         if let monitor = shortcutMonitor { NSEvent.removeMonitor(monitor); shortcutMonitor = nil }
+        if let activationObserver { DistributedNotificationCenter.default().removeObserver(activationObserver) }
+        activationObserver = nil
         model?.close()
+        singleInstance?.release()
+        singleInstance = nil
     }
+}
+
+extension Delegate: CenterWindowPresenting {
+    var centerWindow: NSWindow? { window }
 }
 let app = NSApplication.shared
 let delegate = Delegate()

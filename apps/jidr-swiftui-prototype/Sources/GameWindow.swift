@@ -886,6 +886,11 @@ final class GameWindowController: NSObject, NSWindowDelegate {
     var onWarning: ((String) -> Void)?
     let transport = PlayerTransport()
     let chrome = PlayerChromeState()
+    /// The daemon device this window shows; the Device menu uses it to act on
+    /// the key window's device (same id the center opened the window for).
+    private(set) var deviceID = ""
+    /// Human name in the window title; kept for the Window menu.
+    private(set) var displayTitle = ""
     private let sidebar = SidebarState()
     private var sidebarButton: NSButton?
     private var pinButton: NSButton?
@@ -899,6 +904,8 @@ final class GameWindowController: NSObject, NSWindowDelegate {
     private var keyMonitor: Any?
     private var languageCancellable: AnyCancellable?
     private var fullscreenObservers: [NSObjectProtocol] = []
+    /// Re-clamps the window when displays are plugged in, unplugged or resized.
+    private var screenChangeObserver: NSObjectProtocol?
 
     private func fitWindow() {
         guard let window else { return }
@@ -990,14 +997,35 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         guard let window, let stateStore, !window.styleMask.contains(.fullScreen), !window.isMiniaturized else { return }
         let frame = window.frame
         let state = GameWindowState(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height,
-                                    sidebar: sidebar.visible, onTop: window.level == .floating, landscape: aspect > 1)
-        do { try stateStore.save(state) } catch { onWarning?(error.localizedDescription) }
+                                    sidebar: sidebar.visible, onTop: window.level == .floating, landscape: aspect > 1,
+                                    screen: displayIdentifier(window.screen))
+        do { try stateStore.save(state) } catch { onWarning?(windowStateMessage(error)) }
+    }
+
+    /// Display text for a window-state error: the store reports stable codes,
+    /// the player window is where the current language is known.
+    private func windowStateMessage(_ error: Error) -> String {
+        guard let state = error as? GameWindowStateStore.StateError else { return error.localizedDescription }
+        switch state.code {
+        case "windowstate.invalid_device":
+            return t("设备标识无效。", "Invalid device identifier.", transport.language)
+        case "windowstate.invalid_state":
+            return t("窗口设置无效，原文件未覆盖。", "The window settings are invalid; the file was not overwritten.", transport.language)
+        case "windowstate.changed":
+            return t("窗口设置已被其他程序修改，未覆盖原文件。", "The window settings were changed by another program; the file was not overwritten.", transport.language)
+        case "windowstate.data_unavailable":
+            return t("数据目录不可用，未保存窗口设置。", "The data directory is unavailable; the window settings were not saved.", transport.language)
+        default:
+            return state.code
+        }
     }
 
     func open(device: String, width: Int, height: Int, executable: String, displayName: String? = nil,
               quality: UInt8 = 1, dataDirectory: String? = nil,
               launch: PlayerLaunchState = .running, onStartDevice: (() -> Void)? = nil) {
         guard width > 0, height > 0 else { return }
+        deviceID = device
+        displayTitle = displayName ?? device
         aspect = CGFloat(width) / CGFloat(height)
         var saved: GameWindowState?
         var legacy: (sidebar: Bool, onTop: Bool)?
@@ -1008,7 +1036,7 @@ final class GameWindowController: NSObject, NSWindowDelegate {
                 stateStore = store
                 if saved == nil { legacy = try store.legacyPreferences() }
             } catch {
-                onWarning?(error.localizedDescription)
+                onWarning?(windowStateMessage(error))
             }
             transport.shortcuts.load(dataDirectory: dataDirectory, device: device)
         }
@@ -1056,23 +1084,19 @@ final class GameWindowController: NSObject, NSWindowDelegate {
             self.transport.shortcuts.load(dataDirectory: path, device: device)
         }
         transport.onStartDevice = onStartDevice
-        if let saved {
-            let frame = NSRect(x: saved.x, y: saved.y, width: saved.width, height: saved.height)
-            let title = NSRect(x: frame.minX, y: frame.maxY - 24, width: frame.width, height: 24)
-            if NSScreen.screens.contains(where: { screen in
-                let overlap = screen.visibleFrame.intersection(title)
-                return !overlap.isNull && overlap.width >= 80 && overlap.height >= 12
-            }) {
-                window.setFrame(frame, display: false)
-                if saved.landscape != (aspect > 1) { fitWindow() }
-            } else {
-                fitWindow()
-                window.center()
-            }
+        if let saved, let frame = restoredFrame(saved) {
+            // Restores the saved display when it still exists and clamps the
+            // frame into that display's visible area (multi-display + Retina:
+            // everything here is AppKit points, never pixels).
+            window.setFrame(frame, display: false)
+            if saved.landscape != (aspect > 1) { fitWindow() }
         } else {
             fitWindow()
             window.center()
         }
+        screenChangeObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.clampToVisibleScreen() }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         transport.prepareStreaming(device: device, width: width, height: height,
@@ -1087,6 +1111,48 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         case .booting, .stopped:
             transport.applyLaunchState(launch)
         }
+    }
+
+    /// The `NSScreenNumber` of a display, as stored in the window state.
+    private func displayIdentifier(_ screen: NSScreen?) -> String? {
+        guard let number = screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
+        return number.stringValue
+    }
+
+    private var screenGeometries: [GameWindowScreen] {
+        NSScreen.screens.map { GameWindowScreen(id: displayIdentifier($0), visible: $0.visibleFrame) }
+    }
+
+    /// Frame to restore: same display when it exists, clamped into its visible
+    /// area; falls back to the main display when that monitor is gone.
+    private func restoredFrame(_ saved: GameWindowState) -> NSRect? {
+        GameWindowRestore.restoreFrame(saved, screens: screenGeometries, fallback: NSScreen.main?.visibleFrame)
+    }
+
+    /// Displays changed (unplugged, resolution change): keep the window fully
+    /// reachable and keep the device aspect after the clamp.
+    private func clampToVisibleScreen() {
+        guard let window, !window.styleMask.contains(.fullScreen), !window.isMiniaturized else { return }
+        let visible = screenGeometries.first { $0.id == displayIdentifier(window.screen) }?.visible
+            ?? NSScreen.main?.visibleFrame
+        guard let visible else { return }
+        let clamped = GameWindowRestore.clamp(window.frame, to: visible)
+        if clamped != window.frame { window.setFrame(clamped, display: true) }
+        fitWindow()
+    }
+
+    // MARK: Menu accessors
+
+    /// "View ▸ Show/Hide Sidebar" for the key window.
+    var sidebarVisible: Bool { sidebar.visible }
+    func toggleSidebarFromMenu() { toggleSidebar() }
+
+    /// Dock/menu "open this device": never opens a duplicate window.
+    func focusFromMenu() {
+        guard let window else { return }
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     // MARK: Chrome state
@@ -1167,6 +1233,10 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         }
         for observer in fullscreenObservers { NotificationCenter.default.removeObserver(observer) }
         fullscreenObservers.removeAll()
+        if let screenChangeObserver {
+            NotificationCenter.default.removeObserver(screenChangeObserver)
+            self.screenChangeObserver = nil
+        }
     }
 
     /// Returns true when the player consumed the key (it then never reaches the
@@ -1253,5 +1323,9 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         onClose?()
         // AppKit may still be processing the close event after its delegate returns.
         DispatchQueue.main.async { [self] in _ = self }
+    }
+
+    deinit {
+        if let screenChangeObserver { NotificationCenter.default.removeObserver(screenChangeObserver) }
     }
 }

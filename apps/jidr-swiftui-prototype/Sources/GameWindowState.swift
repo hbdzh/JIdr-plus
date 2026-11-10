@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
+import CoreGraphics
 import Foundation
 
 /// SwiftUI uses AppKit screen coordinates, so it keeps its own geometry file
 /// instead of changing the Slint window's differently scaled coordinates.
+/// Frames are in points (Retina independent); the display is recorded by its
+/// CGDirectDisplayID string so a window can be restored to the same monitor.
 struct GameWindowState: Codable, Equatable {
     var version = 1
     var x: Double
@@ -12,10 +15,66 @@ struct GameWindowState: Codable, Equatable {
     var sidebar: Bool
     var onTop: Bool
     var landscape: Bool
+    /// `NSScreenNumber` of the display the window was on; nil in legacy files.
+    var screen: String? = nil
 
     var isValid: Bool {
         version == 1 && x.isFinite && y.isFinite && width.isFinite && height.isFinite &&
         (180...5000).contains(width) && (180...4000).contains(height) && abs(x) < 100000 && abs(y) < 100000
+    }
+}
+
+/// The visible area of one display, in the same point coordinates as
+/// `NSScreen.visibleFrame`. Passed in by the window so the restore rules stay
+/// testable without a GUI session.
+struct GameWindowScreen: Equatable {
+    let id: String?
+    let visible: CGRect
+}
+
+/// Restoring a saved device-window frame on the current set of displays.
+///
+/// Rules (all in AppKit points, so Retina backing scale never enters):
+/// 1. The saved display wins when it still exists (multi-monitor restore).
+/// 2. Otherwise the display containing the saved title bar is used.
+/// 3. Otherwise the main display is the fallback (a monitor was unplugged).
+/// 4. The frame is clamped into that display's visible area, keeping at least
+///    a readable window size; the caller re-fits the device aspect afterwards.
+enum GameWindowRestore {
+    /// Space kept free around the restored window (Dock/menu bar breathing room).
+    static let margin: CGFloat = 24
+    static let minimumSize = CGSize(width: 320, height: 240)
+
+    static func restoreFrame(_ state: GameWindowState, screens: [GameWindowScreen], fallback: CGRect?) -> CGRect? {
+        guard !screens.isEmpty || fallback != nil else { return nil }
+        let saved = CGRect(x: state.x, y: state.y, width: state.width, height: state.height)
+        let title = CGRect(x: saved.minX, y: saved.maxY - 24, width: saved.width, height: 24)
+        let target: CGRect
+        if let id = state.screen, let match = screens.first(where: { $0.id == id }) {
+            target = match.visible
+        } else if let containing = screens.first(where: { $0.visible.intersects(title) || $0.visible.contains(CGPoint(x: saved.midX, y: saved.midY)) }) {
+            target = containing.visible
+        } else if let fallback {
+            target = fallback
+        } else {
+            target = screens[0].visible
+        }
+        return clamp(saved, to: target)
+    }
+
+    /// Centers `frame` inside `visible` after shrinking it to fit, never
+    /// smaller than `minimumSize` in either axis (unless the display is).
+    static func clamp(_ frame: CGRect, to visible: CGRect) -> CGRect {
+        guard visible.width > 0, visible.height > 0 else { return frame }
+        let usableWidth = max(1, visible.width - margin)
+        let usableHeight = max(1, visible.height - margin)
+        let minimumWidth = min(minimumSize.width, usableWidth)
+        let minimumHeight = min(minimumSize.height, usableHeight)
+        let size = CGSize(width: min(max(frame.width, minimumWidth), usableWidth),
+                          height: min(max(frame.height, minimumHeight), usableHeight))
+        let origin = CGPoint(x: min(max(frame.minX, visible.minX + margin / 2), visible.minX + visible.width - size.width - margin / 2),
+                             y: min(max(frame.minY, visible.minY + margin / 2), visible.minY + visible.height - size.height - margin / 2))
+        return CGRect(origin: origin, size: size)
     }
 }
 
@@ -71,10 +130,19 @@ final class GameWindowStateStore {
         try bytes.write(to:path,options:.atomic)
         baseline = bytes
     }
-    enum StateError: LocalizedError {
+    /// Stable codes instead of display strings: the window/center UI maps them to
+    /// the current language (see `GameWindowController.windowStateMessage`), so
+    /// English mode never shows Chinese and logs/tests stay language-neutral.
+    enum StateError: LocalizedError, CaseIterable {
         case invalidDevice, invalidState, changed, dataUnavailable
-        var errorDescription:String? {
-            switch self { case .invalidDevice: return "设备标识无效。"; case .invalidState: return "窗口设置无效，原文件未覆盖。"; case .changed: return "窗口设置已被其他程序修改，未覆盖原文件。"; case .dataUnavailable: return "数据目录不可用，未保存窗口设置。" }
+        var code: String {
+            switch self {
+            case .invalidDevice: return "windowstate.invalid_device"
+            case .invalidState: return "windowstate.invalid_state"
+            case .changed: return "windowstate.changed"
+            case .dataUnavailable: return "windowstate.data_unavailable"
+            }
         }
+        var errorDescription: String? { code }
     }
 }
