@@ -104,6 +104,13 @@ jobs:
         # Fails only on leaks outside the audited baseline
         # (Tests/i18n_allowlist.txt); .strings hygiene issues are warnings.
         run: python3 apps/jidr-swiftui-prototype/Tests/localization_coverage.py
+      - name: SwiftUI release rehearsal (needs a macOS GUI session; reported, not gating)
+        # Builds the release-profile centre + helpers, assembles and ad-hoc signs
+        # Jidr.app, packs the DMG and runs the mount/signature/scan/CLI/isolated
+        # launch checks. Reported because signing/notarization need the
+        # maintainer's credentials and the launch needs a GUI session.
+        continue-on-error: true
+        run: cargo xtask release --rehearsal
       - name: Screenshot baselines (needs a macOS GUI session; reported, not gating)
         # Rendered offscreen at fixed size, appearance and locale and compared
         # pixel-for-pixel. Font/control metrics and the backing scale differ
