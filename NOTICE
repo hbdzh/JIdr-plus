@@ -4,9 +4,12 @@ Copyright 2026 Jidr contributors
 Licensing (decision D18):
 - Everything in this repository is licensed under the Apache License 2.0
   (LICENSE-APACHE), except:
+- apps/jidr-swiftui-prototype, whose SwiftUI/AppKit sources are licensed under
+  the GNU General Public License v3.0 only (see apps/jidr-gui/LICENSE-GPL);
+  its Rust bridge under bridge/ is Apache-2.0.
 - crates/jidr-ui and apps/jidr-gui, which are licensed under the GNU General
   Public License v3.0 only (see their LICENSE-GPL files), because they link
-  the Slint GUI toolkit under its GPLv3 option.
+  the Slint GUI toolkit under its GPLv3 option. They remain the fallback GUI.
 
 The CLI, daemon and MCP server never link GPL code; `cargo xtask license-check`
 enforces this.
@@ -20,6 +23,9 @@ Project, Genymobile/Genymotion or the Magisk project. Android is a trademark
 of Google LLC; Genymotion is a trademark of Genymobile SAS.
 
 Third-party attributions:
+- Geist, Geist Mono (c) 2021 Vercel, and Noto Kufi Arabic (c) Google, are
+  distributed with the app under the SIL Open Font License 1.1 (see
+  apps/jidr-gui/assets/fonts/OFL-*.txt).
 (ported MIT/Apache code must be listed here with its copyright notice)
 - crates/jidr-proto/proto/*.proto: the Android Emulator's public gRPC
   definitions, Copyright (C) 2018 The Android Open Source Project, licensed

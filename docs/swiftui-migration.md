@@ -1,9 +1,8 @@
 # SwiftUI migration: plan, status and gates
 
-Status: **M0 in progress** (2026-11-11). Baseline: `master` @ `b46a2f3`, then two M0 fixes
-(`5a4d8eb`, `69b890a`). The plan was approved in outline; the ADR proposal is in
-[docs/decisions/0003-swiftui-gui.md](decisions/0003-swiftui-gui.md). Progress is tracked as
-evidence per item, never as a single percentage.
+Status: **M0–M6 complete (2026-11-11)**. The SwiftUI centre is the default GUI of the release
+chain; the Slint app stays as the `--gui slint` fallback. Evidence per item is recorded in the
+sections below; the remaining manual checks are listed under M6.
 
 The parity matrix lives in [docs/swiftui-parity.md](swiftui-parity.md): implementation and
 verification are separate columns, and every row names its evidence.
@@ -191,6 +190,23 @@ conditions for M6.
 device, the real-device UI renders and the player measurements are inside the ADR-0001 budget
 with one logged observation (actual draws below presented frames). The three manual items
 (real game, on-screen IME/clipboard, VoiceOver/Tab order) stay open as M6 switch conditions.
+
+## M6: default switch (executed 2026-11-11)
+
+| Item | Result |
+|---|---|
+| Default GUI | `cargo xtask release` builds the SwiftUI device centre; `--gui slint` keeps the pre-M6 chain as the fallback. The release and release-check workflows therefore ship the SwiftUI app. |
+| Production launch | a packaged launch without arguments and without `JIDR_HOME` leaves the environment unset, so the centre, the bridge and the daemon resolve the standard `~/Library/Application Support/Jidr` paths like the CLI. Verified from the rehearsal DMG with an isolated `HOME`: the socket appeared at the standard path, one daemon answered `daemon status`, and the real home was untouched. |
+| Release rehearsal | `cargo xtask release --rehearsal` builds the release-profile centre and helpers, assembles the bundle (fonts, localisations, licences, no standalone player, no test sentinel), signs inside-out ad-hoc, packs the DMG, scans for forbidden content and runs mount/install/launch/uninstall checks with `report.md`. |
+| Docs, architecture, licensing | README, AGENTS, CONTRIBUTING, NOTICE and ADR-0003 updated: SwiftUI/AppKit sources GPL-3.0-only, the Rust bridge Apache-2.0, the Slint crates the GPL fallback, the OFL fonts attributed; the guard still keeps every Apache crate free of Slint/GUI dependencies. |
+| CI | the macOS job gained the token-drift check, the screenshot matrix (reported) and the release rehearsal (reported); the existing Rust gate is unchanged. |
+| Slint fallback | the Slint crates and app stay buildable; `cargo xtask release --gui slint --dry-run` still produces the previous DMG. Deleting them remains a separate later decision. |
+
+Remaining manual checks before calling the product fully accepted (no code left here): Developer
+ID signing/notarization (needs the maintainer's credentials; `--gui swiftui` deliberately refuses
+to pretend it signed), an install → upgrade → rollback run (needs a previous package), real-game
+play, on-screen IME/clipboard behaviour and VoiceOver/Tab order (this session has no screen
+recording or accessibility permission), and the 15% presented-vs-actual-draw observation.
 
 ## M1–M6 gates (summary)
 

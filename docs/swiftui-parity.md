@@ -1,6 +1,6 @@
 # SwiftUI parity matrix
 
-Status: **M2 implemented, real-device verification pending** (2026-11-11, baseline `master` @ `ba69547`).
+Status: **M6 switched** (2026-11-11): the SwiftUI centre is the release default and the Slint app is the fallback. Automated acceptance and performance are done; the remaining manual checks are listed in the migration plan.
 Plan, gates and tooling: [docs/swiftui-migration.md](swiftui-migration.md).
 Full evidence:
 [68-scene mapping](swiftui-parity-scenes.md) and

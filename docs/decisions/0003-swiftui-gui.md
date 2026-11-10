@@ -1,7 +1,8 @@
 # ADR-0003: SwiftUI/AppKit as the production GUI (proposal)
 
-- **Status:** Accepted (2026-11-11, M0). The maintainer approved the outline and settled the
-  three open points below; the Slint app stays the production build until the M6 switch.
+- **Status:** Accepted (2026-11-11, M0) and **implemented (2026-11-11, M6)**: `cargo xtask
+  release` now builds the SwiftUI centre by default (`--gui slint` keeps the Slint fallback),
+  the production bundle defaults to the standard Jidr home, and D2/D15/D18 are recorded below.
 - **Date:** 2026-11-11
 - **Related:** D2 (Slint), D15 (Apple Silicon only, code stays portable), D18 (split licensing),
   D20 (Slint spike), D41 (design tokens), ADR-0001 (frame transport); the plan, parity

@@ -32,23 +32,32 @@ JIdr Plus 是基于开源项目 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr
 ```bash
 git clone https://github.com/hbdzh/JIdr-plus.git
 cd JIdr-plus
-cargo build --release -p jidr -p jidr-gui
+cargo build --release -p jidr                    # CLI、daemon、MCP
+bash apps/jidr-swiftui-prototype/build-center.sh # 界面开发构建（调试，不需要打包）
 ```
 
-需要安装 [rustup](https://rustup.rs/) 和 `protoc`（例如使用 `brew install protobuf`）。Rust 版本由 [rust-toolchain.toml](rust-toolchain.toml) 指定。构建命令生成二进制文件，并不自动安装 macOS 应用包。
+正式的应用包与 DMG 由 `cargo xtask release` 生成（默认 SwiftUI 设备中心；ad-hoc 签名，正式签名/公证需要维护者凭据）。本地排练：
+
+```bash
+cargo xtask release --rehearsal   # 产出 target/release-rehearsal/（含 report.md）
+```
+
+需要安装 [rustup](https://rustup.rs/) 和 `protoc`（例如使用 `brew install protobuf`）。Rust 版本由 [rust-toolchain.toml](rust-toolchain.toml) 指定；Swift 界面需要 Xcode 的 `swiftc`。旧的 Slint 界面仍保留为回退：`cargo xtask release --gui slint`。
 
 ## 验证
 
 ```bash
-cargo test -p jidr-ui --lib
-cargo xtask ci
+cargo xtask ci                                          # Rust：fmt、clippy、测试、许可、skills
+bash apps/jidr-swiftui-prototype/test.sh                # Swift 逻辑测试 + 本地化门禁
+bash apps/jidr-swiftui-prototype/snapshot.sh --check    # 中英/明暗截图基线
 ```
 
 部分模拟器集成测试需要已安装的 Android SDK、系统镜像及相应运行环境，详见 [CONTRIBUTING.md](CONTRIBUTING.md)。不要将测试指向需要保留的真实设备数据。
 
 ## 项目结构
 
-- `apps/jidr-gui`、`crates/jidr-ui`：桌面界面。
+- `apps/jidr-swiftui-prototype`：SwiftUI/AppKit 桌面界面（默认），Rust 桥在 `bridge/`。
+- `apps/jidr-gui`、`crates/jidr-ui`：Slint 旧界面，保留为回退与对照。
 - `apps/jidr`：命令行程序及 daemon 入口。
 - `crates/jidr-daemon`、`crates/jidr-backend`：设备管理与模拟器控制。
 - `crates/jidr-sdk`：SDK、镜像和虚拟设备管理。
@@ -58,6 +67,6 @@ cargo xtask ci
 
 ## 许可与致谢
 
-本项目基于 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr)，感谢原项目及其贡献者。沿用原项目的分许可方式：桌面界面相关的 `crates/jidr-ui` 和 `apps/jidr-gui` 为 **GPL-3.0-only**；CLI、daemon 和其余标明 Apache 许可的部分为 **Apache-2.0**。详见 [NOTICE](NOTICE)、[LICENSE-APACHE](LICENSE-APACHE)及相应目录下的许可证。
+本项目基于 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr)，感谢原项目及其贡献者。沿用原项目的分许可方式：桌面界面（`apps/jidr-swiftui-prototype` 的 Swift/AppKit 源码，及其 Rust 桥之外的 Slint 界面 `crates/jidr-ui`、`apps/jidr-gui`）为 **GPL-3.0-only**；Rust 桥、CLI、daemon 和其余标明 Apache 许可的部分为 **Apache-2.0**。详见 [NOTICE](NOTICE)、[LICENSE-APACHE](LICENSE-APACHE)及相应目录下的许可证。随包分发的 Geist、Geist Mono、Noto Kufi 字体为 OFL 许可。
 
 Android SDK、系统镜像及 Magisk 不随本项目源码打包，其下载和使用受各自许可约束。Android 是 Google LLC 的商标。

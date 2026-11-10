@@ -4,7 +4,7 @@ Jidr is an open-source Genymotion Desktop alternative in Rust with one-click roo
 
 ## Architecture in one paragraph
 
-`jidr daemon` owns all device state and drives the AOSP emulator (gRPC `EmulatorController`, the telnet console, `adb`). The GUI (`apps/jidr-gui`), the CLI (`apps/jidr`) and the MCP server (`jidr mcp`) are thin clients over JSON-RPC 2.0 / NDJSON on a Unix socket. Every user action is a protocol command; UI-only view state (window size, zoom, panel layout) stays in the GUI. Providers (`jidr-daemon` core, `jidr-widgets`, `jidr-root`) register commands through the `CommandProvider` trait in `jidr-core`.
+`jidr daemon` owns all device state and drives the AOSP emulator (gRPC `EmulatorController`, the telnet console, `adb`). The GUI (`apps/jidr-swiftui-prototype`, SwiftUI/AppKit since M6; the Slint app in `apps/jidr-gui` + `crates/jidr-ui` stays as the fallback), the CLI (`apps/jidr`) and the MCP server (`jidr mcp`) are thin clients over JSON-RPC 2.0 / NDJSON on a Unix socket. Every user action is a protocol command; UI-only view state (window size, zoom, panel layout) stays in the GUI. Providers (`jidr-daemon` core, `jidr-widgets`, `jidr-root`) register commands through the `CommandProvider` trait in `jidr-core`.
 
 ## Repository map
 
@@ -23,7 +23,8 @@ Jidr is an open-source Genymotion Desktop alternative in Rust with one-click roo
 | `crates/jidr-root` | provider for root modes (adb, Magisk, verify, revert, build props) | Apache-2.0 |
 | `crates/jidr-ui` | Slint GUI library | **GPL-3.0-only** |
 | `apps/jidr` | the `jidr` binary: CLI, `daemon` and `mcp` subcommands | Apache-2.0 |
-| `apps/jidr-gui` | the GUI binary | **GPL-3.0-only** |
+| `apps/jidr-swiftui-prototype` | SwiftUI/AppKit device centre and player (default GUI); `bridge/` is the Apache-2.0 Rust bridge | **GPL-3.0-only** (Swift sources) / Apache-2.0 (bridge) |
+| `apps/jidr-gui` | the Slint GUI binary (legacy fallback) | **GPL-3.0-only** |
 | `xtask` | `ci`, `license-check`, `e2e-mac`, `release` | Apache-2.0 |
 | `skills/` | agent skills (`skills/<name>/SKILL.md`, D43), checked by `cargo xtask skills-check` | Apache-2.0 |
 | `docs/design/` | design tokens (`tokens.json`, the source for the app), CSS and component specs | — |
@@ -32,7 +33,7 @@ Dependency versions live in the root `[workspace.dependencies]`; crates use `foo
 
 ## Licensing (D18)
 
-- Apache-2.0 everywhere except `crates/jidr-ui` and `apps/jidr-gui`, which are GPL-3.0-only because they link Slint.
+- Apache-2.0 everywhere except the desktop GUI sources: `apps/jidr-swiftui-prototype` Swift/AppKit code (GPL-3.0-only by choice, ADR-0003) and `crates/jidr-ui` + `apps/jidr-gui` (GPL-3.0-only because they link Slint). The SwiftUI Rust bridge is Apache-2.0.
 - The CLI, the daemon, MCP and every other Apache crate must never depend on Slint or the GUI crates. `cargo xtask license-check` (part of `cargo xtask ci`) enforces this.
 
 ## Clean-room rules (non-negotiable)
@@ -51,7 +52,7 @@ See [docs/clean-room.md](docs/clean-room.md). In short: use only Genymotion's pu
 
 ## Tests
 
-- `cargo nextest run -p <crate>` runs unit and integration tests offline. `jidr_daemon::testing::TestDaemon` gives a daemon with a fake backend and a fake SDK.
+- `cargo nextest run -p <crate>` runs unit and integration tests offline. `jidr_daemon::testing::TestDaemon` gives a daemon with a fake backend and a fake SDK. The SwiftUI client has its own `apps/jidr-swiftui-prototype/test.sh` (logic tests + localization gate), `snapshot.sh` (rendered screenshot matrix) and `package-test.sh`/`render-live.sh` (packaging and live-device evidence).
 - Tests that need a running emulator sit behind each crate's `emulator` feature (`cargo nextest run -p <crate> --features emulator`). They read:
   - `JIDR_TEST_SDK`: the SDK root (default `~/Library/Android/sdk`, used read-only);
   - `JIDR_TEST_IMAGE`: the sdkmanager package of the image (default on Apple Silicon `system-images;android-31;google_apis;arm64-v8a`);
@@ -79,4 +80,11 @@ cargo xtask skills-check                         # skills' frontmatter and jidr 
 cargo nextest run -p <crate>                     # unit + integration tests
 cargo nextest run -p <crate> --features emulator # needs an emulator image
 cargo xtask e2e-mac                              # release gate on Apple Silicon (D28)
+
+# GUI (SwiftUI) and release rehearsal
+bash apps/jidr-swiftui-prototype/build-center.sh # debug app build
+bash apps/jidr-swiftui-prototype/test.sh         # Swift logic tests + localization gate
+bash apps/jidr-swiftui-prototype/snapshot.sh --check
+cargo xtask release --rehearsal                  # SwiftUI app + DMG, ad-hoc, local only
+cargo xtask release --gui slint                  # pre-M6 Slint release fallback
 ```
