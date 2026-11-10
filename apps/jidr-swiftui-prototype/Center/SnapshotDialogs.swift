@@ -31,44 +31,44 @@ struct SnapshotSaveDialog: View {
     private func t(_ chinese: String, _ english: String) -> String { model.text(chinese, english) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(t("保存 \(device.name) 的快照", "Save snapshot of \(device.name)")).font(.title3.bold())
+        VStack(alignment: .leading, spacing: WbSpace.lg) {
+            VStack(alignment: .leading, spacing: WbSpace.xs) {
+                Text(t("保存 \(device.name) 的快照", "Save snapshot of \(device.name)")).wbFont(WbType.title)
                 Text(t("将按当前状态保存内存和磁盘数据。保存时 Android 会暂停几秒钟。",
                        "Saves memory and disk exactly as they are now. Android pauses for a few seconds while it saves."))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            VStack(alignment: .leading, spacing: 6) {
-                Text(t("名称", "Name")).font(.caption).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: WbSpace.sm) {
+                Text(t("名称", "Name")).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                 TextField(t("快照名称", "Snapshot name"), text: $name)
                     .textFieldStyle(.roundedBorder)
                     .disabled(saving)
             }
             HStack {
-                Text(t("将标记为", "Will be tagged")).font(.caption).foregroundStyle(.secondary)
+                Text(t("将标记为", "Will be tagged")).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                 Text(Snapshots.rootTag(mode: device.root.mode, magisk: magiskVersion, language: model.language))
-                    .font(.caption.weight(.medium))
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(Color.secondary.opacity(0.12), in: Capsule())
+                    .wbFont(WbType.caption.weighted(.medium))
+                    .padding(.horizontal, WbSpace.sm).padding(.vertical, WbSpace.xs)
+                    .background(WbStatus.neutral.container, in: Capsule())
             }
             if othersLoaded {
                 Text(Snapshots.sizesHint(others, language: model.language))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             if !device.running {
                 Label(t("启动设备后才能保存快照。", "Start the device to save a snapshot."), systemImage: "info.circle")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
             }
             if saving {
-                HStack(spacing: 8) {
+                HStack(spacing: WbSpace.sm) {
                     ProgressView().controlSize(.small)
-                    Text(progress.isEmpty ? t("正在保存…", "Saving…") : progress).font(.caption).foregroundStyle(.secondary)
+                    Text(progress.isEmpty ? t("正在保存…", "Saving…") : progress).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                 }
             }
             if !error.isEmpty {
-                Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled)
+                Text(error).wbFont(WbType.caption).foregroundStyle(WbColor.negative).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack {
@@ -80,8 +80,9 @@ struct SnapshotSaveDialog: View {
                     .disabled(saving || !device.running)
             }
         }
-        .padding(20)
+        .padding(WbSpace.xl)
         .frame(width: 460)
+        .tint(WbColor.accent)
         .onAppear(perform: loadOthers)
     }
 

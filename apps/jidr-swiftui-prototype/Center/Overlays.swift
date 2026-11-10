@@ -17,23 +17,23 @@ struct ConnectionStatusPill: View {
         if model.connection.isOnline {
             EmptyView()
         } else {
-            HStack(spacing: 6) {
+            HStack(spacing: WbSpace.sm) {
                 if model.connectionNeedsRetry {
-                    Image(systemName: "exclamationmark.triangle.fill").font(.caption2)
+                    Image(systemName: "exclamationmark.triangle.fill").wbFont(WbType.caption)
                 } else {
                     ProgressView().controlSize(.mini)
                 }
-                Text(model.connectionLabel).font(.caption).lineLimit(1)
+                Text(model.connectionLabel).wbFont(WbType.caption).lineLimit(1)
                 if model.connectionNeedsRetry {
                     Button(model.text("重新连接", "Reconnect")) { model.retryConnection() }
                         .buttonStyle(.borderless)
-                        .font(.caption.weight(.semibold))
+                        .wbFont(WbType.label.weighted(.semibold))
                 }
             }
-            .padding(.horizontal, 9)
-            .padding(.vertical, 4)
-            .foregroundStyle(model.connectionNeedsRetry ? Color.red : Color.orange)
-            .background((model.connectionNeedsRetry ? Color.red : Color.orange).opacity(0.12), in: Capsule())
+            .padding(.horizontal, WbSpace.md)
+            .padding(.vertical, WbSpace.xs)
+            .foregroundStyle(model.connectionNeedsRetry ? WbColor.negative : WbColor.warning)
+            .background(model.connectionNeedsRetry ? WbStatus.negative.container : WbStatus.warning.container, in: Capsule())
             .help(model.connectionNeedsRetry
                   ? model.text("与后台的连接已断开。点击重新连接。", "The background connection is gone. Click Reconnect.")
                   : model.text("正在重新连接到后台服务…", "Reconnecting to the background service…"))
@@ -50,38 +50,38 @@ struct TaskCenterView: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.32)
+            WbColor.scrim
                 .ignoresSafeArea()
                 .onTapGesture { model.closeOverlay() }
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: WbSpace.md) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(model.text("后台任务", "Background tasks"))
-                        .font(.title3.weight(.semibold))
+                        .wbFont(WbType.title)
                     Spacer()
                     Button(model.text("关闭", "Close")) { model.closeOverlay() }
                 }
                 if let reason = model.quitReason {
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "hand.raised.fill").foregroundStyle(.orange)
-                        Text(reason).font(.callout)
+                    HStack(alignment: .top, spacing: WbSpace.sm) {
+                        Image(systemName: "hand.raised.fill").foregroundStyle(WbColor.warning)
+                        Text(reason).wbFont(WbType.body)
                     }
-                    .padding(10)
+                    .padding(WbSpace.md)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                    .background(WbStatus.warning.container, in: RoundedRectangle(cornerRadius: WbRadius.md))
                 }
                 if let error = model.jobsError {
                     Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                        .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).textSelection(.enabled)
                 }
                 if rows.isEmpty {
                     Label(model.text("没有正在运行或最近完成的任务", "No running or recently finished tasks"),
                           systemImage: "checkmark.circle")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(WbColor.textSecondary)
                         .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, 26)
+                        .padding(.vertical, WbSpace.xl)
                 } else {
                     ScrollView {
-                        LazyVStack(spacing: 8) {
+                        LazyVStack(spacing: WbSpace.sm) {
                             ForEach(rows) { row in
                                 TaskRowView(model: model, row: row) { model.cancelJob(row.id) }
                             }
@@ -91,16 +91,17 @@ struct TaskCenterView: View {
                 }
                 if model.hasMutations {
                     Text(model.text("正在等待当前设备操作完成…", "Waiting for the current device operation to finish…"))
-                        .font(.caption).foregroundStyle(.secondary)
+                        .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                 }
                 Text(model.text("取消任务会停止对应的工作，设备保持原状。", "Cancelling a task stops its work and leaves the device as it was."))
-                    .font(.caption).foregroundStyle(.tertiary)
+                    .wbFont(WbType.caption).foregroundStyle(WbColor.textTertiary)
             }
-            .padding(20)
+            .padding(WbSpace.xl)
             .frame(width: 520)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.secondary.opacity(0.25)))
-            .shadow(color: .black.opacity(0.25), radius: 22, y: 10)
+            .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.lg))
+            .overlay(RoundedRectangle(cornerRadius: WbRadius.lg).strokeBorder(WbColor.borderDefault, lineWidth: WbBorder.hairline))
+            .wbShadow(WbShadow.popover)
+            .tint(WbColor.accent)
         }
     }
 }
@@ -112,11 +113,11 @@ private struct TaskRowView: View {
 
     private var tint: Color {
         switch row.tone {
-        case .queued: return .secondary
-        case .running: return .accentColor
-        case .done: return .green
-        case .failed: return .red
-        case .cancelled: return .secondary
+        case .queued: return WbStatus.jobQueued.onContainer
+        case .running: return WbStatus.jobRunning.onContainer
+        case .done: return WbStatus.jobDone.onContainer
+        case .failed: return WbStatus.jobFailed.onContainer
+        case .cancelled: return WbStatus.jobCancelled.onContainer
         }
     }
     private var symbol: String {
@@ -130,16 +131,16 @@ private struct TaskRowView: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Image(systemName: symbol).foregroundStyle(tint).frame(width: 20)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(row.title).font(.callout.weight(.semibold)).lineLimit(1).truncationMode(.middle)
+        HStack(alignment: .center, spacing: WbSpace.md) {
+            Image(systemName: symbol).foregroundStyle(tint).frame(width: WbIcon.iconLg)
+            VStack(alignment: .leading, spacing: WbSpace.xs) {
+                Text(row.title).wbFont(WbType.body.weighted(.semibold)).lineLimit(1).truncationMode(.middle)
                 if let progress = row.progress {
                     ProgressView(value: min(max(progress, 0), 1)).tint(tint).controlSize(.small)
                 } else if row.tone == .running || row.tone == .queued {
                     ProgressView().tint(tint).controlSize(.small)
                 }
-                Text(row.detail).font(.caption).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
+                Text(row.detail).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).lineLimit(2).textSelection(.enabled)
             }
             Spacer(minLength: 8)
             if row.cancellable {
@@ -150,9 +151,9 @@ private struct TaskRowView: View {
                 .help(model.text("取消任务", "Cancel task"))
             }
         }
-        .padding(10)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.secondary.opacity(0.18)))
+        .padding(WbSpace.md)
+        .background(WbColor.raised, in: RoundedRectangle(cornerRadius: WbRadius.md))
+        .overlay(RoundedRectangle(cornerRadius: WbRadius.md).strokeBorder(WbColor.borderDefault, lineWidth: WbBorder.hairline))
     }
 }
 
@@ -162,20 +163,20 @@ struct ToastOverlay: View {
     let toast: Toast
     let dismiss: () -> Void
 
-    private var tint: Color { toast.tone == .negative ? .red : .green }
+    private var tint: Color { toast.tone == .negative ? WbColor.negative : WbColor.positive }
     private var symbol: String { toast.tone == .negative ? "exclamationmark.triangle.fill" : "checkmark.circle.fill" }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: WbSpace.sm) {
             Image(systemName: symbol).foregroundStyle(tint)
-            Text(toast.text).font(.callout).lineLimit(4).multilineTextAlignment(.leading)
+            Text(toast.text).wbFont(WbType.body).lineLimit(4).multilineTextAlignment(.leading)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(tint.opacity(0.45)))
-        .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
-        .padding(.bottom, 18)
+        .padding(.horizontal, WbSpace.lg)
+        .padding(.vertical, WbSpace.md)
+        .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.lg))
+        .overlay(RoundedRectangle(cornerRadius: WbRadius.lg).strokeBorder(WbColor.borderDefault, lineWidth: WbBorder.hairline))
+        .wbShadow(WbShadow.popover)
+        .padding(.bottom, WbSpace.xl)
         .onTapGesture(perform: dismiss)
         .transition(.move(edge: .bottom).combined(with: .opacity))
     }

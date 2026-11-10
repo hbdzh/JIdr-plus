@@ -359,11 +359,11 @@ struct FullRootView: View {
     private var snapshotDevice: Device? { model.devices.first(where: { $0.id == target.id }) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: WbSpace.zero) {
             header
             Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: WbSpace.lg) {
                     hero
                     if presentation.phase == .success {
                         if showSteps { stepsBlock }
@@ -382,14 +382,15 @@ struct FullRootView: View {
                     if presentation.phase == .failed || presentation.phase == .unverified { failureBlocks }
                     if presentation.phase == .idle {
                         Label(t("没有正在进行的 Root 配置。", "No root setup is running."), systemImage: "info.circle")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(WbColor.textSecondary)
                     }
-                }.padding(20)
+                }.padding(WbSpace.xl)
             }.frame(minHeight: 260, idealHeight: 520, maxHeight: 580)
             Divider()
             footer
         }
         .frame(width: 600)
+        .tint(WbColor.accent)
         .onAppear { store.attach() }
         .onDisappear { store.detach() }
         .onChange(of: store.closeRequested) { _, close in if close { dismiss() } }
@@ -416,43 +417,43 @@ struct FullRootView: View {
     // MARK: header
 
     private var header: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: WbSpace.md) {
+            VStack(alignment: .leading, spacing: WbSpace.xxs) {
                 Text(t("完整 Root · \(presentation.deviceName)", "Full root · \(presentation.deviceName)"))
-                    .font(.headline)
+                    .wbFont(WbType.title)
                 if !presentation.serial.isEmpty {
-                    Text(presentation.serial).font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
+                    Text(presentation.serial).wbFont(WbType.code)
+                        .foregroundStyle(WbColor.textSecondary)
                 }
             }
             Spacer()
             if presentation.playStore {
                 Text(t("Beta · Play 商店镜像", "Beta · Play Store image"))
-                    .font(.caption.weight(.medium)).foregroundStyle(.orange)
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(Color.orange.opacity(0.14), in: Capsule())
+                    .wbFont(WbType.caption.weighted(.medium)).foregroundStyle(WbColor.warning)
+                    .padding(.horizontal, WbSpace.sm).padding(.vertical, WbSpace.xs)
+                    .background(WbStatus.warning.container, in: Capsule())
             }
             Button(t("关闭", "Close")) { dismiss() }
-        }.padding(16)
+        }.padding(WbSpace.lg)
     }
 
     // MARK: hero
 
     private var seal: some View {
-        let (symbol, color): (String, Color) = {
+        let (symbol, status): (String, WbStatusColor) = {
             switch presentation.phase {
-            case .success: return ("checkmark.seal.fill", .green)
-            case .failed: return ("xmark.circle.fill", .red)
-            case .unverified: return ("questionmark.circle.fill", .orange)
-            case .stopped: return ("minus.circle.fill", .secondary)
-            case .grant: return ("key.fill", .orange)
-            default: return ("key.fill", .accentColor)
+            case .success: return ("checkmark.seal.fill", WbStatus.positive)
+            case .failed: return ("xmark.circle.fill", WbStatus.negative)
+            case .unverified: return ("questionmark.circle.fill", WbStatus.warning)
+            case .stopped: return ("minus.circle.fill", WbStatus.neutral)
+            case .grant: return ("key.fill", WbStatus.warning)
+            default: return ("key.fill", WbStatus.transition)
             }
         }()
-        return Image(systemName: symbol).font(.system(size: 34, weight: .semibold))
-            .foregroundStyle(color)
+        return Image(systemName: symbol).font(.system(size: WbType.hero.size, weight: WbType.hero.weight))
+            .foregroundStyle(status.onContainer)
             .frame(width: 72, height: 72)
-            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 20))
+            .background(status.container, in: RoundedRectangle(cornerRadius: WbRadius.xl))
     }
 
     private var headline: String {
@@ -499,15 +500,15 @@ struct FullRootView: View {
     }
 
     private var hero: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: WbSpace.md) {
             HStack { Spacer(); seal; Spacer() }
-            Text(headline).font(.title2.weight(.semibold))
+            Text(headline).wbFont(WbType.headline)
             if !badge.isEmpty {
-                Text(badge).font(.callout).foregroundStyle(.secondary)
+                Text(badge).wbFont(WbType.body).foregroundStyle(WbColor.textSecondary)
                     .multilineTextAlignment(.center)
             }
             if !explanation.isEmpty {
-                Text(explanation).font(.callout).foregroundStyle(.secondary)
+                Text(explanation).wbFont(WbType.body).foregroundStyle(WbColor.textSecondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 480)
                     .fixedSize(horizontal: false, vertical: true)
@@ -518,144 +519,144 @@ struct FullRootView: View {
     // MARK: steps
 
     private var stepsBlock: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: WbSpace.zero) {
             ForEach(Array(presentation.steps.enumerated()), id: \.offset) { index, row in
-                if index > 0 { Divider().padding(.leading, 44) }
+                if index > 0 { Divider().padding(.leading, WbSpace.xxxl) }
                 stepRow(row)
             }
         }
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.secondary.opacity(0.15)))
+        .background(WbColor.raised, in: RoundedRectangle(cornerRadius: WbRadius.lg))
+        .overlay(RoundedRectangle(cornerRadius: WbRadius.lg).strokeBorder(WbColor.borderDefault, lineWidth: WbBorder.hairline))
     }
 
     private func stepRow(_ row: RootStepRow) -> some View {
-        HStack(spacing: 12) {
+        HStack(spacing: WbSpace.md) {
             stepIcon(row)
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: WbSpace.xxs) {
                 Text(model.rootStepTitle(row.kind, magisk: presentation.magisk))
-                    .font(.callout.weight(row.state == .current || row.state == .failed ? .semibold : .regular))
-                    .foregroundStyle(row.state == .waiting || row.state == .skipped ? Color.secondary : Color.primary)
+                    .wbFont(WbType.body.weighted(row.state == .current || row.state == .failed ? .semibold : .regular))
+                    .foregroundStyle(row.state == .waiting || row.state == .skipped ? WbColor.textSecondary : WbColor.textPrimary)
                 let subtitle = model.rootStepSubtitle(row.kind, state: row.state)
                 if !subtitle.isEmpty {
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
+                    Text(subtitle).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                 }
             }
             Spacer()
             if !row.time.isEmpty {
-                Text(row.time).font(.system(.caption, design: .monospaced))
-                    .foregroundStyle(row.state == .failed ? Color.red : Color.secondary)
+                Text(row.time).wbFont(WbType.code)
+                    .foregroundStyle(row.state == .failed ? WbColor.negative : WbColor.textSecondary)
             }
             switch row.state {
-            case .done: Text(t("已完成", "Done")).font(.caption).foregroundStyle(Color.green)
-            case .current: Text(t("进行中", "Running")).font(.caption).foregroundStyle(Color.accentColor)
-            case .waiting: Text(t("排队中", "Queued")).font(.caption).foregroundStyle(Color.secondary)
-            case .failed: Text(t("失败", "Failed")).font(.caption).foregroundStyle(Color.red)
-            case .skipped: Text(t("未执行", "Not run")).font(.caption).foregroundStyle(Color.secondary)
+            case .done: Text(t("已完成", "Done")).wbFont(WbType.caption).foregroundStyle(WbStatus.jobDone.onContainer)
+            case .current: Text(t("进行中", "Running")).wbFont(WbType.caption).foregroundStyle(WbStatus.jobRunning.onContainer)
+            case .waiting: Text(t("排队中", "Queued")).wbFont(WbType.caption).foregroundStyle(WbStatus.jobQueued.onContainer)
+            case .failed: Text(t("失败", "Failed")).wbFont(WbType.caption).foregroundStyle(WbStatus.jobFailed.onContainer)
+            case .skipped: Text(t("未执行", "Not run")).wbFont(WbType.caption).foregroundStyle(WbStatus.jobCancelled.onContainer)
             }
-        }.padding(.horizontal, 14).padding(.vertical, row.state == .current || row.state == .failed ? 10 : 8)
-            .background(row.state == .current ? Color.accentColor.opacity(0.10)
-                        : row.state == .failed ? Color.red.opacity(0.10) : Color.clear)
+        }.padding(.horizontal, WbSpace.lg).padding(.vertical, row.state == .current || row.state == .failed ? 10 : 8)
+            .background(row.state == .current ? WbStatus.transition.container
+                        : row.state == .failed ? WbStatus.negative.container : Color.clear)
     }
 
     @ViewBuilder
     private func stepIcon(_ row: RootStepRow) -> some View {
         switch row.state {
-        case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(WbColor.positive)
         case .current: ProgressView().controlSize(.small).frame(width: 18, height: 18)
-        case .waiting: Image(systemName: "circle.dashed").foregroundStyle(.secondary)
-        case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(.red)
-        case .skipped: Image(systemName: "minus.circle").foregroundStyle(.secondary)
+        case .waiting: Image(systemName: "circle.dashed").foregroundStyle(WbColor.textSecondary)
+        case .failed: Image(systemName: "xmark.circle.fill").foregroundStyle(WbColor.negative)
+        case .skipped: Image(systemName: "minus.circle").foregroundStyle(WbColor.textSecondary)
         }
     }
 
     // MARK: state blocks
 
     private var progressBlock: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: WbSpace.sm) {
             ProgressView().controlSize(.small)
             Text(presentation.currentText.isEmpty ? t("正在准备…", "Preparing…") : presentation.currentText)
-                .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).lineLimit(2)
             Spacer()
-            Text(presentation.elapsed).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+            Text(presentation.elapsed).wbFont(WbType.code).foregroundStyle(WbColor.textSecondary)
         }
-        .padding(10)
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .padding(WbSpace.md)
+        .background(WbColor.sunken, in: RoundedRectangle(cornerRadius: WbRadius.md))
     }
 
     private var grantBlock: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "hand.tap.fill").foregroundStyle(.orange)
+        HStack(spacing: WbSpace.md) {
+            Image(systemName: "hand.tap.fill").foregroundStyle(WbColor.warning)
             Text(t("等待你点按“允许”：还剩 \(presentation.grantLeft)", "Waiting for your tap: \(presentation.grantLeft) left"))
-                .font(.callout.weight(.medium))
+                .wbFont(WbType.body.weighted(.medium))
             Spacer()
         }
-        .padding(12)
-        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        .padding(WbSpace.md)
+        .background(WbStatus.warning.container, in: RoundedRectangle(cornerRadius: WbRadius.md))
     }
 
     private var proofBlock: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: WbSpace.sm) {
             proofRow(t("检查", "Check"), "su -c id → \(presentation.suOutput)")
             proofRow(t("Magisk", "Magisk"), t("\(presentation.magisk) · 应用已安装", "\(presentation.magisk) · app installed"))
             proofRow(t("启动镜像", "Boot image"), t("已修补 · 原始镜像已保留", "patched · original kept"))
             proofRow(t("耗时", "Took"), t("\(presentation.took) · 5 / 5 步", "\(presentation.took) · 5 of 5 steps"))
         }
-        .padding(12)
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .padding(WbSpace.md)
+        .background(WbColor.sunken, in: RoundedRectangle(cornerRadius: WbRadius.md))
     }
 
     private func proofRow(_ key: String, _ value: String) -> some View {
         HStack(alignment: .top) {
-            Text(key).font(.caption).foregroundStyle(.secondary).frame(width: 80, alignment: .leading)
-            Text(value).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+            Text(key).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).frame(width: 80, alignment: .leading)
+            Text(value).wbFont(WbType.code).textSelection(.enabled)
             Spacer(minLength: 0)
         }
     }
 
     private var integrityBanner: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "shield.slash").foregroundStyle(.orange)
+        HStack(alignment: .top, spacing: WbSpace.sm) {
+            Image(systemName: "shield.slash").foregroundStyle(WbColor.warning)
             Text(presentation.playStore
                  ? t("已 Root 的模拟器无法通过 Play Integrity。一旦 Root，Play 商店里的银行应用和部分游戏会拒绝运行。",
                      "Rooted emulators can't pass Play Integrity. Banking apps and some games from the Play Store will refuse to run once it is rooted.")
                  : t("已 Root 的模拟器无法通过 Play Integrity。会检查该状态的应用将拒绝运行。",
                      "Rooted emulators can't pass Play Integrity. Apps that check it will refuse to run."))
-                .font(.caption).foregroundStyle(.orange)
+                .wbFont(WbType.caption).foregroundStyle(WbColor.warning)
         }
-        .padding(10)
+        .padding(WbSpace.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+        .background(WbStatus.warning.container, in: RoundedRectangle(cornerRadius: WbRadius.md))
     }
 
     private func logTailBlock(_ lines: [RootLogLine], title: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: WbSpace.xxs) {
+            Text(title).wbFont(WbType.label.weighted(.semibold)).foregroundStyle(WbColor.textSecondary)
             ForEach(lines) { line in
-                HStack(alignment: .top, spacing: 6) {
+                HStack(alignment: .top, spacing: WbSpace.sm) {
                     Text(Self.logTime.string(from: line.at))
-                        .font(.system(size: 10.5, design: .monospaced)).foregroundStyle(.secondary)
+                        .wbFont(WbType.code).foregroundStyle(WbColor.textSecondary)
                     Text(model.rootLogText(line.text))
-                        .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(line.isError ? Color.red : Color.primary)
+                        .wbFont(WbType.code)
+                        .foregroundStyle(line.isError ? WbColor.negative : WbColor.textPrimary)
                         .lineLimit(2).textSelection(.enabled)
                     Spacer(minLength: 0)
                 }
             }
         }
-        .padding(10)
+        .padding(WbSpace.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+        .background(WbColor.sunken, in: RoundedRectangle(cornerRadius: WbRadius.md))
     }
 
     private var failureBlocks: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: WbSpace.md) {
             if !presentation.log.isEmpty {
                 logTailBlock(presentation.log, title: t("日志尾", "Log tail"))
             }
             if presentation.phase == .failed, !presentation.steps.isEmpty {
                 Text(t("在第 \(presentation.stepIndex) / \(presentation.stepCount) 步停止。数据未受影响，可以重试或回退到无 Root。",
                        "Stopped at step \(presentation.stepIndex) of \(presentation.stepCount). Your data is intact; try again or revert to unrooted."))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
             }
         }
     }
@@ -670,7 +671,7 @@ struct FullRootView: View {
 
     @ViewBuilder
     private var footer: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: WbSpace.sm) {
             switch presentation.phase {
             case .progress:
                 Button(t("停止并回退", "Stop and revert"), role: .destructive) { store.stopAndRevert() }
@@ -707,13 +708,13 @@ struct FullRootView: View {
             case .stopped:
                 Spacer()
                 ProgressView().controlSize(.small)
-                Text(t("正在回退…", "Reverting…")).font(.caption).foregroundStyle(.secondary)
+                Text(t("正在回退…", "Reverting…")).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
             case .idle:
                 Spacer()
                 Button(t("关闭", "Close")) { dismiss() }
             }
         }
-        .padding(14)
-        .background(Color(nsColor: .windowBackgroundColor))
+        .padding(WbSpace.lg)
+        .background(WbColor.chrome)
     }
 }

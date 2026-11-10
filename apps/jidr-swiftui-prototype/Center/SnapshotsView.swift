@@ -41,25 +41,26 @@ struct SnapshotsView: View {
     private var currentDevice: Device { model.devices.first(where: { $0.id == device.id }) ?? device }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: WbSpace.md) {
             header
             if let banner = banner { bannerView(banner) }
             if !error.isEmpty {
-                Label(error, systemImage: "exclamationmark.triangle").font(.caption)
-                    .foregroundStyle(.red).textSelection(.enabled)
+                Label(error, systemImage: "exclamationmark.triangle").wbFont(WbType.caption)
+                    .foregroundStyle(WbColor.negative).textSelection(.enabled)
             }
             if busy {
-                HStack(spacing: 8) {
+                HStack(spacing: WbSpace.sm) {
                     ProgressView().controlSize(.small)
                     Text(busyText.isEmpty ? t("正在处理…", "Working…") : busyText)
-                        .font(.caption).foregroundStyle(.secondary)
+                        .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                     Spacer()
                 }
             }
             list
         }
-        .padding(20)
+        .padding(WbSpace.xl)
         .frame(width: 660, height: 540)
+        .tint(WbColor.accent)
         .onAppear(perform: load)
         .sheet(isPresented: $showSave) {
             SnapshotSaveDialog(model: model, device: currentDevice,
@@ -87,14 +88,14 @@ struct SnapshotsView: View {
 
     private var header: some View {
         HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(t("快照", "Snapshots")).font(.title2.weight(.semibold))
-                HStack(spacing: 6) {
-                    Text(device.name).font(.callout).foregroundStyle(.secondary).lineLimit(1)
+            VStack(alignment: .leading, spacing: WbSpace.xs) {
+                Text(t("快照", "Snapshots")).wbFont(WbType.headline)
+                HStack(spacing: WbSpace.sm) {
+                    Text(device.name).wbFont(WbType.body).foregroundStyle(WbColor.textSecondary).lineLimit(1)
                     Text(Snapshots.modeName(currentDevice.root.mode, language: model.language))
-                        .font(.caption.weight(.medium))
-                        .padding(.horizontal, 7).padding(.vertical, 2)
-                        .background(Color.secondary.opacity(0.12), in: Capsule())
+                        .wbFont(WbType.caption.weighted(.medium))
+                        .padding(.horizontal, WbSpace.sm).padding(.vertical, WbSpace.xxs)
+                        .background(WbStatus.neutral.container, in: Capsule())
                 }
             }
             Spacer()
@@ -116,16 +117,17 @@ struct SnapshotsView: View {
     }
 
     private func bannerView(_ banner: (String, Bool)) -> some View {
-        HStack(alignment: .top, spacing: 8) {
+        let tone = banner.1 ? WbStatus.warning : WbStatus.neutral
+        return HStack(alignment: .top, spacing: WbSpace.sm) {
             Image(systemName: banner.1 ? "exclamationmark.triangle" : "info.circle")
-                .foregroundStyle(banner.1 ? .orange : .secondary)
-            Text(banner.0).font(.caption)
-                .foregroundStyle(banner.1 ? .orange : .secondary)
+                .foregroundStyle(tone.onContainer)
+            Text(banner.0).wbFont(WbType.caption)
+                .foregroundStyle(tone.onContainer)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
-        .padding(10)
-        .background((banner.1 ? Color.orange : Color.secondary).opacity(0.10), in: RoundedRectangle(cornerRadius: 8))
+        .padding(WbSpace.md)
+        .background(tone.container, in: RoundedRectangle(cornerRadius: WbRadius.md))
     }
 
     @ViewBuilder
@@ -134,12 +136,12 @@ struct SnapshotsView: View {
             ProgressView(t("正在读取快照…", "Loading snapshots…"))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if snapshots.isEmpty {
-            VStack(spacing: 8) {
+            VStack(spacing: WbSpace.sm) {
                 Label(t("暂无快照", "No snapshots"), systemImage: "camera")
-                    .font(.callout).foregroundStyle(.secondary)
+                    .wbFont(WbType.body).foregroundStyle(WbColor.textSecondary)
                 Text(t("快照会按当前状态保存内存和磁盘，并记录保存时的 Root 模式。",
                        "A snapshot saves memory and disk as they are, tagged with the root mode."))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                     .multilineTextAlignment(.center)
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
@@ -148,29 +150,29 @@ struct SnapshotsView: View {
             }.listStyle(.inset)
             if !running {
                 Text(t("启动设备后才能恢复快照。", "Start the device to restore a snapshot."))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
             }
         }
     }
 
     private func row(_ snapshot: SnapshotRow) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: WbSpace.md) {
             thumbnail(snapshot)
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(displayName(snapshot)).font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
+            VStack(alignment: .leading, spacing: WbSpace.xs) {
+                HStack(spacing: WbSpace.sm) {
+                    Text(displayName(snapshot)).wbFont(WbType.body.weighted(.medium)).lineLimit(1).truncationMode(.middle)
                     if snapshot.quick_boot {
-                        Text(t("自动", "Auto")).font(.caption2.weight(.medium))
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Color.secondary.opacity(0.14), in: Capsule())
+                        Text(t("自动", "Auto")).wbFont(WbType.caption.weighted(.medium))
+                            .padding(.horizontal, WbSpace.sm).padding(.vertical, WbSpace.xxs)
+                            .background(WbStatus.neutral.container, in: Capsule())
                     } else {
                         Text(Snapshots.modeName(snapshot.root_mode, language: model.language))
-                            .font(.caption2.weight(.medium))
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Color.accentColor.opacity(0.14), in: Capsule())
+                            .wbFont(WbType.caption.weighted(.medium))
+                            .padding(.horizontal, WbSpace.sm).padding(.vertical, WbSpace.xxs)
+                            .background(WbColor.control, in: Capsule())
                     }
                 }
-                HStack(spacing: 8) {
+                HStack(spacing: WbSpace.sm) {
                     if snapshot.quick_boot {
                         Text(t("每次停止时保存 · 用于快速启动", "Saved on every stop · used for fast start"))
                     } else {
@@ -179,14 +181,14 @@ struct SnapshotsView: View {
                         let when = Snapshots.when(snapshot.created_at, language: model.language)
                         if !when.isEmpty { Text("·"); Text(when) }
                     }
-                }.font(.caption).foregroundStyle(.secondary)
+                }.wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                 if !snapshot.restorable {
                     Label(refusalLine(snapshot), systemImage: "exclamationmark.triangle")
-                        .font(.caption).foregroundStyle(.orange)
+                        .wbFont(WbType.caption).foregroundStyle(WbColor.warning)
                 }
             }
             Spacer()
-            VStack(alignment: .trailing, spacing: 6) {
+            VStack(alignment: .trailing, spacing: WbSpace.sm) {
                 Button(t("恢复", "Restore")) { requestRestore(snapshot) }
                     .disabled(!running || busy)
                 if !snapshot.quick_boot {
@@ -196,7 +198,7 @@ struct SnapshotsView: View {
                 }
             }
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, WbSpace.xs)
     }
 
     private func displayName(_ snapshot: SnapshotRow) -> String {
@@ -215,13 +217,13 @@ struct SnapshotsView: View {
     private func thumbnail(_ snapshot: SnapshotRow) -> some View {
         if let path = snapshot.thumbnail, let image = NSImage(contentsOfFile: path) {
             Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
-                .frame(width: 44, height: 78).clipShape(RoundedRectangle(cornerRadius: 5))
-                .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Color.secondary.opacity(0.2)))
+                .frame(width: 44, height: 78).clipShape(RoundedRectangle(cornerRadius: WbRadius.xs))
+                .overlay(RoundedRectangle(cornerRadius: WbRadius.xs).strokeBorder(WbColor.borderDefault, lineWidth: WbBorder.hairline))
         } else {
             Image(systemName: snapshot.quick_boot ? "bolt.fill" : "camera")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(WbColor.textSecondary)
                 .frame(width: 44, height: 78)
-                .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
+                .background(WbStatus.neutral.container, in: RoundedRectangle(cornerRadius: WbRadius.xs))
         }
     }
 
