@@ -60,7 +60,7 @@ evidence (unit tests, fixtures, screenshots); real-device verification runs in M
 | 5 | Snapshots | `snapshots/mod.rs`, `snapshots-*` | `SnapshotsView`, `SnapshotData.swift`, `SnapshotDialogs.swift` | ✅ | ⬜ | real-device save/load/refusal walkthrough |
 | 6 | Root (modes/verify/revert/modules/props/certs/auto-grant) | `root/mod.rs`, `root-*` | `RootFlow.swift`, `RootSteps.swift`, `RootDevTools.swift` | ✅ | ⬜ | real-device root cycle and Play Store grant |
 | 7 | Widget panels | `widgets/*`, `widgets-*` | `AdvancedTools.swift` (6 tabs) | ✅ | ⬜ | real-device widgets; separate-window form accepted; sensor presets thin |
-| 8 | Game window (frame/input/IME/clipboard/recording/screenshot/drop/pixel-perfect/fullscreen/sidebar/on-top/state) | `player/*`, `player-*` | `GameWindow.swift`, `PlayerWindowView.swift`, `PlayerSession.swift` | ✅ | ⬜ | real-device input/recording/gesture semantics |
+| 8 | Game window (frame/input/IME/clipboard/recording/screenshot/drop/pixel-perfect/fullscreen/sidebar/on-top/state) | `player/*`, `player-*` | `GameWindow.swift`, `PlayerWindowView.swift`, `PlayerSession.swift` | ✅ | 🧪 | real-device render + frame/latency measured; IME/clipboard/game behaviour manual |
 | 9 | Key mapping and shortcuts | `player/keymap.rs`, `game_shortcuts.rs`, `edit_shortcuts.rs` | `KeyMapping.swift`, `GameShortcuts.swift` | ✅ | 🧪 | real-device shortcut and multi-touch verification |
 | 10 | App/game library | `game_library.rs`, `launcher-game-list` | center app list | 🟡 | ⬜ | daemon copy, empty state, real device |
 | 11 | Command palette | `palette/mod.rs`, `palette-*` | `CommandPalette.swift`, `PaletteView.swift` | ✅ | 🧪 | real UI run |
@@ -72,7 +72,7 @@ evidence (unit tests, fixtures, screenshots); real-device verification runs in M
 | 17 | Release chain/CI | `xtask/release.rs`, `packaging/macos`, CI | package-test.sh + swift-macos CI job + token-drift check | 🟡 | ⬜ | release branch, signing/notarization (M5) |
 | 18 | Decisions/licence/docs | D2/D15/D18/D20, ADRs | ADR-0003 accepted + D44 | ✅ | — | D18 wording at M6 |
 | 19 | Config compatibility | `window-state/*.json`, `keymaps/*`, `gui-prefs.json` | same paths, display id added, legacy readers tested | ✅ | 🧪 | covered by tests; real rollback run in M4 |
-| 20 | Performance | ADR-0001, `display-performance.md` | not measured | ❌ | ⬜ | baseline A/B (M4) |
+| 20 | Performance | ADR-0001, `display-performance.md` | `bench-player.sh`, `Tests/Bench` | ✅ | 🧪 | latency PASS 13.3/24.6 ms; presented 58.4 fps; draw-rate gap (49.5) logged; Slint live A/B needs a driven scene |
 | 21 | Daemon reconnect (center bridge) | `src/bridge.rs` reconnect | `Reconnect.swift`, `DeviceModel.swift` | ✅ | 🧪 | real daemon kill/restart verified; device soak in M4 |
 | 22 | Global shortcuts | `ui/app.slint` key handling | `Shortcuts.swift`, `main.swift` monitor | ✅ | 🧪 | real keyboard end-to-end |
 | 23 | RTL / layout direction (D33) | `theme.slint` rtl, mirrored goldens | — | — | — | **not required** (2026-11-11): Chinese/English only; semantic leading/trailing where free |

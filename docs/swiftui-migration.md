@@ -165,6 +165,28 @@ configs are readable. The real-device and real-game part of the acceptance is M4
 window stays dark on purpose (matches Slint) and Noto Kufi is registered but RTL is out of
 scope. Accessibility end-to-end (VoiceOver/Tab order) remains a manual check.
 
+## M4: isolated real-device acceptance (status 2026-11-11)
+
+All runs used a throwaway `JIDR_HOME` under `/tmp`, a one-off AVD and a read-only SDK; no
+user data, AVDs or SDK files were touched and no Google licence was accepted by a test.
+
+| Evidence | Result |
+|---|---|
+| CLI/protocol flow (`scripts/m4-swiftui-acceptance.sh`, read-only SDK, real emulator) | **11/11 steps in 104 s**: create → boot (23 s) → connect-info → `app.list` + launch Settings (focused) → screenshot → guest marker, `snapshot.save`, delete, `snapshot.load`, marker read back → `root.verify`/`root.set adb` (uid=0) → 3 s recording (88 frames) → stop → delete → daemon quit |
+| Live UI render (`render-live.sh` + `Tests/LiveRender`) | real daemon + real device (Android 16 API 36): centre ready 102 ms, centre 1000×640 and 820×600 renders, player first frame **173 ms** at 432×768; app list empty on a fresh image is the real state and is noted |
+| Player performance (`bench-player.sh` + `Tests/Bench`) | 30/30 taps detected: touch→new-frame **median 13.28 ms, p90 24.57 ms** (ADR-0001 budget 80 ms: PASS); 10 s driven run at 576×1280: received **58.8 fps**, presented **58.4 fps**, actual NSView draw **49.5 fps**; 173 MB/s; player+bridge CPU 52.8% of one core; RSS 832 MB |
+| Slint comparison | live A/B not obtained: `display_bench` itself does not drive frames and the swipe driver had a script bug, so its numbers are a static-scene artefact. Against the same-machine 2026-11-09 reference (received 59.97 / displayed 58.72, CPU 61.3%) presented fps is -0.5% (reference only, no PASS/FAIL) |
+| Rollback | the Slint 0.3.1 app starts normally on a `gui-prefs.json` written with the SwiftUI shape (unknown keys ignored, file untouched); keymaps/shortcuts/window-state legacy readers are covered by tests |
+
+Open observations: the 15% gap between presented frames and actual draws (AppKit redraw
+coalescing vs draw cost) is logged for follow-up, not treated as a regression; real-game
+compatibility, on-screen IME/clipboard behaviour and VoiceOver/Tab order still need a manual
+pass on this machine (no screen-recording or accessibility permission here); the Slint live A/B
+should be repeated with a driven scene on a machine where the bench window can be fronted.
+
+The automated part of M4 is complete; the three manual items above stay open as switch
+conditions for M6.
+
 ## M1–M6 gates (summary)
 
 - **M1 — test and package skeleton.** macOS CI job for Swift builds, logic tests and the
