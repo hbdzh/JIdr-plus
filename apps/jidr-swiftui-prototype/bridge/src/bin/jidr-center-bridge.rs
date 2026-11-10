@@ -629,13 +629,12 @@ mod tests {
             assert!(diagnostic.code.is_ascii() && diagnostic.code.contains('.'));
             assert!(diagnostic.message.is_ascii());
         }
-        for (code, message) in [(
+        let (code, message) = (
             "quit.timeout",
             "The background process did not exit cleanly",
-        )] {
-            assert!(code.is_ascii() && code.contains('.'));
-            assert!(message.is_ascii());
-        }
+        );
+        assert!(code.is_ascii() && code.contains('.'));
+        assert!(message.is_ascii());
     }
 
     #[tokio::test]
