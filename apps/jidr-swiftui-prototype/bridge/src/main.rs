@@ -31,6 +31,8 @@ enum Command {
     SendFile { path: String },
     StartRecording { path: String },
     StopRecording,
+    AppInspect { path: String },
+    AppUninstall { package: String },
 }
 
 fn panel_point(x: f64, y: f64, width: u32, height: u32, quarter: u32) -> Option<(i32, i32)> {
@@ -372,7 +374,9 @@ async fn input(
         | Command::Screenshot { .. }
         | Command::SendFile { .. }
         | Command::StartRecording { .. }
-        | Command::StopRecording => {
+        | Command::StopRecording
+        | Command::AppInspect { .. }
+        | Command::AppUninstall { .. } => {
             bail!("toolbar commands must be handled by the daemon")
         }
     }
@@ -635,6 +639,22 @@ async fn main() -> Result<()> {
                         eprintln!("JIDR_OPERATION:{}", json!({"ok":true,"message":label,"path":path}));
                     }
                 });
+            }, Ok(Command::AppInspect { path }) => {
+                let client = Arc::clone(&client);
+                tokio::spawn(async move {
+                    match client.call("app.inspect", json!({"apk": path})).await {
+                        Ok(value) => eprintln!("JIDR_APP:{}", json!({"op":"inspect","ok":true,"apk":path,"package":value.get("package"),"label":value.get("label")})),
+                        Err(error) => eprintln!("JIDR_APP:{}", json!({"op":"inspect","ok":false,"apk":path,"message":format!("{error}")})),
+                    }
+                });
+            }, Ok(Command::AppUninstall { package }) => {
+                let client = Arc::clone(&client); let device = args[1].clone();
+                tokio::spawn(async move {
+                    match client.call("app.uninstall", json!({"device":device,"package":package})).await {
+                        Ok(_) => eprintln!("JIDR_APP:{}", json!({"op":"uninstall","ok":true,"package":package})),
+                        Err(error) => eprintln!("JIDR_APP:{}", json!({"op":"uninstall","ok":false,"package":package,"message":format!("{error}")})),
+                    }
+                });
             }, Ok(command) => if let Err(e) = input(&mut ctl,command,(width,height),&rotation,&mut held).await { eprintln!("Input failed: {e:#}"); }, Err(e) => eprintln!("Invalid input: {e}") }, None => break },
         }
     }
@@ -645,6 +665,18 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn app_commands_parse() {
+        let inspect: Command =
+            serde_json::from_str(r#"{"type":"app_inspect","path":"/tmp/a.apk"}"#).unwrap();
+        assert!(matches!(inspect, Command::AppInspect { ref path } if path == "/tmp/a.apk"));
+        let uninstall: Command =
+            serde_json::from_str(r#"{"type":"app_uninstall","package":"com.example.shop"}"#)
+                .unwrap();
+        assert!(
+            matches!(uninstall, Command::AppUninstall { ref package } if package == "com.example.shop")
+        );
+    }
     #[test]
     fn file_type_is_based_on_apk_extension() {
         assert!(is_apk("/tmp/game.APK"));
