@@ -187,6 +187,11 @@ should be repeated with a driven scene on a machine where the bench window can b
 The automated part of M4 is complete; the three manual items above stay open as switch
 conditions for M6.
 
+**M4 gate status: the automated part is done** — CLI/protocol acceptance passed on a real
+device, the real-device UI renders and the player measurements are inside the ADR-0001 budget
+with one logged observation (actual draws below presented frames). The three manual items
+(real game, on-screen IME/clipboard, VoiceOver/Tab order) stay open as M6 switch conditions.
+
 ## M1–M6 gates (summary)
 
 - **M1 — test and package skeleton.** macOS CI job for Swift builds, logic tests and the
