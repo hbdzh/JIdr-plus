@@ -43,30 +43,6 @@ impl LogBatch {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::LocalStateLocks;
-
-    #[tokio::test]
-    async fn preferences_do_not_block_tool_paths() {
-        let locks = LocalStateLocks::default();
-        let _preference_write = locks.preferences.lock().await;
-        assert!(locks.tools.try_lock().is_ok());
-        assert!(locks.preferences.try_lock().is_err());
-    }
-
-    #[test]
-    fn log_batch_stays_bounded_and_keeps_latest_lines() {
-        let mut batch = super::LogBatch::default();
-        for n in 0..1002 {
-            batch.push(n.to_string());
-        }
-        assert_eq!(batch.lines.len(), 1000);
-        assert_eq!(batch.lines.front().map(String::as_str), Some("2"));
-        assert_eq!(batch.dropped, 2);
-    }
-}
-
 fn send(value: Value) {
     let mut output = std::io::stdout().lock();
     let _ = writeln!(output, "{value}");
@@ -339,4 +315,28 @@ async fn follow_logcat(paths: &JidrPaths, device: &str, filters: Vec<String>) ->
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LocalStateLocks;
+
+    #[tokio::test]
+    async fn preferences_do_not_block_tool_paths() {
+        let locks = LocalStateLocks::default();
+        let _preference_write = locks.preferences.lock().await;
+        assert!(locks.tools.try_lock().is_ok());
+        assert!(locks.preferences.try_lock().is_err());
+    }
+
+    #[test]
+    fn log_batch_stays_bounded_and_keeps_latest_lines() {
+        let mut batch = super::LogBatch::default();
+        for n in 0..1002 {
+            batch.push(n.to_string());
+        }
+        assert_eq!(batch.lines.len(), 1000);
+        assert_eq!(batch.lines.front().map(String::as_str), Some("2"));
+        assert_eq!(batch.dropped, 2);
+    }
 }

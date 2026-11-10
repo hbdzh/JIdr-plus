@@ -600,7 +600,15 @@ mod tests {
         ];
         let labels = |turn| {
             let (w, h, p) = orient_frame(3, 2, turn, &source).unwrap();
-            (w, h, p.chunks_exact(4).map(|p| p[0]).collect::<Vec<_>>())
+            (
+                w,
+                h,
+                p.as_chunks::<4>()
+                    .0
+                    .iter()
+                    .map(|p| p[0])
+                    .collect::<Vec<_>>(),
+            )
         };
         assert_eq!(labels(0), (3, 2, vec![1, 2, 3, 4, 5, 6]));
         assert_eq!(labels(1), (2, 3, vec![3, 6, 2, 5, 1, 4]));
