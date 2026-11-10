@@ -1,7 +1,7 @@
 # ADR-0003: SwiftUI/AppKit as the production GUI (proposal)
 
-- **Status:** Proposed (M0, 2026-11-11). The maintainer approves it at the M0 gate; until then
-  the Slint app stays the production build.
+- **Status:** Accepted (2026-11-11, M0). The maintainer approved the outline and settled the
+  three open points below; the Slint app stays the production build until the M6 switch.
 - **Date:** 2026-11-11
 - **Related:** D2 (Slint), D15 (Apple Silicon only, code stays portable), D18 (split licensing),
   D20 (Slint spike), D41 (design tokens), ADR-0001 (frame transport); the plan, parity
@@ -16,7 +16,7 @@ portable toolkit. A SwiftUI/AppKit prototype already covers the device center, t
 window and most settings and advanced tools, and the migration does not touch the daemon,
 the protocol or the CLI: both GUIs are thin clients over the same JSON-RPC control protocol.
 
-## Decision (proposed)
+## Decision (approved 2026-11-11)
 
 1. **SwiftUI/AppKit replaces Slint as the production GUI on macOS.** `crates/jidr-ui` and
    `apps/jidr-gui` stay buildable and receive bug fixes until the M6 switch, then they are
@@ -42,6 +42,20 @@ the protocol or the CLI: both GUIs are thin clients over the same JSON-RPC contr
    (choose a destination, read-only preflight, clear "not migrated" copy).
 10. **Commits and releases:** one conventional commit per logical task on `master`, no remote
     push, no release or installed-app replacement without the maintainer's explicit ask.
+
+## Approved on 2026-11-11
+
+1. **Window model:** keep standalone device windows; there is no in-window device tab. The
+   Slint tab form is deliberately not ported. The player window owns the booting, stopped and
+   reconnect states, so `player-booting`/`player-stopped` are shown there rather than in a tab.
+2. **RTL:** not required. The app ships Chinese and English only; use semantic leading/trailing
+   where it is free, but the RTL golden variants are not a gate. Revisit only if Arabic ships.
+3. **Localization direction:** keep the current Chinese-key `.strings` tables, the `t()` helper
+   and the inline ternaries for this migration. Harden them with the CI rules in
+   `docs/swiftui-localization.md`, move user-visible dynamic errors (bridge diagnostics,
+   `NSError`/`LocalizedError`) to English or code-based messages, and shrink the allowlist as
+   M2 fixes the known leaks. Only consider an English-source catalogue if a third language is
+   added.
 
 Amendments this proposal implies: D2 (Slint was the MVP UI; for JIdr Plus the production UI
 is SwiftUI), D15 (portability stays at the daemon/protocol/CLI; the GUI is macOS-only),

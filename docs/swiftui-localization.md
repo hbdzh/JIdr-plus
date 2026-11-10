@@ -1,5 +1,7 @@
 # SwiftUI localization: English-mode gaps (M0 audit)
 
+> 决定（2026-11-11）：保留现有三条本地化机制（中文 key 的 `.strings`、`t()`、内联三元），通过 CI 规则收口；动态错误改为英文或 code 化，allowlist 随 M2 修复收缩。只有新增第三种语言时才考虑英文 source 目录。RTL 不要求。
+
 > M0 的本地化走查记录。三条机制、缺口清单、CI 规则建议与英文模式 top 10 见正文；摘要见 [swiftui-migration.md](swiftui-migration.md) 的 M0 一节。
 
 - 基线：`master@b46a2f3`（工作区无已跟踪改动；本报告为未跟踪草稿）

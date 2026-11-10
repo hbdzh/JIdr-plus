@@ -20,22 +20,23 @@ behaviour must exist.
 Missing scenes: `launcher-tasks`, `palette`, `palette-filtered`, `edit-device-data`,
 `player-fullscreen-reveal`, `player-overlay`, `player-booting`, `player-stopped`,
 `root-awaiting-grant`, `root-devtools-failed`, `root-devtools-no-auto-grant`,
-`launcher-reconnecting`.
+`launcher-reconnecting`. `player-booting`/`player-stopped` stay missing until M2-B adds those
+states to the standalone player window.
 
 An earlier count of 55 "entry points" measured screens, not behaviour; this table is the
 binding one.
 
 ## Structural findings (these outweigh individual scenes)
 
-1. **Device window form differs.** Slint shows the device screen inside the main workbench as
-   a device tab; the SwiftUI app only has a separate player window, so `player-booting` and
-   `player-stopped` are unreachable. Open decision: keep the window model and accept a form
-   difference, or add an in-window device view. Recommendation: functional parity first,
-   decide the form separately.
+1. **Device window form (decided 2026-11-11).** Slint shows the device screen inside the main
+   workbench as a device tab; this migration keeps **standalone device windows** and does not
+   port the tab. The consequence is functional: the player window must handle the booting,
+   stopped and disconnected states itself (`player-booting`/`player-stopped`), tracked in M2-B.
 2. **Widget panels are separate windows** in SwiftUI instead of the docked panel beside the
    device screen; discoverability and persistence differ.
-3. **Missing cross-cutting infrastructure**: daemon reconnect, background task list/cancel,
-   global keyboard shortcuts (⌘K/⌘L/⌘J/⌥⌘0/⌃⌘F/⌘N/⌘, /Esc), RTL/layout direction.
+3. **Missing cross-cutting infrastructure**: daemon reconnect, background task list/cancel and
+   global keyboard shortcuts (⌘K/⌘L/⌘J/⌥⌘0/⌃⌘F/⌘N/⌘, /Esc). RTL is not required (decided
+   2026-11-11).
 4. **Root is a coarse success/failure state**; the 5-step timeline, log tail, stop-and-revert
    and Play Store wait/countdown branches are missing.
 5. **Localization architecture drifts from Slint**: Chinese-key reverse tables plus three
@@ -72,7 +73,7 @@ real-device evidence yet.
 | 20 | Performance | ADR-0001, `display-performance.md` | not measured | ❌ | ⬜ | baseline A/B (M4) |
 | 21 | Daemon reconnect (center bridge) | `src/bridge.rs` reconnect | one `connect_or_spawn`, notice only | ❌ | ⬜ | P0 infrastructure |
 | 22 | Global shortcuts | `ui/app.slint` key handling | — | ❌ | ⬜ | P0 with palette |
-| 23 | RTL / layout direction (D33) | `theme.slint` rtl, mirrored goldens | — | ❌ | ⬜ | decision needed: defer with semantic leading/trailing, or implement |
+| 23 | RTL / layout direction (D33) | `theme.slint` rtl, mirrored goldens | — | — | — | **not required** (2026-11-11): Chinese/English only; semantic leading/trailing where free |
 
 ## Flows the goldens do not cover
 
@@ -90,9 +91,8 @@ real-device evidence yet.
 
 ## Priorities
 
-- **P0 (blocks acceptance)**: daemon reconnect; task list/cancel; device-window integration
-  (form decision); Root timeline/stop-and-revert/Play Store wait; global shortcuts + palette;
-  RTL decision.
+- **P0 (blocks acceptance)**: daemon reconnect; task list/cancel; player-window booting/stopped/
+  reconnect states; Root timeline/stop-and-revert/Play Store wait; global shortcuts + palette.
 - **P1 (visible in goldens)**: palette, snapshot dialogs, five-page device form (data page),
   settings IA/agents page, fullscreen reveal, debug overlay, recording clock.
 - **P2**: first-run wizard fidelity, docked widget panels, screenshot/recording semantics,

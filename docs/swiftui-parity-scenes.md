@@ -1,5 +1,7 @@
 # SwiftUI parity: 68 golden scene mapping (M0 audit)
 
+> 产品决定（2026-11-11）：保持独立设备窗口、不迁主工作台 device tab；不要求 RTL；本地化保留现有中文 key 机制。因此本审计中 `player-booting`/`player-stopped` 的"缺失"由独立播放器窗口补齐，`-rtl` golden 变体不作为迁移门槛。
+
 > 这是 M0 的行为级审计记录，由 68 个 golden 场景逐行映射而来；摘要与模块矩阵见 [swiftui-parity.md](swiftui-parity.md)。判定口径：**有入口** = 场景的主要 UI 与行为都有对应实现，仅细节差异；**部分** = 有入口但一项以上可见/行为要素缺失；**缺失** = 无入口或无法到达该状态。
 
 - 基线：`master@b46a2f3`（`feat(gui): add SwiftUI prototype`），只读审计，未修改任何已跟踪文件、未提交、未 push。

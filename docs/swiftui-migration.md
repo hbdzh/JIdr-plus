@@ -15,7 +15,8 @@ verification are separate columns, and every row names its evidence.
 | Platform | Apple Silicon macOS; minimum version fixed in M1 (13.0 unless SwiftUI needs more) |
 | Tech | SwiftUI + AppKit where needed, over the existing Rust bridges; daemon still owns state |
 | Function | Match the Slint user capabilities, state feedback and failure handling; new features are separate |
-| Entry | Device center is production; the standalone player is a development/test entry, not shipped |
+| Entry | Device center is production; the separate standalone player app is a development/test entry, not shipped |
+| Window model | Standalone device windows per device; no in-window device tab (2026-11-11) |
 | Map | MapKit container + OSM/`tile_url` tiles, D14 satisfied; map-click interaction still to add |
 | Licence | Swift GUI stays GPL-3.0-only, bridge Apache-2.0; no relicensing |
 | Visual | D41 Workbench tokens and Lucide icons; native-control exceptions recorded in M3 |
@@ -76,10 +77,14 @@ for CI and acceptance, or declare the minimum emulator version) and records it.
   (running app + daemon) is folded into the M1 screenshot harness rather than claimed as done.
 - **ADR approval**: D2/D15/D20 amendments and the Slint freeze need the maintainer's approval;
   the licence wording change for D18 is deferred to M6.
-- **Decisions to take in M1/M2**: device-window form (separate window vs workbench tab), RTL
-  scope (D33 mirrors a third of the goldens; recommendation: semantic leading/trailing now,
-  full RTL only if Arabic ships), and the localization direction (keep the Chinese-key
-  `.strings` tables plus CI rules, or move to English-source keys with a zh catalogue).
+## Approved decisions (2026-11-11)
+
+- **Window model:** standalone device windows, no in-window device tab. The player window owns
+  the booting/stopped/reconnect states that the Slint tab used to show.
+- **RTL:** not required; Chinese and English only. The rtl golden variants are not a gate.
+- **Localization:** keep the Chinese-key `.strings` + `t()` + ternary mechanisms, harden them
+  with CI rules, move user-visible dynamic errors to English/code-based messages, and shrink the
+  allowlist. An English-source catalogue is only reconsidered if a third language is added.
 
 ### First estimate after M0
 
@@ -89,17 +94,18 @@ signing credentials). Ranges are deliberately coarse; M1 replaces them with the 
 | Stage | Work | Person-days |
 |---|---|---:|
 | M1 | Swift CI + localization gate; fixture mode; screenshot baselines; installable test `.app` + DMG; isolation | 7–11 |
-| M2-A | device center and tasks: reconnect, task list/cancel, device-window form, palette + shortcuts, toasts/status | 9–13 |
+| M2-A | device center and tasks: reconnect, task list/cancel, player window booting/stopped states, palette + shortcuts, toasts/status | 8–12 |
 | M2-B | player and input: fullscreen reveal, overlay, uninstall, multi-touch mapping, shortcut editor, status displays | 8–12 |
 | M2-C | root/snapshots/tools: 5-step timeline, stop+revert, Play Store wait, snapshot dialogs, map click, runtime camera | 8–12 |
-| M3 | native integration, tokens/icons, multi-window/compact/Retina, EN/ZH walkthrough, config compatibility | 12–17 |
+| M3 | native integration, tokens/icons, multi-window/compact/Retina, EN/ZH walkthrough, config compatibility (no RTL) | 11–15 |
 | M4 | isolated acceptance scripts + runs; performance A/B and long-run checks (maintainer joins for games) | 6–10 |
 | M5 | release chain: packaging, signing/notarization, Gatekeeper, install/upgrade/rollback | 4–6 |
 | M6 | switch, docs, Slint fallback, deferred decisions | 2–4 |
-| **Total** | | **56–85 person-days** |
+| **Total** | | **53–80 person-days** |
 
 With one owner plus two agents and the M1 gate as the first checkpoint this is roughly
 **6–9 calendar weeks**, low-to-medium confidence; the M2 split and review overhead dominate.
+The three decisions above remove the RTL work and the device-tab work from the estimates.
 
 ## M1–M6 gates (summary)
 
