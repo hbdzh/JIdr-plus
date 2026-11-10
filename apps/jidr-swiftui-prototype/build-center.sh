@@ -15,7 +15,9 @@ cp apps/jidr-swiftui-prototype/Resources/en.lproj/Localizable.strings "$app/Cont
 cp apps/jidr-swiftui-prototype/Resources/zh-Hans.lproj/Localizable.strings "$app/Contents/Resources/zh-Hans.lproj/Localizable.strings"
 cp crates/jidr-ui/ui/assets/device-list-generated.png "$app/Contents/Resources/device-list.png"
 cp crates/jidr-ui/ui/assets/device-detail-generated.png "$app/Contents/Resources/device-detail.png"
+mkdir -p "$app/Contents/Resources/fonts"
+cp apps/jidr-gui/assets/fonts/*.ttf "$app/Contents/Resources/fonts/"
 cat > "$app/Contents/Info.plist" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleDevelopmentRegion</key><string>zh-Hans</string><key>CFBundleExecutable</key><string>JidrSwiftUICenter</string><key>CFBundleIdentifier</key><string>local.jidr.swiftui.center</string><key>CFBundleName</key><string>Jidr SwiftUI Center</string><key>CFBundlePackageType</key><string>APPL</string><key>NSHighResolutionCapable</key><true/></dict></plist>
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleDevelopmentRegion</key><string>zh-Hans</string><key>CFBundleExecutable</key><string>JidrSwiftUICenter</string><key>CFBundleIdentifier</key><string>local.jidr.swiftui.center</string><key>CFBundleName</key><string>Jidr SwiftUI Center</string><key>CFBundlePackageType</key><string>APPL</string><key>NSHighResolutionCapable</key><true/><key>ATSApplicationFontsPath</key><string>fonts</string></dict></plist>
 PLIST
 printf 'Built %s\n' "$app"

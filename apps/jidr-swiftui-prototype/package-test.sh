@@ -144,6 +144,9 @@ cp crates/jidr-ui/ui/assets/device-detail-generated.png "$app/Contents/Resources
 cp LICENSE-APACHE "$app/Contents/Resources/licenses/LICENSE-APACHE"
 cp apps/jidr-gui/LICENSE-GPL "$app/Contents/Resources/licenses/LICENSE-GPL"
 cp NOTICE "$app/Contents/Resources/licenses/NOTICE"
+mkdir -p "$app/Contents/Resources/fonts"
+cp apps/jidr-gui/assets/fonts/*.ttf "$app/Contents/Resources/fonts/"
+cp apps/jidr-gui/assets/fonts/OFL-*.txt "$app/Contents/Resources/licenses/"
 printf 'APPL????' > "$app/Contents/PkgInfo"
 # Marks this bundle as the isolated test package: Center/main.swift then defaults
 # JIDR_HOME to ~/Library/Application Support/Jidr-SwiftUI-Test when it is unset.
