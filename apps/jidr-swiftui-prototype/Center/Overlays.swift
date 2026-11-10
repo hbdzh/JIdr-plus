@@ -19,9 +19,9 @@ struct ConnectionStatusPill: View {
         } else {
             HStack(spacing: WbSpace.sm) {
                 if model.connectionNeedsRetry {
-                    Image(systemName: WbIcon.warningFill).wbFont(WbType.caption)
+                    Image(systemName: WbIcon.warningFill).wbFont(WbType.caption).accessibilityHidden(true)
                 } else {
-                    ProgressView().controlSize(.mini)
+                    ProgressView().controlSize(.mini).accessibilityHidden(true)
                 }
                 Text(model.connectionLabel).wbFont(WbType.caption).lineLimit(1)
                 if model.connectionNeedsRetry {
@@ -132,7 +132,7 @@ private struct TaskRowView: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: WbSpace.md) {
-            Image(systemName: symbol).foregroundStyle(tint).frame(width: WbIconSize.iconLg)
+            Image(systemName: symbol).foregroundStyle(tint).frame(width: WbIconSize.iconLg).accessibilityHidden(true)
             VStack(alignment: .leading, spacing: WbSpace.xs) {
                 Text(row.title).wbFont(WbType.body.weighted(.semibold)).lineLimit(1).truncationMode(.middle)
                 if let progress = row.progress {
@@ -149,6 +149,7 @@ private struct TaskRowView: View {
                 }
                 .buttonStyle(.borderless)
                 .help(model.text("取消任务", "Cancel task"))
+                .accessibilityLabel(model.text("取消任务", "Cancel task"))
             }
         }
         .padding(WbSpace.md)
@@ -168,9 +169,11 @@ struct ToastOverlay: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: WbSpace.sm) {
-            Image(systemName: symbol).foregroundStyle(tint)
+            Image(systemName: symbol).foregroundStyle(tint).accessibilityHidden(true)
             Text(toast.text).wbFont(WbType.body).lineLimit(4).multilineTextAlignment(.leading)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(toast.text)
         .padding(.horizontal, WbSpace.lg)
         .padding(.vertical, WbSpace.md)
         .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.lg))
@@ -179,5 +182,11 @@ struct ToastOverlay: View {
         .padding(.bottom, WbSpace.xl)
         .onTapGesture(perform: dismiss)
         .transition(.move(edge: .bottom).combined(with: .opacity))
+        .onAppear {
+            // Transient feedback would otherwise be missed by VoiceOver.
+            NSAccessibility.post(element: NSApplication.shared, notification: .announcementRequested,
+                                 userInfo: [.announcement: toast.text,
+                                            .priority: NSAccessibilityPriorityLevel.high.rawValue])
+        }
     }
 }

@@ -13,7 +13,7 @@ struct JidrNavigationItem: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: WbSpace.md) {
-                Image(systemName: symbol).frame(width: 16)
+                Image(systemName: symbol).frame(width: 16).accessibilityHidden(true)
                 Text(title).lineLimit(1)
             }
                 .wbFont(WbType.body.weighted(selected ? .semibold : .regular))
@@ -47,9 +47,11 @@ struct DeviceArt: View {
     let name: String
     let width: CGFloat
     var body: some View {
-        if let url = Bundle.main.url(forResource:name, withExtension:"png"), let image = NSImage(contentsOf:url) {
-            Image(nsImage:image).resizable().scaledToFit().frame(width:width)
-        }
+        Group {
+            if let url = Bundle.main.url(forResource:name, withExtension:"png"), let image = NSImage(contentsOf:url) {
+                Image(nsImage:image).resizable().scaledToFit().frame(width:width)
+            }
+        }.accessibilityHidden(true)
     }
 }
 
@@ -85,7 +87,7 @@ struct DeviceDetailsView: View {
                     Text(details.device.name).wbFont(WbType.body).foregroundStyle(WbColor.textSecondary).lineLimit(1).truncationMode(.middle)
                 }
                 Spacer(minLength:12)
-                Button("关闭") { dismiss() }
+                Button("关闭") { dismiss() }.keyboardShortcut(.cancelAction)
             }
             Form {
                 Section(model.text("设备概览", "Overview")) {
@@ -97,7 +99,9 @@ struct DeviceDetailsView: View {
                         HStack {
                             Text(details.device.id).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
                             Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(details.device.id,forType:.string) } label: { Image(systemName:WbIcon.copy) }
-                                .buttonStyle(.borderless).help(model.text("复制设备 ID", "Copy device ID"))
+                                .buttonStyle(.borderless)
+                                .help(model.text("复制设备 ID", "Copy device ID"))
+                                .accessibilityLabel(model.text("复制设备 ID", "Copy device ID"))
                         }
                     }
                 }
@@ -261,7 +265,7 @@ struct EditDeviceView: View {
             }.formStyle(.grouped)
             Button("冷启动一次…") { confirmColdBoot = true }.disabled(!details.device.stopped || saving)
             if !error.isEmpty { Text(error).foregroundStyle(WbColor.negative) }
-            HStack { Spacer(); Button("取消") { dismiss() }.disabled(saving); Button("保存") {
+            HStack { Spacer(); Button("取消") { dismiss() }.disabled(saving).keyboardShortcut(.cancelAction); Button("保存") {
                 let trimmed = name.trimmingCharacters(in:.whitespacesAndNewlines)
                 guard !trimmed.isEmpty, let r = Int(ram), (512...65536).contains(r), let c = Int(cores), (1...16).contains(c), let w = Int(width), (240...4096).contains(w), let h = Int(height), (240...4096).contains(h), let dpi = Int(density), (72...1000).contains(dpi) else { error = model.text("请检查名称、内存、CPU、分辨率和 DPI。", "Check the name, memory, CPU, resolution and DPI."); return }
                 var values: [String:Any] = [:]
@@ -292,7 +296,7 @@ struct EditDeviceView: View {
                     case .failure(let failure): error = failure.localizedDescription
                     }
                 }
-            }.buttonStyle(.borderedProminent).disabled(saving) }
+            }.buttonStyle(.borderedProminent).disabled(saving).keyboardShortcut(.defaultAction) }
         }.padding(WbSpace.xl).frame(width:560,height:560)
         .onAppear {
             do {
@@ -474,17 +478,18 @@ struct InstallSDKView: View {
                     if model.sdkInstalling {
                         Button(model.sdkCancelPending ? model.text("正在取消…", "Cancelling…") : model.text("取消安装", "Cancel installation")) { model.cancelSDKInstall() }
                             .disabled(model.sdkInstallJob == nil || model.sdkCancelPending)
-                        Button(model.text("后台运行", "Run in background")) { dismiss() }
+                        Button(model.text("后台运行", "Run in background")) { dismiss() }.keyboardShortcut(.cancelAction)
                     } else {
                         if model.sdkInstallSucceeded == false { Button(model.text("重新选择并重试", "Choose and retry"),action:retrySetup) }
-                        Button("关闭") { dismiss() }
+                        Button("关闭") { dismiss() }.keyboardShortcut(.cancelAction)
                     }
                 } else {
-                Button("取消") { dismiss() }.disabled(loading)
+                Button("取消") { dismiss() }.disabled(loading).keyboardShortcut(.cancelAction)
                 if showingLicenses {
                     Button(licenses.isEmpty ? "安装" : "同意并安装") { loading = true; error = ""; loadingMessage = model.text("正在确认许可…", "Confirming licences…"); accept(0) }
                         .disabled(loading || (!licenses.isEmpty && !reviewed))
-                } else { Button("继续") { prepare() }.disabled(loading) }
+                        .keyboardShortcut(.defaultAction)
+                } else { Button("继续") { prepare() }.disabled(loading).keyboardShortcut(.defaultAction) }
                 }
             }
         }.padding(WbSpace.xl).frame(width:650)
@@ -551,7 +556,7 @@ struct NewDeviceView: View {
             if images.isEmpty { Text("没有找到已安装的系统镜像。").wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary) }
             Button("安装 SDK 和系统镜像…") { installing = true }
             if !error.isEmpty { Text(error).foregroundStyle(WbColor.negative) }
-            HStack { Spacer(); Button("取消") { dismiss() }.disabled(saving)
+            HStack { Spacer(); Button("取消") { dismiss() }.disabled(saving).keyboardShortcut(.cancelAction)
                 Button("创建") {
                     let parameters: [String:Any]
                     do { parameters = try DeviceCreation(name:name,image:image,profile:profile,ram:ram,cpus:cpus,storage:storage,root:root,audio:audio).parameters() }
@@ -570,7 +575,7 @@ struct NewDeviceView: View {
                         case .failure(let failure): error = failure.localizedDescription
                         }
                     }
-                }.buttonStyle(.borderedProminent).disabled(saving || images.isEmpty || profiles.isEmpty)
+                }.buttonStyle(.borderedProminent).disabled(saving || images.isEmpty || profiles.isEmpty).keyboardShortcut(.defaultAction)
             }
         }.padding(WbSpace.xl).frame(width:520, height:520).onAppear {
             model.call("profile.list") { result in
@@ -758,7 +763,7 @@ struct SettingsView: View {
             }.padding(WbSpace.lg).frame(width: 185).background(WbColor.raised)
             Divider()
             VStack(alignment:.leading,spacing:WbSpace.lg) {
-            HStack { Text([model.text("通用", "General"), model.text("设备默认值", "Device defaults"), model.text("数据与工具", "Data & tools"), model.text("高级", "Advanced"), model.text("关于", "About")][category]).wbFont(WbType.headline); Spacer(); Button("关闭") { dismiss() }.disabled(saving) }
+            HStack { Text([model.text("通用", "General"), model.text("设备默认值", "Device defaults"), model.text("数据与工具", "Data & tools"), model.text("高级", "Advanced"), model.text("关于", "About")][category]).wbFont(WbType.headline); Spacer(); Button("关闭") { dismiss() }.disabled(saving).keyboardShortcut(.cancelAction) }
             ScrollView {
               Form {
                 if category == 0 { Section("界面") {
@@ -904,28 +909,37 @@ struct CenterView: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(width:compact ? 150 : 200)
                 .focused($searchFocused)
+                .accessibilityLabel(model.text("搜索设备", "Search devices"))
             Button { model.openPalette() } label: { Image(systemName:WbIcon.search) }
                 .help(model.text("搜索命令和设备（⌘K）", "Search commands and devices (⌘K)"))
+                .accessibilityLabel(model.text("搜索命令和设备（⌘K）", "Search commands and devices (⌘K)"))
             ConnectionStatusPill(model:model)
             if !model.activeJobs.isEmpty {
                 Button { model.openTasks() } label: {
                     HStack(spacing:WbSpace.xs) { Image(systemName:WbIcon.tasks); Text("\(model.activeJobs.count)") }
-                }.help(model.text("后台任务", "Background tasks"))
+                }
+                .help(model.text("后台任务", "Background tasks"))
+                .accessibilityLabel(model.text("后台任务（\(model.activeJobs.count)）", "Background tasks (\(model.activeJobs.count))"))
             }
             if compact {
                 Button { model.present(.newDevice) } label: { Image(systemName:WbIcon.plus) }
                     .help(model.text("新建设备（⌘N）", "New device (⌘N)"))
+                    .accessibilityLabel(model.text("新建设备（⌘N）", "New device (⌘N)"))
             } else {
                 Button("添加设备",systemImage:WbIcon.plus) { model.present(.newDevice) }
                     .help(model.text("新建设备（⌘N）", "New device (⌘N)"))
             }
             Button { model.present(.settings) } label: { Image(systemName:WbIcon.settings) }
                 .help(model.text("设置（⌘,）", "Settings (⌘,)"))
+                .accessibilityLabel(model.text("设置（⌘,）", "Settings (⌘,)"))
             Button { model.refresh() } label: { Image(systemName:WbIcon.refresh) }
                 .help(model.text("刷新设备（⌘R）", "Refresh devices (⌘R)"))
+                .accessibilityLabel(model.text("刷新设备（⌘R）", "Refresh devices (⌘R)"))
             Button { detailsVisible.toggle() } label: {
                 Image(systemName:detailsVisible ? WbIcon.hideDetails : WbIcon.showDetails)
-            }.help(detailsVisible ? model.text("隐藏详情", "Hide details") : model.text("显示详情", "Show details"))
+            }
+            .help(detailsVisible ? model.text("隐藏详情", "Hide details") : model.text("显示详情", "Show details"))
+            .accessibilityLabel(detailsVisible ? model.text("隐藏详情", "Hide details") : model.text("显示详情", "Show details"))
         }.padding(.leading, compact ? 84 : 94).padding(.trailing,WbSpace.md).frame(height: WbLayout.windowTitlebarHeight)
         .background(WbColor.chrome)
     }
@@ -972,11 +986,18 @@ struct CenterView: View {
                 LazyVStack(spacing:WbSpace.sm) {
                     ForEach(filteredDevices) { device in
                         Button { model.select(device.id) } label: {
-                            HStack { DeviceArt(name:"device-list", width:40); VStack(alignment:.leading) { Text(device.name).wbFont(WbType.title).lineLimit(1).truncationMode(.middle); HStack(spacing:WbSpace.sm) { Circle().fill(device.running ? WbColor.positive : WbColor.textTertiary).frame(width:6,height:6); Text(device.statusText(language:model.language)) }.wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary); if let progress = model.progress(for:device.id) { Text(progress).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).lineLimit(1) } else { Text(device.androidVersion).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary) } }; Spacer(); Image(systemName:WbIcon.chevronRight) }.padding(WbSpace.md).frame(maxWidth:.infinity,alignment:.leading).background(model.selected == device.id ? WbColor.selected : WbColor.raised,in:RoundedRectangle(cornerRadius: WbRadius.lg))
-                        }.buttonStyle(.plain)
-                            .simultaneousGesture(TapGesture(count:2).onEnded {
-                                model.focusOrOpenDeviceWindow(device.id)
-                            })
+                            HStack { DeviceArt(name:"device-list", width:40); VStack(alignment:.leading) { Text(device.name).wbFont(WbType.title).lineLimit(1).truncationMode(.middle); HStack(spacing:WbSpace.sm) { Circle().fill(device.running ? WbColor.positive : WbColor.textTertiary).frame(width:6,height:6).accessibilityHidden(true); Text(device.statusText(language:model.language)) }.wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary); if let progress = model.progress(for:device.id) { Text(progress).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).lineLimit(1) } else { Text(device.androidVersion).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary) } }; Spacer(); Image(systemName:WbIcon.chevronRight).accessibilityHidden(true) }.padding(WbSpace.md).frame(maxWidth:.infinity,alignment:.leading).background(model.selected == device.id ? WbColor.selected : WbColor.raised,in:RoundedRectangle(cornerRadius: WbRadius.lg))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityElement(children:.ignore)
+                        .accessibilityLabel(model.text("\(device.name)，\(device.statusText(language:model.language))", "\(device.name), \(device.statusText(language:0))"))
+                        .accessibilityHint(model.text("按 Return 打开设备窗口，或选择设备后使用常用操作。", "Press Return to open the device window, or use the quick actions after selecting it."))
+                        .accessibilityAction(named: Text(model.text("打开设备窗口", "Open device window"))) {
+                            model.focusOrOpenDeviceWindow(device.id)
+                        }
+                        .simultaneousGesture(TapGesture(count:2).onEnded {
+                            model.focusOrOpenDeviceWindow(device.id)
+                        })
                     }
                 }
             } }
@@ -1098,6 +1119,12 @@ struct CenterView: View {
         .environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
         .preferredColorScheme(model.appearance == 1 ? .light : model.appearance == 2 ? .dark : nil)
         .onChange(of:model.searchFocusRequest) { _, _ in searchFocused = true }
+        .onChange(of:model.paletteOpen) { _, open in
+            if !open, model.sheet == nil { searchFocused = true }
+        }
+        .onChange(of:model.tasksOpen) { _, open in
+            if !open, model.sheet == nil { searchFocused = true }
+        }
         .sheet(item:$model.sheet) { sheet in
             Group {
                 switch sheet {

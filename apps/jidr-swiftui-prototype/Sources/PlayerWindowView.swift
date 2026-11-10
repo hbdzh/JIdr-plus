@@ -144,6 +144,8 @@ struct ContentView: View {
     private var screenArea: some View {
         ZStack {
             PlayerView(transport: transport)
+                .accessibilityLabel(t("设备画面", "Device screen", language))
+                .accessibilityHint(t("用侧边栏按钮发送按键、截图或录屏。", "Use the sidebar buttons to send keys, take screenshots or record.", language))
             if !linkState.isRunning {
                 stateCard
             }
@@ -492,6 +494,7 @@ struct ContentView: View {
     }
 
     @ViewBuilder private var logcatBar: some View {
+        Button { chrome.logcatOpen = true } label: {
         HStack(spacing: WbSpace.md) {
             Image(systemName: WbIcon.logcat).wbFont(WbType.label)
             Text("Logcat").wbFont(WbType.label.weighted(.semibold))
@@ -511,7 +514,10 @@ struct ContentView: View {
         .frame(height: 34)
         .background(WbColor.chrome)
         .contentShape(Rectangle())
-        .onTapGesture { chrome.logcatOpen = true }
+        }
+        .buttonStyle(.plain)
+        .help(t("打开日志面板（⌘L）", "Open Logcat (⌘L)", language))
+        .accessibilityLabel(t("打开日志面板", "Open Logcat", language))
         .overlay(alignment: .top) { Divider().opacity(0.4) }
     }
 
@@ -533,8 +539,12 @@ struct ContentView: View {
                 }
                 Button { logStream.clear() } label: { Image(systemName: WbIcon.trash) }
                     .buttonStyle(.borderless)
+                    .help(t("清空日志", "Clear log", language))
+                    .accessibilityLabel(t("清空日志", "Clear log", language))
                 Button { chrome.logcatOpen = false } label: { Image(systemName: WbIcon.close) }
                     .buttonStyle(.borderless)
+                    .help(t("关闭日志面板", "Close Logcat", language))
+                    .accessibilityLabel(t("关闭日志面板", "Close Logcat", language))
             }
             .padding(.horizontal, WbSpace.sm).frame(height: 34)
             .background(WbColor.chrome)
@@ -578,12 +588,14 @@ struct ContentView: View {
             HStack {
                 Spacer()
                 Button(t("取消", "Cancel", language)) { showUninstall = false }
+                    .keyboardShortcut(.cancelAction)
                 Button(t("卸载", "Uninstall", language), role: .destructive) {
                     chrome.uninstallAction?(uninstallPackage)
                     showUninstall = false
                     uninstallPackage = ""
                 }
                 .disabled(uninstallPackage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .keyboardShortcut(.defaultAction)
             }
         }
         .padding(WbSpace.xl)

@@ -12,6 +12,11 @@ struct CommandPaletteView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var entries: [PaletteEntry] { model.paletteFiltered }
+
+    /// VoiceOver label for a row: title, then the subtitle that explains it.
+    private func paletteRowLabel(_ entry: PaletteEntry) -> String {
+        entry.subtitle.isEmpty ? entry.title : entry.title + "，" + entry.subtitle
+    }
     private var visible: [PaletteEntry] { Array(entries.prefix(model.paletteVisibleCount)) }
 
     var body: some View {
@@ -22,13 +27,16 @@ struct CommandPaletteView: View {
             VStack(spacing: WbSpace.zero) {
                 HStack(spacing: WbSpace.md) {
                     Image(systemName: WbIcon.search).foregroundStyle(WbColor.textSecondary)
+                        .accessibilityHidden(true)
                     TextField(model.text("输入命令或设备名称", "Type a command or a device name"), text: $model.paletteQuery)
                         .textFieldStyle(.plain)
                         .wbFont(WbType.title.weighted(.regular))
                         .focused($searchFocused)
+                        .accessibilityLabel(model.text("搜索命令和设备", "Search commands and devices"))
                     Text("esc")
                         .wbFont(WbType.caption)
                         .foregroundStyle(WbColor.textSecondary)
+                        .accessibilityHidden(true)
                         .padding(.horizontal, WbSpace.sm).padding(.vertical, WbSpace.xxs)
                         .background(WbStatus.neutral.container, in: RoundedRectangle(cornerRadius: WbRadius.xs))
                 }
@@ -45,15 +53,19 @@ struct CommandPaletteView: View {
                         ScrollView {
                             VStack(spacing: WbSpace.xxs) {
                                 ForEach(Array(visible.enumerated()), id: \.element.id) { index, entry in
-                                    PaletteRow(entry: entry, selected: index == model.paletteSelection)
-                                        .id(index)
-                                        .onTapGesture {
-                                            model.closeOverlay()
-                                            model.runPaletteAction(entry.action)
-                                        }
-                                        .onHover { hovering in
-                                            if hovering { model.paletteSelection = index }
-                                        }
+                                    Button {
+                                        model.closeOverlay()
+                                        model.runPaletteAction(entry.action)
+                                    } label: {
+                                        PaletteRow(entry: entry, selected: index == model.paletteSelection)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .id(index)
+                                    .onHover { hovering in
+                                        if hovering { model.paletteSelection = index }
+                                    }
+                                    .accessibilityLabel(paletteRowLabel(entry))
+                                    .accessibilityHint(model.text("按 Return 运行", "Press Return to run"))
                                 }
                             }.padding(WbSpace.xs)
                         }
@@ -93,6 +105,7 @@ private struct PaletteRow: View {
             Image(systemName: symbol)
                 .frame(width: WbIconSize.iconMd)
                 .foregroundStyle(WbColor.textSecondary)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: WbSpace.xxs) {
                 Text(entry.title).lineLimit(1).wbFont(WbType.body)
                 if !entry.subtitle.isEmpty {
@@ -103,6 +116,7 @@ private struct PaletteRow: View {
             if !entry.keyboard.isEmpty {
                 Text(entry.keyboard)
                     .wbFont(WbType.caption)
+                    .accessibilityHidden(true)
                     .foregroundStyle(WbColor.textSecondary)
                     .padding(.horizontal, WbSpace.sm).padding(.vertical, WbSpace.xxs)
                     .background(WbStatus.neutral.container, in: RoundedRectangle(cornerRadius: WbRadius.xs))

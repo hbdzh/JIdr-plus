@@ -957,6 +957,7 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         button.imagePosition = .imageOnly
         button.target = self
         button.action = #selector(toggleSidebar)
+        button.setAccessibilityRole(.button)
         accessory.view = button
         sidebarButton = button
         window.addTitlebarAccessoryViewController(accessory)
@@ -989,6 +990,7 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         button.imagePosition = .imageOnly
         button.target = self
         button.action = #selector(togglePin)
+        button.setAccessibilityRole(.button)
         accessory.view = button
         pinButton = button
         window.addTitlebarAccessoryViewController(accessory)
