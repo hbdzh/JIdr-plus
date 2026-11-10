@@ -42,9 +42,18 @@ appearance is dark, animations are disabled and the locale is zh-Hans, and `--ch
 pixels exactly (no tolerance). Fixture mode is opt-in per process: set `JIDR_CENTER_FIXTURE`
 to `empty`, `populated`, `load-failure`, `long-task` or `disconnect` for the center bridge, or
 set `JIDR_PLAYER_FIXTURE=1` for the player bridge; when unset, both bridges use their normal
-daemon/gRPC paths. The baselines are provisional until the M2 UI work lands: refresh them with
-`--update` after a deliberate visual change, and treat a `--check` failure before that refresh
-as expected.
+daemon/gRPC paths. These baselines cover the frozen M2 UI and are the screenshot gate: CI runs
+`--check` and a failure means the rendering changed. `center-long-task` drives the center's
+in-flight `job.progress` state; the booting player window is not one of the five cases.
+Refresh the baselines with `--update` after a deliberate visual change and update this table.
+
+| case | size | bytes | sha256 |
+|---|---|---|---|
+| `center-empty` | 1000×640 | 51736 | `58959955567ffea12cb305afeda14e75c92ee000b528e4aa4e3436fe865157dc` |
+| `center-populated` | 1000×640 | 88392 | `9145ffc21f656db9650917ddd09ad0d659f026a98783f0ec685fec29fddb944b` |
+| `center-load-failure` | 1000×640 | 44870 | `21ddf51b81571378b6b80784591b53455acc940185e37eabd83cf873b2ae645b` |
+| `center-long-task` | 1000×640 | 83669 | `d4eff216590be7f784d2cc2c8abbe6d0bc1fe463648053bec0ad48d40762ed01` |
+| `player-running` | 432×768 | 27764 | `a3a73b5951b6879317a2227aa8ed2a0fbdaab865dbceb4224d77b169514c9126` |
 
 ## Device-center development preview
 

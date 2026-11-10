@@ -161,6 +161,18 @@ fn fixture_result(request: &Request, case: &str) -> Value {
         "snapshot.list" => json!({"id":id,"type":"result","result":{"snapshots":[
             {"name":"fixture-snapshot","quick_boot":true,"restorable":true,"root_mode":null,"size_bytes":1048576u64}
         ]}}),
+        "jobs.list" => {
+            let result = if case == "long-task" {
+                json!([{
+                    "id":"fixture-long-task","kind":"device.start","device":"fixture-long-task",
+                    "progress":0.6,"message":"Rebooting","bytes":null,"state":"running",
+                    "error":null,"created_at":"2026-11-11T00:00:00Z"
+                }])
+            } else {
+                json!([])
+            };
+            json!({"id":id,"type":"result","result":result})
+        }
         _ => {
             json!({"id":id,"type":"error","message":format!("fixture case {case}: no response for {}", request.method)})
         }
@@ -199,10 +211,9 @@ async fn run_fixture(case: &str) -> Result<()> {
         if case == "long-task" && request.method == "device.start" {
             let id = request.id;
             tokio::spawn(async move {
-                for (fraction, message) in [
-                    (0.25, "Preparing to start the device…"),
-                    (0.6, "Starting the device…"),
-                ] {
+                // English daemon diagnostics; OperationMessages translates
+                // them for the Chinese UI, matching a real device.start job.
+                for (fraction, message) in [(0.25, "Cold booting"), (0.6, "Rebooting")] {
                     tokio::time::sleep(std::time::Duration::from_millis(40)).await;
                     send(
                         json!({"id":id,"type":"progress","job":"fixture-long-task","message":message,"progress":fraction}),

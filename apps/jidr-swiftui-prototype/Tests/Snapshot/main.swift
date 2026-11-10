@@ -210,28 +210,32 @@ func renderCenter(fixture: String) -> NSBitmapImageRep {
     } catch {
         fail("cannot start the center bridge for fixture \(fixture): \(error)")
     }
-    defer { model.close() }
+    defer { model.closePlayers(); model.close() }
     switch fixture {
     case "empty":
-        require(waitUpTo(5, until: { model.deviceListLoaded && model.devices.isEmpty }),
+        require(waitUpTo(5, until: { model.connection.isOnline && model.deviceListLoaded && model.devices.isEmpty }),
                 "fixture empty: the device list never loaded")
     case "populated":
         require(waitUpTo(5, until: {
-            model.deviceListLoaded && model.devices.count == 2 && model.details != nil
+            model.connection.isOnline && model.deviceListLoaded && model.devices.count == 2 && model.details != nil
                 && !model.appsLoading && (!model.apps.isEmpty || model.appsError != nil)
         }), "fixture populated: details or the app list never loaded")
     case "load-failure":
-        require(waitUpTo(5, until: {
-            model.deviceListLoaded || (!model.notice.isEmpty && model.notice != "正在连接…")
-        }), "fixture load-failure: no failure notice")
+        require(waitUpTo(5, until: { model.connection.isOnline && !model.notice.isEmpty }),
+                "fixture load-failure: no failure notice")
         pump(0.2)
     case "long-task":
-        require(waitUpTo(5, until: { model.deviceListLoaded && model.devices.count == 1 && model.details != nil }),
-                "fixture long-task: the device list or details never loaded")
+        require(waitUpTo(5, until: {
+            model.connection.isOnline && model.deviceListLoaded && model.devices.count == 1 && model.details != nil
+        }), "fixture long-task: the device list or details never loaded")
         guard let id = model.selected else { fail("fixture long-task: no device selected") }
-        model.start(id)
-        require(waitUpTo(5, until: { model.progress(for: id) == "Starting the device…" }),
-                "fixture long-task: no in-flight job progress")
+        // `start()` opens a booting player window now; the center-side job
+        // progress is the same `operation` path, so drive it directly to keep
+        // this case a single deterministic window.
+        model.operation("device.start", id: id)
+        require(waitUpTo(5, until: {
+            model.progress(for: id) == "正在重启设备" && model.activeJobs.count == 1
+        }), "fixture long-task: no in-flight job progress or task button")
         pump(0.2)
     default:
         fail("unsupported center fixture \(fixture)")
@@ -252,24 +256,27 @@ func renderPlayer() -> NSBitmapImageRep {
     transport.language = 1
     let canvas = Canvas(width: playerSize.width, height: playerSize.height)
     canvas.mount(ContentView(transport: transport, mapping: transport.mapping, sidebar: SidebarState()))
-    // Let ContentView.onAppear install transport.onStatus before the first frame.
+    // ContentView.onAppear installs transport.onStatus; wait for it so the
+    // transient connecting notice can later be cleared deterministically.
     pump(0.2)
-    var frameArrived = false
-    let inner = transport.onFrame
-    transport.onFrame = { image, rotation in
-        inner?(image, rotation)
-        frameArrived = true
-    }
+    require(waitUpTo(3, until: { transport.onStatus != nil }),
+            "player fixture: the player window did not install its status handler")
     do {
         try transport.start(device: "fixture-device", width: 1080, height: 2400,
                             executable: options.playerBridge, quality: 1)
     } catch {
         fail("cannot start the player fixture bridge: \(error)")
     }
-    require(waitUpTo(8, until: { frameArrived }), "player fixture: no frame arrived")
+    require(waitUpTo(8, until: { transport.linkState.isRunning && transport.frameWidth > 0 }),
+            "player fixture: the frame stream never reached the running state")
     // The fixture sends three identical frames; wait for the stream to settle so
     // the capture never sees a partially updated canvas.
     pump(0.4)
+    // The connecting status is a transient notice bubble (six-second timer). It
+    // is not part of the running-window state, so clear it deterministically
+    // instead of racing the timer.
+    transport.onStatus?("")
+    pump(0.2)
     canvas.settle(0.2)
     transport.stop()
     let rep = canvas.capture()
