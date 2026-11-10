@@ -34,6 +34,8 @@
 #   --taps N               latency probes, 0 disables (default 30)
 #   --quality 0|1|2        bridge stream quality (default 1)
 #   --window WxH           benchmark window in points (default 340x752)
+#   --screen N             put the bench window on NSScreen.screens[N] (0-based);
+#                          use a display with a known refresh rate (e.g. 60 Hz)
 #   --probe X,Y            normalized probe point (default 0.5,0.55)
 #   --probe-threshold F    RGB patch delta that counts as a change (default 30)
 #   --no-probe-dump        do not save the detected probe frames/patches
@@ -92,6 +94,7 @@ run_swiftui=1
 self_test=0
 
 fps_gate=55
+screen=-1
 latency_gate=80
 ab_ratio=90   # percent of the Slint baseline
 
@@ -106,6 +109,7 @@ while [[ $# -gt 0 ]]; do
     --taps) taps="${2:-}"; shift 2 ;;
     --quality) quality="${2:-}"; shift 2 ;;
     --window) window="${2:-}"; shift 2 ;;
+    --screen) screen="${2:-}"; shift 2 ;;
     --probe) probe="${2:-}"; shift 2 ;;
     --probe-threshold) probe_threshold="${2:-}"; shift 2 ;;
     --no-probe-dump) dump_probe=0; shift ;;
@@ -332,12 +336,28 @@ def fmt(value, suffix=""):
 fps_gate = 55.0
 latency_gate = 80.0
 ab_ratio = 0.90
+# AppKit draws at most once per display refresh, so the actual NSView draw count
+# cannot exceed the display's refresh rate. Judge it against the panel in use:
+# the main display here can run at 50 Hz depending on cable/mode, which makes a
+# fixed 55 fps "actual draw" gate impossible to pass.
+refresh_hz = None
+for source in (swift.get("fps") or {}, swift):
+    if isinstance(source.get("display_refresh_hz"), (int, float)):
+        refresh_hz = float(source.get("display_refresh_hz"))
+        break
+draw_target = fps_gate
+if refresh_hz is not None and refresh_hz > 0:
+    draw_target = min(fps_gate, max(1.0, refresh_hz - 1.0))
 slint_min_valid_fps = 30.0
 
 checks = {}
 requires_latency = bool(number(taps)) and number(taps) > 0
 if mode != "slint-only":
-    checks["displayed_fps_ge_55_median"] = number(displayed) is not None and number(displayed) >= fps_gate
+    # `displayed` is the presented/UI-hop counter when available (the same
+    # counter as Slint's "shown"), so the 55 fps target applies there; when only
+    # the stricter NSView draw count exists, cap the target at the refresh rate.
+    displayed_gate = draw_target if number(presented) is None else fps_gate
+    checks["displayed_fps_ge_display_target_median"] = number(displayed) is not None and number(displayed) >= displayed_gate
     if requires_latency:
         checks["latency_median_le_80ms"] = number(lat_median) is not None and number(lat_median) <= latency_gate
         checks["all_taps_detected"] = number(detected) == number(taps)
@@ -374,6 +394,8 @@ if mode != "slint-only":
     table += [
         f"  SwiftUI  received {fmt(received)} fps · presented/UI-hop {fmt(presented)} fps"
         f" · actual-draw {fmt(actual_draw)} fps · active-median {fmt(active)} fps · {fmt(mbps)} MB/s",
+        f"  display  refresh {fmt(refresh_hz)} Hz · actual draw is capped by the refresh rate"
+        f" (target {fmt(draw_target)} fps only when the presented counter is unavailable)",
         f"  SwiftUI  CPU player {fmt(cpu)}% · bridge {fmt(bridge_cpu)}% · total {fmt(total_cpu)}%"
         f"  window {swift.get('window',{}).get('width','?')}x"
         f"{swift.get('window',{}).get('height','?')} pt  stream "
@@ -445,6 +467,8 @@ summary = {
         "displayed_definition": "presented frames delivered to the UI hop (same counter as Slint shown); actual_draw_median_fps is the stricter NSView draw count",
         "displayed_ui_hop_median_fps": displayed,
         "actual_draw_median_fps": actual_draw,
+        "display_refresh_hz": refresh_hz,
+        "actual_draw_target_fps": draw_target,
         "displayed_fps_median_min": fps_gate,
         "latency_median_ms_max": latency_gate,
         "ab_ratio": ab_ratio,
@@ -712,7 +736,7 @@ FAKESLINT
                   "$integration_out"/bench-*-device.json "$integration_out"/bench-*.log; do
     [[ -f "$artifact" ]] || die "self-test: integration artifact missing: $artifact"
   done
-  grep -q "FAIL  displayed_fps_ge_55_median" "$integration_out"/bench-*-summary.json 2>/dev/null \
+  grep -q "FAIL  displayed_fps_ge_display_target_median" "$integration_out"/bench-*-summary.json 2>/dev/null \
     || grep -q "result: FAIL" "$integration_out"/bench-*.log \
     || die "self-test: integration summary did not report the fps gate"
   log "self-test: integration run ok (measured + summarized + artifacts, fps gate FAIL as expected)"
@@ -880,7 +904,7 @@ JSON
   set -e
   [[ "$slow_rc" == "7" ]] || die "self-test: slow run exit code was $slow_rc, expected 7"
   grep -q "result: FAIL" "$tmp/summary-fail.txt" || die "self-test: a failing summary did not FAIL"
-  grep -q "FAIL  displayed_fps_ge_55_median" "$tmp/summary-fail.txt" || die "self-test: fps gate not reported"
+  grep -q "FAIL  displayed_fps_ge_display_target_median" "$tmp/summary-fail.txt" || die "self-test: fps gate not reported"
   log "self-test: invalid Slint baseline is reported but not judged"
   cat > "$tmp/slint-invalid.json" <<'SLINTBAD'
 {"available":true,"received_fps":0.1,"shown_fps":0.1,"mb_per_s":0.26,"cpu_percent":3.4,"seconds":10.0}
@@ -1094,6 +1118,8 @@ swiftui_log="$outdir/bench-$ts-player.log"
 probe_dir="$outdir/bench-$ts-probe"
 dump_args=()
 driver_args=()
+screen_args=()
+if [[ "$screen" != "-1" ]]; then screen_args=(--screen "$screen"); fi
 if [[ "$fps_drive" == "1" ]]; then
   driver_args=(--fps-drive)
 fi
@@ -1122,7 +1148,7 @@ raw=json.load(sys.stdin); raw=raw.get("result",raw); print((raw.get("config") or
     --panel-height "$(printf '%s' "$details_json" | python3 -c 'import json,sys
 raw=json.load(sys.stdin); raw=raw.get("result",raw); print((raw.get("config") or {}).get("hw.lcd.height","2400"))')" \
     --quality "$quality" --seconds "$seconds" --taps "$taps" --window "$window" --probe "$probe" \
-    --probe-threshold "$probe_threshold" "${driver_args[@]}" "${dump_args[@]}" --json-out "$swiftui_json" \
+    --probe-threshold "$probe_threshold" "${screen_args[@]+"${screen_args[@]}"}" "${driver_args[@]}" "${dump_args[@]}" --json-out "$swiftui_json" \
     2>&1 | tee -a "$session_log" "$swiftui_log"
   swiftui_rc=${PIPESTATUS[0]}
   set -e

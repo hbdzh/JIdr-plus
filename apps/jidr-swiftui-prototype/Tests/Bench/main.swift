@@ -53,6 +53,9 @@ struct Options: Equatable {
     var hiddenWindow = false
     var firstFrameTimeout = 15.0
     var selfTest = false
+    /// Place the bench window on this NSScreen index (0-based) so a 60/120 Hz
+    /// display can be measured; -1 keeps AppKit's default placement.
+    var screen = -1
 }
 
 func usage() -> String {
@@ -74,6 +77,7 @@ func usage() -> String {
       --fps-drive            drive scroll gestures during the frame-rate phase
                              (ADR-0001 fps bench; use a scrollable scene)
       --first-frame-timeout N  fail after N s without a frame (default 15)
+      --screen N             place the window on NSScreen.screens[N] (for a display with a known refresh rate)
       --hidden-window        do not show the window (render-failure check only)
       --self-test            run offline checks and exit (no device/window)
       -h, --help             this text
@@ -144,6 +148,7 @@ func parseOptions(_ arguments: [String]) throws -> Options {
         case "--probe-threshold": options.probeThreshold = try double(argument, 1...765)
         case "--dump-dir": options.dumpDir = try value(argument)
         case "--first-frame-timeout": options.firstFrameTimeout = try double(argument, 0.2...60)
+        case "--screen": options.screen = try int(argument, 0...7)
         case "--hidden-window": options.hiddenWindow = true
         case "--fps-drive": options.fpsDrive = true
         case "--settle": options.settleSeconds = try double(argument, 0...10)
@@ -654,6 +659,12 @@ final class Bench {
         window.appearance = NSAppearance(named: .darkAqua)
         window.contentView = view
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        if options.screen >= 0, options.screen < NSScreen.screens.count {
+            let visible = NSScreen.screens[options.screen].visibleFrame
+            let size = window.frame.size
+            window.setFrameOrigin(NSPoint(x: visible.midX - size.width / 2,
+                                          y: visible.midY - size.height / 2))
+        }
         pump.onPresent = { [weak self] frame, detection in
             guard let self else { return }
             self.view.image = frame.image
@@ -682,6 +693,19 @@ final class Bench {
     }
 
     // MARK: Setup
+
+    /// Refresh rate of the display the bench window is on. AppKit draws at most
+    /// once per refresh, so `displayed_fps` cannot exceed this.
+    private func displayRefreshHz() -> Double? {
+        guard let screen = window.screen ?? NSScreen.main else { return nil }
+        let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+        if let id = number.map({ CGDirectDisplayID($0.uint32Value) }),
+           let mode = CGDisplayCopyDisplayMode(id), mode.refreshRate > 0 {
+            return mode.refreshRate
+        }
+        let max = screen.maximumFramesPerSecond
+        return max > 0 ? Double(max) : nil
+    }
 
     func start() {
         do {
@@ -937,6 +961,10 @@ final class Bench {
             "median_displayed_fps": Stat.percentile(perSecondDrawn, 0.5) ?? 0,
             "p10_displayed_fps": Stat.percentile(perSecondDrawn, 0.1) ?? 0,
             "replaced_frames": end.replaced - fpsCounterStart.replaced,
+            "display_refresh_hz": displayRefreshHz() ?? NSNull(),
+            "displayed_ratio_of_refresh": displayRefreshHz().map { refresh in
+                refresh > 0 ? (drawn / elapsed) / refresh : 0
+            } ?? NSNull(),
             "stream_width": streamFrame[0],
             "stream_height": streamFrame[1],
             "cpu_percent": cpuPercent ?? NSNull(),
@@ -944,8 +972,10 @@ final class Bench {
             "total_cpu_percent": totalCpuPercent,
             "rss_mb": recorder.rss ?? NSNull(),
         ]
-        print(String(format: "swiftui fps: %.2f s  received %.2f fps  presented %.2f fps  displayed %.2f fps  %.1f MB/s",
-                     elapsed, received / elapsed, presented / elapsed, drawn / elapsed, bytes / 1e6 / elapsed))
+        let refresh = displayRefreshHz()
+        print(String(format: "swiftui fps: %.2f s  received %.2f fps  presented %.2f fps  displayed %.2f fps (display %@ Hz)  %.1f MB/s",
+                     elapsed, received / elapsed, presented / elapsed, drawn / elapsed,
+                     refresh.map { String(format: "%.0f", $0) } ?? "?", bytes / 1e6 / elapsed))
         if let cpuPercent {
             let total = bridgeCpuPercent.map { cpuPercent + $0 }
             print(String(format: "swiftui fps: 250ms-bucket median received %.1f · presented %.1f · displayed %.1f  |  per-second displayed median %.1f",
