@@ -31,54 +31,78 @@ struct SnapshotSaveDialog: View {
     private func t(_ chinese: String, _ english: String) -> String { model.text(chinese, english) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: WbSpace.lg) {
+        VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: WbSpace.xs) {
-                Text(t("保存 \(device.name) 的快照", "Save snapshot of \(device.name)")).wbFont(WbType.title)
+                Text(t("保存 \(device.name) 的快照", "Save snapshot of \(device.name)"))
+                    .wbFont(WbType.title)
+                    .foregroundStyle(WbColor.textPrimary)
+                    .lineLimit(1).truncationMode(.middle)
                 Text(t("将按当前状态保存内存和磁盘数据。保存时 Android 会暂停几秒钟。",
                        "Saves memory and disk exactly as they are now. Android pauses for a few seconds while it saves."))
                     .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            VStack(alignment: .leading, spacing: WbSpace.sm) {
-                Text(t("名称", "Name")).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
-                TextField(t("快照名称", "Snapshot name"), text: $name)
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(saving)
+            .padding(.bottom, WbSpace.lg)
+
+            WbGroupLabel(text: t("快照信息", "Snapshot"))
+                .padding(.bottom, WbSpace.sm)
+            WbFormGroup {
+                WbFormRow(label: t("名称", "Name")) {
+                    TextField(t("快照名称", "Snapshot name"), text: $name)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 220)
+                        .disabled(saving)
+                        .accessibilityLabel(t("名称", "Name"))
+                }
+                WbRowDivider()
+                WbFormRow(label: t("将标记为", "Will be tagged")) {
+                    Text(Snapshots.rootTag(mode: device.root.mode, magisk: magiskVersion, language: model.language))
+                        .wbFont(WbType.caption.weighted(.medium))
+                        .foregroundStyle(WbColor.textSecondary)
+                        .padding(.horizontal, WbSpace.sm)
+                        .padding(.vertical, WbSpace.xs)
+                        .background(WbColor.control, in: Capsule())
+                        .lineLimit(1).truncationMode(.middle)
+                }
             }
-            HStack {
-                Text(t("将标记为", "Will be tagged")).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
-                Text(Snapshots.rootTag(mode: device.root.mode, magisk: magiskVersion, language: model.language))
-                    .wbFont(WbType.caption.weighted(.medium))
-                    .padding(.horizontal, WbSpace.sm).padding(.vertical, WbSpace.xs)
-                    .background(WbStatus.neutral.container, in: Capsule())
-            }
+
             if othersLoaded {
                 Text(Snapshots.sizesHint(others, language: model.language))
                     .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, WbSpace.md)
             }
             if !device.running {
                 Label(t("启动设备后才能保存快照。", "Start the device to save a snapshot."), systemImage: WbIcon.info)
                     .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
+                    .padding(.top, WbSpace.md)
             }
             if saving {
                 HStack(spacing: WbSpace.sm) {
                     ProgressView().controlSize(.small)
-                    Text(progress.isEmpty ? t("正在保存…", "Saving…") : progress).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
+                    Text(progress.isEmpty ? t("正在保存…", "Saving…") : progress)
+                        .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
+                    Spacer(minLength: 0)
                 }
+                .padding(.top, WbSpace.md)
             }
             if !error.isEmpty {
                 Text(error).wbFont(WbType.caption).foregroundStyle(WbColor.negative).textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, WbSpace.md)
             }
-            HStack {
+
+            HStack(spacing: WbSpace.sm) {
                 Spacer()
-                Button(t("取消", "Cancel")) { dismiss() }.disabled(saving)
+                Button(t("取消", "Cancel")) { dismiss() }
+                    .buttonStyle(WbSecondaryButtonStyle())
+                    .disabled(saving)
                 Button(saving ? t("正在保存…", "Saving…") : t("保存", "Save")) { save() }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(WbPrimaryButtonStyle())
                     .keyboardShortcut(.defaultAction)
                     .disabled(saving || !device.running)
             }
+            .padding(.top, WbSpace.lg)
         }
         .padding(WbSpace.xl)
         .frame(width: 460)

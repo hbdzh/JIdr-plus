@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 final class AdvancedToolsWindowController: NSWindowController, NSWindowDelegate {
     var onClose: (() -> Void)?
     init(model: CenterModel, id: String, name: String, root: Bool) {
-        let window = NSWindow(contentRect:NSRect(x:0,y:0,width:680,height:570), styleMask:[.titled,.closable,.miniaturizable,.resizable], backing:.buffered, defer:false)
+        let window = NSWindow(contentRect:NSRect(x:0,y:0,width:680,height:600), styleMask:[.titled,.closable,.miniaturizable,.resizable], backing:.buffered, defer:false)
         super.init(window:window)
         window.title = model.text("高级工具 — \(name)", "Advanced tools — \(name)")
         window.contentView = NSHostingView(rootView:AdvancedToolsView(model:model,id:id,initialRoot:root))
@@ -98,42 +98,11 @@ struct AdvancedToolsView: View {
     } }
     var body: some View {
         HStack(spacing: WbSpace.zero) {
-            VStack(alignment: .leading, spacing: WbSpace.xs) {
-                Text(t("环境模拟", "Simulation")).wbFont(WbType.label.weighted(.semibold)).foregroundStyle(WbColor.textSecondary).padding(.horizontal, WbSpace.md).padding(.bottom, WbSpace.xs)
-                JidrNavigationItem(title:t("电池", "Battery"), symbol:WbIcon.battery, selected:tab == 0) { tab = 0 }
-                JidrNavigationItem(title:"GPS", symbol:WbIcon.location, selected:tab == 1) { tab = 1 }
-                JidrNavigationItem(title:t("网络与传感器", "Network"), symbol:WbIcon.network, selected:tab == 2) { tab = 2 }
-                Text(t("开发与调试", "Development")).wbFont(WbType.label.weighted(.semibold)).foregroundStyle(WbColor.textSecondary).padding(.horizontal, WbSpace.md).padding(.top, WbSpace.xl).padding(.bottom, WbSpace.xs)
-                JidrNavigationItem(title:"Logcat", symbol:WbIcon.logcat, selected:tab == 3) { tab = 3 }
-                JidrNavigationItem(title:t("Root 管理", "Root"), symbol:WbIcon.rootTab, selected:tab == 4) { tab = 4 }
-                JidrNavigationItem(title:t("更多", "More"), symbol:WbIcon.more, selected:tab == 5) { tab = 5 }
-                Spacer()
-            }.padding(WbSpace.md).frame(width: 175).background(WbColor.chrome)
-            Divider()
-            VStack(alignment:.leading, spacing:WbSpace.lg) {
-            Text([t("电池", "Battery"), "GPS", t("网络与传感器", "Network & sensors"), "Logcat", t("Root 管理", "Root"), t("更多工具", "More tools")][tab]).wbFont(WbType.headline)
-            Text([t("模拟设备电量与充电状态。", "Simulate charge and charging state."),
-                  t("设置位置或回放路线。", "Set a location or play a route."),
-                  t("控制网络连接、代理和传感器。", "Control connectivity, proxy and sensors."),
-                  t("查看并筛选设备日志。", "View and filter device logs."),
-                  t("管理 Root、证书和系统属性。", "Manage root, certificates and system properties."),
-                  t("使用电话、剪贴板和调试工具。", "Use phone, clipboard and debugging tools.")][tab])
-                .wbFont(WbType.body).foregroundStyle(WbColor.textSecondary)
-            if !running { Label(t("设备未运行，请启动设备后使用这些工具。", "Start the device to use these tools."), systemImage:WbIcon.info).wbFont(WbType.body).foregroundStyle(WbColor.textSecondary) }
-            ScrollView {
-                VStack(alignment:.leading,spacing:WbSpace.lg) {
-                    switch tab {
-                    case 0: battery
-                    case 1: gps
-                    case 2: networkAndSensors
-                    case 3: logs
-                    case 4: RootDevToolsView(model:model, id:id, running:running)
-                    default: additionalTools
-                    }
-                }.frame(maxWidth: .infinity, alignment:.leading)
-            }.disabled(!running || working)
-            if !message.isEmpty { Text(message).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).textSelection(.enabled) }
-            }.padding(WbSpace.xl).frame(maxWidth:.infinity, maxHeight:.infinity, alignment:.topLeading)
+            navigation
+            Rectangle()
+                .fill(WbColor.borderSubtle)
+                .frame(width: 1)
+            contentColumn
         }
         .background(WbColor.surface)
         .tint(WbColor.accent)
@@ -148,6 +117,100 @@ struct AdvancedToolsView: View {
             }, secondaryButton:.cancel(Text(t("取消", "Cancel"))))
         }
     }
+
+    // MARK: - Shell (visual layer only)
+
+    private var tabTitles: [String] {
+        [t("电池", "Battery"), "GPS", t("网络与传感器", "Network & sensors"), "Logcat",
+         t("Root 管理", "Root"), t("更多工具", "More tools")]
+    }
+
+    private var tabDescriptions: [String] {
+        [t("模拟设备电量与充电状态。", "Simulate charge and charging state."),
+         t("设置位置或回放路线。", "Set a location or play a route."),
+         t("控制网络连接、代理和传感器。", "Control connectivity, proxy and sensors."),
+         t("查看并筛选设备日志。", "View and filter device logs."),
+         t("管理 Root、证书和系统属性。", "Manage root, certificates and system properties."),
+         t("使用电话、剪贴板和调试工具。", "Use phone, clipboard and debugging tools.")]
+    }
+
+    private var navigation: some View {
+        VStack(alignment: .leading, spacing: WbSpace.xxs) {
+            WbGroupLabel(text: t("环境模拟", "Simulation"))
+                .padding(.horizontal, WbSpace.xs)
+                .padding(.top, WbSpace.sm)
+                .padding(.bottom, WbSpace.xxs)
+            navigationItem(0, t("电池", "Battery"), WbIcon.battery)
+            navigationItem(1, "GPS", WbIcon.location)
+            navigationItem(2, t("网络与传感器", "Network"), WbIcon.network)
+            WbGroupLabel(text: t("开发与调试", "Development"))
+                .padding(.horizontal, WbSpace.xs)
+                .padding(.top, WbSpace.lg)
+                .padding(.bottom, WbSpace.xxs)
+            navigationItem(3, "Logcat", WbIcon.logcat)
+            navigationItem(4, t("Root 管理", "Root"), WbIcon.rootTab)
+            navigationItem(5, t("更多", "More"), WbIcon.more)
+            Spacer(minLength: 0)
+        }
+        .padding(WbSpace.md)
+        .frame(width: 170)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(WbColor.chrome)
+    }
+
+    private func navigationItem(_ index: Int, _ title: String, _ icon: String) -> some View {
+        Button { tab = index } label: {
+            WbSidebarRow(title: title, icon: icon, selected: tab == index)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(tab == index ? .isSelected : [])
+    }
+
+    private var contentColumn: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(tabTitles[tab])
+                .wbFont(WbType.headline)
+                .foregroundStyle(WbColor.textPrimary)
+            Text(tabDescriptions[tab])
+                .wbFont(WbType.body).foregroundStyle(WbColor.textSecondary)
+                .padding(.top, WbSpace.xxs)
+            if !running {
+                Label(t("设备未运行，请启动设备后使用这些工具。", "Start the device to use these tools."), systemImage:WbIcon.info)
+                    .wbFont(WbType.body).foregroundStyle(WbColor.textSecondary)
+                    .padding(.top, WbSpace.sm)
+            }
+            ScrollView {
+                tabContent
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, WbSpace.lg)
+            }
+            .disabled(!running || working)
+            if !message.isEmpty {
+                Text(message).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
+                    .textSelection(.enabled)
+                    .padding(.top, WbSpace.sm)
+            }
+        }
+        .padding(WbSpace.xl)
+        .frame(maxWidth:.infinity, maxHeight:.infinity, alignment:.topLeading)
+    }
+
+    /// The visual container for each tab. The Root tab keeps its own cards
+    /// (RootDevToolsView renders its sections as cards already) so the sheet
+    /// does not end up with cards nested inside cards.
+    @ViewBuilder
+    private var tabContent: some View {
+        switch tab {
+        case 0: WbCard(padding: WbSpace.xl) { battery }
+        case 1: WbCard(padding: WbSpace.xl) { gps }
+        case 2: WbCard(padding: WbSpace.xl) { networkAndSensors }
+        case 3: WbCard(padding: WbSpace.xl) { logs }
+        case 4: RootDevToolsView(model:model, id:id, running:running)
+        default: WbCard(padding: WbSpace.xl) { additionalTools }
+        }
+    }
+
     private func refreshLog() {
         guard !logLoading else { return }
         logLoading = true
@@ -174,8 +237,8 @@ struct AdvancedToolsView: View {
     }
     private var battery: some View {
         VStack(alignment:.leading,spacing:WbSpace.md) {
-            HStack { Text(t("电池状态", "Battery status")).wbFont(WbType.title); Spacer(); Button(t("读取状态", "Read status"),action:loadBattery) }
-            Divider()
+            HStack { Text(t("电池状态", "Battery status")).wbFont(WbType.title); Spacer(); Button(t("读取状态", "Read status"),action:loadBattery).buttonStyle(WbSecondaryButtonStyle()) }
+            WbDivider()
             Grid(alignment:.leading, horizontalSpacing:24, verticalSpacing:14) {
                 GridRow { Text(t("电量（0–100）", "Charge (0–100)")).foregroundStyle(WbColor.textSecondary); TextField("%",text:$level).frame(width:150) }
                 GridRow { Text(t("充电方式", "Charger")).foregroundStyle(WbColor.textSecondary); Picker("",selection:$charger) { Text(t("未连接", "None")).tag("none"); Text("AC").tag("ac"); Text("USB").tag("usb"); Text(t("无线", "Wireless")).tag("wireless") }.labelsHidden().frame(width:150, alignment:.leading) }
@@ -183,7 +246,7 @@ struct AdvancedToolsView: View {
             Button(t("应用", "Apply")) {
                 guard let n = Int(level), (0...100).contains(n) else { message = t("电量必须为 0–100 的整数。", "Charge must be an integer from 0 to 100."); return }
                 call("battery.set",["level":n,"charger":charger])
-            }.buttonStyle(.borderedProminent).disabled(!batteryLoaded)
+            }.buttonStyle(WbPrimaryButtonStyle()).disabled(!batteryLoaded)
         }.frame(maxWidth:480, alignment:.leading)
     }
     private var gps: some View {
@@ -194,7 +257,7 @@ struct AdvancedToolsView: View {
                 Button(t("设置位置", "Set location")) {
                     guard let a = Double(lat), a.isFinite, (-90...90).contains(a), let o = Double(lon), o.isFinite, (-180...180).contains(o) else { message = t("请输入有效的经纬度。", "Enter valid latitude and longitude."); return }
                     call("gps.set",["latitude":a,"longitude":o])
-                }.buttonStyle(.borderedProminent)
+                }.buttonStyle(WbPrimaryButtonStyle())
                 Button(t("显示地图", "Show map")) { showingMap = true }
                     .sheet(isPresented:$showingMap) {
                         GPSMapSheet(model:model, device:id, latitude:Double(lat) ?? 0, longitude:Double(lon) ?? 0, tileURL:model.tileURL) { latitude, longitude in
@@ -207,7 +270,7 @@ struct AdvancedToolsView: View {
                         .environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
                     }
             }
-            Divider(); Text(t("路线回放", "Route playback")).wbFont(WbType.title)
+            WbDivider(); Text(t("路线回放", "Route playback")).wbFont(WbType.title)
             HStack { Button(t("选择 GPX / KML", "Choose GPX / KML")) { choose(["gpx","kml"]) { routePath = $0.path } }; Text(routePath.isEmpty ? t("未选择文件", "No file selected") : URL(fileURLWithPath:routePath).lastPathComponent).lineLimit(1) }
             HStack { Text(t("速度倍率", "Speed")); TextField("1",text:$routeSpeed).frame(width:70); Toggle(t("循环", "Loop"),isOn:$routeLoop) }
             HStack {
@@ -234,7 +297,7 @@ struct AdvancedToolsView: View {
                 Button(t("应用网络开关", "Apply network switches")) { call("network.set",["wifi":wifi,"mobile":mobile]) }.disabled(!networkLoaded)
                 Button(t("应用网络速度", "Apply speed")) { call("network.set",["profile":profile]) }
             }
-            Divider(); Text(t("设备 HTTP 代理", "Device HTTP proxy")).wbFont(WbType.title)
+            WbDivider(); Text(t("设备 HTTP 代理", "Device HTTP proxy")).wbFont(WbType.title)
             HStack { TextField(t("主机", "Host"),text:$proxyHost); TextField(t("端口", "Port"),text:$proxyPort).frame(width:90) }
             HStack {
                 Button(t("读取代理", "Read proxy")) { call("network.proxy.get") { value in
@@ -246,7 +309,7 @@ struct AdvancedToolsView: View {
                 }
                 Button(t("清除代理", "Clear proxy")) { call("network.proxy.clear") { _ in proxyHost = ""; proxyPort = "" } }
             }
-            Divider(); Text(t("传感器", "Sensors")).wbFont(WbType.title)
+            WbDivider(); Text(t("传感器", "Sensors")).wbFont(WbType.title)
             Picker(t("传感器", "Sensor"),selection:$sensor) { ForEach(["acceleration","gyroscope","magnetic_field","temperature","proximity","light","pressure","humidity"],id:\.self) { Text($0).tag($0) } }
             HStack { TextField(t("数值，用逗号分隔", "Values, separated by commas"),text:$values)
                 Button(t("读取", "Read")) { call("sensor.get",["sensor":sensor]) { value in if let d = value as? [String:Any], let v = d["values"] as? [Double] { values = v.map { String($0) }.joined(separator:", ") } } }
@@ -316,20 +379,20 @@ struct AdvancedToolsView: View {
             HStack { Stepper(t("信号：\(signal) 格", "Signal: \(signal) bars"),value:$signal,in:0...4)
                 Button(t("设置信号", "Set signal")) { call("phone.gsm",["signal":signal]) }
             }
-            Divider(); Text(t("设备剪贴板", "Device clipboard")).wbFont(WbType.title)
+            WbDivider(); Text(t("设备剪贴板", "Device clipboard")).wbFont(WbType.title)
             TextField(t("剪贴板内容", "Clipboard text"),text:$clipboard)
             HStack {
                 Button(t("读取", "Read")) { call("clipboard.get") { value in if let data = value as? [String:Any], let text = data["text"] as? String { clipboard = text } } }
                 Button(t("写入设备", "Send to device")) { call("clipboard.set",["text":clipboard]) }
             }
-            Divider(); Text(t("指纹", "Fingerprint")).wbFont(WbType.title)
+            WbDivider(); Text(t("指纹", "Fingerprint")).wbFont(WbType.title)
             HStack {
                 Button(t("已注册手指", "Enrolled finger")) { call("fingerprint.touch",["finger":1]) }
                 Button(t("未注册手指", "Other finger")) { call("fingerprint.touch",["finger":9]) }
                 Button(t("抬起", "Lift")) { call("fingerprint.remove") }
             }
             Text(t("需先在 Android 安全设置中注册指纹。", "Enroll a fingerprint in Android security settings first.")).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
-            Divider(); Text(t("摄像头", "Camera")).wbFont(WbType.title)
+            WbDivider(); Text(t("摄像头", "Camera")).wbFont(WbType.title)
             if !cameraCurrent.isEmpty { Text(cameraCurrent).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary) }
             HStack {
                 Text(t("后置", "Back camera")).frame(width: 90, alignment: .leading).foregroundStyle(WbColor.textSecondary)
@@ -344,12 +407,12 @@ struct AdvancedToolsView: View {
             HStack {
                 Button(t("读取摄像头配置", "Read cameras"), action: loadCamera)
                 Button(t("应用（下次启动生效）", "Apply (next start)")) { applyCamera() }
-                    .buttonStyle(.borderedProminent).disabled(!cameraLoaded)
+                    .buttonStyle(WbPrimaryButtonStyle()).disabled(!cameraLoaded)
             }
             Text(t("摄像头切换在下次启动设备时生效。虚拟场景只支持后置摄像头。",
                    "Camera changes apply the next time the device starts. The virtual scene is a back camera only."))
                 .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
-            Divider(); HStack { Text(t("开发者选项", "Developer options")).wbFont(WbType.title); Spacer(); Button(t("读取", "Read")) { loadDeveloper() } }
+            WbDivider(); HStack { Text(t("开发者选项", "Developer options")).wbFont(WbType.title); Spacer(); Button(t("读取", "Read")) { loadDeveloper() } }
             Toggle(t("显示触摸", "Show taps"),isOn:$showTaps).disabled(!developerLoaded)
             Toggle(t("指针位置", "Pointer location"),isOn:$pointer).disabled(!developerLoaded)
             Toggle(t("布局边界", "Layout bounds"),isOn:$layoutBounds).disabled(!developerLoaded)
