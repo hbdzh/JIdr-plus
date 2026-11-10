@@ -122,13 +122,13 @@ pub struct EditParams {
     /// follows the `auto_hibernate_minutes` setting.
     #[serde(default, deserialize_with = "some_or_null")]
     pub auto_hibernate_minutes: Option<Option<u32>>,
-    /// Per-device quick boot; null follows the global setting.
+    /// Per-device quick boot; `null` follows the global setting.
     #[serde(default, deserialize_with = "some_bool_or_null")]
     pub quick_boot: Option<Option<bool>>,
-    /// Camera source for the next start; `default` uses the emulator default.
+    /// Camera source for the next start: `default`, `none`, `emulated`, `webcamN`, or `virtualscene` (back camera only).
     #[serde(default)]
     pub camera_back: Option<String>,
-    /// Front camera source for the next start.
+    /// Front camera source for the next start: `default`, `none`, `emulated`, or `webcamN`.
     #[serde(default)]
     pub camera_front: Option<String>,
 }

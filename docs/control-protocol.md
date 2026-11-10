@@ -381,7 +381,8 @@ Rename a device or change its hardware (stopped) · locks the device
 | `agent_owned` | boolean |  |  |
 | `auto_hibernate_minutes` | integer |  | Hibernate this device after so many idle minutes (0 = never); `null` follows the `auto_hibernate_minutes` setting. |
 | `quick_boot` | boolean |  | Per-device quick boot; `null` follows the global setting. |
-| `camera_back`, `camera_front` | string |  | Camera source for the next start: `default`, `none`, `emulated`, `webcamN`, or `virtualscene` (back camera only). |
+| `camera_back` | string |  | Camera source for the next start: `default`, `none`, `emulated`, `webcamN`, or `virtualscene` (back camera only). |
+| `camera_front` | string |  | Front camera source for the next start: `default`, `none`, `emulated`, or `webcamN`. |
 
 #### `device.hibernate`
 
