@@ -119,7 +119,9 @@ process footprints together.
 
 Input runs on one bounded FIFO consumer (`JIDR_PLAYER_INPUT_SCHEDULER=fifo`,
 the default). Frame reception continues while it awaits key/touch/clipboard or
-toolbar RPCs. Repeats, downs/ups, gestures and clipboard chords are never
+toolbar RPCs. FIFO uses its own actual gRPC connection for input/clipboard;
+cloning a Controller would still share screenshot-stream HTTP/2 flow control.
+The inline fallback keeps the shared connection. Repeats, downs/ups, gestures and clipboard chords are never
 coalesced or dispatched as separate event tasks. The existing media/app job
 tasks keep their previous behavior. `JIDR_PLAYER_INPUT_SCHEDULER=inline` retains
 the coupled scheduling branch for rollback and same-binary measurements.

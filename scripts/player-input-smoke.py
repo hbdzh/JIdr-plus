@@ -60,7 +60,7 @@ def main():
             except ValueError: return None
         field=wait(layout,'input fixture layout')
         wait(lambda:read('ready.txt')=='ready','focused Android input window')
-        env=dict(os.environ,JIDR_PLAYER_INPUT_SCHEDULER='fifo',JIDR_PLAYER_FRAME_TRANSPORT='shared')
+        env=dict(os.environ,JIDR_PLAYER_INPUT_SCHEDULER='fifo',JIDR_PLAYER_FRAME_TRANSPORT='shared',JIDR_PLAYER_INPUT_TRACE='1')
         process=subprocess.Popen([str(bridge),args.device,'1080','2400','1'],env=env,
                                  stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         def exact(n):

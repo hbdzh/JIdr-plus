@@ -90,6 +90,7 @@ def main():
         env.pop(key, None)
     env.pop('JIDR_PLAYER_FRAME_TRANSPORT', None)
     env.pop('JIDR_PLAYER_INPUT_SCHEDULER', None)
+    env.pop('JIDR_PLAYER_INPUT_TRACE', None)
     env["JIDR_BENCH_PROFILE"] = "release"
     env.update(ANDROID_HOME=str(sdk), JIDR_TEST_SDK=str(sdk))
     # Build before booting, so compilation cannot contaminate the timing runs.

@@ -627,12 +627,11 @@ async fn main() -> Result<()> {
         .join("keymaps")
         .join(format!("{}.json", info.device));
     eprintln!("JIDR_MAPPING_PATH:{}", json!({"path":mapping_path}));
-    let channel =
+    let endpoint =
         tonic::transport::Endpoint::from_shared(format!("http://{}", info.grpc_endpoint))?
             .connect_timeout(Duration::from_secs(5))
-            .tcp_nodelay(true)
-            .connect()
-            .await?;
+            .tcp_nodelay(true);
+    let channel = endpoint.clone().connect().await?;
     let mut ctl = jidr_proto::clients(channel, BearerToken::new(&info.grpc_token)?).0;
     let (frame_width, frame_height) = request_size(width, height, quality);
     let frames = ctl
@@ -679,6 +678,18 @@ async fn main() -> Result<()> {
         info.adb_serial.clone(),
         Arc::clone(&logical_rotation),
     ));
+    // A cloned Controller shares its HTTP/2 connection. Use another actual
+    // connection in FIFO mode so screenshot flow control cannot hold up small
+    // input/clipboard responses, even with continuously changing frames.
+    let input_ctl = if scheduling == player_input::Scheduling::Fifo {
+        jidr_proto::clients(
+            endpoint.connect().await?,
+            BearerToken::new(&info.grpc_token)?,
+        )
+        .0
+    } else {
+        ctl.clone()
+    };
     // Before this point no input RPC has been sent, so startup retains the
     // default immediate SIGTERM behavior. Install graceful cleanup before the
     // single input owner can begin delivering downs.
@@ -692,7 +703,7 @@ async fn main() -> Result<()> {
     };
     tokio::pin!(shutdown);
     let mut handler = BridgeInputs {
-        state: InputState::new(GrpcInput::new(ctl)),
+        state: InputState::new(GrpcInput::new(input_ctl)),
         client,
         device: args[1].clone(),
         panel: (width, height),

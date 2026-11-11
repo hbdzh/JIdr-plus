@@ -485,3 +485,26 @@ fn scheduler_selector_retains_serial_fallback() {
     assert_eq!(Scheduling::parse("inline"), Some(Scheduling::Inline));
     assert_eq!(Scheduling::parse("other"), None);
 }
+
+#[tokio::test]
+async fn optional_rpc_trace_preserves_values_and_error_status() {
+    for enabled in [false, true] {
+        assert_eq!(
+            traced_rpc(enabled, "test", std::future::ready(Ok(7)))
+                .await
+                .unwrap(),
+            7
+        );
+        let error = traced_rpc::<()>(
+            enabled,
+            "test",
+            std::future::ready(Err(tonic::Status::unavailable("offline"))),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<tonic::Status>().unwrap().code(),
+            tonic::Code::Unavailable
+        );
+    }
+}

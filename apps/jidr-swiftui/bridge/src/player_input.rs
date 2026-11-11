@@ -6,7 +6,7 @@ use jidr_proto::{Controller, control as pb};
 use serde_json::json;
 use std::future::Future;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -36,6 +36,7 @@ pub(crate) trait InputWire: Send {
 pub(crate) struct GrpcInput {
     controller: Controller,
     clipboard: Option<tonic::Streaming<pb::ClipData>>,
+    trace: bool,
 }
 
 impl GrpcInput {
@@ -43,36 +44,74 @@ impl GrpcInput {
         Self {
             controller,
             clipboard: None,
+            trace: std::env::var("JIDR_PLAYER_INPUT_TRACE").is_ok_and(|v| v == "1"),
         }
     }
 }
 
 impl InputWire for GrpcInput {
     async fn touch(&mut self, event: pb::TouchEvent) -> Result<()> {
-        self.controller.send_touch(event).await?;
+        traced_rpc(self.trace, "touch", self.controller.send_touch(event)).await?;
         Ok(())
     }
     async fn key(&mut self, event: pb::KeyboardEvent) -> Result<()> {
-        self.controller.send_key(event).await?;
+        traced_rpc(self.trace, "key", self.controller.send_key(event)).await?;
         Ok(())
     }
     async fn set_clipboard(&mut self, text: String) -> Result<()> {
-        self.controller.set_clipboard(pb::ClipData { text }).await?;
+        traced_rpc(
+            self.trace,
+            "clipboard.set",
+            self.controller.set_clipboard(pb::ClipData { text }),
+        )
+        .await?;
         Ok(())
     }
     async fn subscribe_clipboard(&mut self) -> Result<()> {
-        self.clipboard = Some(self.controller.stream_clipboard(()).await?.into_inner());
+        self.clipboard = Some(
+            traced_rpc(
+                self.trace,
+                "clipboard.subscribe",
+                self.controller.stream_clipboard(()),
+            )
+            .await?
+            .into_inner(),
+        );
         Ok(())
     }
     async fn next_clipboard(&mut self) -> Result<Option<String>> {
         match &mut self.clipboard {
-            Some(stream) => Ok(stream.message().await?.map(|clip| clip.text)),
+            Some(stream) => Ok(traced_rpc(self.trace, "clipboard.next", stream.message())
+                .await?
+                .map(|clip| clip.text)),
             None => Ok(None),
         }
     }
     fn close_clipboard(&mut self) {
         self.clipboard = None;
     }
+}
+
+// Native acceptance only; disabled in normal launches and timing runs. Method
+// names/timing/status are logged, never key names or clipboard contents.
+async fn traced_rpc<T>(
+    enabled: bool,
+    method: &str,
+    future: impl Future<Output = std::result::Result<T, tonic::Status>> + Send,
+) -> Result<T> {
+    let start = enabled.then(Instant::now);
+    if enabled {
+        eprintln!("JIDR_INPUT_RPC:begin:{method}");
+    }
+    let result = future.await;
+    if let Some(start) = start {
+        eprintln!(
+            "JIDR_INPUT_RPC:end:{method}:{}:{}",
+            start.elapsed().as_millis(),
+            result.is_ok()
+        );
+    }
+    Ok(result?)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
