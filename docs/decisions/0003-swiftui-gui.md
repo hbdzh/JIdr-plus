@@ -1,8 +1,7 @@
-# ADR-0003: SwiftUI/AppKit as the production GUI (proposal)
+# ADR-0003: SwiftUI/AppKit as the sole GUI
 
-- **Status:** Accepted (2026-11-11, M0) and **implemented (2026-11-11, M6)**: `cargo xtask
-  release` now builds the SwiftUI centre by default (`--gui slint` keeps the Slint fallback),
-  the production bundle defaults to the standard Jidr home, and D2/D15/D18 are recorded below.
+- **Status:** Accepted and implemented. The maintainer explicitly approved removal of
+  the Slint fallback and obsolete prototype application on 2026-11-11.
 - **Date:** 2026-11-11
 - **Related:** D2 (Slint), D15 (Apple Silicon only, code stays portable), D18 (split licensing),
   D20 (Slint spike), D41 (design tokens), ADR-0001 (frame transport); the plan, parity
@@ -19,11 +18,12 @@ the protocol or the CLI: both GUIs are thin clients over the same JSON-RPC contr
 
 ## Decision (approved 2026-11-11)
 
-1. **SwiftUI/AppKit replaces Slint as the production GUI on macOS.** `crates/jidr-ui` and
-   `apps/jidr-gui` stay buildable and receive bug fixes until the M6 switch, then they are
-   frozen; deleting them is a separate later decision.
-2. **Entry points:** the device center is the production entry point. The standalone player
-   stays a development and test entry point and is not shipped in the production app bundle.
+1. **SwiftUI/AppKit is the only GUI.** The retired `crates/jidr-ui` and `apps/jidr-gui`
+   sources, golden images, Cargo dependencies and release selection have been removed.
+   The native app is `apps/jidr-swiftui`; shared assets were moved before deletion.
+2. **Entry point:** one device-center application owns all player windows. The old
+   standalone prototype app and duplicate packaging implementation are removed. Tests
+   and the native performance harness remain separate verification executables.
 3. **Tech path:** SwiftUI with AppKit where SwiftUI lacks the behaviour, over the existing
    Rust bridges. Device state stays in the daemon; the GUI holds only view state.
 4. **Platform:** Apple Silicon macOS. The minimum system version follows the existing product
@@ -37,8 +37,8 @@ the protocol or the CLI: both GUIs are thin clients over the same JSON-RPC contr
 7. **Visual language:** D41 stays the source: Workbench tokens and Lucide icons are generated
    or mapped for SwiftUI in M3. Where a native control is used instead, the choice is
    recorded in the M3 notes.
-8. **Slint freeze:** from M1 to the M6 switch Slint receives blocking bug fixes only. Upstream
-   Slint features are not ported during the migration.
+8. **Legacy removal:** Slint is no longer built, shipped or maintained in this tree.
+   Earlier revisions remain available in Git for historical comparisons and rollback.
 9. **Data location and migration:** a separate project. This migration keeps today's behaviour
    (choose a destination, read-only preflight, clear "not migrated" copy).
 10. **Commits and releases:** one conventional commit per logical task on `master`, no remote
@@ -63,18 +63,14 @@ is SwiftUI), D15 (portability stays at the daemon/protocol/CLI; the GUI is macOS
 D20 (the Slint spike is closed), D18 (wording and enforcement when Slint leaves the build).
 D41 is not amended; the tokens remain the single design source.
 
-## Pause criteria
+## Validation and consequences
 
-Work pauses and Slint stays production if data safety or rollback compatibility cannot be
-confirmed, performance keeps missing the agreed thresholds, key root/snapshot/game flows lack
-repeatable passing evidence, the package still depends on the development machine, or a key
-architecture decision is not approved.
+The daemon, protocol and user data layout are unchanged. SwiftUI is now the only UI
+build path; release-toolkit selection is rejected. CI builds the native app and
+checks logic, localization, deployment, window/connection regressions and rendered
+screenshots. Packaging uses the production bundle for isolated rehearsals.
 
-## Consequences
-
-- The fork owns its GUI permanently; upstream Slint UI work is not inherited. This is the
-  accepted price of the product direction.
-- Tests, CI and the release chain are rebuilt for Swift (M1, M5). Until then the prototype
-  cannot be shipped.
-- `cargo xtask license-check` keeps enforcing that Apache crates never link Slint or the GPL
-  GUI crates; the GPL crate list changes only when the Slint crates leave the build.
+Removal does not establish new game compatibility or notarization evidence. Historical
+M4/M5 results remain in the migration documents; outstanding real-device acceptance
+and Developer ID/notarization gaps must continue to be reported honestly. Rollback
+requires an earlier Git revision or installer rather than a second UI in this tree.

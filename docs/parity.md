@@ -1,5 +1,7 @@
 # Parity with Genymotion Desktop
 
+> Historical migration/parity record. Since the maintainer-approved retirement on 2026-11-11, SwiftUI is the sole UI in `apps/jidr-swiftui`; Slint sources, baselines and fallback commands below describe earlier revisions. See [ADR-0003](decisions/0003-swiftui-gui.md) and the root README for current builds. Retired sources remain available in Git history (before this cleanup).
+
 Hand-edited. A row is ✅ only with evidence: a test name or a `file:line`. Report two numbers together, never breadth alone:
 
 - **Breadth**: ✅ rows / all rows.

@@ -14,7 +14,7 @@ usage: cargo xtask <task>
 
 tasks:
   ci              fmt --check, clippy -D warnings, nextest, license-check, skills-check
-  license-check   fail if an Apache-2.0 crate links Slint or the GPL GUI crates (D18)
+  license-check   enforce Apache Rust crates and exclude retired GUI dependencies (D18)
   skills-check    check skills/*/SKILL.md frontmatter and their `jidr` commands (D43)
   e2e-mac         full arm64 end-to-end gate on Apple Silicon (release gate, D28)
   release         build the macOS release artifacts (Phase 12a)";

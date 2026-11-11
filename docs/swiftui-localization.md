@@ -5,7 +5,7 @@
 > M0 的本地化走查记录。三条机制、缺口清单、CI 规则建议与英文模式 top 10 见正文；摘要见 [swiftui-migration.md](swiftui-migration.md) 的 M0 一节。
 
 - 基线：`master@b46a2f3`（工作区无已跟踪改动；本报告为未跟踪草稿）
-- 范围：`apps/jidr-swiftui-prototype` 的 `Center/*.swift`、`Sources/*.swift`、`Player/*.swift`、`Resources/{en,zh-Hans}.lproj/Localizable.strings`，以及 `apps/jidr-swiftui-prototype/bridge` 的 Rust 诊断消息
+- 范围：`apps/jidr-swiftui` 的 `Center/*.swift`、`Sources/*.swift`、`Player/*.swift`、`Resources/{en,zh-Hans}.lproj/Localizable.strings`，以及 `apps/jidr-swiftui/bridge` 的 Rust 诊断消息
 - 方法：只读代码分析；辅助脚本 `target/m0/scan_localization.py`（输出 `target/m0/scan_raw2.txt`）做字面量扫描与分类，所有结论行号均已人工逐条核对；未启动 GUI、未运行构建
 - 非测试 Swift 中 CJK 字面量：**629 处 / 去重 514 个**；`en.lproj` 214 个唯一 key（215 行，1 个重复键），`zh-Hans.lproj` 193 个唯一 key（194 行，同样重复 `"系统镜像"`）
 - 结论先行：**去重后约 43 个中文 UI 串未走任何机制；扣除 3 个被英文固定文案临时遮住的日志错误和 4 个当前调用点不可达的桥接参数错误，英文模式可达路径上约 36 个**
@@ -47,7 +47,7 @@
 
 - 中心：`Center/DeviceModel.swift:70` `@Published var language = 1`（默认中文），`:123` 从 `center.prefs.get` 读回，`:409-418` 通过 `center.prefs.set` 持久化并同步给已打开的播放器。
 - 播放器：`Sources/GameWindow.swift:202` 从 `gui-prefs.json` 读 `language`；中心打开播放器时 `DeviceModel.swift:354` 注入 `player.transport.language = self.language`。
-- 现有自动检查：`apps/jidr-swiftui-prototype/Tests/localization_coverage.py`（由 `test.sh:45` 调用），只扫 `Center/*.swift` 且只认 `Text|Button|Section|Picker|TextField|Label|LabeledContent|Toggle|.help` + 首参中文字面量；在当前基线**通过**。它覆盖不到 §2 的任何一条缺口（见 §4.1）。
+- 现有自动检查：`apps/jidr-swiftui/Tests/localization_coverage.py`（由 `test.sh:45` 调用），只扫 `Center/*.swift` 且只认 `Text|Button|Section|Picker|TextField|Label|LabeledContent|Toggle|.help` + 首参中文字面量；在当前基线**通过**。它覆盖不到 §2 的任何一条缺口（见 §4.1）。
 - README 自述：`README.md:38` 已承认 “its language coverage is partial”。
 
 ---

@@ -1,17 +1,14 @@
 //! Split-licensing guard (D18).
 //!
-//! Only `jidr-ui` and `jidr-gui` are GPLv3. Every other workspace crate is
-//! Apache-2.0 and must never link Slint (GPLv3) or the GPL crates, through
-//! normal or build dependencies. Dev-dependencies don't ship, so they're ignored.
+//! All Rust workspace crates are Apache-2.0. The native Swift GUI remains
+//! GPL-3.0-only outside Cargo. Shipped Rust dependencies may not bring the
+//! retired GUI or Slint back through normal/build dependencies.
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
-/// Workspace crates licensed GPL-3.0-only (they link Slint, D18).
-pub const GPL_CRATES: &[&str] = &["jidr-ui", "jidr-gui"];
-const GPL_LICENSE: &str = "GPL-3.0-only";
 const APACHE_LICENSE: &str = "Apache-2.0";
 
 /// The subset of `cargo metadata --format-version 1` we need.
@@ -66,7 +63,7 @@ impl NodeDep {
 }
 
 fn is_gpl_package(name: &str) -> bool {
-    name == "slint" || name.starts_with("i-slint-") || GPL_CRATES.contains(&name)
+    name == "slint" || name.starts_with("i-slint-") || matches!(name, "jidr-ui" | "jidr-gui")
 }
 
 /// Returns every violation found; an empty list means the check passed.
@@ -95,16 +92,12 @@ pub fn violations(meta: &Metadata) -> Result<Vec<String>> {
         let pkg = names
             .get(member.as_str())
             .with_context(|| format!("workspace member {member} missing from packages"))?;
-        let gpl = GPL_CRATES.contains(&pkg.name.as_str());
-        let want = if gpl { GPL_LICENSE } else { APACHE_LICENSE };
+        let want = APACHE_LICENSE;
         if pkg.license.as_deref() != Some(want) {
             out.push(format!(
                 "{}: license is {:?}, expected {want:?} (D18)",
                 pkg.name, pkg.license
             ));
-        }
-        if gpl {
-            continue;
         }
         // BFS over shipped dependencies, remembering the path for the report.
         let mut seen = BTreeSet::new();
@@ -213,8 +206,7 @@ mod tests {
     const BASE: &[(&str, &str)] = &[
         ("jidr", "Apache-2.0"),
         ("jidr-client", "Apache-2.0"),
-        ("jidr-ui", "GPL-3.0-only"),
-        ("jidr-gui", "GPL-3.0-only"),
+        ("jidr-swiftui-bridge", "Apache-2.0"),
     ];
 
     #[test]
@@ -225,9 +217,7 @@ mod tests {
             &[
                 ("jidr", "jidr-client", None),
                 ("jidr-client", "serde", None),
-                ("jidr-gui", "jidr-ui", None),
-                ("jidr-ui", "slint", None),
-                ("jidr-ui", "jidr-client", None),
+                ("jidr-swiftui-bridge", "jidr-client", None),
             ],
         );
         assert_eq!(violations(&m).unwrap(), Vec::<String>::new());
@@ -261,7 +251,7 @@ mod tests {
 
     #[test]
     fn apache_crate_depending_on_gui_crate_fails() {
-        let m = meta(BASE, &[], &[("jidr", "jidr-ui", None)]);
+        let m = meta(BASE, &["jidr-ui"], &[("jidr", "jidr-ui", None)]);
         let v = violations(&m).unwrap();
         assert!(v.iter().any(|s| s.contains("GPL crate `jidr-ui`")), "{v:?}");
     }
@@ -274,7 +264,11 @@ mod tests {
 
     #[test]
     fn wrong_license_field_fails() {
-        let m = meta(&[("jidr", "MIT"), ("jidr-ui", "Apache-2.0")], &[], &[]);
+        let m = meta(
+            &[("jidr", "MIT"), ("jidr-swiftui-bridge", "GPL-3.0-only")],
+            &[],
+            &[],
+        );
         let v = violations(&m).unwrap();
         assert_eq!(v.len(), 2, "{v:?}");
     }

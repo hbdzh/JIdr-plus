@@ -18,7 +18,7 @@ curl https://sh.rustup.rs -sSf | sh       # rustup installs the pinned toolchain
 cargo install cargo-nextest --locked      # the test runner
 git clone https://github.com/hbdzh/JIdr-plus.git && cd JIdr-plus
 cargo xtask ci                            # fmt, clippy, tests, licence check, skills check
-bash apps/jidr-swiftui-prototype/test.sh  # Swift logic tests + localization gate (needs Xcode)
+bash apps/jidr-swiftui/test.sh  # Swift logic tests + localization gate (needs Xcode)
 cargo xtask release --rehearsal           # SwiftUI app + DMG rehearsal (ad-hoc, local)
 ```
 
@@ -37,7 +37,7 @@ cargo nextest run -p jidr-widgets --features emulator
 - **Never crash.** `unwrap`, `expect`, `panic!`, `todo!`, `unimplemented!` and `dbg!` are denied outside tests. Return `jidr_core::JidrError`.
 - **No `unsafe`** unless a crate truly needs it, allowed locally with a comment explaining why.
 - **Every bug fix comes with a regression test.**
-- **Split licensing.** The desktop GUI sources are GPL-3.0-only: `apps/jidr-swiftui-prototype` Swift/AppKit code (by choice, ADR-0003) and the Slint fallback crates (`crates/jidr-ui`, `apps/jidr-gui`, which link Slint). The SwiftUI Rust bridge, the CLI, the daemon and everything else are Apache-2.0 and must never depend on Slint or the GPL GUI crates. `cargo xtask license-check` enforces the Apache side.
+- **Split licensing.** The desktop GUI sources are GPL-3.0-only: `apps/jidr-swiftui` Swift/AppKit code (by choice, ADR-0003). The SwiftUI Rust bridge, the CLI, the daemon and everything else are Apache-2.0 and must never depend on Slint or the GPL GUI crates. `cargo xtask license-check` enforces the Apache side.
 - **Clean room.** Use only Genymotion's public docs, the public AOSP emulator protos and docs, and behaviour you observe by running the SDK tools. Never decompile or inspect Genymotion binaries, never copy GPL code (Magisk, rootAVD), never bundle Google's SDK, system images or Magisk. Details in [docs/clean-room.md](docs/clean-room.md).
 - **Protocol changes** that touch the wire format, an existing command, error codes or events need a row in the changelog of [docs/control-protocol.md](docs/control-protocol.md). Regenerate the command reference with `JIDR_UPDATE_DOCS=1 cargo nextest run -p jidr-daemon protocol_doc`.
 - **Android Studio's SDK and AVDs stay read-only.** Tests create AVDs in temporary directories.
@@ -63,4 +63,4 @@ You're welcome to. Point it at [AGENTS.md](AGENTS.md); `CLAUDE.md` does that for
 
 ## Licence of contributions
 
-By contributing you agree that your contribution is licensed under the licence of the files you change: Apache-2.0, or GPL-3.0-only for `crates/jidr-ui` and `apps/jidr-gui`.
+By contributing you agree that your contribution is licensed under the licence of the files you change: Apache-2.0, or GPL-3.0-only for the Swift/AppKit sources in `apps/jidr-swiftui` (its Rust bridge is Apache-2.0).

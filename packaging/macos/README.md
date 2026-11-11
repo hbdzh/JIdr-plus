@@ -1,3 +1,5 @@
+> Current native bundle layout and commands: [SwiftUI packaging](../swiftui/README.md). Developer ID/notarization instructions below are infrastructure guidance; the SwiftUI helper signing path remains incomplete.
+
 # macOS packaging
 
 `cargo xtask release` (in `xtask/src/release.rs`) builds `Jidr.app`, `Jidr-<version>-arm64.dmg` and the MCP bundle `jidr-mcp-<version>-darwin-arm64.mcpb` from this folder and `../mcp`.
@@ -15,9 +17,9 @@ Bundle layout:
 ```
 Jidr.app/Contents/
   Info.plist  PkgInfo
-  MacOS/Jidr            GUI (apps/jidr-gui, GPL-3.0)
+  MacOS/Jidr            GUI (apps/jidr-swiftui, GPL-3.0)
   Helpers/jidr          CLI, daemon and MCP server (apps/jidr, Apache-2.0)
-  Resources/Jidr.icns   from apps/jidr-gui/assets/macos (D39)
+  Resources/Jidr.icns   from apps/jidr-swiftui/Resources (D39)
   Resources/licenses/   LICENSE-APACHE, LICENSE-GPL, NOTICE
 ```
 

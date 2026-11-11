@@ -1,38 +1,9 @@
-//! `cargo xtask release`: the macOS release artifacts (Phases 12a and 12b).
+//! `cargo xtask release`: build the sole SwiftUI/AppKit GUI, Rust helpers,
+//! Jidr.app, the arm64 DMG, MCP bundle and checksums.
 //!
-//! By default this builds the Slint application, exactly as before the M5
-//! rehearsals: `jidr` and `jidr-gui` in release mode, `Jidr.app`,
-//! `Jidr-<version>-arm64.dmg`, the MCP bundle
-//! `jidr-mcp-<version>-darwin-arm64.mcpb` (the signed `jidr` plus
-//! `packaging/mcp/manifest.json`) and `SHA256SUMS.txt`. `--gui swiftui` builds
-//! the SwiftUI device center instead (ADR-0003: the production bundle keeps
-//! `Contents/MacOS/Jidr` as the device center, ships the Rust helpers in
-//! `Contents/Helpers` and never ships the standalone player app). The default
-//! GUI defaults to the SwiftUI device center since M6; `--gui slint` keeps the
-//! pre-M6 Slint chain available as a fallback.
-//!
-//! `--rehearsal` is the local M5 validation of the SwiftUI chain: it implies
-//! `--scan`, writes to `<target>/release-rehearsal`, signs ad-hoc, runs the
-//! mount/signature/scan/CLI/isolated-launch/uninstall checks and leaves
-//! `report.md` with the evidence and the explicitly unverified items. A
-//! rehearsal never publishes, never writes a distribution directory, never
-//! touches `/Applications` or the real user Jidr data, and never claims that
-//! Developer ID signing or notarization was verified when it was not.
-//!
-//! With `--scan` the build fails if the bundle or the DMG contains anything
-//! Jidr must never ship: Google SDK binaries, system images or Magisk (NOTICE,
-//! clean-room rules).
-//!
-//! Only system tools are used (`codesign`, `hdiutil`, `plutil`, `shasum`,
-//! `notarytool`), so xtask needs no new dependencies. With
-//! `JIDR_SIGNING_IDENTITY` set, the default Slint app gets a hardened-runtime
-//! Developer ID signature and the DMG is signed, notarized and stapled by
-//! `packaging/macos/sign.sh` (which also needs an App Store Connect API key:
-//! `NOTARY_KEY_PATH`, `NOTARY_KEY_ID`, `NOTARY_ISSUER_ID`). Without it, or
-//! with `--dry-run`/`--rehearsal`, the build is ad-hoc signed and CI gets a
-//! warning (D32). The SwiftUI Developer ID path is not wired yet: it refuses
-//! to pretend and says so, because `sign.sh` currently only signs
-//! `Contents/Helpers/jidr` and `Contents/MacOS/Jidr`.
+//! `--rehearsal` signs ad-hoc, scans and verifies an isolated install, and
+//! writes evidence without publishing or touching real user data. Developer ID
+//! signing/notarization remain explicitly unverified until wired for all helpers.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -44,15 +15,12 @@ use serde_json::Value;
 use crate::{cargo, workspace_root};
 
 const USAGE: &str = "\
-usage: cargo xtask release [--dry-run] [--scan] [--out <dir>] [--gui slint|swiftui] [--rehearsal]
+usage: cargo xtask release [--dry-run] [--scan] [--out <dir>] [--rehearsal]
 
   --dry-run    build and package locally; never sign, even if secrets exist
   --scan       fail if the artifacts contain Google SDK binaries, system images or Magisk
   --out DIR    output directory (default: <target>/release-artifacts; with
                --rehearsal: <target>/release-rehearsal)
-  --gui GUI    GUI to ship: `swiftui` (default, the device center; the
-               production bundle never contains the standalone player app,
-               ADR-0003) or `slint` (legacy fallback, the pre-M6 chain)
   --rehearsal  local rehearsal of the SwiftUI release chain: implies --scan,
                signs ad-hoc only, runs the mount/signature/scan/CLI/
                isolated-launch/uninstall checks and writes report.md;
@@ -62,22 +30,11 @@ usage: cargo xtask release [--dry-run] [--scan] [--out <dir>] [--gui slint|swift
 /// `Developer ID Application: Name (TEAMID)` (Phase 12b).
 const SIGNING_IDENTITY_ENV: &str = "JIDR_SIGNING_IDENTITY";
 
-/// GUI binary shipped as `Jidr.app/Contents/MacOS/Jidr`.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-enum Gui {
-    /// The Slint desktop app (`apps/jidr-gui`); legacy fallback since M6.
-    Slint,
-    /// The SwiftUI device center (`apps/jidr-swiftui-prototype`); default.
-    #[default]
-    SwiftUI,
-}
-
 #[derive(Debug, Default, PartialEq)]
 struct Options {
     dry_run: bool,
     scan: bool,
     out: Option<PathBuf>,
-    gui: Gui,
     rehearsal: bool,
     help: bool,
 }
@@ -92,14 +49,6 @@ fn parse_args(args: &[String]) -> Result<Options> {
             "--out" => {
                 let dir = it.next().context("--out needs a directory")?;
                 opts.out = Some(PathBuf::from(dir));
-            }
-            "--gui" => {
-                let value = it.next().context("--gui needs `slint` or `swiftui`")?;
-                opts.gui = match value.as_str() {
-                    "slint" => Gui::Slint,
-                    "swiftui" => Gui::SwiftUI,
-                    other => bail!("unknown GUI `{other}`; expected `slint` or `swiftui`\n{USAGE}"),
-                };
             }
             "--rehearsal" => opts.rehearsal = true,
             "-h" | "--help" => opts.help = true,
@@ -118,11 +67,6 @@ pub fn run(args: &[String]) -> Result<()> {
     if !cfg!(target_os = "macos") {
         bail!("release builds the macOS app and DMG; run it on macOS (D15)");
     }
-    if opts.rehearsal && opts.gui == Gui::Slint {
-        bail!(
-            "--rehearsal rehearses the SwiftUI release chain (the default); the Slint fallback keeps its own `--dry-run` path, so drop --rehearsal or pass `--gui swiftui`"
-        );
-    }
     if opts.rehearsal {
         opts.scan = true;
     }
@@ -131,102 +75,16 @@ pub fn run(args: &[String]) -> Result<()> {
     let target = target_dir(&root);
     let out = output_dir(&root, &target, &opts);
     println!("xtask: release {version} → {}", out.display());
-    println!(
-        "xtask: GUI: {}",
-        match opts.gui {
-            Gui::Slint => "Slint desktop app (legacy fallback, --gui slint)",
-            Gui::SwiftUI => "SwiftUI device center (default; no standalone player app)",
-        }
-    );
+    println!("xtask: GUI: SwiftUI device center");
     if opts.rehearsal {
         println!(
             "xtask: rehearsal: implies --scan, signs ad-hoc only, writes only under the output directory and publishes nothing"
         );
     }
-    match opts.gui {
-        Gui::Slint => run_slint(&root, &target, &out, &version, &opts),
-        Gui::SwiftUI => run_swiftui(&root, &target, &out, &version, &opts),
-    }
+    run_swiftui(&root, &target, &out, &version, &opts)
 }
 
-/// The Slint release path, kept as the pre-M6 fallback (`--gui slint`).
-fn run_slint(root: &Path, target: &Path, out: &Path, version: &str, opts: &Options) -> Result<()> {
-    crate::run(
-        &cargo(),
-        &[
-            "build",
-            "--release",
-            "--locked",
-            "-p",
-            "jidr",
-            "-p",
-            "jidr-gui",
-        ],
-    )?;
-    let bin = target.join("release");
-
-    if out.exists() {
-        std::fs::remove_dir_all(out).with_context(|| format!("clearing {}", out.display()))?;
-    }
-    let staging = out.join("staging");
-    let app = staging.join("Jidr.app");
-    assemble_app(root, &bin, &app, version)?;
-    let identity = std::env::var(SIGNING_IDENTITY_ENV).ok();
-    let signing = signing_mode(identity.as_deref(), opts.dry_run, false);
-    let sign_script = root.join("packaging/macos/sign.sh");
-    sign(&app, &signing, &sign_script)?;
-    // The bundle reuses the signed CLI; the DMG's notarization covers it.
-    let mcpb_name = format!("jidr-mcp-{version}-darwin-arm64.mcpb");
-    let mcpb_dir = out.join("mcpb");
-    pack_mcpb(
-        root,
-        &app.join("Contents/Helpers/jidr"),
-        &mcpb_dir,
-        &out.join(&mcpb_name),
-        version,
-    )?;
-    std::os::unix::fs::symlink("/Applications", staging.join("Applications"))
-        .context("linking /Applications into the DMG")?;
-
-    let dmg_name = format!("Jidr-{version}-arm64.dmg");
-    let dmg = out.join(&dmg_name);
-    create_dmg(&dmg, &staging, version)?;
-    if signing == Signing::DeveloperId {
-        // Sign, notarize and staple before the checksum is taken.
-        tool("bash", &[&path_str(&sign_script)?, "dmg", &path_str(&dmg)?])?;
-    }
-
-    let mut findings = Vec::new();
-    if opts.scan {
-        findings.extend(scan_tree(&app)?);
-        findings.extend(scan_tree(&mcpb_dir)?);
-    }
-    findings.extend(check_dmg(&dmg, &out.join("mnt"), opts.scan)?);
-    std::fs::remove_dir_all(&staging).ok();
-    std::fs::remove_dir_all(&mcpb_dir).ok();
-
-    let sums = tool_output("shasum", &["-a", "256", &dmg_name, &mcpb_name], out)?;
-    std::fs::write(out.join("SHA256SUMS.txt"), &sums)?;
-    std::fs::write(out.join("VERSION"), format!("{version}\n"))?;
-    print!("{sums}");
-
-    if !findings.is_empty() {
-        for f in &findings {
-            println!("xtask: scan: {}: {}", f.path.display(), f.reason);
-        }
-        bail!(
-            "{} forbidden file(s) in the release artifacts (Google SDK, system images or Magisk)",
-            findings.len()
-        );
-    }
-    if opts.scan {
-        println!("xtask: scan ok: no Google SDK binaries, system images or Magisk");
-    }
-    println!("xtask: release ok: {}", dmg.display());
-    Ok(())
-}
-
-/// The SwiftUI release path (`--gui swiftui`), and its local rehearsal.
+/// The SwiftUI release path (`cargo xtask release`), and its local rehearsal.
 fn run_swiftui(
     root: &Path,
     target: &Path,
@@ -256,14 +114,12 @@ fn run_swiftui(
     println!("xtask: building the SwiftUI center with `swiftc -O`");
     crate::run(
         "bash",
-        &[&path_str(
-            &root.join("apps/jidr-swiftui-prototype/build-release.sh"),
-        )?],
+        &[&path_str(&root.join("apps/jidr-swiftui/build-release.sh"))?],
     )?;
     let center = target.join("swiftui-center-release/JidrSwiftUICenter");
     if !center.is_file() {
         bail!(
-            "apps/jidr-swiftui-prototype/build-release.sh did not produce {}",
+            "apps/jidr-swiftui/build-release.sh did not produce {}",
             center.display()
         );
     }
@@ -460,36 +316,8 @@ fn copy(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `Jidr.app` layout for the Slint app. The CLI lives in `Helpers/`:
-/// `MacOS/jidr` would collide with `MacOS/Jidr` on case-insensitive APFS.
-fn assemble_app(root: &Path, bin: &Path, app: &Path, version: &str) -> Result<()> {
-    let contents = app.join("Contents");
-    copy(&bin.join("jidr-gui"), &contents.join("MacOS/Jidr"))?;
-    copy(&bin.join("jidr"), &contents.join("Helpers/jidr"))?;
-    copy(
-        &root.join("apps/jidr-gui/assets/macos/Jidr.icns"),
-        &contents.join("Resources/Jidr.icns"),
-    )?;
-    for (from, name) in [
-        ("LICENSE-APACHE", "LICENSE-APACHE"),
-        ("apps/jidr-gui/LICENSE-GPL", "LICENSE-GPL"),
-        ("NOTICE", "NOTICE"),
-    ] {
-        copy(
-            &root.join(from),
-            &contents.join("Resources/licenses").join(name),
-        )?;
-    }
-    let template = std::fs::read_to_string(root.join("packaging/macos/Info.plist.in"))
-        .context("reading packaging/macos/Info.plist.in")?;
-    let plist = contents.join("Info.plist");
-    std::fs::write(&plist, render_version(&template, version, "Info.plist.in")?)?;
-    std::fs::write(contents.join("PkgInfo"), "APPL????")?;
-    tool("plutil", &["-lint", &path_str(&plist)?])
-}
-
 /// `Jidr.app` layout for the SwiftUI device center (ADR-0003). It keeps the
-/// `ly.jidr.Jidr` identity of the Slint app, puts the device center in
+/// existing `ly.jidr.Jidr` bundle identity, puts the device center in
 /// `Contents/MacOS/Jidr`, the three Rust helpers in `Contents/Helpers/`, and
 /// the Workbench fonts (Geist + Noto Kufi Arabic and their OFL texts) in
 /// `Contents/Resources/fonts/` for `ATSApplicationFontsPath`. The standalone
@@ -508,22 +336,22 @@ fn assemble_swiftui_app(
     }
     let resources = contents.join("Resources");
     copy(
-        &root.join("apps/jidr-gui/assets/macos/Jidr.icns"),
+        &root.join("apps/jidr-swiftui/Resources/Jidr.icns"),
         &resources.join("Jidr.icns"),
     )?;
     for (from, name) in [
         (
-            "crates/jidr-ui/ui/assets/device-list-generated.png",
+            "apps/jidr-swiftui/Resources/device-list-generated.png",
             "device-list.png",
         ),
         (
-            "crates/jidr-ui/ui/assets/device-detail-generated.png",
+            "apps/jidr-swiftui/Resources/device-detail-generated.png",
             "device-detail.png",
         ),
     ] {
         copy(&root.join(from), &resources.join(name))?;
     }
-    let fonts = root.join("apps/jidr-gui/assets/fonts");
+    let fonts = root.join("apps/jidr-swiftui/Resources/fonts");
     let mut font_count = 0;
     for entry in std::fs::read_dir(&fonts)
         .with_context(|| format!("reading the Workbench fonts in {}", fonts.display()))?
@@ -550,14 +378,14 @@ fn assemble_swiftui_app(
     for lproj in ["en", "zh-Hans"] {
         copy(
             &root.join(format!(
-                "apps/jidr-swiftui-prototype/Resources/{lproj}.lproj/Localizable.strings"
+                "apps/jidr-swiftui/Resources/{lproj}.lproj/Localizable.strings"
             )),
             &resources.join(format!("{lproj}.lproj/Localizable.strings")),
         )?;
     }
     for (from, name) in [
         ("LICENSE-APACHE", "LICENSE-APACHE"),
-        ("apps/jidr-gui/LICENSE-GPL", "LICENSE-GPL"),
+        ("apps/jidr-swiftui/LICENSE-GPL", "LICENSE-GPL"),
         ("NOTICE", "NOTICE"),
     ] {
         copy(&root.join(from), &resources.join("licenses").join(name))?;
@@ -638,31 +466,6 @@ fn warn_ad_hoc(message: &str) {
     }
 }
 
-/// Signs the Slint app inside-out: with the Developer ID through `sign.sh`, or
-/// ad-hoc (the pre-M5 behaviour, unchanged).
-fn sign(app: &Path, signing: &Signing, sign_script: &Path) -> Result<()> {
-    let message = match signing {
-        Signing::DeveloperId => {
-            return tool("bash", &[&path_str(sign_script)?, "app", &path_str(app)?]);
-        }
-        Signing::AdHoc(message) => message,
-    };
-    warn_ad_hoc(message);
-    for path in [app.join("Contents/Helpers/jidr"), app.to_path_buf()] {
-        tool(
-            "codesign",
-            &[
-                "--force",
-                "--sign",
-                "-",
-                "--timestamp=none",
-                &path_str(&path)?,
-            ],
-        )?;
-    }
-    tool("codesign", &["--verify", "--strict", &path_str(app)?])
-}
-
 /// Signs the SwiftUI app inside-out; there is no `--deep`. The Developer ID
 /// path deliberately refuses for now: `packaging/macos/sign.sh` only signs
 /// `Helpers/jidr`, `MacOS/Jidr` and the bundle, so a signed SwiftUI release
@@ -674,7 +477,7 @@ fn sign_swiftui(app: &Path, signing: &Signing) -> Result<()> {
         Signing::DeveloperId => bail!(
             "SwiftUI Developer ID signing is not wired yet: packaging/macos/sign.sh signs \
              `Contents/Helpers/jidr`, `Contents/MacOS/Jidr` and the bundle, not the two bridge \
-             helpers. Extend sign.sh (and then notarization) before signing a `--gui swiftui` \
+             helpers. Extend sign.sh (and then notarization) before signing a `cargo xtask release` \
              release with {SIGNING_IDENTITY_ENV}; the rehearsal uses ad-hoc signing and says so"
         ),
         Signing::AdHoc(message) => {
@@ -1504,7 +1307,7 @@ fn add_unverified(evidence: &mut Evidence) {
     evidence.unverified(
         "- **Developer ID signing, notarization and stapling: NOT VERIFIED.** No signing \
          credentials are present in this environment, so the rehearsal uses an ad-hoc \
-         hardened-runtime signature and Gatekeeper rejects it as expected. `--gui swiftui` \
+         hardened-runtime signature and Gatekeeper rejects it as expected. `cargo xtask release` \
          deliberately refuses the Developer ID path until `packaging/macos/sign.sh` also signs \
          `Contents/Helpers/jidr-center-bridge` and `jidr-swiftui-bridge` and the DMG branch runs \
          `notarytool`; until then sign.sh + notarization stay M5b work (D32: whether to ship an \
@@ -1515,19 +1318,8 @@ fn add_unverified(evidence: &mut Evidence) {
          installer; this rehearsal installs, launches and uninstalls one fresh build only.",
     );
     evidence.unverified(
-        "- **Finder launch without `JIDR_HOME`: NOT VERIFIED as a production path.** The \
-         production bundle intentionally has no test-package sentinel, so the SwiftUI center \
-         still requires an explicit `JIDR_HOME`; wiring the default Jidr home for a plain \
-         double-click is an M6 decision (`apps/jidr-swiftui-prototype/Center/main.swift`).",
-    );
-    evidence.unverified(
         "- **Real-device acceptance: NOT RE-RUN here.** M4 covers the 11/11 isolated real-device \
          acceptance and the performance measurements; this rehearsal checks the package only.",
-    );
-    evidence.unverified(
-        "- **Default Slint release: NOT REBUILT here.** All new behaviour is gated behind \
-         `--gui swiftui`/`--rehearsal`; the default Slint path is unchanged and keeps its own \
-         `--dry-run` flow.",
     );
 }
 
@@ -1675,12 +1467,12 @@ fn write_rehearsal_report(
     md.push_str(
         "Local rehearsal of the SwiftUI production release chain. It builds, assembles, signs \
          (ad-hoc, because no Developer ID credentials are present), packs, mounts and checks the \
-         same `Jidr.app` + DMG that `cargo xtask release --gui swiftui` would produce, then \
+         same `Jidr.app` + DMG that `cargo xtask release` would produce, then \
          installs, launches and uninstalls it with an isolated `JIDR_HOME`. It writes only under \
          the output directory and `/tmp`, and never touches `/Applications` or the user's real \
          Jidr data.\n\n",
     );
-    md.push_str("- Command: `cargo xtask release --gui swiftui --rehearsal`\n");
+    md.push_str("- Command: `cargo xtask release --rehearsal`\n");
     md.push_str(&format!(
         "- Version: `{version}` (workspace Cargo version, rendered into `Info.plist` and checked \
          from the mounted DMG)\n"
@@ -1715,7 +1507,7 @@ fn write_rehearsal_report(
     md.push_str("## Re-run\n\n```bash\n");
     md.push_str(
         "PATH=\"$PWD/target/tools/bin:$PATH\" PROTOC=\"$PWD/target/tools/protoc/bin/protoc\" \\\n  \
-         cargo xtask release --gui swiftui --rehearsal\n",
+         cargo xtask release --rehearsal\n",
     );
     md.push_str("```\n\n");
     md.push_str(
@@ -1724,21 +1516,19 @@ fn write_rehearsal_report(
          `codesign`/`hdiutil`/`plutil`/`ditto`/`shasum` tools. Expect a few minutes for the release \
          Rust helpers plus the optimised SwiftUI center.\n\n",
     );
-    md.push_str("## Notes for the M6 switch\n\n");
+    md.push_str("## Release notes\n\n");
     md.push_str(
-        "- **Default GUI:** `--gui slint` stays the default until M6 flips it to SwiftUI (or \
-         removes the flag) once the release gates above are closed.\n",
+        "- **GUI:** SwiftUI/AppKit is the only GUI; no toolkit selection or legacy bundle.\n",
     );
     md.push_str(
-        "- **Production home:** wire the default Jidr home for a Finder launch (drop the explicit \
-         `JIDR_HOME` requirement or document a sentinel policy). The M1 test package keeps its \
-         `test-package` sentinel; the production bundle intentionally does not carry it.\n",
+        "- **Production home:** a plain Finder launch uses the standard Jidr data directory. \
+         Rehearsal launches set an isolated `JIDR_HOME`; no separate test-package policy remains.\n",
     );
     md.push_str(
         "- **Signing:** extend `packaging/macos/sign.sh` to sign and verify \
          `Contents/Helpers/jidr-center-bridge` and `jidr-swiftui-bridge` before the first \
          Developer ID SwiftUI release, then reuse its DMG notarization/staple branch. Until then \
-         `--gui swiftui` refuses Developer ID signing rather than shipping an unverified bundle.\n",
+         `cargo xtask release` refuses Developer ID signing rather than shipping an unverified bundle.\n",
     );
     md.push_str(
         "- **MCP bundle:** unchanged; it ships the same `Helpers/jidr` and stays part of the \
@@ -1747,28 +1537,6 @@ fn write_rehearsal_report(
     std::fs::write(out.join("report.md"), md)
         .with_context(|| format!("writing {}", out.join("report.md").display()))?;
     Ok(())
-}
-
-/// Mounts the Slint DMG read-only, checks the app is there, scans it if asked,
-/// and always detaches. The SwiftUI path uses [`verify_swiftui_dmg`] instead.
-fn check_dmg(dmg: &Path, mountpoint: &Path, scan: bool) -> Result<Vec<Finding>> {
-    std::fs::create_dir_all(mountpoint)?;
-    attach_dmg(dmg, mountpoint, tool)?;
-    let result = (|| {
-        if !mountpoint.join("Jidr.app/Contents/MacOS/Jidr").is_file() {
-            bail!("the mounted DMG has no Jidr.app");
-        }
-        if scan {
-            scan_tree(mountpoint)
-        } else {
-            Ok(Vec::new())
-        }
-    })();
-    let detached = tool("hdiutil", &["detach", &path_str(mountpoint)?]);
-    let findings = result?;
-    detached?;
-    std::fs::remove_dir(mountpoint).ok();
-    Ok(findings)
 }
 
 // Newer macOS releases can reject the deprecated hdiutil attach while
@@ -2026,7 +1794,6 @@ mod tests {
                 dry_run: true,
                 scan: true,
                 out: Some(PathBuf::from("dist")),
-                gui: Gui::SwiftUI,
                 rehearsal: false,
                 help: false,
             }
@@ -2034,30 +1801,15 @@ mod tests {
         assert!(parse_args(&args(&["--out"])).is_err());
         assert!(parse_args(&args(&["--sign"])).is_err());
         assert!(parse_args(&args(&["-h"])).unwrap().help);
-        // M6: the SwiftUI centre is the default; Slint is the fallback.
-        assert_eq!(
-            parse_args(&args(&[])).unwrap().gui,
-            Gui::SwiftUI,
-            "the default GUI must be the SwiftUI centre"
-        );
-        assert_eq!(
-            parse_args(&args(&["--gui", "slint"])).unwrap().gui,
-            Gui::Slint
-        );
     }
 
     #[test]
-    fn parses_gui_and_rehearsal() {
+    fn rejects_retired_gui_selection() {
         let args = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        let swiftui = parse_args(&args(&["--gui", "swiftui", "--rehearsal"])).unwrap();
-        assert_eq!(swiftui.gui, Gui::SwiftUI);
-        assert!(swiftui.rehearsal);
-        let slint = parse_args(&args(&["--gui", "slint"])).unwrap();
-        assert_eq!(slint.gui, Gui::Slint);
-        assert!(!slint.rehearsal);
-        assert!(parse_args(&args(&["--gui"])).is_err());
-        assert!(parse_args(&args(&["--gui", "gnome"])).is_err());
-        assert!(parse_args(&args(&["--rehearsal"])).is_ok());
+        for choice in ["slint", "swiftui"] {
+            assert!(parse_args(&args(&["--gui", choice])).is_err());
+        }
+        assert!(parse_args(&args(&["--rehearsal"])).unwrap().rehearsal);
     }
 
     #[test]
@@ -2209,15 +1961,15 @@ mod tests {
     fn swiftui_release_resources_exist() {
         let root = workspace_root();
         let mut required = vec![
-            "apps/jidr-gui/assets/macos/Jidr.icns".to_owned(),
-            "crates/jidr-ui/ui/assets/device-list-generated.png".to_owned(),
-            "crates/jidr-ui/ui/assets/device-detail-generated.png".to_owned(),
-            "apps/jidr-swiftui-prototype/Resources/en.lproj/Localizable.strings".to_owned(),
-            "apps/jidr-swiftui-prototype/Resources/zh-Hans.lproj/Localizable.strings".to_owned(),
-            "apps/jidr-swiftui-prototype/build-release.sh".to_owned(),
+            "apps/jidr-swiftui/Resources/Jidr.icns".to_owned(),
+            "apps/jidr-swiftui/Resources/device-list-generated.png".to_owned(),
+            "apps/jidr-swiftui/Resources/device-detail-generated.png".to_owned(),
+            "apps/jidr-swiftui/Resources/en.lproj/Localizable.strings".to_owned(),
+            "apps/jidr-swiftui/Resources/zh-Hans.lproj/Localizable.strings".to_owned(),
+            "apps/jidr-swiftui/build-release.sh".to_owned(),
             "packaging/swiftui/Jidr-Info.plist.in".to_owned(),
             "LICENSE-APACHE".to_owned(),
-            "apps/jidr-gui/LICENSE-GPL".to_owned(),
+            "apps/jidr-swiftui/LICENSE-GPL".to_owned(),
             "NOTICE".to_owned(),
         ];
         for path in required.drain(..) {
@@ -2226,7 +1978,7 @@ mod tests {
                 "missing release resource {path}"
             );
         }
-        let fonts = root.join("apps/jidr-gui/assets/fonts");
+        let fonts = root.join("apps/jidr-swiftui/Resources/fonts");
         let mut ttf = 0;
         let mut ofl = 0;
         for entry in std::fs::read_dir(&fonts).unwrap() {
@@ -2239,6 +1991,31 @@ mod tests {
         }
         assert_eq!(ttf, 8, "the Workbench fonts must stay bundled");
         assert!(ofl >= 1, "the OFL licence text must stay bundled");
+    }
+
+    #[test]
+    fn native_gui_is_the_only_ui_source_and_release_entry() {
+        let root = workspace_root();
+        for retired in [
+            "crates/jidr-ui",
+            "apps/jidr-gui",
+            "apps/jidr-swiftui-prototype",
+            "apps/jidr-swiftui/Player/main.swift",
+            "packaging/macos/Info.plist.in",
+        ] {
+            assert!(
+                !root.join(retired).exists(),
+                "retired UI source returned: {retired}"
+            );
+        }
+        let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
+        assert!(!manifest.contains("crates/jidr-ui") && !manifest.contains("apps/jidr-gui"));
+        assert!(!manifest.lines().any(|line| line.starts_with("slint =")));
+        let license = std::fs::read_to_string(root.join("apps/jidr-swiftui/LICENSE-GPL")).unwrap();
+        assert!(license.contains("GNU GENERAL PUBLIC LICENSE"));
+        let entry =
+            std::fs::read_to_string(root.join("apps/jidr-swiftui/Center/main.swift")).unwrap();
+        assert!(entry.contains("Contents/Helpers") && !entry.contains("test-package"));
     }
 
     #[test]

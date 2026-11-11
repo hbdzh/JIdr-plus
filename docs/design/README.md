@@ -1,6 +1,6 @@
 # Jidr design
 
-Direction **Workbench**: one IDE-like window, dark-first, soft cards, devices open as tabs. Read `system/README.md` first: it holds the voice, colour, status, type, motion, icon and RTL rules.
+Direction **Workbench**: one IDE-like window, dark-first, soft cards, devices open in independent native windows. Read `system/README.md` first: it holds the voice, colour, status, type, motion, icon and RTL rules.
 
 | What | Where |
 |---|---|
@@ -18,9 +18,9 @@ Chosen concepts: launcher **1A** (sidebar device list and device detail), device
 ## Implementation rules (D41)
 
 - **One source:** `tokens.json`. Never hand-copy hex values.
-  - The **Slint** theme (`crates/jidr-ui/ui/theme.slint`, `export global Theme`) is generated from it by `crates/jidr-ui/build.rs`.
-  - Naming: CSS `--jidr-color-surface-raised` → Slint `Theme.surface-raised`. A leading `color-` is dropped in Slint; every other path stays the same.
-- **Fonts:** Geist, Geist Mono and Noto Kufi Arabic (all OFL-1.1). Bundle them in the app (`apps/jidr-gui/assets/fonts/`, with licences) because Slint can't fetch web fonts.
-- **Icons:** Lucide only (ISC). SVGs are loaded with `@image-url` and tinted with `colorize`. Credit Lucide in About › Licenses.
+  - `apps/jidr-swiftui/generate-tokens.sh` generates the raw Swift token layer and semantic Workbench layer. CI checks generation is idempotent.
+  - The Swift semantic layer maps shared tokens to native controls and AppKit window chrome.
+- **Fonts:** Geist, Geist Mono and Noto Kufi Arabic (all OFL-1.1). Bundle them in the app (`apps/jidr-swiftui/Resources/fonts/`, with licences) with the required OFL notices.
+- **Icons:** native SF Symbols, mapped from the shared Lucide meanings by the Swift generator. Shared SVGs in `assets/lucide` retain their ISC license.
 - **Brand vs tokens:** the app icon gradient (`#2A88FA → #1267E0`, `assets/brand/`) is the approved icon and stays as is. Inside the UI, use tokens only: accent `jidr-color-accent-*` for actions, root violet `jidr-color-root` for root only. The Arabic wordmark جذر uses `jidr-color-root`.
-- Slint constraints the system already respects: no dashed borders, one shadow per element, no web fonts.
+- Prefer native macOS controls and window/panel presentation; keep token-driven custom surfaces consistent.

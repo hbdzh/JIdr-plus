@@ -29,8 +29,6 @@ jobs:
       - uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: GUI build deps
-        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev libxkbcommon-dev
       - run: cargo xtask ci
 
   # Does this change touch anything but docs/ or Markdown?
@@ -51,8 +49,8 @@ jobs:
               - '!docs/**'
               - '!**/*.md'
 
-  # macOS compile + lint gate for macOS-only code (VideoToolbox, Slint's
-  # macOS backend, bundling). Hosted macOS can't boot the emulator and queues
+  # macOS compile + lint gate for macOS-only code (VideoToolbox and
+  # bundling). Hosted macOS can't boot the emulator and queues
   # slower, so tests run on Linux; skipped when only docs/Markdown change.
   clippy-macos:
     name: clippy (macOS)
@@ -69,13 +67,13 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
-  # SwiftUI/AppKit prototype gate: the player and device-center previews build
+  # SwiftUI/AppKit gate: the device center builds
   # with the Xcode toolchain and their Rust bridges, the Swift logic test groups
   # and the localization gate pass (test.sh runs both), and the gate is also
   # invoked directly so a localization failure stands out in the job list.
   # Skipped when only docs/Markdown change, like clippy-macos.
   swift-macos:
-    name: SwiftUI prototype (macOS)
+    name: SwiftUI (macOS)
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: macos-latest
@@ -88,31 +86,27 @@ jobs:
       - uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build both previews
-        # build.sh builds the player preview, build-center.sh the device-center
-        # preview; both cargo-build the jidr-swiftui-bridge crate first.
-        run: |
-          bash apps/jidr-swiftui-prototype/build.sh
-          bash apps/jidr-swiftui-prototype/build-center.sh
+      - name: Build native app
+        run: bash apps/jidr-swiftui/build-center.sh
       - name: Optimized center build and macOS deployment check
         # This is a gate, independent of the optional GUI/DMG rehearsal.
-        run: bash apps/jidr-swiftui-prototype/build-release.sh
+        run: bash apps/jidr-swiftui/build-release.sh
       - name: Logic tests and localization gate (test.sh)
-        run: bash apps/jidr-swiftui-prototype/test.sh
+        run: bash apps/jidr-swiftui/test.sh
       - name: Center and player lifecycle regressions
         # Real controller/transport callbacks with a mock bridge and isolated
         # home; no Android SDK or emulator. A regression fails the macOS job.
-        run: bash apps/jidr-swiftui-prototype/test-player-lifecycle.sh
+        run: bash apps/jidr-swiftui/test-player-lifecycle.sh
       - name: Center UI interaction regressions
-        run: bash apps/jidr-swiftui-prototype/test-center-ui.sh
+        run: bash apps/jidr-swiftui/test-center-ui.sh
       - name: Design tokens are in sync with tokens.json
         # generate-tokens.sh --check regenerates from docs/design/tokens.json
         # into the generated Swift files and fails when they differ.
-        run: bash apps/jidr-swiftui-prototype/generate-tokens.sh --check
+        run: bash apps/jidr-swiftui/generate-tokens.sh --check
       - name: Localization gate (mechanisms a/b/c, AppKit sinks, both bridges)
         # Fails only on leaks outside the audited baseline
         # (Tests/i18n_allowlist.txt); .strings hygiene issues are warnings.
-        run: python3 apps/jidr-swiftui-prototype/Tests/localization_coverage.py
+        run: python3 apps/jidr-swiftui/Tests/localization_coverage.py
       - name: SwiftUI release rehearsal (needs a macOS GUI session; reported, not gating)
         # Builds the release-profile centre + helpers, assembles and ad-hoc signs
         # Jidr.app, packs the DMG and runs the mount/signature/scan/CLI/isolated
@@ -126,14 +120,14 @@ jobs:
         # between macOS runner images, so this is reported rather than gating
         # until the runner image is pinned; see docs/swiftui-migration.md.
         continue-on-error: true
-        run: bash apps/jidr-swiftui-prototype/snapshot.sh --check
+        run: bash apps/jidr-swiftui/snapshot.sh --check
       - name: GUI window lifecycle (needs a macOS GUI session; reported, not gating)
         # test-window.sh drives real AppKit windows and needs a logged-in
         # WindowServer session. Hosted runners usually have one, but not
         # contractually, so the result is reported as an annotation instead of
         # gating the build; it is never skipped silently.
         continue-on-error: true
-        run: bash apps/jidr-swiftui-prototype/test-window.sh
+        run: bash apps/jidr-swiftui/test-window.sh
 
   emulator:
     # Emulator integration tests on Linux KVM with x86_64 images (D28).
@@ -158,14 +152,14 @@ jobs:
             filter: binary(~pool_emulator) | binary(~budget_emulator) | binary(~hibernate_emulator) | binary(~resilience_emulator)
           - name: root
             filter: binary(~props_emulator) | binary(~magisk_emulator) | binary(~adb_emulator)
-          - name: cacert, mcp, ui
-            filter: binary(~cacert_emulator) | binary(agent_tasks) | binary(~player_emulator) | binary(~media_emulator)
+          - name: cacert, mcp, media
+            filter: binary(~cacert_emulator) | binary(agent_tasks) | binary(~media_emulator)
           - name: rest
             filter: >-
               (binary(~_emulator) | binary(agent_tasks))
               - (binary(~pool_emulator) | binary(~budget_emulator) | binary(~hibernate_emulator) | binary(~resilience_emulator)
               | binary(~props_emulator) | binary(~magisk_emulator) | binary(~adb_emulator)
-              | binary(~cacert_emulator) | binary(agent_tasks) | binary(~player_emulator) | binary(~media_emulator))
+              | binary(~cacert_emulator) | binary(agent_tasks) | binary(~media_emulator))
     steps:
       - uses: actions/checkout@v4
       - name: Enable KVM
@@ -196,9 +190,6 @@ jobs:
       - uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: GUI build deps
-        # `--workspace --features emulator` also builds the Slint crates.
-        run: sudo apt-get update && sudo apt-get install -y libfontconfig1-dev libxkbcommon-dev
       - uses: android-actions/setup-android@v3
         with:
           packages: ""

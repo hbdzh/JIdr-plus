@@ -1,14 +1,16 @@
 # SwiftUI parity: 68 golden scene mapping (M0 audit)
 
+> Historical migration/parity record. Since the maintainer-approved retirement on 2026-11-11, SwiftUI is the sole UI in `apps/jidr-swiftui`; Slint sources, baselines and fallback commands below describe earlier revisions. See [ADR-0003](decisions/0003-swiftui-gui.md) and the root README for current builds. Retired sources remain available in Git history (before this cleanup).
+
 > 产品决定（2026-11-11）：保持独立设备窗口、不迁主工作台 device tab；不要求 RTL；本地化保留现有中文 key 机制。因此本审计中 `player-booting`/`player-stopped` 的"缺失"由独立播放器窗口补齐，`-rtl` golden 变体不作为迁移门槛。
 
 > 这是 M0 的行为级审计记录，由 68 个 golden 场景逐行映射而来；摘要与模块矩阵见 [swiftui-parity.md](swiftui-parity.md)。判定口径：**有入口** = 场景的主要 UI 与行为都有对应实现，仅细节差异；**部分** = 有入口但一项以上可见/行为要素缺失；**缺失** = 无入口或无法到达该状态。
 
 - 基线：`master@b46a2f3`（`feat(gui): add SwiftUI prototype`），只读审计，未修改任何已跟踪文件、未提交、未 push。
 - 参考实现：Slint 正式 UI `crates/jidr-ui`（Rust 逻辑 + `ui/*.slint` + `tests/golden` 204 张 PNG，68 场景 × dark/light/rtl）。
-- 待迁移实现：`apps/jidr-swiftui-prototype`（`Center/` 设备中心与设置、`Sources/` 播放器与工具、`bridge/` Rust 助手）。
+- 待迁移实现：`apps/jidr-swiftui`（`Center/` 设备中心与设置、`Sources/` 播放器与工具、`bridge/` Rust 助手）。
 - 方法：`team_task_list` / `team_task_get` 取证后，逐文件 read/grep；未运行 emulator、未启动 GUI、未跑构建。行号均来自本次实际读到的代码版本。凡依赖运行时行为、代码无法单独证明的，标“待确认”。
-- 文件缩写（证据列）：Slint 侧相对 `crates/jidr-ui/`：`goldens.rs`=`src/goldens.rs`，`root/goldens.rs`=`src/root/goldens.rs`，`ui/*.slint`=`ui/*.slint`；SwiftUI 侧相对 `apps/jidr-swiftui-prototype/`：`Center/DeviceViews.swift`、`Center/DeviceModel.swift`、`Center/AdvancedTools.swift`、`Sources/GameWindow.swift` 等。
+- 文件缩写（证据列）：Slint 侧相对 `crates/jidr-ui/`：`goldens.rs`=`src/goldens.rs`，`root/goldens.rs`=`src/root/goldens.rs`，`ui/*.slint`=`ui/*.slint`；SwiftUI 侧相对 `apps/jidr-swiftui/`：`Center/DeviceViews.swift`、`Center/DeviceModel.swift`、`Center/AdvancedTools.swift`、`Sources/GameWindow.swift` 等。
 
 ## 0. 结论摘要（数字）
 
@@ -172,7 +174,7 @@
 
 ## 3. 每个模块的实现状态 / 验证状态建议值
 
-验证状态口径：**未验证** = 无自动化测试也无验收记录；**离线测试** = 有单元/集成测试（不依赖 emulator/GUI）；**真机** = 有真实设备或真实游戏验收记录。本次审计未发现 SwiftUI 原型的“真机/真实游戏验收”证据，README 也自述未完成（`apps/jidr-swiftui-prototype/README.md:24,38`），故绝大多数只能是“未验证”，本表中没有任何模块达到“真机”。Slint 参考侧另有 golden 快照测试（`crates/jidr-ui/examples/snapshot.rs:1-97`）与 quit/emulator 集成测试（`crates/jidr-ui/tests/quit.rs`、`tests/player_emulator.rs`）。
+验证状态口径：**未验证** = 无自动化测试也无验收记录；**离线测试** = 有单元/集成测试（不依赖 emulator/GUI）；**真机** = 有真实设备或真实游戏验收记录。本次审计未发现 SwiftUI 原型的“真机/真实游戏验收”证据，README 也自述未完成（`apps/jidr-swiftui/README.md:24,38`），故绝大多数只能是“未验证”，本表中没有任何模块达到“真机”。Slint 参考侧另有 golden 快照测试（`crates/jidr-ui/examples/snapshot.rs:1-97`）与 quit/emulator 集成测试（`crates/jidr-ui/tests/quit.rs`、`tests/player_emulator.rs`）。
 
 | 模块 | 实现状态 | 验证状态 | 证据（SwiftUI 现状 / 已有测试） |
 |---|---|---|---|

@@ -1,3 +1,5 @@
+> Native implementation: SwiftUI/AppKit in `apps/jidr-swiftui`, with independent player windows and generated Swift tokens. The original Slint-specific component constraints below are historical Workbench design references, not current build requirements.
+
 Jidr (جذر, *JID-er*, "root") is a free, open-source Android emulator for the Mac: a desktop app built in Slint (Rust), a CLI and an MCP server, plus the jidr.ly landing page built in Astro. This system is direction **Workbench**: one window like an IDE, dark-first, soft cards, devices open as tabs. Both products read the same tokens.
 
 ## One source, two products

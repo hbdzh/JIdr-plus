@@ -44,7 +44,7 @@ Users are technical, on macOS (Apple Silicon), and often keep the app open all d
 - **Status is honest**: Booting, Running, Stopped, Crashed, Busy (another client is using it) are always visible on device rows.
 - **Keyboard-first**: every action has a shortcut or command palette (⌘K) entry.
 - **Native macOS feel**: traffic lights, standard menus, standard sheet and popover behaviour; dark mode first-class.
-- **Buildable in Slint** (Rust GUI toolkit): solid fills, borders, rounded rects, simple shadows, images, paths; no heavy blur/vibrancy dependencies, no web views.
+- **Native SwiftUI/AppKit:** prefer system controls, semantic colors and native window/panel presentation; custom surfaces use shared design tokens.
 - **No Google, Android or Genymotion logos or trademarks** in the UI or site (Google SDK license §3.7). Use our own device silhouettes.
 - **Honesty about limits**: e.g. "Rooted emulators can't pass Play Integrity" is stated plainly where relevant.
 - **RTL-ready**: English-only at launch, but layouts must mirror cleanly for Arabic later.

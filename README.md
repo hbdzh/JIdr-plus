@@ -2,7 +2,7 @@
 
 JIdr Plus 是基于开源项目 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr) 的 macOS 安卓模拟器项目。本仓库在原项目基础上改进设备中心、独立游戏窗口和中文使用体验，同时保留原项目的 Rust 后台、命令行工具和 MCP 服务。
 
-目前界面使用 **Slint**，SwiftUI 尚处于可行性验证阶段。项目仍在开发中，建议在更新软件或调整设备配置前保存游戏进度。
+桌面界面现已统一为 **SwiftUI/AppKit**，旧 Slint 界面及其构建依赖已移除。项目仍在开发中，建议在更新软件或调整设备配置前保存游戏进度。
 
 ## 主要功能
 
@@ -21,7 +21,7 @@ JIdr Plus 是基于开源项目 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr
 
 ## 系统要求
 
-- Apple Silicon Mac，macOS 14 或更高版本。
+- Apple Silicon Mac，macOS 13 或更高版本。
 - 安卓 SDK、模拟器和系统镜像需要额外磁盘空间；实际需求取决于镜像、设备、游戏数据和快照大小。
 - 首次安装 Google SDK 组件或系统镜像时，需要由用户本人接受对应许可。
 
@@ -33,31 +33,32 @@ JIdr Plus 是基于开源项目 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr
 git clone https://github.com/hbdzh/JIdr-plus.git
 cd JIdr-plus
 cargo build --release -p jidr                    # CLI、daemon、MCP
-bash apps/jidr-swiftui-prototype/build-center.sh # 界面开发构建（调试，不需要打包）
+bash apps/jidr-swiftui/build-center.sh # 界面开发构建（调试，不需要打包）
 ```
 
-正式的应用包与 DMG 由 `cargo xtask release` 生成（默认 SwiftUI 设备中心；ad-hoc 签名，正式签名/公证需要维护者凭据）。本地排练：
+正式的应用包与 DMG 由 `cargo xtask release` 生成（SwiftUI 设备中心；支持本地 ad-hoc 签名构建，Developer ID 签名和公证链尚待完成）。本地排练：
 
 ```bash
 cargo xtask release --rehearsal   # 产出 target/release-rehearsal/（含 report.md）
 ```
 
-需要安装 [rustup](https://rustup.rs/) 和 `protoc`（例如使用 `brew install protobuf`）。Rust 版本由 [rust-toolchain.toml](rust-toolchain.toml) 指定；Swift 界面需要 Xcode 的 `swiftc`。旧的 Slint 界面仍保留为回退：`cargo xtask release --gui slint`。
+需要安装 [rustup](https://rustup.rs/) 和 `protoc`（例如使用 `brew install protobuf`）。Rust 版本由 [rust-toolchain.toml](rust-toolchain.toml) 指定；Swift 界面需要 Xcode 的 `swiftc`。设备中心和游戏窗口共用同一套 SwiftUI/AppKit 实现。
 
 ## 验证
 
 ```bash
 cargo xtask ci                                          # Rust：fmt、clippy、测试、许可、skills
-bash apps/jidr-swiftui-prototype/test.sh                # Swift 逻辑测试 + 本地化门禁
-bash apps/jidr-swiftui-prototype/snapshot.sh --check    # 中英/明暗截图基线
+bash apps/jidr-swiftui/test.sh                # Swift 逻辑测试 + 本地化门禁
+bash apps/jidr-swiftui/snapshot.sh --check    # 中英/明暗截图基线
+bash apps/jidr-swiftui/test-center-ui.sh       # 原生窗口、删除等交互回归
+bash apps/jidr-swiftui/test-player-lifecycle.sh # 播放器连接与录屏状态回归
 ```
 
 部分模拟器集成测试需要已安装的 Android SDK、系统镜像及相应运行环境，详见 [CONTRIBUTING.md](CONTRIBUTING.md)。不要将测试指向需要保留的真实设备数据。
 
 ## 项目结构
 
-- `apps/jidr-swiftui-prototype`：SwiftUI/AppKit 桌面界面（默认），Rust 桥在 `bridge/`。
-- `apps/jidr-gui`、`crates/jidr-ui`：Slint 旧界面，保留为回退与对照。
+- `apps/jidr-swiftui`：SwiftUI/AppKit 唯一桌面界面，Rust 桥在 `bridge/`。
 - `apps/jidr`：命令行程序及 daemon 入口。
 - `crates/jidr-daemon`、`crates/jidr-backend`：设备管理与模拟器控制。
 - `crates/jidr-sdk`：SDK、镜像和虚拟设备管理。
@@ -67,6 +68,6 @@ bash apps/jidr-swiftui-prototype/snapshot.sh --check    # 中英/明暗截图基
 
 ## 许可与致谢
 
-本项目基于 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr)，感谢原项目及其贡献者。沿用原项目的分许可方式：桌面界面（`apps/jidr-swiftui-prototype` 的 Swift/AppKit 源码，及其 Rust 桥之外的 Slint 界面 `crates/jidr-ui`、`apps/jidr-gui`）为 **GPL-3.0-only**；Rust 桥、CLI、daemon 和其余标明 Apache 许可的部分为 **Apache-2.0**。详见 [NOTICE](NOTICE)、[LICENSE-APACHE](LICENSE-APACHE)及相应目录下的许可证。随包分发的 Geist、Geist Mono、Noto Kufi 字体为 OFL 许可。
+本项目基于 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr)，感谢原项目及其贡献者。沿用原项目的分许可方式：桌面界面（`apps/jidr-swiftui` 的 Swift/AppKit 源码）为 **GPL-3.0-only**；Rust 桥、CLI、daemon 和其余标明 Apache 许可的部分为 **Apache-2.0**。详见 [NOTICE](NOTICE)、[LICENSE-APACHE](LICENSE-APACHE)及相应目录下的许可证。随包分发的 Geist、Geist Mono、Noto Kufi 字体为 OFL 许可。
 
 Android SDK、系统镜像及 Magisk 不随本项目源码打包，其下载和使用受各自许可约束。Android 是 Google LLC 的商标。

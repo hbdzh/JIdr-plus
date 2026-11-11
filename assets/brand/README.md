@@ -29,11 +29,7 @@ These were sampled from the approved board (`source/brand-board.jpg`). When the 
 | `avatar.svg` / `avatar-1024.png` | circular avatar | GitHub org/repo, social profiles |
 | `social-card.svg` / `.png` | 1200×630 preview card | Open Graph / Twitter card |
 | `web/` | `favicon.svg`, `favicon.ico`, `favicon-32.png`, `apple-touch-icon.png`, `og-image.png`, `avatar-512.png`, `symbol.svg` | standalone web assets |
-| `../../apps/jidr-gui/assets/macos/Jidr.icns` | app bundle icon (16–1024, @1x/@2x) | Phase 12a bundle (`CFBundleIconFile`) |
-| `../../apps/jidr-gui/assets/macos/AppIcon-1024.png` | master PNG | DMG background / About |
-| `../../apps/jidr-gui/assets/menubar/MenuBarTemplate{,@2x}.png` | 18 pt template image (black + alpha; macOS tints it) | menu bar extra (post-MVP) |
-| `../../apps/jidr-gui/assets/icons/symbol.svg` | in-app symbol; Slint renders SVG natively, tint with `colorize` | Phase 7a/7b (title bar, empty states, About) |
-| `../../apps/jidr-gui/assets/icons/app-icon-256.png` | window/About icon | Phase 7a |
+| `../../apps/jidr-swiftui/Resources/Jidr.icns` | app bundle icon (16–1024, @1x/@2x) | Phase 12a bundle (`CFBundleIconFile`) |
 
 ## Rules
 
@@ -41,3 +37,5 @@ These were sampled from the approved board (`source/brand-board.jpg`). When the 
 - Keep clear space around the symbol of at least ¼ of its width.
 - No Google, Android or Genymotion marks next to the symbol.
 - Ownership: this folder is shared and read-only for the work streams. Only `build.sh` changes it.
+
+The native app icon is generated at `apps/jidr-swiftui/Resources/Jidr.icns`. Retired Slint/menu-bar raster duplicates are no longer generated.

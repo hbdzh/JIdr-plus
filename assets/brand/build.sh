@@ -7,7 +7,7 @@ set -euo pipefail
 
 BRAND="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$BRAND/../.." && pwd)"
-GUI="$ROOT/apps/jidr-gui/assets"
+GUI="$ROOT/apps/jidr-swiftui/Resources"
 WEB="$BRAND/web"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -15,7 +15,7 @@ trap 'rm -rf "$TMP"' EXIT
 # Brand colours (sampled from the approved board, source/brand-board.jpg).
 TOP="#2A88FA"; BOTTOM="#1267E0"; LILAC="#B9A6F7"; INK="#101010"
 
-mkdir -p "$WEB" "$GUI/macos" "$GUI/menubar" "$GUI/icons"
+mkdir -p "$WEB" "$GUI"
 
 # 1. Trace the symbol (regular and a bolder cut for ≤32 px).
 trace() { # $1 = extra morphology, $2 = output svg
@@ -95,22 +95,7 @@ for s in 16 32 128 256 512; do
   d=$((s*2)); src2="$BRAND/app-icon.svg"; [ "$d" -le 32 ] && src2="$BRAND/app-icon-small.svg"
   rsvg-convert -w $d -h $d "$src2" -o "$SET/icon_${s}x${s}@2x.png"
 done
-iconutil -c icns "$SET" -o "$GUI/macos/Jidr.icns"
-cp "$BRAND/app-icon-1024.png" "$GUI/macos/AppIcon-1024.png"
-
-# 7. Menu bar template (black + alpha; macOS tints it). 18 pt @1x/@2x.
-mk_template() { # $1 = px
-  local pad=$(( $1 / 9 ))
-  rsvg-convert -h $(( $1 - 2*pad )) "$BRAND/symbol-bold.svg" -o "$TMP/t.png"
-  magick "$TMP/t.png" -background none -gravity center -extent "${1}x${1}" "$2"
-}
-mk_template 18 "$GUI/menubar/MenuBarTemplate.png"
-mk_template 36 "$GUI/menubar/MenuBarTemplate@2x.png"
-
-# 8. In-app assets for Slint (SVG renders natively; use `colorize` to tint the symbol).
-cp "$BRAND/symbol.svg" "$GUI/icons/symbol.svg"
-rsvg-convert -w 256 -h 256 "$BRAND/app-icon.svg" -o "$GUI/icons/app-icon-256.png"
-
+iconutil -c icns "$SET" -o "$GUI/Jidr.icns"
 # 9. Standalone web assets.
 sed "s/currentColor/$BOTTOM/" "$BRAND/symbol-bold.svg" > "$WEB/favicon.svg"
 rsvg-convert -w 32 -h 32 "$BRAND/app-icon-small.svg" -o "$WEB/favicon-32.png"

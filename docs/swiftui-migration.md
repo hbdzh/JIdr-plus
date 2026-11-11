@@ -1,5 +1,7 @@
 # SwiftUI migration: plan, status and gates
 
+> Historical migration/parity record. Since the maintainer-approved retirement on 2026-11-11, SwiftUI is the sole UI in `apps/jidr-swiftui`; Slint sources, baselines and fallback commands below describe earlier revisions. See [ADR-0003](decisions/0003-swiftui-gui.md) and the root README for current builds. Retired sources remain available in Git history (before this cleanup).
+
 Status: **M0–M6 complete (2026-11-11)**. The SwiftUI centre is the default GUI of the release
 chain; the Slint app stays as the `--gui slint` fallback. Evidence per item is recorded in the
 sections below; the remaining manual checks are listed under M6.
@@ -30,10 +32,10 @@ Done and reproducible on this machine:
 | Check | Command | Result |
 |---|---|---|
 | Rust gate | `PATH=target/tools/bin:$PATH PROTOC=target/tools/protoc/bin/protoc cargo xtask ci` | **green**: 597 passed, 1 skipped; licence-check ok (16 crates); skills-check ok (4 skills) |
-| Swift logic tests | `bash apps/jidr-swiftui-prototype/test.sh` | 10/10 pass (decoder, mapping, quality, window state, creation, SDK plan, MCP, app list, log filter, i18n coverage) |
-| Player preview | `bash apps/jidr-swiftui-prototype/build.sh` | builds `target/swiftui-prototype/JidrSwiftUIPrototype.app` |
-| Center preview | `bash apps/jidr-swiftui-prototype/build-center.sh` | builds `target/swiftui-center/JidrSwiftUICenter.app` |
-| Window lifecycle | `bash apps/jidr-swiftui-prototype/test-window.sh` | passed (GUI session available) |
+| Swift logic tests | `bash apps/jidr-swiftui/test.sh` | 10/10 pass (decoder, mapping, quality, window state, creation, SDK plan, MCP, app list, log filter, i18n coverage) |
+| Player preview | `bash apps/jidr-swiftui/build.sh` | builds `target/swiftui-prototype/JidrSwiftUIPrototype.app` |
+| Center preview | `bash apps/jidr-swiftui/build-center.sh` | builds `target/swiftui-center/JidrSwiftUICenter.app` |
+| Window lifecycle | `bash apps/jidr-swiftui/test-window.sh` | passed (GUI session available) |
 
 Two fixes made the baseline honest (they were red before this migration started):
 

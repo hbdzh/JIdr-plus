@@ -1,4 +1,16 @@
-# Display stream benchmark
+# Native player measurements
+
+Build and run the current harness with `bash apps/jidr-swiftui/bench-player.sh --help`.
+`--self-test` runs offline checks. Live measurements use an already running disposable
+device and explicit panel size; latency probes require show-taps to be enabled. Results
+are written with `--json-out PATH`. Compare like-for-like device, scene, screen refresh
+rate, window size and quality. These measurements do not prove game/audio compatibility.
+
+## Historical Slint measurements (2026-11-09)
+
+The implementation and command described below were retired on 2026-11-11; this is
+retained measurement evidence, not a runnable current entry point.
+
 
 `cargo run -p jidr-ui --example display_bench -- "<running device name>"` opens a separate, read-only window connected to an already running device. It does not send keys, touch, clipboard operations or application launches. The test requests half the device's width and height. It measures three 10-second intervals: visible, minimized, and restored. Set `JIDR_DISPLAY_BENCH_SECS` to 3–60 to change each interval. CPU is process CPU as a percentage of one core; on systems without `ps` it is reported as unavailable. Frame rate and throughput are receiver-side measurements, not the Android game's own render rate. Minimize/restore transitions can cause a few frames in the adjacent interval.
 
