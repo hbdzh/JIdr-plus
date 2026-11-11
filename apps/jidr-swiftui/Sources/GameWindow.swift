@@ -87,6 +87,37 @@ final class PlayerTransport: ObservableObject {
     private var pendingCopy: (id: Int, changeCount: Int)?
     private var didReceiveFrame = false
 
+    // MARK: Display visibility (decode gating)
+    //
+    // The window controller writes the latest AppKit visibility on the main
+    // thread; the frame reader queue reads it before creating any CGImage. A
+    // dedicated lock keeps that read cheap and independent from `frameLock`.
+    private let visibilityLock = NSLock()
+    private var _displayVisible = true
+
+    /// Whether decoded frames should currently be turned into CGImages and
+    /// handed to the window. Frames are always parsed so the bridge never
+    /// blocks on a full stdout pipe.
+    var displayVisible: Bool {
+        visibilityLock.lock()
+        defer { visibilityLock.unlock() }
+        return _displayVisible
+    }
+
+    /// Called on the main thread from the player window's occlusion/order
+    /// notifications. Hiding drops any pending image so a restored window can
+    /// only show a frame decoded after it became visible again.
+    func setDisplayVisible(_ visible: Bool) {
+        visibilityLock.lock()
+        let changed = _displayVisible != visible
+        _displayVisible = visible
+        visibilityLock.unlock()
+        guard changed, !visible else { return }
+        frameLock.lock()
+        pendingFrame = nil
+        frameLock.unlock()
+    }
+
     /// Records how to reach this device without opening a stream, so a window
     /// opened for a stopped/booting device can start streaming later
     /// (`applyLaunchState(.running)`).
@@ -402,6 +433,15 @@ final class PlayerTransport: ObservableObject {
         defer { decoderLock.unlock() }
         let valid = autoreleasepool {
             decoder.consume(data) { frame in
+                // The decoder has already parsed this frame, so the stream and
+                // the bridge keep flowing; only the CGImage/presentation work is
+                // skipped while no part of the window is on screen.
+                guard displayVisible else {
+                    frameLock.lock()
+                    pendingFrame = nil
+                    frameLock.unlock()
+                    return
+                }
                 let measurement = measureDecodedFrame?(frame)
                 let width = frame.width, height = frame.height, rotation = frame.rotation
                 let pixels = frame.pixels
@@ -424,7 +464,7 @@ final class PlayerTransport: ObservableObject {
                         self.pendingFrame = nil
                         self.frameScheduled = false
                         self.frameLock.unlock()
-                        guard let frame else { return }
+                        guard let frame, self.displayVisible else { return }
                         self.display(frame.0, width: width, height: height, rotation: frame.1, measurement: frame.2)
                     }
                 }
@@ -940,6 +980,12 @@ final class GameWindowController: NSObject, NSWindowDelegate {
     private var sidebarButton: NSButton?
     private var pinButton: NSButton?
     private var stateStore: GameWindowStateStore?
+    private var visibilityObservers: [NSObjectProtocol] = []
+    /// Raw occlusion state observed while the window was known to be on screen.
+    /// Some host/SDK combinations (seen on macOS 27 with an older SDK) report an
+    /// unrecognised flag instead of `OcclusionState.visible`, so compare against
+    /// this baseline rather than trusting the flag alone.
+    private var occlusionBaseline: UInt?
     var window: NSWindow?
     private var aspect: CGFloat = 720.0 / 1280.0
     private var side: CGFloat = sidebarWidth
@@ -1116,6 +1162,7 @@ final class GameWindowController: NSObject, NSWindowDelegate {
             side = sidebarVisible ? sidebarWidth : 0
         }
         let initialHeight: CGFloat = 740
+        occlusionBaseline = nil
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: initialHeight * aspect + side, height: initialHeight),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
@@ -1134,6 +1181,7 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         addPinButton(to: window)
         updateSidebarButton()
         observeFullscreen(window)
+        observeDisplayVisibility(window)
         installKeyMonitor()
         languageCancellable = transport.$language.sink { [weak self] _ in
             self?.updateSidebarButton()
@@ -1275,6 +1323,52 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         chrome.overlay.toggle()
     }
 
+    /// Mirrors the window's on-screen visibility into the transport. Frames
+    /// keep being parsed while hidden, but no CGImage or display work happens
+    /// until the window is visible again.
+    private func observeDisplayVisibility(_ window: NSWindow) {
+        let center = NotificationCenter.default
+        let update: (Notification) -> Void = { [weak self] _ in self?.refreshDisplayVisibility() }
+        for name in [NSWindow.didChangeOcclusionStateNotification,
+                     NSWindow.didMiniaturizeNotification,
+                     NSWindow.didDeminiaturizeNotification] {
+            visibilityObservers.append(center.addObserver(forName: name, object: window, queue: .main, using: update))
+        }
+        for name in [NSApplication.didHideNotification, NSApplication.didUnhideNotification] {
+            visibilityObservers.append(center.addObserver(forName: name, object: nil, queue: .main, using: update))
+        }
+    }
+
+    /// A window counts as shown when it is on the active Space, ordered in, not
+    /// miniaturized, the app is not hidden and the occlusion state does not
+    /// contradict that.
+    private func refreshDisplayVisibility() {
+        guard let window else {
+            transport.setDisplayVisible(false)
+            return
+        }
+        let onScreen = window.isVisible && !window.isMiniaturized && window.isOnActiveSpace && !NSApp.isHidden
+        guard onScreen else {
+            transport.setDisplayVisible(false)
+            return
+        }
+        let state = window.occlusionState
+        if occlusionBaseline == nil, state.contains(.visible) || state.rawValue != 0 {
+            occlusionBaseline = state.rawValue
+        }
+        // A different, non-visible state than the known on-screen baseline means
+        // AppKit reports the window as fully occluded. When the host does not
+        // expose a usable state at all (baseline nil) stay visible instead of
+        // freezing on a value we cannot interpret.
+        if let baseline = occlusionBaseline,
+           state.rawValue != baseline,
+           !state.contains(.visible) {
+            transport.setDisplayVisible(false)
+            return
+        }
+        transport.setDisplayVisible(true)
+    }
+
     private func observeFullscreen(_ window: NSWindow) {
         let center = NotificationCenter.default
         fullscreenObservers.append(center.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { [weak self] _ in
@@ -1308,6 +1402,8 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         }
         for observer in fullscreenObservers { NotificationCenter.default.removeObserver(observer) }
         fullscreenObservers.removeAll()
+        for observer in visibilityObservers { NotificationCenter.default.removeObserver(observer) }
+        visibilityObservers.removeAll()
         if let screenChangeObserver {
             NotificationCenter.default.removeObserver(screenChangeObserver)
             self.screenChangeObserver = nil
@@ -1394,6 +1490,7 @@ final class GameWindowController: NSObject, NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         saveState()
         removeMonitors()
+        transport.setDisplayVisible(false)
         transport.stop()
         onClose?()
         // AppKit may still be processing the close event after its delegate returns.
