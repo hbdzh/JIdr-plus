@@ -620,6 +620,10 @@ final class MainQueueProbe {
     func values(from start: Double, to end: Double) -> [Double] {
         samples.filter { $0.0 >= start && $0.0 <= end }.map { $0.1 }
     }
+    func timeline(from start: Double, to end: Double) -> [[String: Double]] {
+        samples.filter { $0.0 >= start && $0.0 <= end }
+            .map { ["at_ms": ($0.0 - start) * 1000, "lag_ms": $0.1] }
+    }
     deinit { stop() }
 }
 
@@ -751,6 +755,9 @@ final class Bench {
     var fpsResult: [String: Any] = [:]
     // Latency phase
     var latencies: [Double] = []
+    var latencyStart = 0.0
+    // Written by the single tap driver; read after its main-queue completion.
+    var touchSentTimes: [Double] = []
 
     init(options: Options) throws {
         self.options = options
@@ -1189,6 +1196,7 @@ final class Bench {
     }
 
     private func runTaps() {
+        latencyStart = now()
         let queue = DispatchQueue(label: "jidr.bench.taps")
         queue.async { [weak self] in
             guard let self else { return }
@@ -1203,6 +1211,7 @@ final class Bench {
                     Thread.sleep(forTimeInterval: 0.1)
                     continue
                 }
+                self.touchSentTimes.append(sentAt)
                 self.send(["type": "touch", "x": self.options.probeX, "y": self.options.probeY, "down": true])
                 let latency = self.recorder.detector.waitForDetection(timeout: self.options.tapTimeoutSeconds)
                 self.send(["type": "touch", "x": self.options.probeX, "y": self.options.probeY, "down": false])
@@ -1222,6 +1231,7 @@ final class Bench {
     }
 
     private func finishLatencyPhase() {
+        let end = now()
         let samples = recorder.latencies
         let detected = recorder.detector.detected
         let missed = recorder.detector.missed
@@ -1241,7 +1251,16 @@ final class Bench {
             "p99_ms": Stat.percentile(samples, 0.99) ?? NSNull(),
             "endpoint": options.productionPlayer ? "ScreenView.draw" : "UI-hop",
             "samples_ms": samples,
+            "receive_interval_ms": distribution(recorder.receiveIntervals(after: latencyStart, before: end)),
+            "draw_interval_ms": distribution(recorder.drawIntervals(after: latencyStart, before: end)),
+            "main_queue_lag_ms": distribution(mainQueueProbe.values(from: latencyStart, to: end)),
             "probe": ["x": options.probeX, "y": options.probeY, "threshold": options.probeThreshold],
+        ]
+        latencyResult["timeline"] = [
+            "touch_sent_ms": touchSentTimes.map { ($0 - latencyStart) * 1000 },
+            "received_ms": recorder.times("received", between: latencyStart, and: end).map { ($0 - latencyStart) * 1000 },
+            "drawn_ms": recorder.times("drawn", between: latencyStart, and: end).map { ($0 - latencyStart) * 1000 },
+            "main_queue": mainQueueProbe.timeline(from: latencyStart, to: end),
         ]
         if samples.isEmpty {
             finish(code: ExitCode.latencyFailure.rawValue,
