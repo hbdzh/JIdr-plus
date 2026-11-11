@@ -1242,6 +1242,9 @@ final class Bench {
                      median.map { String(format: "%.1f ms", $0) } ?? "—",
                      p90.map { String(format: "%.1f ms", $0) } ?? "—"))
         latencyResult = [
+            "seconds": end - latencyStart,
+            "received_fps": Double(recorder.times("received", between: latencyStart, and: end).count) / max(0.001, end - latencyStart),
+            "displayed_fps": Double(recorder.times("drawn", between: latencyStart, and: end).count) / max(0.001, end - latencyStart),
             "taps": options.taps,
             "detected": detected,
             "missed": missed,
@@ -1308,6 +1311,7 @@ final class Bench {
         let environment = ProcessInfo.processInfo.environment
         let build: [String: Any] = ["profile": environment["JIDR_BENCH_PROFILE"] ?? "unknown",
                       "frame_transport": environment["JIDR_PLAYER_FRAME_TRANSPORT"] ?? "shared",
+                      "input_scheduler": environment["JIDR_PLAYER_INPUT_SCHEDULER"] ?? "fifo",
                       "revision": environment["JIDR_BENCH_REVISION"] ?? "unknown",
                       "tracked_dirty": environment["JIDR_BENCH_DIRTY"] ?? "unknown",
                       "inputs_sha256": environment["JIDR_BENCH_INPUTS_SHA256"] ?? "unknown",

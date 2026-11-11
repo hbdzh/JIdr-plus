@@ -42,6 +42,20 @@ def frame_run_plan(runs, compare):
             for mode in (('legacy', 'shared') if run % 2 else ('shared', 'legacy'))]
 
 
+def input_run_plan(runs):
+    return [(run, mode) for run in range(1, runs + 1)
+            for mode in (('inline', 'fifo') if run % 2 else ('fifo', 'inline'))]
+
+
+def probe_failures(value, taps):
+    failures = []
+    if value['latency']['detected'] != taps or value['latency']['missed'] != 0:
+        failures.append('touch probes were missed')
+    if value['restore']['attempts'] != 3 or value['restore']['timeouts'] or value['restore']['fresh_frame_ms']['count'] != 3:
+        failures.append('window restore measurements were incomplete')
+    return failures
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sdk", type=Path, required=True)
@@ -50,8 +64,13 @@ def main():
     parser.add_argument("--seconds", type=int, default=10, choices=range(3, 121))
     parser.add_argument("--taps", type=int, default=30, choices=range(1, 101))
     parser.add_argument("--out", type=Path)
-    parser.add_argument("--compare-frames", action="store_true",
+    parser.add_argument('--input-smoke', action='store_true', help='also run the real Android input fixture on this disposable device')
+    parser.add_argument('--build-sdk',type=Path,help='installed SDK containing Android 36 platform/build-tools for the optional fixture')
+    comparisons = parser.add_mutually_exclusive_group()
+    comparisons.add_argument("--compare-frames", action="store_true",
                         help="compare legacy/shared frame transport using one Release binary, alternating pair order")
+    comparisons.add_argument('--compare-input', action='store_true',
+                             help='compare inline/FIFO input with shared frames; retain probe failures and finish all pairs')
     args = parser.parse_args()
     sdk = args.sdk.resolve()
     image_path = sdk.joinpath(*args.image.split(";"))
@@ -67,6 +86,7 @@ def main():
                 "ANDROID_USER_HOME", "ANDROID_EMULATOR_HOME", "ANDROID_SDK_HOME"]:
         env.pop(key, None)
     env.pop('JIDR_PLAYER_FRAME_TRANSPORT', None)
+    env.pop('JIDR_PLAYER_INPUT_SCHEDULER', None)
     env["JIDR_BENCH_PROFILE"] = "release"
     env.update(ANDROID_HOME=str(sdk), JIDR_TEST_SDK=str(sdk))
     # Build before booting, so compilation cannot contaminate the timing runs.
@@ -75,6 +95,9 @@ def main():
                        cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
         subprocess.run(["bash", "apps/jidr-swiftui/bench-player.sh", "--self-test"],
                        cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
+        if args.input_smoke:
+            subprocess.run([sys.executable,'scripts/build-input-probe.py','--sdk',str(args.build_sdk or sdk),
+                            '--out',str(out/'input-probe')],cwd=ROOT,env=env,stdout=log,stderr=subprocess.STDOUT,check=True)
     cli = ROOT / "target/release/jidr"
     home = Path(tempfile.mkdtemp(prefix="jidr-perf.", dir="/private/tmp"))
     env.update(JIDR_HOME=str(home), JIDR_DAEMON_BIN=str(cli), ANDROID_HOME=str(sdk), JIDR_TEST_SDK=str(sdk))
@@ -91,7 +114,9 @@ def main():
                  "ram_bytes": int(subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True)),
                  "logical_cpus": int(subprocess.check_output(["sysctl", "-n", "hw.logicalcpu"], text=True))},
         "unverified": ["manual game compatibility", "hardware keyboard/IME and copy/cut", "other Space/fullscreen transitions"],
-        "frame_run_plan": frame_run_plan(args.runs, args.compare_frames),
+        "frame_run_plan": frame_run_plan(args.runs, args.compare_frames) if not args.compare_input else None,
+        "input_run_plan": input_run_plan(args.runs) if args.compare_input else None,
+        "probe_failures": [],
     }
     write_json(out / "manifest.json", manifest)
     device = None
@@ -125,11 +150,21 @@ def main():
         call("device", "start", device, timeout=300)
         manifest["boot_seconds"] = time.monotonic() - started
         call("call", "dev.set", json.dumps({"device": device, "show_taps": True}))
-        for run, mode in frame_run_plan(args.runs, args.compare_frames):
+        if args.input_smoke:
+            with (out/'input-smoke.log').open('w') as log:
+                subprocess.run([sys.executable,'scripts/player-input-smoke.py','--device',device,
+                                '--apk',str(out/'input-probe/input-probe.apk'),'--out',str(out/'input-smoke')],
+                               cwd=ROOT,env=env,stdout=log,stderr=subprocess.STDOUT,timeout=180,check=True)
+            manifest['input_smoke_complete'] = True
+        plan = input_run_plan(args.runs) if args.compare_input else frame_run_plan(args.runs, args.compare_frames)
+        for run, mode in plan:
             call("call", "app.launch", json.dumps({"device": device, "package": "com.android.settings"}))
-            name = f"run-{run}-{mode}" if args.compare_frames else f"run-{run}"
+            name = f"run-{run}-{mode}" if args.compare_frames or args.compare_input else f"run-{run}"
             report = out / f"{name}.json"
-            env['JIDR_PLAYER_FRAME_TRANSPORT'] = mode
+            frame_mode = mode if args.compare_frames else 'shared'
+            scheduler = mode if args.compare_input else 'fifo'
+            env['JIDR_PLAYER_FRAME_TRANSPORT'] = frame_mode
+            env['JIDR_PLAYER_INPUT_SCHEDULER'] = scheduler
             print(f"Release run {run}/{args.runs} ({mode}): real player, {args.seconds}s fps, {args.taps} taps, 3 restores", flush=True)
             with (out / f"{name}.log").open("w") as log:
                 subprocess.run(["bash", "apps/jidr-swiftui/bench-player.sh", "--device", device,
@@ -139,17 +174,21 @@ def main():
             value = json.loads(report.read_text())
             if value["build"]["profile"] != "release" or value["build"]["tracked_dirty"] != "false" or value["exit_code"] != 0:
                 raise RuntimeError("invalid release measurement")
-            if value['build']['frame_transport'] != mode:
+            if value['build']['frame_transport'] != frame_mode or value['build']['input_scheduler'] != scheduler:
                 raise RuntimeError('frame transport selector does not match measurement')
-            if value["latency"]["detected"] != args.taps or value["latency"]["missed"] != 0:
-                raise RuntimeError("touch probes were missed; partial latency samples are not a passing baseline")
-            if value["restore"]["attempts"] != 3 or value["restore"]["timeouts"] or value["restore"]["fresh_frame_ms"]["count"] != 3:
-                raise RuntimeError("window restore measurements were incomplete")
+            failures = probe_failures(value, args.taps)
+            if failures:
+                if not args.compare_input:
+                    raise RuntimeError('; '.join(failures) + '; partial probes are not a passing baseline')
+                manifest['probe_failures'].append({'run': run, 'mode': mode, 'errors': failures})
+                write_json(out / 'manifest.json', manifest)
+                print('  FAILED probes:', '; '.join(failures), flush=True)
             if not all(value["memory"][part].get("available") for part in ["player", "bridge"]):
                 raise RuntimeError("physical footprint measurements were unavailable")
             print("  drawn fps:", round(value["fps"]["displayed_fps"], 2),
                   "touch p95 ms:", value["latency"]["p95_ms"], flush=True)
-        success = True
+        manifest['collection_complete'] = True
+        success = not manifest['probe_failures']
     finally:
         cleanup = {}
         if device:

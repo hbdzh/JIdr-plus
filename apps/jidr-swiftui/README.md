@@ -116,3 +116,44 @@ certify games or long-duration behavior. Memory is reported per process; an
 improvement claim needs at least one RGBA frame of median bridge peak-footprint
 reduction or a repeatable bridge CPU reduction, rather than adding unrelated
 process footprints together.
+
+Input runs on one bounded FIFO consumer (`JIDR_PLAYER_INPUT_SCHEDULER=fifo`,
+the default). Frame reception continues while it awaits key/touch/clipboard or
+toolbar RPCs. Repeats, downs/ups, gestures and clipboard chords are never
+coalesced or dispatched as separate event tasks. The existing media/app job
+tasks keep their previous behavior. `JIDR_PLAYER_INPUT_SCHEDULER=inline` retains
+the coupled scheduling branch for rollback and same-binary measurements.
+
+Input state has a single owner. Potential downs are recorded before the RPC;
+acknowledged ups remove them. EOF drains queued commands, then releases held
+inputs. Frame/output loss, SIGTERM and Ctrl-C cancel in-flight input and attempt
+releases in reverse press order, including temporary clipboard-chord keys.
+Each release has a one-second bound. Failure recovery also retains ownership
+until an up attempt finishes, so shutdown can retry an interrupted recovery.
+
+```bash
+python3 scripts/player-baseline.py --sdk /absolute/path/to/clean-test-sdk \
+  --compare-input --seconds 20 --taps 60
+```
+
+This comparison keeps shared frames fixed and alternates inline/FIFO order.
+Reports include input-phase received/drawn FPS and interval/main-queue timelines,
+in addition to touch latency. Probe failures are retained and all input pairs
+are collected; any failed probe leaves `manifest.complete=false` and a nonzero
+exit status. `collection_complete` only says that every planned run was captured.
+Acceptance requires all FIFO probes, order/cancellation regressions and fresh
+restores to pass; the same 5% FPS, `max(5 ms, 20%)` touch-p95 and 50 ms restore
+limits apply. Target input-phase receive-interval p95 is under 50 ms and at least
+50% below inline; per-process peak bridge footprint should stay within one RGBA
+frame plus 1 MiB of inline, player within 10%. Report hardware IME, games and
+physical multitouch separately from offline protocol-order tests.
+
+Add `--input-smoke --build-sdk /path/to/installed/build-sdk` to build and run the
+Android input fixture before the timed A/B pairs. It uses an existing `JAVA_HOME`,
+Android 36 platform and SDK build-tools (read-only), an ephemeral debug signing
+key, and only the runner's disposable device. The actual production bridge sends
+modifier/letter events, Unicode paste, copy/cut, two-finger gestures and a final
+SIGTERM while inputs are held. Assertions read the Android app's own private
+event/text trace through `adb run-as`; no fake bridge or simulated device is
+used. This checks protocol-to-Android behavior and release on a real process
+signal; hardware IME composition and games remain separate acceptance.

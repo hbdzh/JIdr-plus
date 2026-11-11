@@ -11,6 +11,19 @@ spec.loader.exec_module(baseline)
 
 
 class CleanupTests(unittest.TestCase):
+    def test_input_comparison_keeps_frame_mode_fixed_and_reverses_order(self):
+        self.assertEqual(baseline.input_run_plan(3), [(1,'inline'),(1,'fifo'),(2,'fifo'),
+                                                    (2,'inline'),(3,'inline'),(3,'fifo')])
+
+    def test_partial_probes_remain_failures(self):
+        report = {'latency': {'detected': 59, 'missed': 1},
+                  'restore': {'attempts': 3, 'timeouts': 0, 'fresh_frame_ms': {'count': 3}}}
+        self.assertEqual(baseline.probe_failures(report, 60), ['touch probes were missed'])
+        report['latency'] = {'detected': 60, 'missed': 0}
+        self.assertEqual(baseline.probe_failures(report, 60), [])
+        report['restore']['fresh_frame_ms']['count'] = 2
+        self.assertEqual(baseline.probe_failures(report, 60), ['window restore measurements were incomplete'])
+
     def test_comparison_is_balanced_and_counterbalances_order(self):
         plan = baseline.frame_run_plan(3, True)
         self.assertEqual(plan, [(1, 'legacy'), (1, 'shared'), (2, 'shared'),

@@ -1,10 +1,9 @@
 //! Private prototype transport: NDJSON commands on stdin; bounded RGBA frames on stdout.
 use anyhow::{Context, Result, bail};
 use jidr_core::{ConnectInfo, JidrPaths};
-use jidr_proto::{BearerToken, Controller, control as pb};
+use jidr_proto::{BearerToken, control as pb};
 use serde::Deserialize;
 use serde_json::json;
-use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, Write};
 use std::sync::{
     Arc,
@@ -16,6 +15,8 @@ use tokio::sync::mpsc as async_mpsc;
 
 mod frame_transport;
 use frame_transport::{FramePacket, FrameTransport};
+mod player_input;
+use player_input::{GrpcInput, InputState, SerialInput};
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -218,213 +219,6 @@ fn oriented_packet(
     Some((shown, packet))
 }
 
-async fn send_chord(ctl: &mut Controller, code: i32) -> Result<()> {
-    for (key_code, down) in [(29, true), (code, true), (code, false), (29, false)] {
-        let event = pb::KeyboardEvent {
-            code_type: pb::keyboard_event::KeyCodeType::Evdev as i32,
-            event_type: if down {
-                pb::keyboard_event::KeyEventType::Keydown as i32
-            } else {
-                pb::keyboard_event::KeyEventType::Keyup as i32
-            },
-            key_code,
-            ..Default::default()
-        };
-        if let Err(error) = ctl.send_key(event).await {
-            let _ = ctl
-                .send_key(pb::KeyboardEvent {
-                    code_type: pb::keyboard_event::KeyCodeType::Evdev as i32,
-                    event_type: pb::keyboard_event::KeyEventType::Keyup as i32,
-                    key_code: 29,
-                    ..Default::default()
-                })
-                .await;
-            return Err(error.into());
-        }
-    }
-    Ok(())
-}
-
-#[derive(Default)]
-struct HeldInputs {
-    touch: Option<(i32, i32)>,
-    keys: HashSet<String>,
-    mapped: HashMap<i32, (i32, i32)>,
-}
-
-async fn release_inputs(ctl: &mut Controller, held: &mut HeldInputs) {
-    if let Some((x, y)) = held.touch.take() {
-        let _ = tokio::time::timeout(
-            Duration::from_secs(1),
-            ctl.send_touch(pb::TouchEvent {
-                touches: vec![pb::Touch {
-                    x,
-                    y,
-                    identifier: 1,
-                    pressure: 0,
-                    ..Default::default()
-                }],
-                display: 0,
-            }),
-        )
-        .await;
-    }
-    for (id, (x, y)) in held.mapped.drain() {
-        let _ = tokio::time::timeout(
-            Duration::from_secs(1),
-            ctl.send_touch(pb::TouchEvent {
-                touches: vec![pb::Touch {
-                    x,
-                    y,
-                    identifier: id,
-                    pressure: 0,
-                    ..Default::default()
-                }],
-                display: 0,
-            }),
-        )
-        .await;
-    }
-    for key in held.keys.drain() {
-        let _ = tokio::time::timeout(
-            Duration::from_secs(1),
-            ctl.send_key(pb::KeyboardEvent {
-                code_type: pb::keyboard_event::KeyCodeType::Usb as i32,
-                event_type: pb::keyboard_event::KeyEventType::Keyup as i32,
-                key,
-                ..Default::default()
-            }),
-        )
-        .await;
-    }
-}
-
-async fn input(
-    ctl: &mut Controller,
-    command: Command,
-    panel: (u32, u32),
-    rotation: &AtomicU32,
-    held: &mut HeldInputs,
-) -> Result<()> {
-    match command {
-        Command::Touch { x, y, down } => {
-            let Some((x, y)) =
-                panel_point(x, y, panel.0, panel.1, rotation.load(Ordering::Relaxed))
-            else {
-                return Ok(());
-            };
-            ctl.send_touch(pb::TouchEvent {
-                touches: vec![pb::Touch {
-                    x,
-                    y,
-                    identifier: 1,
-                    pressure: if down { 100 } else { 0 },
-                    touch_major: if down { 5 } else { 0 },
-                    expiration: pb::touch::EventExpiration::NeverExpire as i32,
-                    ..Default::default()
-                }],
-                display: 0,
-            })
-            .await?;
-            held.touch = down.then_some((x, y));
-        }
-        Command::MappedTouch { id, x, y, down } => {
-            if !(3..=9).contains(&id) {
-                bail!("invalid mapped touch id");
-            }
-            let point = if down {
-                panel_point(x, y, panel.0, panel.1, rotation.load(Ordering::Relaxed))
-            } else {
-                held.mapped.get(&id).copied()
-            };
-            let Some((x, y)) = point else { return Ok(()) };
-            ctl.send_touch(pb::TouchEvent {
-                touches: vec![pb::Touch {
-                    x,
-                    y,
-                    identifier: id,
-                    pressure: if down { 100 } else { 0 },
-                    touch_major: if down { 5 } else { 0 },
-                    expiration: pb::touch::EventExpiration::NeverExpire as i32,
-                    ..Default::default()
-                }],
-                display: 0,
-            })
-            .await?;
-            if down {
-                held.mapped.insert(id, (x, y));
-            } else {
-                held.mapped.remove(&id);
-            }
-        }
-        Command::Key { key, down } => {
-            if key.len() > 64 || key.is_empty() {
-                bail!("invalid key");
-            }
-            ctl.send_key(pb::KeyboardEvent {
-                code_type: pb::keyboard_event::KeyCodeType::Usb as i32,
-                event_type: if down {
-                    pb::keyboard_event::KeyEventType::Keydown as i32
-                } else {
-                    pb::keyboard_event::KeyEventType::Keyup as i32
-                },
-                key: key.clone(),
-                ..Default::default()
-            })
-            .await?;
-            if down {
-                held.keys.insert(key);
-            } else {
-                held.keys.remove(&key);
-            }
-        }
-        Command::Text { text } | Command::Paste { text } => {
-            if text.len() > 1024 * 1024 {
-                bail!("text too large");
-            }
-            ctl.set_clipboard(pb::ClipData { text }).await?;
-            send_chord(ctl, 47).await?;
-        }
-        Command::Copy { request_id } | Command::Cut { request_id } => {
-            // Subscribe before the chord so a stale clipboard is never treated as a new copy.
-            let mut stream = tokio::time::timeout(Duration::from_secs(2), ctl.stream_clipboard(()))
-                .await??
-                .into_inner();
-            let _ = tokio::time::timeout(Duration::from_secs(2), stream.message()).await??;
-            send_chord(
-                ctl,
-                if matches!(command, Command::Copy { .. }) {
-                    46
-                } else {
-                    45
-                },
-            )
-            .await?;
-            if let Ok(Ok(Some(clip))) =
-                tokio::time::timeout(Duration::from_millis(1500), stream.message()).await
-            {
-                // A distinct side channel avoids putting clipboard text into frame packets.
-                eprintln!(
-                    "JIDR_CLIPBOARD:{}",
-                    json!({"request_id": request_id, "text": clip.text})
-                );
-            }
-        }
-        Command::SelectAll => send_chord(ctl, 30).await?,
-        Command::Rotate { .. }
-        | Command::ToolKey { .. }
-        | Command::Screenshot { .. }
-        | Command::SendFile { .. }
-        | Command::StartRecording { .. }
-        | Command::StopRecording
-        | Command::AppInspect { .. }
-        | Command::AppUninstall { .. } => {
-            bail!("toolbar commands must be handled by the daemon")
-        }
-    }
-    Ok(())
-}
-
 fn is_apk(path: &str) -> bool {
     std::path::Path::new(path)
         .extension()
@@ -595,6 +389,208 @@ async fn player_fixture(width: u32, height: u32) -> Result<()> {
     Ok(())
 }
 
+struct BridgeInputs {
+    state: InputState<GrpcInput>,
+    client: Arc<jidr_client::Client>,
+    device: String,
+    panel: (u32, u32),
+    rotation: Arc<AtomicU32>,
+    physical_rotation: Arc<AtomicU32>,
+}
+
+impl SerialInput for BridgeInputs {
+    async fn handle(&mut self, line: String) {
+        let client = &self.client;
+        let device = &self.device;
+        match serde_json::from_str::<Command>(&line) {
+            Ok(Command::Rotate { direction }) => {
+                let current = self.physical_rotation.load(Ordering::Relaxed) as i32;
+                let angle = (current + direction.signum()).rem_euclid(4) * 90;
+                if let Err(e) = client
+                    .call("sensor.rotate", json!({"device":device, "angle":angle}))
+                    .await
+                {
+                    eprintln!("Rotate failed: {e}");
+                }
+            }
+            Ok(Command::ToolKey { key }) => {
+                if [
+                    "back",
+                    "home",
+                    "recents",
+                    "volume_up",
+                    "volume_down",
+                    "power",
+                ]
+                .contains(&key.as_str())
+                    && let Err(e) = client
+                        .call("key.press", json!({"device":device, "key":key}))
+                        .await
+                {
+                    eprintln!("Key failed: {e}");
+                }
+            }
+            Ok(Command::StartRecording { path }) => {
+                let path = std::path::PathBuf::from(path);
+                if !path.is_absolute() || path.exists() {
+                    eprintln!(
+                        "JIDR_RECORD:{}",
+                        json!({"state":"failed", "code":RECORDING_INVALID_PATH.code, "message":RECORDING_INVALID_PATH.message})
+                    );
+                } else {
+                    let client = Arc::clone(client);
+                    let device = device.clone();
+                    tokio::spawn(async move {
+                        let announced = std::sync::atomic::AtomicBool::new(false);
+                        let result = client.run("media.record", json!({"device":device,"path":path}), |_| {
+                            if !announced.swap(true, Ordering::Relaxed) {
+                                eprintln!("JIDR_RECORD:{}", json!({"state":"recording", "code":RECORDING_STARTED.code, "message":RECORDING_STARTED.message}));
+                            }
+                        }).await;
+                        match result {
+                            Ok(value) => eprintln!(
+                                "JIDR_RECORD:{}",
+                                json!({"state":"finished","code":RECORDING_SAVED.code,"message":RECORDING_SAVED.message,"result":value})
+                            ),
+                            Err(error) => eprintln!(
+                                "JIDR_RECORD:{}",
+                                json!({"state":"failed","code":RECORDING_FAILED,"message":format!("Recording failed: {error}")})
+                            ),
+                        }
+                    });
+                }
+            }
+            Ok(Command::StopRecording) => {
+                let client = Arc::clone(client);
+                let device = device.clone();
+                tokio::spawn(async move {
+                    if let Err(error) = client
+                        .call("media.record_stop", json!({"device":device}))
+                        .await
+                    {
+                        eprintln!(
+                            "JIDR_RECORD:{}",
+                            json!({"state":"stop_failed", "code":RECORDING_STOP_FAILED, "message":format!("Could not stop recording: {error}")})
+                        );
+                    }
+                });
+            }
+            Ok(command @ (Command::Screenshot { .. } | Command::SendFile { .. })) => {
+                let screenshot = matches!(command, Command::Screenshot { .. });
+                let path = match command {
+                    Command::Screenshot { path } | Command::SendFile { path } => path,
+                    _ => return,
+                };
+                let client = Arc::clone(client);
+                let device = device.clone();
+                tokio::spawn(async move {
+                    match run_file_operation(&client, &device, &path, screenshot).await {
+                        Ok(saved) => eprintln!(
+                            "JIDR_OPERATION:{}",
+                            json!({"ok":true,"code":saved.code,"message":saved.message,"path":path})
+                        ),
+                        Err(error) => eprintln!(
+                            "JIDR_OPERATION:{}",
+                            json!({"ok":false,"code":error.code(),"message":error.message()})
+                        ),
+                    }
+                });
+            }
+            Ok(Command::AppInspect { path }) => {
+                let client = Arc::clone(client);
+                tokio::spawn(async move {
+                    match client.call("app.inspect", json!({"apk": path})).await {
+                        Ok(value) => eprintln!(
+                            "JIDR_APP:{}",
+                            json!({"op":"inspect","ok":true,"code":APP_INSPECTED,"apk":path,"package":value.get("package"),"label":value.get("label")})
+                        ),
+                        Err(error) => eprintln!(
+                            "JIDR_APP:{}",
+                            json!({"op":"inspect","ok":false,"code":APP_INSPECT_FAILED,"apk":path,"message":format!("{error}")})
+                        ),
+                    }
+                });
+            }
+            Ok(Command::AppUninstall { package }) => {
+                let client = Arc::clone(client);
+                let device = device.clone();
+                tokio::spawn(async move {
+                    match client
+                        .call("app.uninstall", json!({"device":device,"package":package}))
+                        .await
+                    {
+                        Ok(_) => eprintln!(
+                            "JIDR_APP:{}",
+                            json!({"op":"uninstall","ok":true,"code":APP_UNINSTALLED,"package":package})
+                        ),
+                        Err(error) => eprintln!(
+                            "JIDR_APP:{}",
+                            json!({"op":"uninstall","ok":false,"code":APP_UNINSTALL_FAILED,"package":package,"message":format!("{error}")})
+                        ),
+                    }
+                });
+            }
+            Ok(command) => {
+                if let Err(e) = self
+                    .state
+                    .command(command, self.panel, &self.rotation)
+                    .await
+                {
+                    eprintln!("Input failed: {e:#}");
+                }
+            }
+            Err(e) => eprintln!("Invalid input: {e}"),
+        }
+    }
+    async fn release(&mut self) {
+        self.state.release().await;
+    }
+}
+
+struct FramePump {
+    frames: tonic::Streaming<pb::Image>,
+    sender: async_mpsc::Sender<FramePacket>,
+    transport: FrameTransport,
+    rotation: Arc<AtomicU32>,
+    physical: Arc<AtomicU32>,
+    logical: Arc<AtomicU32>,
+    latest: Option<(u32, u32, u32, Arc<Vec<u8>>)>,
+    tick: tokio::time::Interval,
+}
+impl FramePump {
+    async fn step(&mut self) -> bool {
+        tokio::select! {
+            _ = self.tick.tick() => {
+                let logical = self.logical.load(Ordering::Relaxed);
+                if logical < 4 && logical != self.rotation.load(Ordering::Relaxed)
+                    && let Some((w,h,pose,pixels)) = &self.latest
+                    && let Some(shown) = self.transport.offer(&self.sender, (*w,*h), *pose, logical, pixels) {
+                    self.rotation.store(shown, Ordering::Relaxed);
+                }
+            }
+            message = self.frames.message() => match message {
+                Ok(Some(image)) => {
+                    if let Some(format) = image.format {
+                        let pose = format.rotation.map_or(0, |r| r.rotation.rem_euclid(4) as u32);
+                        self.physical.store(pose, Ordering::Relaxed);
+                        self.latest = Some((format.width, format.height, pose, Arc::new(image.image)));
+                        if let Some((w,h,pose,pixels)) = &self.latest
+                            && let Some(shown) = self.transport.offer(&self.sender, (*w,*h), *pose, self.logical.load(Ordering::Relaxed), pixels) {
+                            self.rotation.store(shown, Ordering::Relaxed);
+                        }
+                    }
+                }
+                Ok(None) => return false,
+                Err(error) => { eprintln!("Frame stream failed: {error}"); return false; }
+            }
+        }
+        true
+    }
+    async fn run(&mut self) {
+        while self.step().await {}
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -616,6 +612,10 @@ async fn main() -> Result<()> {
     if std::env::var("JIDR_PLAYER_FIXTURE").is_ok_and(|value| value == "1") {
         return player_fixture(width, height).await;
     }
+    let scheduling = player_input::Scheduling::parse(
+        &std::env::var("JIDR_PLAYER_INPUT_SCHEDULER").unwrap_or_else(|_| "fifo".into()),
+    )
+    .context("JIDR_PLAYER_INPUT_SCHEDULER must be fifo or inline")?;
     let client = Arc::new(
         jidr_client::Client::connect(&JidrPaths::discover()?.socket(), "swiftui-prototype").await?,
     );
@@ -635,7 +635,7 @@ async fn main() -> Result<()> {
             .await?;
     let mut ctl = jidr_proto::clients(channel, BearerToken::new(&info.grpc_token)?).0;
     let (frame_width, frame_height) = request_size(width, height, quality);
-    let mut frames = ctl
+    let frames = ctl
         .stream_screenshot(pb::ImageFormat {
             format: pb::image_format::ImgFormat::Rgba8888 as i32,
             width: frame_width,
@@ -649,6 +649,7 @@ async fn main() -> Result<()> {
     )
     .context("JIDR_PLAYER_FRAME_TRANSPORT must be shared or legacy")?;
     let (frame_tx, mut frame_rx) = async_mpsc::channel::<FramePacket>(1);
+    let (output_done, mut output_closed) = tokio::sync::oneshot::channel();
     std::thread::spawn(move || {
         let mut out = std::io::stdout().lock();
         while let Some(frame) = frame_rx.blocking_recv() {
@@ -656,6 +657,7 @@ async fn main() -> Result<()> {
                 break;
             }
         }
+        let _ = output_done.send(());
     });
     let (input_tx, mut input_rx) = async_mpsc::channel::<String>(128);
     std::thread::spawn(move || {
@@ -677,88 +679,77 @@ async fn main() -> Result<()> {
         info.adb_serial.clone(),
         Arc::clone(&logical_rotation),
     ));
-    let mut held = HeldInputs::default();
-    let mut latest_frame: Option<(u32, u32, u32, Arc<Vec<u8>>)> = None;
-    let mut orientation_tick = tokio::time::interval(Duration::from_millis(150));
-    loop {
-        tokio::select! {
-            _ = orientation_tick.tick() => {
-                let logical = logical_rotation.load(Ordering::Relaxed);
-                if logical < 4 && logical != rotation.load(Ordering::Relaxed)
-                    && let Some((width, height, pose, pixels)) = &latest_frame
-                    && let Some(shown) = transport.offer(&frame_tx, (*width, *height), *pose, logical, pixels) {
-                    rotation.store(shown, Ordering::Relaxed);
+    // Before this point no input RPC has been sent, so startup retains the
+    // default immediate SIGTERM behavior. Install graceful cleanup before the
+    // single input owner can begin delivering downs.
+    #[cfg(unix)]
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let shutdown = async {
+        #[cfg(unix)]
+        tokio::select! { _ = terminate.recv() => {}, _ = tokio::signal::ctrl_c() => {} }
+        #[cfg(not(unix))]
+        let _ = tokio::signal::ctrl_c().await;
+    };
+    tokio::pin!(shutdown);
+    let mut handler = BridgeInputs {
+        state: InputState::new(GrpcInput::new(ctl)),
+        client,
+        device: args[1].clone(),
+        panel: (width, height),
+        rotation: Arc::clone(&rotation),
+        physical_rotation: Arc::clone(&physical_rotation),
+    };
+    let mut pump = FramePump {
+        frames,
+        sender: frame_tx,
+        transport,
+        rotation,
+        physical: physical_rotation,
+        logical: logical_rotation,
+        latest: None,
+        tick: tokio::time::interval(Duration::from_millis(150)),
+    };
+    match scheduling {
+        player_input::Scheduling::Fifo => {
+            let (stop, stopping) = tokio::sync::oneshot::channel();
+            let mut worker = tokio::spawn(player_input::worker(handler, input_rx, stopping));
+            let completed = tokio::select! {
+                () = pump.run() => false,
+                () = &mut shutdown => false,
+                _ = &mut output_closed => false,
+                result = &mut worker => {
+                    if let Err(error) = result { eprintln!("Input worker failed: {error}"); }
+                    true
                 }
-            },
-            message = frames.message() => match message { Ok(Some(image)) => {
-                if let Some(format) = image.format {
-                    let pose = format.rotation.map_or(0, |r| r.rotation.rem_euclid(4) as u32);
-                    physical_rotation.store(pose, Ordering::Relaxed);
-                    latest_frame = Some((format.width, format.height, pose, Arc::new(image.image)));
-                    if let Some((w, h, q, pixels)) = &latest_frame
-                        && let Some(shown) = transport.offer(&frame_tx, (*w, *h), *q, logical_rotation.load(Ordering::Relaxed), pixels) {
-                        rotation.store(shown, Ordering::Relaxed);
-                    }
+            };
+            // Close the screenshot stream before releasing inputs; an unread
+            // frame stream must not keep transport resources during shutdown.
+            drop(pump);
+            if !completed {
+                let _ = stop.send(());
+                if let Err(error) = worker.await {
+                    eprintln!("Input worker failed: {error}");
                 }
-            }, Ok(None) => break, Err(error) => { eprintln!("Frame stream failed: {error}"); break; } },
-            line = input_rx.recv() => match line { Some(line) => match serde_json::from_str::<Command>(&line) { Ok(Command::Rotate { direction }) => { let current = physical_rotation.load(Ordering::Relaxed) as i32; let angle = (current + direction.signum()).rem_euclid(4) * 90; if let Err(e) = client.call("sensor.rotate", json!({"device":args[1], "angle":angle})).await { eprintln!("Rotate failed: {e}"); } }, Ok(Command::ToolKey { key }) => { if ["back", "home", "recents", "volume_up", "volume_down", "power"].contains(&key.as_str()) && let Err(e) = client.call("key.press", json!({"device":args[1], "key":key})).await { eprintln!("Key failed: {e}"); } }, Ok(Command::StartRecording { path }) => {
-                let path = std::path::PathBuf::from(path);
-                if !path.is_absolute() || path.exists() {
-                    eprintln!("JIDR_RECORD:{}", json!({"state":"failed", "code":RECORDING_INVALID_PATH.code, "message":RECORDING_INVALID_PATH.message}));
-                } else {
-                    let client = Arc::clone(&client);
-                    let device = args[1].clone();
-                    tokio::spawn(async move {
-                        let announced = std::sync::atomic::AtomicBool::new(false);
-                        let result = client.run("media.record", json!({"device":device,"path":path}), |_| {
-                            if !announced.swap(true, Ordering::Relaxed) {
-                                eprintln!("JIDR_RECORD:{}", json!({"state":"recording", "code":RECORDING_STARTED.code, "message":RECORDING_STARTED.message}));
+            }
+        }
+        player_input::Scheduling::Inline => {
+            {
+                let serial = async {
+                    loop {
+                        tokio::select! {
+                            running = pump.step() => if !running { break; },
+                            line = input_rx.recv() => match line {
+                                Some(line) => handler.handle(line).await, None => break,
                             }
-                        }).await;
-                        match result {
-                            Ok(value) => eprintln!("JIDR_RECORD:{}", json!({"state":"finished","code":RECORDING_SAVED.code,"message":RECORDING_SAVED.message,"result":value})),
-                            Err(error) => eprintln!("JIDR_RECORD:{}", json!({"state":"failed","code":RECORDING_FAILED,"message":format!("Recording failed: {error}")})),
                         }
-                    });
-                }
-            }, Ok(Command::StopRecording) => {
-                let client = Arc::clone(&client); let device = args[1].clone();
-                tokio::spawn(async move {
-                    if let Err(error) = client.call("media.record_stop", json!({"device":device})).await {
-                        eprintln!("JIDR_RECORD:{}", json!({"state":"stop_failed", "code":RECORDING_STOP_FAILED, "message":format!("Could not stop recording: {error}")}));
                     }
-                });
-            }, Ok(command @ (Command::Screenshot { .. } | Command::SendFile { .. })) => {
-                let screenshot = matches!(command, Command::Screenshot { .. });
-                let path = match command { Command::Screenshot { path } | Command::SendFile { path } => path, _ => continue };
-                let client = Arc::clone(&client);
-                let device = args[1].clone();
-                tokio::spawn(async move {
-                    match run_file_operation(&client, &device, &path, screenshot).await {
-                        Ok(saved) => eprintln!("JIDR_OPERATION:{}", json!({"ok":true,"code":saved.code,"message":saved.message,"path":path})),
-                        Err(error) => eprintln!("JIDR_OPERATION:{}", json!({"ok":false,"code":error.code(),"message":error.message()})),
-                    }
-                });
-            }, Ok(Command::AppInspect { path }) => {
-                let client = Arc::clone(&client);
-                tokio::spawn(async move {
-                    match client.call("app.inspect", json!({"apk": path})).await {
-                        Ok(value) => eprintln!("JIDR_APP:{}", json!({"op":"inspect","ok":true,"code":APP_INSPECTED,"apk":path,"package":value.get("package"),"label":value.get("label")})),
-                        Err(error) => eprintln!("JIDR_APP:{}", json!({"op":"inspect","ok":false,"code":APP_INSPECT_FAILED,"apk":path,"message":format!("{error}")})),
-                    }
-                });
-            }, Ok(Command::AppUninstall { package }) => {
-                let client = Arc::clone(&client); let device = args[1].clone();
-                tokio::spawn(async move {
-                    match client.call("app.uninstall", json!({"device":device,"package":package})).await {
-                        Ok(_) => eprintln!("JIDR_APP:{}", json!({"op":"uninstall","ok":true,"code":APP_UNINSTALLED,"package":package})),
-                        Err(error) => eprintln!("JIDR_APP:{}", json!({"op":"uninstall","ok":false,"code":APP_UNINSTALL_FAILED,"package":package,"message":format!("{error}")})),
-                    }
-                });
-            }, Ok(command) => if let Err(e) = input(&mut ctl,command,(width,height),&rotation,&mut held).await { eprintln!("Input failed: {e:#}"); }, Err(e) => eprintln!("Invalid input: {e}") }, None => break },
+                };
+                tokio::select! { () = serial => {}, () = &mut shutdown => {}, _ = &mut output_closed => {} }
+            }
+            drop(pump);
+            handler.release().await;
         }
     }
-    release_inputs(&mut ctl, &mut held).await;
     Ok(())
 }
 
