@@ -12,6 +12,17 @@ The Swift source is GPL-3.0-only (`LICENSE-GPL`); Rust bridges are Apache-2.0.
 Fonts in `Resources/fonts` retain their OFL notices. Shared Lucide SVGs and ISC
 license text live in `assets/lucide`; native UI icons use SF Symbols.
 
+## Operation recordings
+
+The player side rail has an "Operation recordings" window: record the normalised
+touch/key/text timeline of a session, replay it with count/duration/infinite
+loops, intervals and 0.25x–4x speed, and manage the saved scripts (rename,
+delete, import/export JSON). Scripts live under `<data>/scripts/` and are plain
+versioned JSON; the player bridge records and replays them locally. Rotation,
+screen recording and file operations are not part of v1. CLI/MCP playback is a
+later phase. The bridge command/notification contract and the script format are
+documented in [`docs/player-scripts.md`](../../docs/player-scripts.md).
+
 ## Build and run
 
 Requires macOS, Xcode, the pinned Rust toolchain and protoc:

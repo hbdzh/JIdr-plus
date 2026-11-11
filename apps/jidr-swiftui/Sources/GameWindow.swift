@@ -38,6 +38,24 @@ final class PlayerTransport: ObservableObject {
     /// A sibling `jidr-center-bridge` exposes `--logcat`; discovered once so the
     /// player can show the folded logcat bar without changing the player bridge.
     @Published private(set) var logcatExecutable: String?
+
+    // MARK: Operation recordings (docs/player-scripts.md)
+    enum ScriptRecordingState: Equatable { case idle, recording, paused }
+    enum ScriptPlaybackState: Equatable { case idle, playing, paused }
+
+    /// Scripts listed by the bridge (`script_list` / `saved` notifications).
+    @Published private(set) var scripts: [PlayerScriptSummary] = []
+    @Published private(set) var scriptRecording: ScriptRecordingState = .idle
+    @Published private(set) var scriptPlayback: ScriptPlaybackState = .idle
+    /// Current/total loop for the player HUD (`count == 0` means infinite).
+    @Published private(set) var scriptPlaybackLoop = 0
+    @Published private(set) var scriptPlaybackTotal = 0
+    @Published private(set) var scriptPlaybackName: String?
+    @Published private(set) var scriptPlaybackMode: PlaybackMode = .count
+    @Published private(set) var scriptRecordingStartedAt: Date?
+    @Published private(set) var scriptError: String?
+    var scriptPlaybackActive: Bool { scriptPlayback != .idle }
+
     /// Per-device rebindable shortcuts, loaded by the window controller.
     let shortcuts = GameShortcutsStore()
     let mapping = KeyMappingStore()
@@ -207,7 +225,21 @@ final class PlayerTransport: ObservableObject {
         linkState = PlayerExitClassifier.classify(diagnostic: lastDiagnostic)
         onStatus?("")
         markRecordingInterrupted()
+        resetScriptSession()
         reconnectPromptIfEditing()
+    }
+
+    /// A script recording/playback lives inside the bridge process: when the
+    /// stream ends, no script can still be running. Clear the UI state so the
+    /// HUD cannot stay on a dead connection.
+    private func resetScriptSession() {
+        scriptRecording = .idle
+        scriptPlayback = .idle
+        scriptRecordingStartedAt = nil
+        scriptPlaybackMode = .count
+        scriptPlaybackLoop = 0
+        scriptPlaybackTotal = 0
+        scriptPlaybackName = nil
     }
 
     /// The recording job belongs to the daemon. Losing its reporting stream
@@ -280,6 +312,17 @@ final class PlayerTransport: ObservableObject {
             line.append(10)
             try? input.fileHandleForWriting.write(contentsOf: line)
         }
+    }
+
+    /// Writes one command synchronously; only used while tearing the bridge
+    /// down so a pending async write cannot lose the final script stop.
+    private func sendBestEffort(_ message: [String: Any]) {
+        guard JSONSerialization.isValidJSONObject(message),
+              let data = try? JSONSerialization.data(withJSONObject: message),
+              let process, process.isRunning, let input else { return }
+        var line = data
+        line.append(10)
+        try? input.fileHandleForWriting.write(contentsOf: line)
     }
 
     func noteInput(at now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
@@ -405,8 +448,62 @@ final class PlayerTransport: ObservableObject {
         }
     }
 
+    // MARK: Operation recording commands (docs/player-scripts.md)
+
+    func scriptRecordStart() {
+        clearScriptError()
+        send(["type": "script_record_start"])
+    }
+
+    func scriptRecordPause() { send(["type": "script_record_pause"]) }
+
+    func scriptRecordResume() { send(["type": "script_record_resume"]) }
+
+    func scriptRecordStop(name: String) {
+        let value = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value.count <= 80 else { return }
+        send(["type": "script_record_stop", "name": value])
+    }
+
+    func scriptRecordCancel() { send(["type": "script_record_cancel"]) }
+
+    func scriptList() { send(["type": "script_list"]) }
+
+    func scriptDelete(id: String) { send(["type": "script_delete", "id": id]) }
+
+    func scriptRename(id: String, name: String) {
+        let value = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty, value.count <= 80 else { return }
+        send(["type": "script_rename", "id": id, "name": value])
+    }
+
+    func scriptImport(path: String) { send(["type": "script_import", "path": path]) }
+
+    func scriptExport(id: String, path: String) {
+        send(["type": "script_export", "id": id, "path": path])
+    }
+
+    func scriptPlayStart(id: String, options: PlaybackOptions) {
+        clearScriptError()
+        scriptPlaybackMode = options.mode
+        send(["type": "script_play_start", "id": id, "options": options.jsonObject])
+    }
+
+    func scriptPlayPause() { send(["type": "script_play_pause"]) }
+
+    func scriptPlayResume() { send(["type": "script_play_resume"]) }
+
+    func scriptPlayStop() { send(["type": "script_play_stop"]) }
+
+    func clearScriptError() { scriptError = nil }
+
     @discardableResult
     func stop() -> Bool {
+        // Closing the window exits the bridge; send the script stop first so
+        // the recorder/player can release held inputs cleanly.
+        if scriptRecording != .idle { sendBestEffort(["type": "script_record_cancel"]) }
+        if scriptPlayback != .idle { sendBestEffort(["type": "script_play_stop"]) }
+        resetScriptSession()
         stopping = true
         stopProcess()
         return true
@@ -622,6 +719,14 @@ final class PlayerTransport: ObservableObject {
                 }
                 self.onStatus?(readable)
             }
+        } else if line.hasPrefix("JIDR_SCRIPT:") {
+            let payload = String(line.dropFirst("JIDR_SCRIPT:".count))
+            guard let data = payload.data(using: .utf8),
+                  let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.generation == token else { return }
+                self.applyScriptNotification(result)
+            }
         } else if line.hasPrefix("Invalid input") || line.contains("unknown variant") {
             // The player bridge does not know a command yet (the M2 commands
             // arrive with the pending bridge increment); say so instead of
@@ -642,6 +747,88 @@ final class PlayerTransport: ObservableObject {
                 self.onStatus?(value)
             }
         }
+    }
+
+    /// Applies one `JIDR_SCRIPT:` notification from the bridge on the main queue.
+    private func applyScriptNotification(_ value: [String: Any]) {
+        let op = value["op"] as? String ?? ""
+        switch op {
+        case "record":
+            let state = value["state"] as? String ?? ""
+            switch state {
+            case "recording":
+                scriptRecording = .recording
+                if scriptRecordingStartedAt == nil { scriptRecordingStartedAt = Date() }
+                scriptError = nil
+            case "paused":
+                scriptRecording = .paused
+            case "saved":
+                scriptRecording = .idle
+                scriptRecordingStartedAt = nil
+                upsertScriptSummary(value["script"])
+                scriptList()
+            case "stopped":
+                scriptRecording = .idle
+                scriptRecordingStartedAt = nil
+                scriptList()
+            case "failed":
+                scriptRecording = .idle
+                scriptRecordingStartedAt = nil
+                scriptError = PlayerScriptText.error(code: value["code"] as? String,
+                                                    message: value["message"] as? String,
+                                                    language: language)
+            default:
+                break
+            }
+        case "list":
+            scripts = (value["scripts"] as? [Any])?.compactMap { PlayerScriptSummary.decode($0) } ?? []
+            scripts.sort { $0.created_at > $1.created_at }
+        case "play":
+            if let loop = value["loop"] as? Int { scriptPlaybackLoop = loop }
+            scriptPlaybackTotal = value["count"] as? Int ?? 0
+            if value["duration_ms"] != nil {
+                scriptPlaybackMode = .duration
+            } else if scriptPlaybackTotal == 0 {
+                scriptPlaybackMode = .infinite
+            } else {
+                scriptPlaybackMode = .count
+            }
+            if let name = value["name"] as? String, !name.isEmpty { scriptPlaybackName = name }
+            switch value["state"] as? String ?? "" {
+            case "playing":
+                scriptPlayback = .playing
+                scriptError = nil
+            case "paused":
+                scriptPlayback = .paused
+            case "finished", "stopped":
+                scriptPlayback = .idle
+                scriptPlaybackLoop = 0
+            case "failed":
+                scriptPlayback = .idle
+                scriptPlaybackLoop = 0
+                scriptError = PlayerScriptText.error(code: value["code"] as? String,
+                                                    message: value["message"] as? String,
+                                                    language: language)
+            default:
+                break
+            }
+        case "error":
+            scriptError = PlayerScriptText.error(code: value["code"] as? String,
+                                                message: value["message"] as? String,
+                                                language: language)
+        default:
+            break
+        }
+    }
+
+    private func upsertScriptSummary(_ raw: Any?) {
+        guard let summary = PlayerScriptSummary.decode(raw) else { return }
+        if let index = scripts.firstIndex(where: { $0.id == summary.id }) {
+            scripts[index] = summary
+        } else {
+            scripts.append(summary)
+        }
+        scripts.sort { $0.created_at > $1.created_at }
     }
 
     private func unsupportedBridgeMessage(_ detail: String?) -> String {
@@ -685,6 +872,7 @@ final class ScreenView: NSView, NSTextInputClient {
     private var pendingKey: (UInt16, String)?
     private var pressedKeys: [UInt16: String] = [:]
     private var pressedModifiers: Set<String> = []
+    private var scriptPlaybackBlocked = false
     private var windowObserver: NSObjectProtocol?
     override var acceptsFirstResponder: Bool { true }
     override init(frame frameRect: NSRect) {
@@ -787,6 +975,7 @@ final class ScreenView: NSView, NSTextInputClient {
                          "x": point.x, "y": point.y, "down": down])
     }
     override func mouseDown(with event: NSEvent) {
+        guard !scriptPlaybackActive else { return }
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         guard imageRect.contains(point) else { return }
@@ -806,7 +995,7 @@ final class ScreenView: NSView, NSTextInputClient {
         sendTouch(event, down: true)
     }
     override func mouseDragged(with event: NSEvent) {
-        guard dragging else { return }
+        guard dragging, !scriptPlaybackActive else { return }
         if secondFingerDown, let second = secondFingerPoint(event) {
             secondFinger = second
             sendSecondFinger(second, down: true)
@@ -814,6 +1003,7 @@ final class ScreenView: NSView, NSTextInputClient {
         sendTouch(event, down: true)
     }
     override func mouseUp(with event: NSEvent) {
+        if scriptPlaybackActive { clearHeldInputState(); return }
         guard dragging else { return }
         if secondFingerDown, let second = secondFinger {
             sendSecondFinger(second, down: false)
@@ -828,6 +1018,32 @@ final class ScreenView: NSView, NSTextInputClient {
         for value in mappedKeys.values { transport?.send(["type": "mapped_touch", "id": value.id, "x": value.x, "y": value.y, "down": false]) }
         mappedKeys.removeAll()
     }
+    /// Playback owns input in the bridge. The view stops sending ordinary input
+    /// while a script plays; held state is dropped locally without sending
+    /// releases because the bridge already released it on playback start.
+    func setScriptPlaybackBlocked(_ blocked: Bool) {
+        guard blocked != scriptPlaybackBlocked else { return }
+        scriptPlaybackBlocked = blocked
+        if blocked { clearHeldInputState() }
+    }
+
+    private func clearHeldInputState() {
+        mappedKeys.removeAll()
+        dragging = false
+        secondFingerDown = false
+        secondFinger = nil
+        pendingKey = nil
+        pressedKeys.removeAll()
+        pressedModifiers.removeAll()
+        marked = NSMutableAttributedString(string: "")
+        markedSelection = NSRange(location: 0, length: 0)
+        needsDisplay = true
+    }
+
+    private var scriptPlaybackActive: Bool {
+        scriptPlaybackBlocked || transport?.scriptPlaybackActive == true
+    }
+
     fileprivate func releaseHeldInputs() {
         releaseMappedKeys()
         if secondFingerDown, let secondFinger { sendSecondFinger(secondFinger, down: false) }
@@ -847,6 +1063,7 @@ final class ScreenView: NSView, NSTextInputClient {
         return super.resignFirstResponder()
     }
     override func flagsChanged(with event: NSEvent) {
+        guard !scriptPlaybackActive else { return }
         for (flag, key) in [(NSEvent.ModifierFlags.shift, "Shift"), (.control, "Control"), (.option, "Alt")] {
             let down = event.modifierFlags.contains(flag)
             if down && !pressedModifiers.contains(key) {
@@ -858,6 +1075,7 @@ final class ScreenView: NSView, NSTextInputClient {
         }
     }
     override func keyDown(with event: NSEvent) {
+        guard !scriptPlaybackActive else { return }
         if let mapping = transport?.mapping, !event.modifierFlags.contains(.command), !event.modifierFlags.contains(.control), !event.modifierFlags.contains(.option) {
             let raw = event.charactersIgnoringModifiers ?? ""
             let key = raw == " " ? "SPACE" : raw.uppercased()
@@ -899,6 +1117,11 @@ final class ScreenView: NSView, NSTextInputClient {
         pendingKey = nil
     }
     override func keyUp(with event: NSEvent) {
+        if scriptPlaybackActive {
+            _ = mappedKeys.removeValue(forKey: event.keyCode)
+            _ = pressedKeys.removeValue(forKey: event.keyCode)
+            return
+        }
         if let value = mappedKeys.removeValue(forKey: event.keyCode) {
             transport?.send(["type": "mapped_touch", "id": value.id, "x": value.x, "y": value.y, "down": false])
             return
@@ -906,6 +1129,12 @@ final class ScreenView: NSView, NSTextInputClient {
         if let key = pressedKeys.removeValue(forKey: event.keyCode) { transport?.send(["type": "key", "key": key, "down": false]) }
     }
     func insertText(_ string: Any, replacementRange: NSRange) {
+        guard !scriptPlaybackActive else {
+            marked = NSMutableAttributedString(string: "")
+            markedSelection = NSRange(location: 0, length: 0)
+            needsDisplay = true
+            return
+        }
         let text = (string as? NSAttributedString)?.string ?? (string as? String ?? "")
         let wasComposing = hasMarkedText()
         marked = NSMutableAttributedString(string: "")
@@ -919,6 +1148,7 @@ final class ScreenView: NSView, NSTextInputClient {
         }
     }
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        guard !scriptPlaybackActive else { return }
         let value = (string as? NSAttributedString)?.string ?? (string as? String ?? "")
         let markedFont = WbFontResolver.nsFont(family: WbType.body.family, weight: .regular, size: WbType.title.size)
         marked = NSMutableAttributedString(string: value, attributes: [.foregroundColor: NSColor(WbColor.textPrimary), .font: markedFont])
@@ -957,7 +1187,9 @@ struct PlayerView: NSViewRepresentable {
         transport.onFrame = { [weak view] image, rotation in view?.present(image, rotation: rotation) }
         return view
     }
-    func updateNSView(_ view: ScreenView, context: Context) { }
+    func updateNSView(_ view: ScreenView, context: Context) {
+        view.setScriptPlaybackBlocked(transport.scriptPlaybackActive)
+    }
 }
 
 private let sidebarWidth: CGFloat = 48

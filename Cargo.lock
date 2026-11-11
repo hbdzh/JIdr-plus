@@ -1210,6 +1210,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "jidr-automation"
+version = "0.3.1"
+dependencies = [
+ "chrono",
+ "jidr-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
 name = "jidr-backend"
 version = "0.3.1"
 dependencies = [
@@ -1379,6 +1391,8 @@ name = "jidr-swiftui-bridge"
 version = "0.3.1"
 dependencies = [
  "anyhow",
+ "chrono",
+ "jidr-automation",
  "jidr-client",
  "jidr-core",
  "jidr-proto",
@@ -1388,6 +1402,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tonic",
+ "uuid",
 ]
 
 [[package]]

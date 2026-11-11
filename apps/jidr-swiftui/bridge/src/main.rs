@@ -10,10 +10,11 @@ use std::sync::{
     atomic::{AtomicU32, Ordering},
     mpsc,
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc as async_mpsc;
 
 mod frame_transport;
+mod script;
 use frame_transport::{FramePacket, FrameTransport};
 mod player_input;
 use player_input::{GrpcInput, InputState, SerialInput};
@@ -21,22 +22,87 @@ use player_input::{GrpcInput, InputState, SerialInput};
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Command {
-    Touch { x: f64, y: f64, down: bool },
-    MappedTouch { id: i32, x: f64, y: f64, down: bool },
-    Key { key: String, down: bool },
-    Text { text: String },
-    Paste { text: String },
-    Copy { request_id: u64 },
-    Cut { request_id: u64 },
+    Touch {
+        x: f64,
+        y: f64,
+        down: bool,
+    },
+    MappedTouch {
+        id: i32,
+        x: f64,
+        y: f64,
+        down: bool,
+    },
+    Key {
+        key: String,
+        down: bool,
+    },
+    Text {
+        text: String,
+    },
+    Paste {
+        text: String,
+    },
+    Copy {
+        request_id: u64,
+    },
+    Cut {
+        request_id: u64,
+    },
     SelectAll,
-    Rotate { direction: i32 },
-    ToolKey { key: String },
-    Screenshot { path: String },
-    SendFile { path: String },
-    StartRecording { path: String },
+    Rotate {
+        direction: i32,
+    },
+    ToolKey {
+        key: String,
+    },
+    Screenshot {
+        path: String,
+    },
+    SendFile {
+        path: String,
+    },
+    StartRecording {
+        path: String,
+    },
     StopRecording,
-    AppInspect { path: String },
-    AppUninstall { package: String },
+    AppInspect {
+        path: String,
+    },
+    AppUninstall {
+        package: String,
+    },
+    // Operation-recording control (docs/player-scripts.md).
+    ScriptRecordStart,
+    ScriptRecordPause,
+    ScriptRecordResume,
+    ScriptRecordStop {
+        name: String,
+    },
+    ScriptRecordCancel,
+    ScriptList,
+    ScriptDelete {
+        id: String,
+    },
+    ScriptRename {
+        id: String,
+        name: String,
+    },
+    ScriptImport {
+        path: String,
+    },
+    ScriptExport {
+        id: String,
+        path: String,
+    },
+    ScriptPlayStart {
+        id: String,
+        #[serde(default)]
+        options: Option<serde_json::Value>,
+    },
+    ScriptPlayPause,
+    ScriptPlayResume,
+    ScriptPlayStop,
 }
 
 /// One user-visible bridge notification: a stable machine code plus an English
@@ -323,6 +389,25 @@ fn fixture_reply(line: &str) -> (&'static str, serde_json::Value) {
     let mut value =
         json!({"ok":false,"code":PREVIEW_UNSUPPORTED.code,"message":PREVIEW_UNSUPPORTED.message});
     let prefix = match serde_json::from_str::<Command>(line) {
+        Ok(
+            Command::ScriptRecordStart
+            | Command::ScriptRecordPause
+            | Command::ScriptRecordResume
+            | Command::ScriptRecordStop { .. }
+            | Command::ScriptRecordCancel
+            | Command::ScriptList
+            | Command::ScriptDelete { .. }
+            | Command::ScriptRename { .. }
+            | Command::ScriptImport { .. }
+            | Command::ScriptExport { .. }
+            | Command::ScriptPlayStart { .. }
+            | Command::ScriptPlayPause
+            | Command::ScriptPlayResume
+            | Command::ScriptPlayStop,
+        ) => {
+            value["op"] = json!("error");
+            return ("JIDR_SCRIPT:", value);
+        }
         Ok(Command::StartRecording { .. } | Command::StopRecording) => {
             value["state"] = json!("failed");
             "JIDR_RECORD:"
@@ -396,24 +481,54 @@ struct BridgeInputs {
     panel: (u32, u32),
     rotation: Arc<AtomicU32>,
     physical_rotation: Arc<AtomicU32>,
+    scripts: script::ScriptManager,
 }
 
 impl SerialInput for BridgeInputs {
     async fn handle(&mut self, line: String) {
-        let client = &self.client;
-        let device = &self.device;
-        match serde_json::from_str::<Command>(&line) {
-            Ok(Command::Rotate { direction }) => {
+        let command = match serde_json::from_str::<Command>(&line) {
+            Ok(command) => command,
+            Err(error) => {
+                eprintln!("Invalid input: {error}");
+                return;
+            }
+        };
+        // Script control commands are handled before any device input; pause,
+        // stop and cancel may ask us to release held inputs.
+        if script::is_script_command(&command) {
+            let outcome = self.scripts.handle_command(&command, Instant::now());
+            if outcome.release {
+                self.state.release().await;
+            }
+            return;
+        }
+        // While a script plays back it owns device input (the UI disables its
+        // own controls), so direct input is ignored.
+        if self.scripts.ignores_user_input(&command) {
+            return;
+        }
+        match command {
+            Command::Rotate { direction } => {
+                if self.scripts.is_playing() {
+                    return;
+                }
                 let current = self.physical_rotation.load(Ordering::Relaxed) as i32;
                 let angle = (current + direction.signum()).rem_euclid(4) * 90;
-                if let Err(e) = client
-                    .call("sensor.rotate", json!({"device":device, "angle":angle}))
+                if let Err(e) = self
+                    .client
+                    .call(
+                        "sensor.rotate",
+                        json!({"device":self.device, "angle":angle}),
+                    )
                     .await
                 {
                     eprintln!("Rotate failed: {e}");
                 }
             }
-            Ok(Command::ToolKey { key }) => {
+            Command::ToolKey { key } => {
+                if self.scripts.is_playing() {
+                    return;
+                }
                 if [
                     "back",
                     "home",
@@ -423,14 +538,18 @@ impl SerialInput for BridgeInputs {
                     "power",
                 ]
                 .contains(&key.as_str())
-                    && let Err(e) = client
-                        .call("key.press", json!({"device":device, "key":key}))
-                        .await
                 {
-                    eprintln!("Key failed: {e}");
+                    self.scripts.record_tool_key(&key, Instant::now());
+                    if let Err(e) = self
+                        .client
+                        .call("key.press", json!({"device":self.device, "key":key}))
+                        .await
+                    {
+                        eprintln!("Key failed: {e}");
+                    }
                 }
             }
-            Ok(Command::StartRecording { path }) => {
+            Command::StartRecording { path } => {
                 let path = std::path::PathBuf::from(path);
                 if !path.is_absolute() || path.exists() {
                     eprintln!(
@@ -438,8 +557,8 @@ impl SerialInput for BridgeInputs {
                         json!({"state":"failed", "code":RECORDING_INVALID_PATH.code, "message":RECORDING_INVALID_PATH.message})
                     );
                 } else {
-                    let client = Arc::clone(client);
-                    let device = device.clone();
+                    let client = Arc::clone(&self.client);
+                    let device = self.device.clone();
                     tokio::spawn(async move {
                         let announced = std::sync::atomic::AtomicBool::new(false);
                         let result = client.run("media.record", json!({"device":device,"path":path}), |_| {
@@ -460,9 +579,9 @@ impl SerialInput for BridgeInputs {
                     });
                 }
             }
-            Ok(Command::StopRecording) => {
-                let client = Arc::clone(client);
-                let device = device.clone();
+            Command::StopRecording => {
+                let client = Arc::clone(&self.client);
+                let device = self.device.clone();
                 tokio::spawn(async move {
                     if let Err(error) = client
                         .call("media.record_stop", json!({"device":device}))
@@ -475,14 +594,14 @@ impl SerialInput for BridgeInputs {
                     }
                 });
             }
-            Ok(command @ (Command::Screenshot { .. } | Command::SendFile { .. })) => {
+            command @ (Command::Screenshot { .. } | Command::SendFile { .. }) => {
                 let screenshot = matches!(command, Command::Screenshot { .. });
                 let path = match command {
                     Command::Screenshot { path } | Command::SendFile { path } => path,
                     _ => return,
                 };
-                let client = Arc::clone(client);
-                let device = device.clone();
+                let client = Arc::clone(&self.client);
+                let device = self.device.clone();
                 tokio::spawn(async move {
                     match run_file_operation(&client, &device, &path, screenshot).await {
                         Ok(saved) => eprintln!(
@@ -496,8 +615,8 @@ impl SerialInput for BridgeInputs {
                     }
                 });
             }
-            Ok(Command::AppInspect { path }) => {
-                let client = Arc::clone(client);
+            Command::AppInspect { path } => {
+                let client = Arc::clone(&self.client);
                 tokio::spawn(async move {
                     match client.call("app.inspect", json!({"apk": path})).await {
                         Ok(value) => eprintln!(
@@ -511,9 +630,9 @@ impl SerialInput for BridgeInputs {
                     }
                 });
             }
-            Ok(Command::AppUninstall { package }) => {
-                let client = Arc::clone(client);
-                let device = device.clone();
+            Command::AppUninstall { package } => {
+                let client = Arc::clone(&self.client);
+                let device = self.device.clone();
                 tokio::spawn(async move {
                     match client
                         .call("app.uninstall", json!({"device":device,"package":package}))
@@ -530,7 +649,8 @@ impl SerialInput for BridgeInputs {
                     }
                 });
             }
-            Ok(command) => {
+            command => {
+                self.scripts.record_user_command(&command, Instant::now());
                 if let Err(e) = self
                     .state
                     .command(command, self.panel, &self.rotation)
@@ -539,11 +659,35 @@ impl SerialInput for BridgeInputs {
                     eprintln!("Input failed: {e:#}");
                 }
             }
-            Err(e) => eprintln!("Invalid input: {e}"),
         }
     }
     async fn release(&mut self) {
         self.state.release().await;
+    }
+    fn next_tick(&self) -> Option<Instant> {
+        self.scripts.next_tick()
+    }
+    async fn tick(&mut self, now: Instant) {
+        let outcome = self.scripts.tick(now);
+        for event in outcome.events {
+            if let Err(error) = script::execute_event(
+                &mut self.state,
+                &self.client,
+                &self.device,
+                self.panel,
+                &self.rotation,
+                &event,
+            )
+            .await
+            {
+                eprintln!("Script playback event failed: {error:#}");
+            }
+        }
+        // Release after the last injected events, so a script that ends with a
+        // press/release pair does not leave the device held.
+        if outcome.release {
+            self.state.release().await;
+        }
     }
 }
 
@@ -616,13 +760,13 @@ async fn main() -> Result<()> {
         &std::env::var("JIDR_PLAYER_INPUT_SCHEDULER").unwrap_or_else(|_| "fifo".into()),
     )
     .context("JIDR_PLAYER_INPUT_SCHEDULER must be fifo or inline")?;
-    let client = Arc::new(
-        jidr_client::Client::connect(&JidrPaths::discover()?.socket(), "swiftui-prototype").await?,
-    );
+    let paths = JidrPaths::discover()?;
+    let client =
+        Arc::new(jidr_client::Client::connect(&paths.socket(), "swiftui-prototype").await?);
     let info: ConnectInfo = client
         .call_as("device.connect_info", json!({"device":args[1]}))
         .await?;
-    let mapping_path = JidrPaths::discover()?
+    let mapping_path = paths
         .data
         .join("keymaps")
         .join(format!("{}.json", info.device));
@@ -709,6 +853,12 @@ async fn main() -> Result<()> {
         panel: (width, height),
         rotation: Arc::clone(&rotation),
         physical_rotation: Arc::clone(&physical_rotation),
+        scripts: script::ScriptManager::new(
+            paths.data.clone(),
+            args[1].clone(),
+            frame_width,
+            frame_height,
+        ),
     };
     let mut pump = FramePump {
         frames,
@@ -747,10 +897,25 @@ async fn main() -> Result<()> {
             {
                 let serial = async {
                     loop {
-                        tokio::select! {
-                            running = pump.step() => if !running { break; },
-                            line = input_rx.recv() => match line {
-                                Some(line) => handler.handle(line).await, None => break,
+                        match handler.next_tick() {
+                            Some(deadline) => {
+                                tokio::select! {
+                                    running = pump.step() => if !running { break; },
+                                    line = input_rx.recv() => match line {
+                                        Some(line) => handler.handle(line).await, None => break,
+                                    },
+                                    _ = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => {
+                                        handler.tick(Instant::now()).await;
+                                    }
+                                }
+                            }
+                            None => {
+                                tokio::select! {
+                                    running = pump.step() => if !running { break; },
+                                    line = input_rx.recv() => match line {
+                                        Some(line) => handler.handle(line).await, None => break,
+                                    }
+                                }
                             }
                         }
                     }
@@ -871,6 +1036,93 @@ mod tests {
             matches!(uninstall, Command::AppUninstall { ref package } if package == "com.example.shop")
         );
     }
+    type CommandPredicate = fn(&Command) -> bool;
+
+    #[test]
+    fn script_commands_parse() {
+        let cases: [(&str, CommandPredicate); 12] = [
+            (r#"{"type":"script_record_start"}"#, |c| {
+                matches!(c, Command::ScriptRecordStart)
+            }),
+            (r#"{"type":"script_record_pause"}"#, |c| {
+                matches!(c, Command::ScriptRecordPause)
+            }),
+            (r#"{"type":"script_record_resume"}"#, |c| {
+                matches!(c, Command::ScriptRecordResume)
+            }),
+            (r#"{"type":"script_record_cancel"}"#, |c| {
+                matches!(c, Command::ScriptRecordCancel)
+            }),
+            (r#"{"type":"script_list"}"#, |c| {
+                matches!(c, Command::ScriptList)
+            }),
+            (r#"{"type":"script_play_pause"}"#, |c| {
+                matches!(c, Command::ScriptPlayPause)
+            }),
+            (r#"{"type":"script_play_resume"}"#, |c| {
+                matches!(c, Command::ScriptPlayResume)
+            }),
+            (r#"{"type":"script_play_stop"}"#, |c| {
+                matches!(c, Command::ScriptPlayStop)
+            }),
+            (
+                r#"{"type":"script_delete","id":"00000000-0000-0000-0000-000000000000"}"#,
+                |c| matches!(c, Command::ScriptDelete { .. }),
+            ),
+            (
+                r#"{"type":"script_rename","id":"00000000-0000-0000-0000-000000000000","name":"daily"}"#,
+                |c| matches!(c, Command::ScriptRename { .. }),
+            ),
+            (r#"{"type":"script_import","path":"/tmp/a.json"}"#, |c| {
+                matches!(c, Command::ScriptImport { .. })
+            }),
+            (
+                r#"{"type":"script_export","id":"00000000-0000-0000-0000-000000000000","path":"/tmp/b.json"}"#,
+                |c| matches!(c, Command::ScriptExport { .. }),
+            ),
+        ];
+        for (json, ok) in cases {
+            let command: Command = serde_json::from_str(json).expect("script command parses");
+            assert!(ok(&command), "unexpected variant for {json}");
+        }
+        let stop: Command =
+            serde_json::from_str(r#"{"type":"script_record_stop","name":"daily"}"#).unwrap();
+        assert!(matches!(stop, Command::ScriptRecordStop { ref name } if name == "daily"));
+        let play: Command = serde_json::from_str(
+            r#"{"type":"script_play_start","id":"00000000-0000-0000-0000-000000000000"}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            play,
+            Command::ScriptPlayStart { options: None, .. }
+        ));
+        let play_with_options: Command = serde_json::from_str(
+            r#"{"type":"script_play_start","id":"00000000-0000-0000-0000-000000000000","options":{"mode":"infinite","speed":2.0}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            play_with_options,
+            Command::ScriptPlayStart {
+                options: Some(_),
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn fixture_script_commands_report_preview_unsupported() {
+        for command in [
+            r#"{"type":"script_record_start"}"#,
+            r#"{"type":"script_play_stop"}"#,
+            r#"{"type":"script_list"}"#,
+        ] {
+            let (prefix, value) = fixture_reply(command);
+            assert_eq!(prefix, "JIDR_SCRIPT:");
+            assert_eq!(value["op"], "error");
+            assert_eq!(value["code"], PREVIEW_UNSUPPORTED.code);
+        }
+    }
+
     #[test]
     fn file_type_is_based_on_apk_extension() {
         assert!(is_apk("/tmp/game.APK"));

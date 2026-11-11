@@ -332,6 +332,18 @@ fn key_event(code_type: i32, key_code: i32, key: String, down: bool) -> pb::Keyb
 pub(crate) trait SerialInput: Send {
     fn handle(&mut self, line: String) -> impl Future<Output = ()> + Send;
     fn release(&mut self) -> impl Future<Output = ()> + Send;
+
+    /// The next playback deadline, or `None` when no timer is needed. The
+    /// worker only arms a periodic timer while this returns `Some`.
+    fn next_tick(&self) -> Option<Instant> {
+        None
+    }
+
+    /// Runs one playback tick. The default is a no-op for plain input owners.
+    fn tick(&mut self, now: Instant) -> impl Future<Output = ()> + Send {
+        let _ = now;
+        async {}
+    }
 }
 
 /// Exactly one consumer; EOF drains the bounded FIFO. On a device/frame/output
@@ -343,8 +355,26 @@ pub(crate) async fn worker<H: SerialInput>(
 ) {
     {
         let commands = async {
-            while let Some(line) = receiver.recv().await {
-                handler.handle(line).await;
+            loop {
+                // Script playback is the only source of input ticks: an idle
+                // worker blocks on the FIFO instead of waking every few ms.
+                match handler.next_tick() {
+                    Some(deadline) => {
+                        tokio::select! {
+                            line = receiver.recv() => match line {
+                                Some(line) => handler.handle(line).await,
+                                None => break,
+                            },
+                            _ = tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)) => {
+                                handler.tick(Instant::now()).await;
+                            }
+                        }
+                    }
+                    None => match receiver.recv().await {
+                        Some(line) => handler.handle(line).await,
+                        None => break,
+                    },
+                }
             }
         };
         tokio::select! { () = commands => {}, _ = stop => {} }

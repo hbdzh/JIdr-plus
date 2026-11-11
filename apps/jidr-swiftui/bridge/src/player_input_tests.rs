@@ -2,6 +2,7 @@
 use super::*;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 use tokio::sync::{Notify, Semaphore};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -507,4 +508,50 @@ async fn optional_rpc_trace_preserves_values_and_error_status() {
             tonic::Code::Unavailable
         );
     }
+}
+
+/// The worker must arm its playback timer only while the handler asks for one:
+/// an idle or paused input owner has no periodic wake-ups.
+struct TickHandler {
+    ticks: Arc<Mutex<u32>>,
+    remaining: u32,
+}
+impl SerialInput for TickHandler {
+    async fn handle(&mut self, _line: String) {}
+    async fn release(&mut self) {}
+    fn next_tick(&self) -> Option<Instant> {
+        (self.remaining > 0).then(|| Instant::now() + Duration::from_millis(5))
+    }
+    async fn tick(&mut self, _now: Instant) {
+        *self.ticks.lock().unwrap() += 1;
+        self.remaining -= 1;
+    }
+}
+
+#[tokio::test]
+async fn worker_ticks_only_while_a_deadline_is_requested() {
+    let ticks = Arc::new(Mutex::new(0));
+    let (tx, rx) = mpsc::channel(1);
+    let (_stop, stopped) = oneshot::channel();
+    let task = tokio::spawn(worker(
+        TickHandler {
+            ticks: Arc::clone(&ticks),
+            remaining: 3,
+        },
+        rx,
+        stopped,
+    ));
+    for _ in 0..100 {
+        if *ticks.lock().unwrap() >= 3 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(*ticks.lock().unwrap(), 3);
+    // Deadlines exhausted: the worker blocks on the FIFO, it does not keep
+    // ticking on a permanent timer.
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    assert_eq!(*ticks.lock().unwrap(), 3);
+    drop(tx);
+    task.await.unwrap();
 }

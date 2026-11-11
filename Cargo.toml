@@ -12,6 +12,7 @@ members = [
     "crates/jidr-widgets",
     "crates/jidr-cpio",
     "crates/jidr-root",
+    "crates/jidr-automation",
     "apps/jidr",
     "apps/jidr-swiftui/bridge",
     "xtask",
@@ -44,6 +45,7 @@ jidr-mcp = { path = "crates/jidr-mcp" }
 jidr-widgets = { path = "crates/jidr-widgets" }
 jidr-cpio = { path = "crates/jidr-cpio" }
 jidr-root = { path = "crates/jidr-root" }
+jidr-automation = { path = "crates/jidr-automation" }
 
 # Runtime + serialization
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "net", "io-util", "process", "fs", "sync", "time", "signal"] }
