@@ -1833,6 +1833,7 @@ struct CenterView: View {
     @ObservedObject var model: CenterModel
     @State private var query = ""
     @State private var detailsVisible = true
+    @FocusState private var deviceListFocused: Bool
     @State private var searchFocusToken = 0
 
     private let compactWidth: CGFloat = 940
@@ -2068,7 +2069,7 @@ struct CenterView: View {
             } else {
                 List(selection: deviceSelection) {
                     ForEach(filteredDevices) { device in
-                        deviceListRow(device)
+                        deviceListRow(device, emphasized: deviceListFocused && model.selected == device.id)
                             .tag(device.id)
                             .listRowInsets(EdgeInsets(top: 3, leading: WbSpace.sm + 2,
                                                       bottom: 3, trailing: WbSpace.sm + 2))
@@ -2076,8 +2077,9 @@ struct CenterView: View {
                             .listRowBackground(Color.clear)
                     }
                 }
-                .listStyle(.plain)
+                .listStyle(.inset)
                 .scrollContentBackground(.hidden)
+                .focused($deviceListFocused)
                 .frame(maxHeight: .infinity)
             }
 
@@ -2148,32 +2150,35 @@ struct CenterView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func deviceListRow(_ device: Device) -> some View {
-        HStack(spacing: WbSpace.sm + 2) {
+    private func deviceListRow(_ device: Device, emphasized: Bool) -> some View {
+        let primary = emphasized ? AnyShapeStyle(.white) : AnyShapeStyle(WbColor.textPrimary)
+        let secondary = emphasized ? AnyShapeStyle(.white.opacity(0.85)) : AnyShapeStyle(WbColor.textSecondary)
+        let tertiary = emphasized ? AnyShapeStyle(.white.opacity(0.7)) : AnyShapeStyle(WbColor.textTertiary)
+        return HStack(spacing: WbSpace.sm + 2) {
             HStack(spacing: WbSpace.sm + 2) {
-                WbDeviceThumbnail(name: "device-list", width: 44, height: 76)
-                VStack(alignment: .leading, spacing: 3) {
+                WbDeviceThumbnail(name: "device-list", width: 36, height: 62)
+                VStack(alignment: .leading, spacing: 2) {
                     Text(device.name)
-                        .wbFont(WbType.title)
-                        .foregroundStyle(WbColor.textPrimary)
+                        .wbFont(WbType.body.weighted(.semibold))
+                        .foregroundStyle(primary)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    HStack(spacing: WbSpace.sm) {
+                    HStack(spacing: WbSpace.xs) {
                         if let holder = model.busyHolder(for: device.id) {
-                            WbStatusLabel(text: holder, tone: .busy)
+                            statusText(holder, tone: .busy, emphasized: emphasized)
                         } else {
-                            WbStatusLabel(text: device.statusText(language: model.language), tone: statusTone(device))
+                            statusText(device.statusText(language: model.language), tone: statusTone(device), emphasized: emphasized)
                         }
                         if let progress = model.progress(for: device.id) {
                             Text(progress)
                                 .wbFont(WbType.caption)
-                                .foregroundStyle(WbColor.textTertiary)
+                                .foregroundStyle(tertiary)
                                 .lineLimit(1)
                         }
                     }
                     Text(deviceMeta(device))
                         .wbFont(WbType.caption)
-                        .foregroundStyle(WbColor.textSecondary)
+                        .foregroundStyle(secondary)
                         .lineLimit(1)
                     if let fraction = model.bootProgressFraction(for: device.id), device.running == false {
                         ProgressView(value: min(max(fraction, 0), 1))
@@ -2192,10 +2197,10 @@ struct CenterView: View {
             .accessibilityAction(named: Text(model.text("打开设备窗口", "Open device window"))) {
                 model.focusOrOpenDeviceWindow(device.id)
             }
-            rowAction(device)
-            deviceMenu(device)
+            rowAction(device, emphasized: emphasized)
+            deviceMenu(device, emphasized: emphasized)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
         .contextMenu {
             deviceMenuItems(device)
@@ -2205,24 +2210,52 @@ struct CenterView: View {
         })
     }
 
-    @ViewBuilder private func rowAction(_ device: Device) -> some View {
+    @ViewBuilder private func rowAction(_ device: Device, emphasized: Bool) -> some View {
         let busy = model.busy.contains(device.id)
         switch device.status.state {
         case "running":
-            Button(model.text("打开", "Open")) { model.focusOrOpenDeviceWindow(device.id) }
-                .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
+            rowIconButton("arrow.up.forward.app", help: model.text("打开设备", "Open device"),
+                          emphasized: emphasized, disabled: false) {
+                model.focusOrOpenDeviceWindow(device.id)
+            }
         case "starting", "booting":
-            Button(model.text("取消", "Cancel")) { model.stop(device.id) }
-                .buttonStyle(.bordered).controlSize(.regular)
-                .disabled(busy)
+            rowIconButton("xmark.circle", help: model.text("取消启动", "Cancel start"),
+                          emphasized: emphasized, disabled: busy) {
+                model.stop(device.id)
+            }
         case "stopping":
-            Button(model.text("停止中…", "Stopping…")) { }
-                .buttonStyle(.bordered).controlSize(.regular)
-                .disabled(true)
+            ProgressView().controlSize(.small).frame(width: 24, height: 24)
         default:
-            Button(model.text("启动", "Start")) { model.start(device.id) }
-                .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
-                .disabled(busy)
+            rowIconButton("play.fill", help: model.text("启动设备", "Start device"),
+                          emphasized: emphasized, disabled: busy) {
+                model.start(device.id)
+            }
+        }
+    }
+
+    private func rowIconButton(_ symbol: String, help: String, emphasized: Bool,
+                               disabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12.5, weight: .medium))
+                .foregroundStyle(emphasized ? AnyShapeStyle(.white) : AnyShapeStyle(WbColor.accentText))
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .disabled(disabled)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+
+    @ViewBuilder private func statusText(_ text: String, tone: WbStatusTone, emphasized: Bool) -> some View {
+        if emphasized {
+            HStack(spacing: WbSpace.xxs + 2) {
+                Circle().fill(.white.opacity(0.9)).frame(width: 6, height: 6)
+                Text(text).wbFont(WbType.label).foregroundStyle(.white)
+            }
+        } else {
+            WbStatusLabel(text: text, tone: tone)
         }
     }
 
@@ -2242,14 +2275,14 @@ struct CenterView: View {
         .disabled(!device.stopped || model.busy.contains(device.id))
     }
 
-    private func deviceMenu(_ device: Device) -> some View {
+    private func deviceMenu(_ device: Device, emphasized: Bool) -> some View {
         Menu {
             deviceMenuItems(device)
         } label: {
             Image(systemName: "ellipsis")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(WbColor.textSecondary)
-                .frame(width: 26, height: 26)
+                .foregroundStyle(emphasized ? AnyShapeStyle(.white) : AnyShapeStyle(WbColor.textSecondary))
+                .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
         }
         .menuStyle(.borderlessButton)
