@@ -112,6 +112,61 @@ struct WbStatusLabel: View {
     }
 }
 
+// MARK: - Cached images
+
+/// One cached image, or a remembered miss so a missing file is not retried
+/// from every view body evaluation.
+private final class WbCachedImage: NSObject {
+    let image: NSImage?
+
+    init(_ image: NSImage?) {
+        self.image = image
+    }
+}
+
+/// Bounded, thread-safe cache for the images the device views load from disk.
+///
+/// `WbAppIcon` and `DeviceArt` used to read their files from inside `body`,
+/// repeating the IO whenever SwiftUI re-evaluates a row (device events, status
+/// ticks, selection changes). `NSCache` is thread-safe and evicts under memory
+/// pressure; `countLimit` keeps the cache small even when the SDK lists many
+/// installed apps.
+enum WbImageCache {
+    private static let images: NSCache<NSString, WbCachedImage> = {
+        let cache = NSCache<NSString, WbCachedImage>()
+        cache.countLimit = 64
+        return cache
+    }()
+
+    /// An image at an absolute file path, or `nil` when the file is missing or
+    /// not a decodable image. Misses are cached too.
+    static func image(atPath path: String) -> NSImage? {
+        cachedImage(for: "file:\(path)") {
+            NSImage(contentsOfFile: path)
+        }
+    }
+
+    /// A PNG in the main bundle, by resource name without the extension.
+    static func image(named name: String) -> NSImage? {
+        cachedImage(for: "resource:\(name)") {
+            guard let url = Bundle.main.url(forResource: name, withExtension: "png") else {
+                return nil
+            }
+            return NSImage(contentsOf: url)
+        }
+    }
+
+    private static func cachedImage(for key: String, load: () -> NSImage?) -> NSImage? {
+        let cacheKey = key as NSString
+        if let cached = images.object(forKey: cacheKey) {
+            return cached.image
+        }
+        let image = load()
+        images.setObject(WbCachedImage(image), forKey: cacheKey)
+        return image
+    }
+}
+
 // MARK: - Device thumbnail
 
 /// AppKit-drawn device artwork inside a rounded bezel, matching the card system.
@@ -144,7 +199,7 @@ struct WbAppIcon: View {
 
     var body: some View {
         Group {
-            if let imagePath, let image = NSImage(contentsOfFile: imagePath) {
+            if let imagePath, let image = WbImageCache.image(atPath: imagePath) {
                 Image(nsImage: image)
                     .resizable()
                     .interpolation(.high)

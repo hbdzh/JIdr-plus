@@ -36,14 +36,22 @@ final class FrameDecoder {
                     header.append(contentsOf: source[offset..<(offset + n)])
                     offset += n
                     guard header.count == Self.headerLength else { continue }
-                    guard Array(header[0..<4]) == Array("JFR1".utf8) else { return false }
+                    // Compare the magic bytes directly: the previous Array
+                    // conversions allocated twice per frame for 4 bytes.
+                    guard header[0] == UInt8(ascii: "J"), header[1] == UInt8(ascii: "F"),
+                          header[2] == UInt8(ascii: "R"), header[3] == UInt8(ascii: "1") else { return false }
                     func integer(_ i: Int) -> Int {
-                        header[i..<i + 4].reduce(0) { ($0 << 8) | Int($1) }
+                        (Int(header[i]) << 24) | (Int(header[i + 1]) << 16)
+                            | (Int(header[i + 2]) << 8) | Int(header[i + 3])
                     }
                     let width = integer(4), height = integer(8), rotation = integer(12), count = integer(16)
                     guard width > 0, height > 0, width <= 8192, height <= 8192,
                           count <= Self.maxBytes, width * height * 4 == count else { return false }
                     metadata = (width, height, rotation)
+                    // One allocation per frame is required: the CGImage data
+                    // provider downstream retains this Data, so the payload
+                    // buffer cannot be reused. Data(count:) also zero-fills,
+                    // keeping the buffer fully initialised for the chunk copies.
                     pixels = Data(count: count)
                     written = 0
                     header.removeAll(keepingCapacity: true)

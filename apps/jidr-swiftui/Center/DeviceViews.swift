@@ -48,7 +48,7 @@ struct DeviceArt: View {
     let width: CGFloat
     var body: some View {
         Group {
-            if let url = Bundle.main.url(forResource:name, withExtension:"png"), let image = NSImage(contentsOf:url) {
+            if let image = WbImageCache.image(named: name) {
                 Image(nsImage:image).resizable().scaledToFit().frame(width:width)
             }
         }.accessibilityHidden(true)
