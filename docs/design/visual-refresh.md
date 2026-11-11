@@ -69,6 +69,33 @@ sheet headers/footers, the player's dark chrome background, and the command
 palette/task centre overlays. The screenshot baselines were regenerated after
 this pass; `test.sh` and the window-lifecycle test still pass.
 
+## HIG conformance pass (2026-11)
+
+The first pass still carried a few custom surface cues. After review they were
+removed to follow the HIG more closely:
+
+- the device-row overflow is a plain `ellipsis` borderless menu (no circled
+  glyph) with a matching native context menu, and the About app icon no longer
+  has a decorative shadow;
+- inline cards no longer draw drop shadows or stroked card chrome — the centre
+  is flat split panes with hairlines, sheets use grouped `Form` sections, and
+  the snapshot list is a flat `List`; the only remaining shadows are the system
+  popover/menu/HUD shadows on the command palette, task centre and toasts;
+- sheets no longer put an X in the top-right: the editors use the standard
+  bottom Cancel/Save pair and the detail/snapshot sheets have a bordered Close
+  button with the cancel shortcut (Esc);
+- device details, edit device and add device now use grouped `Form` sections
+  (LabeledContent + native controls) instead of custom card groups;
+- the root flow, root tools, task centre and command palette use flat sections,
+  system material only for floating overlays, SF Symbol icons at readable
+  sizes and explicit native button styles;
+- the advanced-tools window minimum width is 680 so the root tools no longer
+  overflow at the old 600pt minimum.
+
+Still custom by design: the centre's title-bar row (an `NSToolbar` migration is
+a separate, larger change), the player's dark video chrome, command palette and
+task centre overlays, and the RootFlow sheet keeps its fixed 600pt width.
+
 ## Deviations from the design mockups
 
 The mockups assumed a few data sources the product does not have, so the implementation keeps the
