@@ -762,7 +762,7 @@ async fn main() -> Result<()> {
     .context("JIDR_PLAYER_INPUT_SCHEDULER must be fifo or inline")?;
     let paths = JidrPaths::discover()?;
     let client =
-        Arc::new(jidr_client::Client::connect(&paths.socket(), "swiftui-prototype").await?);
+        Arc::new(jidr_client::Client::connect(&paths.socket(), "jidr-swiftui-bridge").await?);
     let info: ConnectInfo = client
         .call_as("device.connect_info", json!({"device":args[1]}))
         .await?;

@@ -10,7 +10,7 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 source "$root/apps/jidr-swiftui/swift-target.sh"
 out="$root/target/swiftui-center-release"
-binary="$out/JidrSwiftUICenter"
+binary="$out/Jidr"
 mkdir -p "$out/module-cache"
 CLANG_MODULE_CACHE_PATH="$out/module-cache" \
   swiftc -O -target "$jidr_swift_target" -module-cache-path "$out/module-cache" \

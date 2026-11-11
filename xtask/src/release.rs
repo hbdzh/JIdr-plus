@@ -116,7 +116,7 @@ fn run_swiftui(
         "bash",
         &[&path_str(&root.join("apps/jidr-swiftui/build-release.sh"))?],
     )?;
-    let center = target.join("swiftui-center-release/JidrSwiftUICenter");
+    let center = target.join("swiftui-center-release/Jidr");
     if !center.is_file() {
         bail!(
             "apps/jidr-swiftui/build-release.sh did not produce {}",

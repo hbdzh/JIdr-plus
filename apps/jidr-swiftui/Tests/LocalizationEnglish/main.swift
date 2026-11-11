@@ -7,7 +7,7 @@ import Foundation
 // copy keeps the legacy Chinese diagnostics translatable for older payloads.
 //
 // Compile and run (test.sh wiring is the Lead's):
-//   out=target/swiftui-prototype
+//   out=target/swiftui-center
 //   swiftc -module-cache-path "$out/module-cache" \
 //     apps/jidr-swiftui/Sources/OperationMessages.swift \
 //     apps/jidr-swiftui/Sources/PlayerSession.swift \
