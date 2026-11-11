@@ -738,6 +738,10 @@ class Gate:
                         self.checked["mechanism-c-copy"] += 1
 
     def _classify_rust(self, source: Source) -> None:
+        # External test modules can carry Unicode input fixtures too. An inner
+        # cfg(test) excludes the entire file from every production build.
+        if re.match(r"\s*#!\[\s*cfg\(test\)\s*\]", source.masked):
+            return
         cfg_test = source.text.find("#[cfg(test)]")
         for lit in source.literals:
             if lit.depth != 0 or not CJK.search(lit.text):
@@ -1132,6 +1136,10 @@ fn run() {
 mod tests {
     fn fixture() { assert_eq!("测试中文", "测试中文"); }
 }
+""",
+            "bridge/src/unicode_tests.rs": """// Unicode input is test data.
+#![cfg(test)]
+fn fixture() { assert_eq!("中文输入", "中文输入"); }
 """,
         },
     )
