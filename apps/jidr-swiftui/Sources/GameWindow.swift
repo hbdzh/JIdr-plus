@@ -6,6 +6,15 @@ import Foundation
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// A small, opt-in measurement sample carried with its matching image. It never
+/// retains frame pixels or asks CGDataProvider to copy a full image for a probe.
+struct PlayerFrameProbeSample {
+    let receivedAt: TimeInterval
+    let red: Double
+    let green: Double
+    let blue: Double
+}
+
 // This prototype intentionally requires an explicit device and data directory.
 // It never starts, stops, or changes the configuration of an emulator.
 final class PlayerTransport: ObservableObject {
@@ -36,6 +45,13 @@ final class PlayerTransport: ObservableObject {
     var onFrame: ((CGImage, Int) -> Void)?
     var onStatus: ((String) -> Void)?
     var onFrameSize: ((Int, Int) -> Void)?
+    /// Optional measurement hooks. Normal app launches leave these nil.
+    /// Decode runs on the reader queue; draw runs on the main queue.
+    var measureDecodedFrame: ((DecodedFrame) -> PlayerFrameProbeSample)?
+    var onMeasuredFramePresented: ((PlayerFrameProbeSample) -> Void)?
+    var onFrameDrawn: (() -> Void)?
+    var onFrameReplaced: (() -> Void)?
+    var bridgeProcessIdentifier: Int32? { process?.processIdentifier }
     var onReconnect: (() -> Void)?
     var onAdvanced: (() -> Void)?
     var onPixelPerfect: (() -> Void)?
@@ -50,7 +66,7 @@ final class PlayerTransport: ObservableObject {
     private let inputQueue = DispatchQueue(label: "jidr.prototype.input")
     private let decoder = FrameDecoder()
     private let decoderLock = NSLock()
-    private var pendingFrame: (CGImage, Int)?
+    private var pendingFrame: (CGImage, Int, PlayerFrameProbeSample?)?
     private var frameScheduled = false
     private let frameLock = NSLock()
     private var diagnosticBuffer = Data()
@@ -386,6 +402,7 @@ final class PlayerTransport: ObservableObject {
         defer { decoderLock.unlock() }
         let valid = autoreleasepool {
             decoder.consume(data) { frame in
+                let measurement = measureDecodedFrame?(frame)
                 let width = frame.width, height = frame.height, rotation = frame.rotation
                 let pixels = frame.pixels
                 guard let provider = CGDataProvider(data: pixels as CFData),
@@ -394,7 +411,8 @@ final class PlayerTransport: ObservableObject {
                                           bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue),
                                           provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) else { return }
                 frameLock.lock()
-                pendingFrame = (image, rotation)
+                if pendingFrame != nil { onFrameReplaced?() }
+                pendingFrame = (image, rotation, measurement)
                 let schedule = !frameScheduled
                 if schedule { frameScheduled = true }
                 frameLock.unlock()
@@ -407,7 +425,7 @@ final class PlayerTransport: ObservableObject {
                         self.frameScheduled = false
                         self.frameLock.unlock()
                         guard let frame else { return }
-                        self.display(frame.0, width: width, height: height, rotation: frame.1)
+                        self.display(frame.0, width: width, height: height, rotation: frame.1, measurement: frame.2)
                     }
                 }
             }
@@ -415,7 +433,7 @@ final class PlayerTransport: ObservableObject {
         if !valid { stop() }
     }
 
-    private func display(_ image: CGImage, width: Int, height: Int, rotation: Int) {
+    private func display(_ image: CGImage, width: Int, height: Int, rotation: Int, measurement: PlayerFrameProbeSample?) {
         stats.recordFrame(width: width, height: height, rotation: rotation,
                           at: ProcessInfo.processInfo.systemUptime)
         if !didReceiveFrame {
@@ -429,6 +447,7 @@ final class PlayerTransport: ObservableObject {
             onFrameSize?(width, height)
         }
         onFrame?(image, rotation)
+        if let measurement { onMeasuredFramePresented?(measurement) }
     }
 
     private func consumeDiagnostics(_ data: Data, generation token: UUID) {
@@ -676,6 +695,7 @@ final class ScreenView: NSView, NSTextInputClient {
             let exact = abs(imageRect.width * backing - CGFloat(image.width)) < 0.5 && abs(imageRect.height * backing - CGFloat(image.height)) < 0.5
             NSGraphicsContext.current?.imageInterpolation = exact ? .none : .high
             NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height)).draw(in: imageRect)
+            transport?.onFrameDrawn?()
         }
         if let mapping = transport?.mapping {
             for binding in mapping.visibleBindings where binding.rotation == rotation {

@@ -18,6 +18,7 @@
 
 import AppKit
 import CoreGraphics
+import CoreText
 import Foundation
 
 // MARK: - Process facts
@@ -51,6 +52,8 @@ struct Options: Equatable {
     var hiddenWindow = false
     var firstFrameTimeout = 15.0
     var selfTest = false
+    var productionPlayer = false
+    var restoreProbes = 0
     /// Place the bench window on this NSScreen index (0-based) so a 60/120 Hz
     /// display can be measured; -1 keeps AppKit's default placement.
     var screen = -1
@@ -77,6 +80,9 @@ func usage() -> String {
       --first-frame-timeout N  fail after N s without a frame (default 15)
       --screen N             place the window on NSScreen.screens[N] (for a display with a known refresh rate)
       --hidden-window        do not show the window (render-failure check only)
+      --production-player    measure the real GameWindowController/ScreenView;
+                             requires a device UUID and explicit isolated JIDR_HOME
+      --restore-probes N     measure fresh-frame latency after native minimize/restore
       --self-test            run offline checks and exit (no device/window)
       -h, --help             this text
     """
@@ -118,6 +124,8 @@ func parseOptions(_ arguments: [String]) throws -> Options {
             print(usage())
             exit(0)
         case "--self-test": options.selfTest = true
+        case "--production-player": options.productionPlayer = true
+        case "--restore-probes": options.restoreProbes = try int(argument, 0...10)
         case "--device": options.device = try value(argument)
         case "--bridge": options.bridge = try value(argument)
         case "--panel-width": options.panelWidth = try int(argument, 1...8192)
@@ -158,10 +166,19 @@ func parseOptions(_ arguments: [String]) throws -> Options {
         index += 1
     }
     if !options.selfTest {
+        if options.restoreProbes > 0 && !options.productionPlayer {
+            throw ParseError.message("restore probes require --production-player")
+        }
         guard !options.device.isEmpty else { throw ParseError.message("--device is required") }
         guard !options.bridge.isEmpty else { throw ParseError.message("--bridge is required") }
         guard FileManager.default.isExecutableFile(atPath: options.bridge) else {
             throw ParseError.message("bridge is not executable: \(options.bridge)")
+        }
+        if options.productionPlayer {
+            guard UUID(uuidString: options.device) != nil,
+                  let home = ProcessInfo.processInfo.environment["JIDR_HOME"], home.hasPrefix("/") else {
+                throw ParseError.message("production-player requires a device UUID and explicit absolute JIDR_HOME")
+            }
         }
     }
     return options
@@ -412,14 +429,14 @@ final class Recorder {
     }
 
     @discardableResult
-    func notePresented(patch: Patch, at time: Double) -> Double? {
+    func notePresented(patch: Patch, at time: Double, detect: Bool = true) -> Double? {
         lock.lock()
         counter.presented += 1
         presentedTimes.append(time)
         if presentedTimes.count > 20_000 { presentedTimes.removeFirst(presentedTimes.count - 20_000) }
         lastPresentedPatch = patch
         lock.unlock()
-        return detector.observe(patch: patch, at: time)
+        return detect ? detector.observe(patch: patch, at: time) : nil
     }
 
     func noteDrawn(at time: Double) {
@@ -573,6 +590,85 @@ final class BenchView: NSView {
     }
 }
 
+/// Measurement only: one queued main-thread probe at most, with bounded storage.
+final class MainQueueProbe {
+    private var timer: DispatchSourceTimer?
+    private let lock = NSLock()
+    private var pending = false
+    private var samples: [(Double, Double)] = []
+    func start() {
+        let source = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        source.schedule(deadline: .now(), repeating: .milliseconds(100))
+        source.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.lock.lock()
+            if self.pending { self.lock.unlock(); return }
+            self.pending = true
+            self.lock.unlock()
+            let submitted = now()
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let time = now()
+                self.samples.append((time, max(0, time - submitted) * 1000))
+                if self.samples.count > 20_000 { self.samples.removeFirst(self.samples.count - 20_000) }
+                self.lock.lock(); self.pending = false; self.lock.unlock()
+            }
+        }
+        timer = source; source.resume()
+    }
+    func stop() { timer?.cancel(); timer = nil }
+    func values(from start: Double, to end: Double) -> [Double] {
+        samples.filter { $0.0 >= start && $0.0 <= end }.map { $0.1 }
+    }
+    deinit { stop() }
+}
+
+func distribution(_ values: [Double]) -> [String: Any] {
+    ["count": values.count, "p50": Stat.percentile(values, 0.5) ?? NSNull(),
+     "p95": Stat.percentile(values, 0.95) ?? NSNull(),
+     "p99": Stat.percentile(values, 0.99) ?? NSNull(), "max": values.max() ?? NSNull()]
+}
+
+func freshFrameLatency(requested: Double, received: Double, drawn: Double) -> Double? {
+    guard requested.isFinite, received.isFinite, drawn.isFinite,
+          received >= requested, drawn >= received else { return nil }
+    return (drawn - requested) * 1000
+}
+
+func memoryMiB(_ value: String) -> Double? {
+    let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let suffix = text.last, let number = Double(text.dropLast()), number.isFinite, number >= 0 else { return nil }
+    switch suffix {
+    case "K": return number / 1024
+    case "M": return number
+    case "G": return number * 1024
+    default: return nil
+    }
+}
+
+/// Queried only after the timed phases; vmmap overhead cannot change the fps/latency window.
+func footprint(pid: Int32) -> [String: Any] {
+    let process = Process(), output = Pipe()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/vmmap")
+    process.arguments = ["-summary", String(pid)]
+    process.standardOutput = output; process.standardError = FileHandle.nullDevice
+    do { try process.run() } catch { return ["available": false] }
+    let data = output.fileHandleForReading.readDataToEndOfFile()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else { return ["available": false] }
+    let text = String(decoding: data, as: UTF8.self)
+    var result: [String: Any] = ["available": true]
+    for line in text.split(separator: "\n") {
+        if line.hasPrefix("Physical footprint:") {
+            result["physical_mib"] = memoryMiB(String(line.split(separator: ":").last ?? ""))
+        } else if line.hasPrefix("Physical footprint (peak):") {
+            result["peak_physical_mib"] = memoryMiB(String(line.split(separator: ":").last ?? ""))
+        }
+    }
+    if result["physical_mib"] == nil || result["peak_physical_mib"] == nil { result["available"] = false }
+    return result
+}
+
 // MARK: - Process helpers
 
 func processCPUSeconds(pid: Int32 = getpid()) -> Double? {
@@ -625,7 +721,7 @@ func makeImage(from frame: DecodedFrame) -> CGImage? {
 final class Bench {
     let options: Options
     let recorder: Recorder
-    let window: NSWindow
+    var window: NSWindow
     let view: BenchView
     let pump: FramePump
     var bridge: Process?
@@ -633,6 +729,17 @@ final class Bench {
     var dumpedDetections = 0
     let writeLock = NSLock()
     var stderrLines: [String] = []
+    var production: GameWindowController?
+    private let mainQueueProbe = MainQueueProbe()
+    private var presentation = 0
+    private var drawnPresentation = 0
+    private var lastPresentedReceivedAt = 0.0
+    private var restoreSamples: [Double] = []
+    private var restoreAttempt = 0
+    private var restoreTimeouts = 0
+    private var restoreRequestedAt: Double?
+    private var launchedAt = 0.0
+
 
     // FPS phase
     var fpsStart = 0.0
@@ -706,8 +813,11 @@ final class Bench {
     }
 
     func start() {
+        launchedAt = now()
         do {
-            try startBridge()
+            if options.productionPlayer { try startProductionPlayer() }
+            else { try startBridge() }
+            mainQueueProbe.start()
         } catch {
             finish(code: ExitCode.bridgeFailure.rawValue, reason: "cannot start bridge: \(error)")
             return
@@ -720,6 +830,67 @@ final class Bench {
         }
         let deadline = now() + options.firstFrameTimeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in self?.waitForFirstFrame(deadline: deadline) }
+    }
+
+    private func startProductionPlayer() throws {
+        let home = ProcessInfo.processInfo.environment["JIDR_HOME"] ?? ""
+        let data = URL(fileURLWithPath: home).appendingPathComponent("data")
+        try FileManager.default.createDirectory(at: data, withIntermediateDirectories: true)
+        let player = GameWindowController()
+        player.transport.language = 0
+        player.open(device: options.device, width: options.panelWidth, height: options.panelHeight,
+                    executable: options.bridge, quality: UInt8(options.quality), dataDirectory: data.path,
+                    launch: .stopped(reason: "Preparing measurement"))
+        guard let realWindow = player.window else { throw ParseError.message("player window did not open") }
+        realWindow.contentView?.layoutSubtreeIfNeeded()
+        guard let render = player.transport.onFrame else { throw ParseError.message("ScreenView did not attach") }
+        window.close()
+        window = realWindow
+        production = player
+        if options.screen >= 0, options.screen < NSScreen.screens.count {
+            let screen = NSScreen.screens[options.screen].visibleFrame
+            window.setFrameOrigin(NSPoint(x: screen.midX - window.frame.width / 2,
+                                          y: screen.midY - window.frame.height / 2))
+        }
+        player.transport.measureDecodedFrame = { [weak self] frame in
+            let time = now()
+            let patch = Patch.sample(pixels: frame.pixels, width: frame.width, height: frame.height,
+                                     normalizedX: self?.options.probeX ?? 0.5,
+                                     normalizedY: self?.options.probeY ?? 0.55, radius: 3) ?? .zero
+            self?.recorder.noteReceived(bytes: frame.width * frame.height * 4, at: time)
+            return PlayerFrameProbeSample(receivedAt: time, red: patch.red, green: patch.green, blue: patch.blue)
+        }
+        player.transport.onFrameReplaced = { [weak self] in self?.recorder.noteReplaced() }
+        player.transport.onFrame = { [weak self] image, rotation in
+            render(image, rotation)
+            guard let self else { return }
+            self.view.image = image // Retain the same image, not a second decoded buffer.
+            self.presentation += 1
+        }
+        player.transport.onMeasuredFramePresented = { [weak self] sample in
+            guard let self else { return }
+            let patch = Patch(red: sample.red, green: sample.green, blue: sample.blue)
+            self.recorder.notePresented(patch: patch, at: now(), detect: false)
+            self.lastPresentedReceivedAt = sample.receivedAt
+        }
+        player.transport.onFrameDrawn = { [weak self] in
+            guard let self, self.window.isVisible, !self.window.isMiniaturized,
+                  self.presentation != self.drawnPresentation else { return }
+            self.drawnPresentation = self.presentation
+            let time = now()
+            self.recorder.noteDrawn(at: time)
+            if let patch = self.recorder.presentedPatch,
+               self.recorder.detector.observe(patch: patch, at: time) != nil,
+               let image = self.view.image { self.dumpProbeEvidence(image) }
+            if let requested = self.restoreRequestedAt,
+               let latency = freshFrameLatency(requested: requested, received: self.lastPresentedReceivedAt, drawn: time) {
+                self.restoreSamples.append(latency)
+                self.restoreRequestedAt = nil
+                self.nextRestoreProbe()
+            }
+        }
+        player.transport.beginStreaming()
+        bridgePid = player.transport.bridgeProcessIdentifier
     }
 
     private func startBridge() throws {
@@ -784,6 +955,7 @@ final class Bench {
     }
 
     private func send(_ command: [String: Any]) {
+        if let production { production.transport.send(command); return }
         guard JSONSerialization.isValidJSONObject(command),
               let data = try? JSONSerialization.data(withJSONObject: command),
               let handle = bridgeInput else { return }
@@ -831,6 +1003,9 @@ final class Bench {
 
     private func waitForFirstFrame(deadline: Double) {
         if recorder.snapshot().received > 0 {
+            if production != nil {
+                window.setContentSize(NSSize(width: options.windowWidth + 48, height: options.windowHeight))
+            }
             writeStderr("bench: first frame received, settling \(options.settleSeconds)s")
             DispatchQueue.main.asyncAfter(deadline: .now() + options.settleSeconds) { [weak self] in
                 self?.startFPSPhase()
@@ -889,12 +1064,17 @@ final class Bench {
         }
     }
 
-    var driverStopped = false
+    private let driverLock = NSLock()
+    private var driverStopFlag = false
+    var driverStopped: Bool {
+        get { driverLock.lock(); defer { driverLock.unlock() }; return driverStopFlag }
+        set { driverLock.lock(); driverStopFlag = newValue; driverLock.unlock() }
+    }
 
     private func finishFPSPhase() {
         driverStopped = true
-        let elapsed = now() - fpsStart
-        let phaseEndTime = min(phaseEnd, now())
+        let phaseEndTime = now()
+        let elapsed = phaseEndTime - fpsStart
         let end = recorder.snapshot()
         let received = Double(end.received - fpsCounterStart.received)
         let presented = Double(end.presented - fpsCounterStart.presented)
@@ -951,6 +1131,9 @@ final class Bench {
             "active_displayed_fps_p10": quarterDrawnStats.p10 ?? 0,
             "bucket_ms": 250,
             "interval_median_fps": Stat.activeFPS(intervals: receiveIntervals) ?? 0,
+            "receive_interval_ms": distribution(receiveIntervals),
+            "draw_interval_ms": distribution(recorder.drawIntervals(after: fpsStart, before: phaseEndTime)),
+            "main_queue_lag_ms": distribution(mainQueueProbe.values(from: fpsStart, to: phaseEndTime)),
             "per_second_received": perSecondReceived,
             "per_second_presented": perSecondPresented,
             "per_second_displayed": perSecondDrawn,
@@ -959,6 +1142,7 @@ final class Bench {
             "median_displayed_fps": Stat.percentile(perSecondDrawn, 0.5) ?? 0,
             "p10_displayed_fps": Stat.percentile(perSecondDrawn, 0.1) ?? 0,
             "replaced_frames": end.replaced - fpsCounterStart.replaced,
+            "replacement_scope": options.productionPlayer ? "Swift pending-frame slot" : "standalone FramePump slot",
             "display_refresh_hz": displayRefreshHz() ?? NSNull(),
             "displayed_ratio_of_refresh": displayRefreshHz().map { refresh in
                 refresh > 0 ? (drawn / elapsed) / refresh : 0
@@ -990,7 +1174,7 @@ final class Bench {
             return
         }
         if options.taps <= 0 {
-            finish(code: ExitCode.ok.rawValue, reason: "frame-rate phase only (--taps 0)")
+            startRestoreProbesOrFinish()
             return
         }
         startLatencyPhase()
@@ -1049,6 +1233,9 @@ final class Bench {
             "missed": missed,
             "median_ms": median ?? NSNull(),
             "p90_ms": p90 ?? NSNull(),
+            "p95_ms": Stat.percentile(samples, 0.95) ?? NSNull(),
+            "p99_ms": Stat.percentile(samples, 0.99) ?? NSNull(),
+            "endpoint": options.productionPlayer ? "ScreenView.draw" : "UI-hop",
             "samples_ms": samples,
             "probe": ["x": options.probeX, "y": options.probeY, "threshold": options.probeThreshold],
         ]
@@ -1057,21 +1244,67 @@ final class Bench {
                    reason: "no touch probe was detected; is `dev.set show_taps` on and the home screen static?")
             return
         }
-        finish(code: ExitCode.ok.rawValue, reason: "complete")
+        startRestoreProbesOrFinish()
     }
 
     var latencyResult: [String: Any] = [:]
+
+    private func startRestoreProbesOrFinish() {
+        guard restoreAttempt < options.restoreProbes else {
+            finish(code: restoreTimeouts == 0 ? ExitCode.ok.rawValue : ExitCode.renderFailure.rawValue,
+                   reason: restoreTimeouts == 0 ? "complete" : "fresh frame timed out after window restore")
+            return
+        }
+        restoreAttempt += 1
+        let attempt = restoreAttempt
+        window.miniaturize(nil)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, !self.finished else { return }
+            self.restoreRequestedAt = now()
+            self.window.deminiaturize(nil)
+            self.window.makeKeyAndOrderFront(nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+                guard let self, !self.finished, self.restoreAttempt == attempt, self.restoreRequestedAt != nil else { return }
+                self.restoreTimeouts += 1
+                self.restoreRequestedAt = nil
+                self.nextRestoreProbe()
+            }
+        }
+    }
+
+    private func nextRestoreProbe() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.startRestoreProbesOrFinish() }
+    }
 
     // MARK: Report
 
     func finish(code: Int32, reason: String) {
         if finished { return }
         finished = true
+        mainQueueProbe.stop()
+        let environment = ProcessInfo.processInfo.environment
+        let build: [String: Any] = ["profile": environment["JIDR_BENCH_PROFILE"] ?? "unknown",
+                      "revision": environment["JIDR_BENCH_REVISION"] ?? "unknown",
+                      "tracked_dirty": environment["JIDR_BENCH_DIRTY"] ?? "unknown",
+                      "inputs_sha256": environment["JIDR_BENCH_INPUTS_SHA256"] ?? "unknown",
+                      "binary_sha256": environment["JIDR_BENCH_BINARY_SHA256"] ?? "unknown",
+                      "bridge_sha256": environment["JIDR_BENCH_BRIDGE_SHA256"] ?? "unknown"]
+        let memory: [String: Any] = ["player": footprint(pid: getpid()),
+                                     "bridge": bridgePid.map { footprint(pid: $0) } ?? ["available": false]]
+        let firstDecode = recorder.times("received", between: launchedAt, and: now()).first.map { ($0 - launchedAt) * 1000 }
+        let firstDraw = recorder.times("drawn", between: launchedAt, and: now()).first.map { ($0 - launchedAt) * 1000 }
+        let startup: [String: Any] = ["bridge_launch_to_first_decode_ms": firstDecode ?? NSNull(),
+                                      "bridge_launch_to_first_draw_ms": firstDraw ?? NSNull()]
+        let restore: [String: Any] = ["attempts": restoreAttempt, "timeouts": restoreTimeouts,
+                                      "fresh_frame_ms": distribution(restoreSamples), "samples_ms": restoreSamples]
         let report: [String: Any] = [
             "harness": "jidr-swiftui-player-bench",
-            "version": 1,
+            "version": 2,
+            "measurement_path": options.productionPlayer ? "GameWindowController/PlayerTransport/ScreenView" : "standalone FramePump/BenchView",
+            "build": build, "memory": memory, "startup": startup, "restore": restore,
+            "unmeasured": ["OS input delivery", "GPU scanout", "production center lists", "other Space and fullscreen transitions"],
             "method": "jidr-swiftui-bridge JFR1 -> FrameDecoder -> newest-frame slot -> one main hop -> NSView draw; "
-                + "latency = stdin touch-down write -> first presented frame whose show-taps probe patch changed; "
+                + (options.productionPlayer ? "latency = transport.send -> first actual ScreenView.draw whose probe changed; " : "latency = stdin touch-down write -> first presented frame whose probe changed; ")
                 + "excludes OS input path and scanout (ADR-0001)",
             "generated_at": ISO8601DateFormatter().string(from: Date()),
             "exit_code": Int(code),
@@ -1094,6 +1327,8 @@ final class Bench {
                 writeStderr("bench: cannot write report: \(error)")
             }
         }
+        production?.transport.stop()
+        production?.window?.close()
         bridge?.terminate()
         fflush(stdout)
         exit(code)
@@ -1124,6 +1359,19 @@ func runSelfTest() -> Int32 {
             print("SELF-TEST FAILED: \(message)")
         }
     }
+
+    expect(memoryMiB("1024K") == 1 && memoryMiB("2G") == 2048 && memoryMiB("49.0M") == 49, "vmmap binary units")
+    expect(memoryMiB("nonsense") == nil && memoryMiB("-1M") == nil, "invalid memory values are unavailable")
+    let summary = distribution([1, 2, 3, 4, 100])
+    expect(summary["p95"] as? Double == 100 && summary["p99"] as? Double == 100, "tail percentile uses full intervals including stalls")
+    expect(distribution([])["p95"] is NSNull, "missing metric is unavailable, not zero")
+    expect(freshFrameLatency(requested: 11, received: 10, drawn: 12) == nil, "an old frame painted after restore is not a fresh frame")
+    expect(freshFrameLatency(requested: 11, received: 11.01, drawn: 11.02).map { abs($0 - 20) < 0.001 } == true, "restore latency ends at actual draw of a fresh decode")
+    expect(freshFrameLatency(requested: 11, received: 12, drawn: 11.5) == nil, "invalid timestamp order is rejected")
+    do {
+        let mode = try parseOptions(["--self-test", "--production-player"])
+        expect(mode.productionPlayer, "production measurement path is explicit")
+    } catch { expect(false, "production mode parse") }
 
     // 1. CLI parsing and defaults.
     do {
@@ -1303,6 +1551,13 @@ do {
 }
 if options.selfTest {
     exit(runSelfTest())
+}
+
+if let fontDirectory = ProcessInfo.processInfo.environment["JIDR_BENCH_FONTS"],
+   let files = try? FileManager.default.contentsOfDirectory(atPath: fontDirectory) {
+    for file in files where file.hasSuffix(".ttf") {
+        CTFontManagerRegisterFontsForURL(URL(fileURLWithPath: fontDirectory).appendingPathComponent(file) as CFURL, .process, nil)
+    }
 }
 
 let application = NSApplication.shared

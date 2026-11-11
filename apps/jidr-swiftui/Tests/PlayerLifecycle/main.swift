@@ -101,8 +101,24 @@ late.stop()
 setenv("JIDR_PLAYER_FIXTURE", "1", 1)
 let preview = GameWindowController()
 preview.transport.language = 0
+require(preview.transport.measureDecodedFrame == nil && preview.transport.onMeasuredFramePresented == nil
+        && preview.transport.onFrameDrawn == nil && preview.transport.onFrameReplaced == nil,
+        "normal windows leave all measurement hooks disabled")
+var matchingSamples = 0
+var actualDraws = 0
+preview.transport.measureDecodedFrame = { frame in
+    PlayerFrameProbeSample(receivedAt: ProcessInfo.processInfo.systemUptime,
+                           red: Double(frame.width), green: Double(frame.height), blue: Double(frame.rotation))
+}
+preview.transport.onMeasuredFramePresented = { [weak transport = preview.transport] sample in
+    require(sample.red == Double(transport?.frameWidth ?? 0) && sample.green == Double(transport?.frameHeight ?? 0),
+            "measurement metadata follows its matching displayed frame")
+    matchingSamples += 1
+}
+preview.transport.onFrameDrawn = { actualDraws += 1 }
 preview.open(device: id, width: 480, height: 640, executable: CommandLine.arguments[3], dataDirectory: home.appendingPathComponent("data").path)
 eventually("real fixture produces a first frame and enables tools") { preview.transport.linkState.isRunning && preview.transport.frameWidth > 0 }
+eventually("measurement counts actual ScreenView draws and matched samples") { matchingSamples > 0 && actualDraws > 0 }
 require(preview.transport.mapping.begin(), "local key mapping loads without a daemon in preview")
 preview.transport.mapping.cancel()
 var previewNotices: [String] = []

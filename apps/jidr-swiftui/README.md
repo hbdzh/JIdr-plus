@@ -61,3 +61,26 @@ The native performance harness (`Tests/Bench`) remains available for real-device
 measurements. See `bench-player.sh --help`, `render-live.sh`, ADR-0001 and
 `docs/display-performance.md`. Historical migration results are in
 `docs/swiftui-migration.md`; those results are not new acceptance evidence.
+
+`bench-player.sh` now defaults to optimized Release builds and the actual
+`GameWindowController`/`PlayerTransport`/`ScreenView` path. Optional observation
+callbacks are nil in normal app launches. Reports distinguish decode, UI handoff,
+unique image draws, input-to-draw latency (excluding OS delivery and GPU scanout),
+main-queue lag and per-process physical/peak footprint. The 7×7 probe uses the
+existing decoded bytes and travels with its matching image; no image-sized copy
+is added for measurement. Native minimize/restore probes require a newly decoded
+frame, so repainting a pre-minimize image cannot count as recovery.
+
+To capture three repeatable runs with fixed 1080×2400/4-core/4-GiB settings on a
+throwaway real device and an already installed, read-only SDK:
+
+```bash
+python3 scripts/player-baseline.py --sdk /absolute/path/to/clean-test-sdk
+```
+
+The runner builds before booting, preserves revision and binary/input hashes,
+rejects dirty-source measurements and missed touch probes, records unresolved
+manual/Space/fullscreen acceptance, and stops/deletes only its own device/home.
+No SDK download, license acceptance or normal Jidr data is involved. Use the same
+measurement revision, screen refresh rate, window size and scene for later A/B;
+`JIDR_BENCH_PROFILE=debug` exists for explicit build-mode comparisons only.
