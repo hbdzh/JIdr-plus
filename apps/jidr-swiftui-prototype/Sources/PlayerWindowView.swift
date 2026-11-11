@@ -21,31 +21,31 @@ private enum PlayerChromePalette {
     /// native titlebar visibly separates from the dark content.
     static let seam = JidrColor.borderDefault.dark
     static let icon = JidrColor.textSecondary.dark
-    static let iconHover = JidrColor.textPrimary.dark
-    static let iconActive = JidrColor.accentText.dark
     static let text = JidrColor.textSecondary.dark
     static let textDim = JidrColor.textTertiary.dark
-    static let hover = JidrColor.surfaceControlHover.dark
-    static let active = JidrColor.surfaceSelected.dark
     static let negative = JidrColor.negative.dark
     static let negativeBadge = JidrColor.statusNegativeContainer.dark
     static let negativeBadgeText = JidrColor.statusNegativeOnContainer.dark
     static let accent = JidrColor.accentFill.dark
+    /// Active toolbar glyphs: the accent-text token is the accent colour meant
+    /// for icons/text on dark surfaces (the fill token is for filled controls).
+    static let accentIcon = JidrColor.accentText.dark
 }
 
 private enum PlayerChromeMetrics {
     /// 48 pt toolbar (WbLayout.windowDeviceToolbarWidth), 28 x 28 icon targets.
     static let toolButton: CGFloat = 28
     static let toolGlyph: CGFloat = 13
-    static let toolRadius: CGFloat = WbRadius.md
     static let toolSpacing: CGFloat = 3
     static let groupSeparatorWidth: CGFloat = 26
     static let logcatBarHeight: CGFloat = 30
     static let hairline: CGFloat = 1
 }
 
-/// One toolbar icon: a 28 x 28 hit target with a restrained hover/active fill,
-/// the same interaction the design specifies for the device toolbar.
+/// One toolbar icon: a native borderless button with a 28 x 28 hit target.
+/// macOS owns the hover/press/focus feedback (the previous custom fill was
+/// dropped on purpose); the active state is only the accent (or recording red)
+/// glyph colour, not a hand-drawn background.
 private struct PlayerToolButton: View {
     let symbol: String
     let label: String
@@ -54,42 +54,19 @@ private struct PlayerToolButton: View {
     var activeTint: Color?
     let action: () -> Void
 
-    @State private var hovering = false
-
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: PlayerChromeMetrics.toolGlyph, weight: .medium))
-                .foregroundStyle(foreground)
+                .foregroundStyle(active ? (activeTint ?? PlayerChromePalette.accentIcon) : PlayerChromePalette.icon)
                 .frame(width: PlayerChromeMetrics.toolButton, height: PlayerChromeMetrics.toolButton)
-                .background(
-                    RoundedRectangle(cornerRadius: PlayerChromeMetrics.toolRadius, style: .continuous)
-                        .fill(background)
-                )
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
         .disabled(!enabled)
-        .opacity(enabled ? 1 : 0.38)
-        .onHover { inside in
-            guard enabled else { return }
-            hovering = inside
-        }
         .help(label)
         .accessibilityLabel(label)
         .accessibilityAddTraits(active ? [.isSelected] : [])
-    }
-
-    private var foreground: Color {
-        if active { return activeTint ?? PlayerChromePalette.iconActive }
-        if hovering { return PlayerChromePalette.iconHover }
-        return PlayerChromePalette.icon
-    }
-
-    private var background: Color {
-        if active { return PlayerChromePalette.active }
-        if hovering { return PlayerChromePalette.hover }
-        return .clear
     }
 }
 
@@ -648,7 +625,7 @@ struct ContentView: View {
             .background(PlayerChromePalette.logbar)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
         .help(t("打开日志面板（⌘L）", "Open Logcat (⌘L)", language))
         .accessibilityLabel(t("打开日志面板", "Open Logcat", language))
         .overlay(alignment: .top) {

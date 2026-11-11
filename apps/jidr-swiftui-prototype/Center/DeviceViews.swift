@@ -1387,6 +1387,12 @@ struct SettingsView: View {
         [WbIcon.settings, WbIcon.advancedTools, WbIcon.dataTools, WbIcon.advancedConfig, WbIcon.info]
     }
 
+    private var categorySelection: Binding<Int?> {
+        Binding(get: { category }, set: { newValue in
+            if let newValue { category = newValue }
+        })
+    }
+
     private var settingsSidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(model.text("设置", "Settings"))
@@ -1394,22 +1400,27 @@ struct SettingsView: View {
                 .foregroundStyle(WbColor.textPrimary)
                 .padding(.horizontal, WbSpace.lg)
                 .padding(.top, WbSpace.xl)
-                .padding(.bottom, WbSpace.md)
-            VStack(spacing: 2) {
+                .padding(.bottom, WbSpace.sm)
+            List(selection: categorySelection) {
                 ForEach(Array(sectionTitles.enumerated()), id: \.offset) { index, title in
-                    Button { category = index } label: {
-                        WbSidebarRow(title: title, icon: sectionIcons[index], selected: category == index)
+                    Label {
+                        Text(title)
+                    } icon: {
+                        Image(systemName: sectionIcons[index])
                     }
-                    .buttonStyle(.plain)
+                    .tag(index)
+                    .listRowBackground(category == index ? WbColor.accentContainer : Color.clear)
                 }
             }
-            .padding(.horizontal, WbSpace.sm)
-            Spacer(minLength: 0)
+            .listStyle(.sidebar)
+            .tint(WbColor.accent)
+            .frame(maxHeight: .infinity)
             Text("Jidr 0.3.1 · GPL-3.0-only")
                 .wbFont(WbType.caption)
                 .foregroundStyle(WbColor.textTertiary)
                 .padding(.horizontal, WbSpace.lg)
                 .padding(.bottom, WbSpace.lg)
+                .padding(.top, WbSpace.sm)
         }
         .frame(width: 200)
         .frame(maxHeight: .infinity, alignment: .top)
@@ -1430,28 +1441,28 @@ struct SettingsView: View {
             }
             .padding(.horizontal, WbSpace.xl)
             .padding(.top, WbSpace.lg)
-            .padding(.bottom, WbSpace.md)
+            .padding(.bottom, WbSpace.sm)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: WbSpace.lg + 2) {
-                    switch category {
-                    case 0: generalPage
-                    case 1: defaultsPage
-                    case 2: dataPage
-                    case 3: advancedPage
-                    default: aboutPage
-                    }
-                    if !message.isEmpty {
+            Form {
+                switch category {
+                case 0: generalPage
+                case 1: defaultsPage
+                case 2: dataPage
+                case 3: advancedPage
+                default: aboutPage
+                }
+                if !message.isEmpty {
+                    Section {
                         Text(message)
                             .wbFont(WbType.caption)
                             .foregroundStyle(WbColor.textSecondary)
                             .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .padding(.horizontal, WbSpace.xl)
-                .padding(.bottom, WbSpace.xl)
             }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .background(WbColor.raised)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(WbColor.raised)
@@ -1459,40 +1470,29 @@ struct SettingsView: View {
 
     // MARK: - General
 
-    private var generalPage: some View {
-        VStack(alignment: .leading, spacing: WbSpace.sm) {
-            WbGroupLabel(text: model.text("界面", "Appearance"))
-            WbFormGroup {
-                WbFormRow(label: model.text("语言", "Language")) {
-                    Picker("", selection: Binding(get:{model.language},set:{model.setPreference("language",$0)})) {
-                        Text("中文").tag(1)
-                        Text("English").tag(0)
-                    }
-                    .labelsHidden()
-                    .frame(width: 150)
-                    .accessibilityLabel(model.text("语言", "Language"))
-                }
-                WbRowDivider()
-                WbFormRow(label: model.text("外观", "Appearance")) {
-                    Picker("", selection: Binding(get:{model.appearance},set:{model.setPreference("appearance",$0)})) {
-                        Text(model.text("跟随系统", "Follow system")).tag(0)
-                        Text(model.text("浅色", "Light")).tag(1)
-                        Text(model.text("深色", "Dark")).tag(2)
-                    }
-                    .labelsHidden()
-                    .frame(width: 150)
-                    .accessibilityLabel(model.text("外观", "Appearance"))
-                }
+    @ViewBuilder private var generalPage: some View {
+        Section(model.text("界面", "Interface")) {
+            Picker(selection: Binding(get:{model.language},set:{model.setPreference("language",$0)})) {
+                Text("中文").tag(1)
+                Text("English").tag(0)
+            } label: {
+                Text(model.text("语言", "Language"))
+            }
+            Picker(selection: Binding(get:{model.appearance},set:{model.setPreference("appearance",$0)})) {
+                Text(model.text("跟随系统", "Follow system")).tag(0)
+                Text(model.text("浅色", "Light")).tag(1)
+                Text(model.text("深色", "Dark")).tag(2)
+            } label: {
+                Text(model.text("外观", "Appearance"))
             }
             Text(model.text("界面语言与外观会立即生效。", "Language and appearance changes take effect immediately."))
                 .wbFont(WbType.caption)
                 .foregroundStyle(WbColor.textSecondary)
-                .padding(.leading, WbSpace.xxs)
-            VStack(alignment: .leading, spacing: WbSpace.sm) {
-                WbGroupLabel(text: model.text("外观预览", "Appearance preview"))
-                AppearancePreviewCard(model: model)
-            }
-            .padding(.top, WbSpace.xs)
+        }
+        Section(model.text("外观预览", "Appearance preview")) {
+            AppearancePreviewCard(model: model)
+                .listRowInsets(EdgeInsets(top: WbSpace.sm, leading: WbSpace.sm,
+                                          bottom: WbSpace.sm, trailing: WbSpace.sm))
         }
     }
 
@@ -1514,8 +1514,7 @@ struct SettingsView: View {
                     .foregroundStyle(WbColor.textSecondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(WbSpace.md + 2)
-            .wbCardSurface()
+            .padding(.vertical, WbSpace.xs)
         }
 
         private func miniWindow(title: String, dark: Bool) -> some View {
@@ -1577,44 +1576,39 @@ struct SettingsView: View {
 
     // MARK: - Device defaults
 
-    private var defaultsPage: some View {
-        VStack(alignment: .leading, spacing: WbSpace.sm) {
-            WbGroupLabel(text: model.text("设备默认设置", "Device defaults"))
-            WbFormGroup {
-                WbFormRow(label: model.text("默认 Root 模式", "Default root mode")) {
-                    Picker("", selection: $root) {
-                        Text(model.text("无", "None")).tag("none")
-                        Text("Shell root").tag("adb")
-                        Text(model.text("完整 root", "Full root")).tag("magisk")
-                    }
-                    .labelsHidden()
-                    .frame(width: 160)
-                    .accessibilityLabel(model.text("默认 Root 模式", "Default root mode"))
-                }
-                WbRowDivider()
-                WbFormRow(label: model.text("停止设备时保存快速启动快照", "Save quick-boot snapshot when stopping")) {
-                    Toggle("", isOn: $quickBoot).labelsHidden()
-                        .toggleStyle(.switch)
-                        .tint(WbColor.accent)
-                        .accessibilityLabel(model.text("停止设备时保存快速启动快照", "Save quick-boot snapshot when stopping"))
-                }
-                WbRowDivider()
-                WbFormRow(label: model.text("设备内存预算 (%)", "Device memory budget (%)"),
-                          detail: model.text("10–100", "10–100")) {
-                    TextField("", text: $budget)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 92)
-                        .accessibilityLabel(model.text("设备内存预算 (%)", "Device memory budget (%)"))
-                }
-                WbRowDivider()
-                WbFormRow(label: model.text("自动休眠分钟数", "Idle sleep minutes"),
-                          detail: model.text("0 为关闭", "0 disables")) {
-                    TextField("", text: $autoHibernate)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 92)
-                        .accessibilityLabel(model.text("自动休眠分钟数", "Idle sleep minutes"))
-                }
+    @ViewBuilder private var defaultsPage: some View {
+        Section(model.text("设备默认设置", "Device defaults")) {
+            Picker(selection: $root) {
+                Text(model.text("无", "None")).tag("none")
+                Text("Shell root").tag("adb")
+                Text(model.text("完整 root", "Full root")).tag("magisk")
+            } label: {
+                Text(model.text("默认 Root 模式", "Default root mode"))
             }
+            Toggle(model.text("停止设备时保存快速启动快照", "Save quick-boot snapshot when stopping"), isOn: $quickBoot)
+                .toggleStyle(.switch)
+                .tint(WbColor.accent)
+            LabeledContent {
+                TextField("", text: $budget)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 92)
+                    .accessibilityLabel(model.text("设备内存预算 (%)", "Device memory budget (%)"))
+            } label: {
+                Text(model.text("设备内存预算 (%)", "Device memory budget (%)"))
+            }
+            LabeledContent {
+                TextField("", text: $autoHibernate)
+                    .multilineTextAlignment(.trailing)
+                    .frame(width: 92)
+                    .accessibilityLabel(model.text("自动休眠分钟数", "Idle sleep minutes"))
+            } label: {
+                Text(model.text("自动休眠分钟数", "Idle sleep minutes"))
+            }
+            Text(model.text("内存预算 10–100；自动休眠 0 为关闭。", "Memory budget 10–100; idle sleep 0 disables it."))
+                .wbFont(WbType.caption)
+                .foregroundStyle(WbColor.textSecondary)
+        }
+        Section {
             HStack(alignment: .center, spacing: WbSpace.md) {
                 Text(model.text("更改会应用到之后创建的设备。", "Changes apply to devices created later."))
                     .wbFont(WbType.caption)
@@ -1633,84 +1627,70 @@ struct SettingsView: View {
                 .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
                 .disabled(!loaded || saving)
             }
-            .padding(.top, WbSpace.xxs)
         }
     }
 
     // MARK: - Data and tools
 
-    private var dataPage: some View {
-        VStack(alignment: .leading, spacing: WbSpace.sm) {
-            WbGroupLabel(text: model.text("位置与存储", "Locations & storage"))
-            WbFormGroup {
-                SettingsPathRow(title: model.text("数据目录", "Data folder"),
-                                path: paths?.data ?? model.text("读取中…", "Loading…")) {
-                    Button(model.text("显示数据目录", "Show data folder")) { showFolder(paths?.data) }
-                        .buttonStyle(.bordered).controlSize(.regular)
-                        .disabled(paths == nil)
+    @ViewBuilder private var dataPage: some View {
+        Section(model.text("位置与存储", "Locations & storage")) {
+            SettingsPathRow(title: model.text("数据目录", "Data folder"),
+                            path: paths?.data ?? model.text("读取中…", "Loading…")) {
+                Button(model.text("显示数据目录", "Show data folder")) { showFolder(paths?.data) }
+                    .buttonStyle(.bordered).controlSize(.regular)
+                    .disabled(paths == nil)
+            }
+            SettingsPathRow(title: "Android SDK",
+                            path: paths?.tools.android_sdk ?? sdkStatus?.tools_sdk ?? model.text("自动选择", "Automatic")) {
+                Button(model.text("选择 SDK", "Choose SDK")) { choose("sdk") }
+                    .buttonStyle(.bordered).controlSize(.regular)
+                    .disabled(paths == nil || saving)
+                linkButton(model.text("恢复自动选择", "Restore automatic"), disabled: paths == nil || saving) { tool("sdk",path:NSNull()) }
+                linkButton(model.text("显示目录", "Show folder"), disabled: paths?.tools.android_sdk == nil && sdkStatus?.tools_sdk == nil) {
+                    showFolder(paths?.tools.android_sdk ?? sdkStatus?.tools_sdk)
                 }
-                WbRowDivider(inset: 0)
-                SettingsPathRow(title: "Android SDK",
-                                path: paths?.tools.android_sdk ?? sdkStatus?.tools_sdk ?? model.text("自动选择", "Automatic")) {
-                    Button(model.text("选择 SDK", "Choose SDK")) { choose("sdk") }
-                        .buttonStyle(.bordered).controlSize(.regular)
-                        .disabled(paths == nil || saving)
-                    linkButton(model.text("恢复自动选择", "Restore automatic"), disabled: paths == nil || saving) { tool("sdk",path:NSNull()) }
-                    linkButton(model.text("显示目录", "Show folder"), disabled: paths?.tools.android_sdk == nil && sdkStatus?.tools_sdk == nil) {
-                        showFolder(paths?.tools.android_sdk ?? sdkStatus?.tools_sdk)
-                    }
-                    Spacer(minLength: 0)
-                    Button(model.text("安装 SDK 和系统镜像…", "Install SDK & system images…")) { installing = true }
-                        .buttonStyle(.bordered).controlSize(.regular)
-                        .disabled(saving)
-                }
-                WbRowDivider(inset: 0)
-                SettingsPathRow(title: "JDK",
-                                path: paths?.tools.jdk_home ?? model.text("系统默认", "System default")) {
-                    Button(model.text("选择 JDK", "Choose JDK")) { choose("jdk") }
-                        .buttonStyle(.bordered).controlSize(.regular)
-                        .disabled(paths == nil || saving)
-                    linkButton(model.text("恢复系统默认", "Restore system default"), disabled: paths == nil || saving) { tool("jdk",path:NSNull()) }
-                }
-                WbRowDivider(inset: 0)
-                SettingsPathRow(title: model.text("迁移目标", "Migration destination"),
-                                path: migrationParent.map { $0.appendingPathComponent("Jidr").path } ?? model.text("未选择", "Not selected")) {
-                    Button(model.text("选择目标位置…", "Choose destination…")) { chooseMigrationParent() }
-                        .buttonStyle(.bordered).controlSize(.regular)
-                        .disabled(saving || migrationChecking)
-                    Button(model.text("初步检查", "Preliminary check")) { checkMigration() }
-                        .buttonStyle(.bordered).controlSize(.regular)
-                        .disabled(migrationParent == nil || saving || migrationChecking)
-                }
+                Spacer(minLength: 0)
+                Button(model.text("安装 SDK 和系统镜像…", "Install SDK & system images…")) { installing = true }
+                    .buttonStyle(.bordered).controlSize(.regular)
+                    .disabled(saving)
+            }
+            SettingsPathRow(title: "JDK",
+                            path: paths?.tools.jdk_home ?? model.text("系统默认", "System default")) {
+                Button(model.text("选择 JDK", "Choose JDK")) { choose("jdk") }
+                    .buttonStyle(.bordered).controlSize(.regular)
+                    .disabled(paths == nil || saving)
+                linkButton(model.text("恢复系统默认", "Restore system default"), disabled: paths == nil || saving) { tool("jdk",path:NSNull()) }
+            }
+            SettingsPathRow(title: model.text("迁移目标", "Migration destination"),
+                            path: migrationParent.map { $0.appendingPathComponent("Jidr").path } ?? model.text("未选择", "Not selected")) {
+                Button(model.text("选择目标位置…", "Choose destination…")) { chooseMigrationParent() }
+                    .buttonStyle(.bordered).controlSize(.regular)
+                    .disabled(saving || migrationChecking)
+                Button(model.text("初步检查", "Preliminary check")) { checkMigration() }
+                    .buttonStyle(.bordered).controlSize(.regular)
+                    .disabled(migrationParent == nil || saving || migrationChecking)
             }
             Text(model.text("目前仅支持初步检查；尚不能迁移或切换数据位置。", "Only preliminary checks are available; migration and switching are not yet supported."))
                 .wbFont(WbType.caption)
                 .foregroundStyle(WbColor.textSecondary)
-                .padding(.leading, WbSpace.xxs)
             if !migrationMessage.isEmpty {
                 Text(migrationMessage)
                     .wbFont(WbType.caption)
                     .foregroundStyle(WbColor.textSecondary)
                     .textSelection(.enabled)
-                    .padding(.leading, WbSpace.xxs)
             }
-
-            WbGroupLabel(text: model.text("存储用量", "Storage usage"))
-                .padding(.top, WbSpace.xs)
-            HStack(spacing: WbSpace.md) {
+        }
+        Section(model.text("存储用量", "Storage usage")) {
+            HStack(alignment: .center, spacing: WbSpace.md) {
                 Text(storageSummary)
                     .wbFont(WbType.body)
                     .foregroundStyle(WbColor.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .lineLimit(2)
                 Spacer(minLength: WbSpace.sm)
                 Button(model.text("清理下载缓存…", "Clear download cache…")) { confirmCacheClear = true }
                     .buttonStyle(.bordered).controlSize(.regular)
                     .disabled(saving || cacheBytes == nil || cacheBytes == 0)
             }
-            .padding(.horizontal, WbSpace.lg)
-            .frame(minHeight: 44)
-            .wbCardSurface()
         }
     }
 
@@ -1728,82 +1708,67 @@ struct SettingsView: View {
 
     // MARK: - Advanced
 
-    private var advancedPage: some View {
-        VStack(alignment: .leading, spacing: WbSpace.sm) {
-            WbGroupLabel(text: model.text("地图", "Maps"))
-            WbFormGroup {
-                WbFormRow(label: model.text("地图瓦片地址", "Map tile URL"),
-                          detail: model.text("留空使用默认服务商", "Empty uses the default provider")) {
-                    TextField("", text: $tileURL)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 260)
-                        .accessibilityLabel(model.text("地图瓦片地址", "Map tile URL"))
-                }
-                WbRowDivider()
-                VStack(alignment: .leading, spacing: WbSpace.sm) {
-                    Text(model.text("须使用 HTTPS 并包含 {z}、{x}、{y}。打开地图时，服务商会收到请求。",
-                                    "Use HTTPS and include {z}, {x}, {y}. The provider receives requests when the map is opened."))
-                        .wbFont(WbType.caption)
-                        .foregroundStyle(WbColor.textSecondary)
-                    HStack(spacing: WbSpace.sm) {
-                        Spacer(minLength: 0)
-                        Button(model.text("保存地图设置", "Save map settings")) {
-                            saving = true
-                            model.call("center.prefs.set",["tile_url":tileURL]) { result in
-                                saving = false
-                                switch result {
-                                case .success: model.tileURL = tileURL; message = model.text("地图设置已保存。", "Map settings saved.")
-                                case .failure(let error): message = error.localizedDescription.contains("Map tile URL must") ? model.text("地图地址必须使用 HTTPS，并包含 {z}、{x} 和 {y}。", "Map tile URL must use HTTPS and contain {z}, {x} and {y}.") : error.localizedDescription
-                                }
-                            }
-                        }
-                        .buttonStyle(.bordered).controlSize(.regular)
-                        .disabled(saving)
-                    }
-                }
-                .padding(.horizontal, WbSpace.lg)
-                .padding(.vertical, WbSpace.sm)
+    @ViewBuilder private var advancedPage: some View {
+        Section(model.text("地图", "Maps")) {
+            LabeledContent {
+                TextField("", text: $tileURL)
+                    .frame(width: 260)
+                    .accessibilityLabel(model.text("地图瓦片地址", "Map tile URL"))
+            } label: {
+                Text(model.text("地图瓦片地址", "Map tile URL"))
             }
-
-            WbGroupLabel(text: model.text("MCP", "MCP"))
-                .padding(.top, WbSpace.xs)
-            WbFormGroup {
-                WbFormRow(label: model.text("MCP 命令路径", "MCP command path"),
-                          detail: model.text("可填写 jidr 可执行文件的绝对路径", "Absolute path to the jidr executable")) {
-                    TextField("", text: $mcpBinary)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 260)
-                        .accessibilityLabel(model.text("MCP 命令路径", "MCP command path"))
-                }
-                WbRowDivider()
-                VStack(alignment: .leading, spacing: WbSpace.sm) {
-                    Text(model.text("将以下配置添加到支持 MCP 的客户端。", "Add this configuration to your MCP client."))
-                        .wbFont(WbType.caption)
-                        .foregroundStyle(WbColor.textSecondary)
-                    HStack(spacing: WbSpace.sm) {
-                        Spacer(minLength: 0)
-                        Button(model.text("配置 Claude Desktop…", "Configure Claude Desktop…")) { confirmClaudeConfig = true }
-                            .buttonStyle(.bordered).controlSize(.regular)
-                            .disabled(saving)
-                        Button(model.text("复制 MCP 配置", "Copy MCP configuration")) {
-                            guard !mcpBinary.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty, let data = try? JSONSerialization.data(withJSONObject:["mcpServers":["jidr":["command":mcpBinary,"args":["mcp"]]]],options:[.prettyPrinted,.sortedKeys]), let text = String(data:data,encoding:.utf8) else { return }
-                            NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text,forType:.string)
-                            message = model.text("MCP 配置已复制。", "MCP configuration copied.")
+            Text(model.text("留空使用默认服务商。须使用 HTTPS 并包含 {z}、{x}、{y}。打开地图时，服务商会收到请求。",
+                            "Empty uses the default provider. Use HTTPS and include {z}, {x}, {y}; the provider receives requests when the map is opened."))
+                .wbFont(WbType.caption)
+                .foregroundStyle(WbColor.textSecondary)
+            HStack(spacing: WbSpace.sm) {
+                Spacer(minLength: 0)
+                Button(model.text("保存地图设置", "Save map settings")) {
+                    saving = true
+                    model.call("center.prefs.set",["tile_url":tileURL]) { result in
+                        saving = false
+                        switch result {
+                        case .success: model.tileURL = tileURL; message = model.text("地图设置已保存。", "Map settings saved.")
+                        case .failure(let error): message = error.localizedDescription.contains("Map tile URL must") ? model.text("地图地址必须使用 HTTPS，并包含 {z}、{x} 和 {y}。", "Map tile URL must use HTTPS and contain {z}, {x} and {y}.") : error.localizedDescription
                         }
-                        .buttonStyle(.bordered).controlSize(.regular)
                     }
                 }
-                .padding(.horizontal, WbSpace.lg)
-                .padding(.vertical, WbSpace.sm)
+                .buttonStyle(.bordered).controlSize(.regular)
+                .disabled(saving)
+            }
+        }
+        Section("MCP") {
+            LabeledContent {
+                TextField("", text: $mcpBinary)
+                    .frame(width: 260)
+                    .accessibilityLabel(model.text("MCP 命令路径", "MCP command path"))
+            } label: {
+                Text(model.text("MCP 命令路径", "MCP command path"))
+            }
+            Text(model.text("可填写 jidr 可执行文件的绝对路径。将以下配置添加到支持 MCP 的客户端。",
+                            "Absolute path to the jidr executable. Add this configuration to your MCP client."))
+                .wbFont(WbType.caption)
+                .foregroundStyle(WbColor.textSecondary)
+            HStack(spacing: WbSpace.sm) {
+                Spacer(minLength: 0)
+                Button(model.text("配置 Claude Desktop…", "Configure Claude Desktop…")) { confirmClaudeConfig = true }
+                    .buttonStyle(.bordered).controlSize(.regular)
+                    .disabled(saving)
+                Button(model.text("复制 MCP 配置", "Copy MCP configuration")) {
+                    guard !mcpBinary.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty, let data = try? JSONSerialization.data(withJSONObject:["mcpServers":["jidr":["command":mcpBinary,"args":["mcp"]]]],options:[.prettyPrinted,.sortedKeys]), let text = String(data:data,encoding:.utf8) else { return }
+                    NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text,forType:.string)
+                    message = model.text("MCP 配置已复制。", "MCP configuration copied.")
+                }
+                .buttonStyle(.bordered).controlSize(.regular)
             }
         }
     }
 
     // MARK: - About
 
-    private var aboutPage: some View {
-        VStack(spacing: WbSpace.md) {
-            VStack(spacing: WbSpace.xs) {
+    @ViewBuilder private var aboutPage: some View {
+        Section(model.text("关于", "About")) {
+            VStack(spacing: WbSpace.xs + 2) {
                 appIcon
                 Text("Jidr")
                     .wbFont(WbType.headline)
@@ -1812,40 +1777,35 @@ struct SettingsView: View {
                     .wbFont(WbType.caption)
                     .foregroundStyle(WbColor.textSecondary)
             }
-            .padding(.top, WbSpace.sm)
-
-            WbFormGroup {
-                HStack(spacing: WbSpace.sm) {
-                    Button(model.text("检查更新", "Check for updates")) { checkUpdate() }
-                        .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
-                        .disabled(checkingUpdate || about == nil)
-                    if let releaseURL {
-                        Button(model.text("查看新版本", "View new version")) { NSWorkspace.shared.open(releaseURL) }
-                            .buttonStyle(.bordered).controlSize(.regular)
-                    }
-                    Button(model.text("源代码", "Source code")) {
-                        if let value = about?.repository, let url = URL(string:value) { NSWorkspace.shared.open(url) }
-                    }
-                    .buttonStyle(.bordered).controlSize(.regular)
-                    .disabled(about == nil)
-                    Button(model.text("许可证", "Licenses")) {
-                        if let value = about?.repository, let url = URL(string:value + "/blob/master/NOTICE") { NSWorkspace.shared.open(url) }
-                    }
-                    .buttonStyle(.bordered).controlSize(.regular)
-                    .disabled(about == nil)
-                    Spacer(minLength: 0)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, WbSpace.sm)
+            HStack(spacing: WbSpace.sm) {
+                Button(model.text("检查更新", "Check for updates")) { checkUpdate() }
+                    .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
+                    .disabled(checkingUpdate || about == nil)
+                if let releaseURL {
+                    Button(model.text("查看新版本", "View new version")) { NSWorkspace.shared.open(releaseURL) }
+                        .buttonStyle(.bordered).controlSize(.regular)
                 }
-                .padding(WbSpace.lg)
+                Button(model.text("源代码", "Source code")) {
+                    if let value = about?.repository, let url = URL(string:value) { NSWorkspace.shared.open(url) }
+                }
+                .buttonStyle(.bordered).controlSize(.regular)
+                .disabled(about == nil)
+                Button(model.text("许可证", "Licenses")) {
+                    if let value = about?.repository, let url = URL(string:value + "/blob/master/NOTICE") { NSWorkspace.shared.open(url) }
+                }
+                .buttonStyle(.bordered).controlSize(.regular)
+                .disabled(about == nil)
+                Spacer(minLength: 0)
             }
             if !updateMessage.isEmpty {
                 Text(updateMessage)
                     .wbFont(WbType.caption)
                     .foregroundStyle(WbColor.textSecondary)
-                    .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
             }
         }
-        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder private var appIcon: some View {
@@ -1906,13 +1866,108 @@ private struct SettingsPathRow<Actions: View>: View {
             .padding(.top, 1)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, WbSpace.lg)
-        .padding(.vertical, WbSpace.sm + 1)
+        .padding(.vertical, WbSpace.xs)
     }
 }
 
 
 // MARK: - Device center
+
+/// Native NSSearchField bridged into SwiftUI: the standard magnifier, clear
+/// button and focus ring, with the existing query binding and keyboard focus
+/// restoration driven through the coordinator.
+private struct NativeSearchField: NSViewRepresentable {
+    @Binding var text: String
+    var placeholder: String
+    var width: CGFloat
+    var focusRequest: Int
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> ClearingSearchField {
+        let field = ClearingSearchField()
+        field.delegate = context.coordinator
+        field.fieldCoordinator = context.coordinator
+        field.placeholderString = placeholder
+        field.stringValue = text
+        field.sendsWholeSearchString = false
+        field.sendsSearchStringImmediately = true
+        field.target = context.coordinator
+        field.action = #selector(Coordinator.searchChanged(_:))
+        field.setAccessibilityLabel(placeholder)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return field
+    }
+
+    func updateNSView(_ field: ClearingSearchField, context: Context) {
+        context.coordinator.parent = self
+        if field.stringValue != text { field.stringValue = text }
+        field.placeholderString = placeholder
+        field.setAccessibilityLabel(placeholder)
+        if context.coordinator.lastFocusRequest != focusRequest {
+            context.coordinator.lastFocusRequest = focusRequest
+            DispatchQueue.main.async {
+                guard let window = field.window else { return }
+                window.makeFirstResponder(field)
+                field.currentEditor()?.selectAll(nil)
+            }
+        }
+    }
+
+    final class Coordinator: NSObject, NSSearchFieldDelegate {
+        var parent: NativeSearchField
+        var lastFocusRequest: Int
+
+        init(_ parent: NativeSearchField) {
+            self.parent = parent
+            self.lastFocusRequest = parent.focusRequest
+        }
+
+        @objc func searchChanged(_ sender: NSSearchField) {
+            parent.text = sender.stringValue
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            parent.text = field.stringValue
+        }
+
+        func controlTextDidEndEditing(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            parent.text = field.stringValue
+        }
+
+        /// Esc inside the field editor clears the query (the standard NSSearchField
+        /// behaviour) without resigning search or closing the window.
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            guard commandSelector == NSSelectorFromString("cancelOperation:") else { return false }
+            guard let field = control as? NSSearchField, !field.stringValue.isEmpty else { return false }
+            field.stringValue = ""
+            parent.text = ""
+            return true
+        }
+
+        func clear(_ field: ClearingSearchField) {
+            field.stringValue = ""
+            parent.text = ""
+        }
+    }
+}
+
+/// NSSearchField clears its text on Escape; keep focus rather than dismissing
+/// the search when there was something to clear.
+private final class ClearingSearchField: NSSearchField {
+    weak var fieldCoordinator: NativeSearchField.Coordinator?
+
+    override func cancelOperation(_ sender: Any?) {
+        guard !stringValue.isEmpty else {
+            super.cancelOperation(sender)
+            return
+        }
+        fieldCoordinator?.clear(self)
+    }
+}
 
 /// Quiet centred state used by the device/detail/app cards (loading, empty,
 /// disconnected) instead of ad-hoc ProgressViews.
@@ -1946,7 +2001,7 @@ struct CenterView: View {
     @ObservedObject var model: CenterModel
     @State private var query = ""
     @State private var detailsVisible = true
-    @FocusState private var searchFocused: Bool
+    @State private var searchFocusToken = 0
 
     private let compactWidth: CGFloat = 940
     var selectedDevice: Device? { model.devices.first(where: {$0.id == model.selected}) }
@@ -1984,12 +2039,12 @@ struct CenterView: View {
         .ignoresSafeArea(.container, edges:.top)
         .environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
         .preferredColorScheme(model.appearance == 1 ? .light : model.appearance == 2 ? .dark : nil)
-        .onChange(of:model.searchFocusRequest) { _, _ in searchFocused = true }
+        .onChange(of:model.searchFocusRequest) { _, _ in searchFocusToken += 1 }
         .onChange(of:model.paletteOpen) { _, open in
-            if !open, model.sheet == nil { searchFocused = true }
+            if !open, model.sheet == nil { searchFocusToken += 1 }
         }
         .onChange(of:model.tasksOpen) { _, open in
-            if !open, model.sheet == nil { searchFocused = true }
+            if !open, model.sheet == nil { searchFocusToken += 1 }
         }
         .sheet(item:$model.sheet) { sheet in
             Group {
@@ -2053,19 +2108,17 @@ struct CenterView: View {
                     .frame(height: 24)
                     .background(WbColor.control, in: RoundedRectangle(cornerRadius: WbRadius.sm, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
                 .help(model.text("后台任务", "Background tasks"))
                 .accessibilityLabel(model.text("后台任务（\(model.activeJobs.count)）", "Background tasks (\(model.activeJobs.count))"))
             }
             if compact {
                 Button { model.present(.newDevice) } label: {
                     Image(systemName: WbIcon.plus)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(WbColor.accentOnAccent)
-                        .frame(width: 27, height: 27)
-                        .background(WbColor.accent, in: RoundedRectangle(cornerRadius: WbRadius.md, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(WbColor.accent)
                 .help(model.text("新建设备（⌘N）", "New device (⌘N)"))
                 .accessibilityLabel(model.text("新建设备（⌘N）", "New device (⌘N)"))
             } else {
@@ -2090,23 +2143,12 @@ struct CenterView: View {
     }
 
     private func searchField(compact: Bool) -> some View {
-        HStack(spacing: WbSpace.xs) {
-            Image(systemName: WbIcon.search)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(WbColor.textTertiary)
-            TextField(model.text("搜索设备", "Search devices"), text:$query)
-                .textFieldStyle(.plain)
-                .wbFont(WbType.body)
-                .focused($searchFocused)
-                .accessibilityLabel(model.text("搜索设备", "Search devices"))
-        }
-        .padding(.horizontal, WbSpace.sm)
-        .frame(width: compact ? 150 : 200, height: 27)
-        .background(WbColor.control, in: RoundedRectangle(cornerRadius: WbRadius.md, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: WbRadius.md, style: .continuous)
-                .strokeBorder(searchFocused ? WbColor.focusRing : WbColor.borderDefault, lineWidth: searchFocused ? 2 : 1)
-        )
+        NativeSearchField(text: $query,
+                          placeholder: model.text("搜索设备", "Search devices"),
+                          width: compact ? 150 : 200,
+                          focusRequest: searchFocusToken)
+            .frame(width: compact ? 150 : 200)
+            .help(model.text("搜索设备", "Search devices"))
     }
 
     private func toolbarIcon(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
@@ -2117,7 +2159,7 @@ struct CenterView: View {
                 .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.borderless)
         .help(help)
         .accessibilityLabel(help)
     }
@@ -2186,15 +2228,19 @@ struct CenterView: View {
                 CenterQuietState(icon: WbIcon.search,
                                  text: model.text("没有匹配的设备", "No matching devices"), height: 140)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: WbSpace.xs + 2) {
-                        ForEach(filteredDevices) { device in
-                            deviceRow(device)
-                        }
+                List(selection: deviceSelection) {
+                    ForEach(filteredDevices) { device in
+                        deviceListRow(device)
+                            .tag(device.id)
+                            .listRowInsets(EdgeInsets(top: 3, leading: WbSpace.sm + 2,
+                                                      bottom: 3, trailing: WbSpace.sm + 2))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                     }
-                    .padding(.horizontal, WbSpace.sm + 2)
-                    .padding(.bottom, WbSpace.sm)
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .frame(maxHeight: .infinity)
             }
 
             if model.deviceListLoaded && !model.devices.isEmpty {
@@ -2214,6 +2260,13 @@ struct CenterView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .wbCardSurface()
+    }
+
+    private var deviceSelection: Binding<String?> {
+        Binding(get: { model.selected }, set: { newValue in
+            guard let id = newValue, model.selected != id else { return }
+            model.select(id)
+        })
     }
 
     private var emptyDeviceState: some View {
@@ -2258,47 +2311,42 @@ struct CenterView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func deviceRow(_ device: Device) -> some View {
-        let selected = model.selected == device.id
-        return HStack(spacing: WbSpace.sm + 2) {
-            Button { model.select(device.id) } label: {
-                HStack(spacing: WbSpace.sm + 2) {
-                    WbDeviceThumbnail(name:"device-list", width: 44, height: 76)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(device.name)
-                            .wbFont(WbType.title)
-                            .foregroundStyle(WbColor.textPrimary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        HStack(spacing: WbSpace.sm) {
-                            if let holder = model.busyHolder(for: device.id) {
-                                WbStatusLabel(text: holder, tone: .busy)
-                            } else {
-                                WbStatusLabel(text: device.statusText(language: model.language), tone: statusTone(device))
-                            }
-                            if let progress = model.progress(for: device.id) {
-                                Text(progress)
-                                    .wbFont(WbType.caption)
-                                    .foregroundStyle(WbColor.textTertiary)
-                                    .lineLimit(1)
-                            }
+    private func deviceListRow(_ device: Device) -> some View {
+        HStack(spacing: WbSpace.sm + 2) {
+            HStack(spacing: WbSpace.sm + 2) {
+                WbDeviceThumbnail(name: "device-list", width: 44, height: 76)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(device.name)
+                        .wbFont(WbType.title)
+                        .foregroundStyle(WbColor.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    HStack(spacing: WbSpace.sm) {
+                        if let holder = model.busyHolder(for: device.id) {
+                            WbStatusLabel(text: holder, tone: .busy)
+                        } else {
+                            WbStatusLabel(text: device.statusText(language: model.language), tone: statusTone(device))
                         }
-                        Text(deviceMeta(device))
-                            .wbFont(WbType.caption)
-                            .foregroundStyle(WbColor.textSecondary)
-                            .lineLimit(1)
-                        if let fraction = model.bootProgressFraction(for: device.id), device.running == false {
-                            ProgressView(value: min(max(fraction, 0), 1))
-                                .progressViewStyle(.linear)
-                                .frame(height: 3)
-                                .padding(.top, 2)
+                        if let progress = model.progress(for: device.id) {
+                            Text(progress)
+                                .wbFont(WbType.caption)
+                                .foregroundStyle(WbColor.textTertiary)
+                                .lineLimit(1)
                         }
                     }
-                    Spacer(minLength: WbSpace.sm)
+                    Text(deviceMeta(device))
+                        .wbFont(WbType.caption)
+                        .foregroundStyle(WbColor.textSecondary)
+                        .lineLimit(1)
+                    if let fraction = model.bootProgressFraction(for: device.id), device.running == false {
+                        ProgressView(value: min(max(fraction, 0), 1))
+                            .progressViewStyle(.linear)
+                            .frame(height: 3)
+                            .padding(.top, 2)
+                    }
                 }
-                .contentShape(Rectangle())
+                Spacer(minLength: WbSpace.sm)
             }
-            .buttonStyle(.plain)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(model.text("\(device.name)，\(device.statusText(language: model.language))",
                                            "\(device.name), \(device.statusText(language: 0))"))
@@ -2310,15 +2358,7 @@ struct CenterView: View {
             rowAction(device)
             deviceMenu(device)
         }
-        .padding(WbSpace.sm + 1)
-        .background(
-            RoundedRectangle(cornerRadius: WbRadius.md, style: .continuous)
-                .fill(selected ? WbColor.selected : WbColor.raised)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: WbRadius.md, style: .continuous)
-                .strokeBorder(selected ? WbColor.accentText.opacity(0.25) : WbColor.borderSubtle, lineWidth: 1)
-        )
+        .padding(.vertical, 4)
         .contentShape(Rectangle())
         .simultaneousGesture(TapGesture(count: 2).onEnded {
             model.focusOrOpenDeviceWindow(device.id)
@@ -2642,7 +2682,7 @@ struct CenterView: View {
                         .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
                 .disabled(selectedDevice?.running != true)
                 .help(model.text("刷新应用列表", "Refresh apps"))
                 .accessibilityLabel(model.text("刷新应用列表", "Refresh apps"))
@@ -2668,26 +2708,27 @@ struct CenterView: View {
                                      text: model.text("尚未安装可启动的游戏或应用。", "No launchable apps installed yet."),
                                      height: 120)
                 } else {
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(model.apps) { app in
-                                HStack(spacing: WbSpace.sm + 2) {
-                                    WbAppIcon(symbol: WbIcon.appEmpty, imagePath: app.icon, size: 30)
-                                    Text(app.name)
-                                        .wbFont(WbType.body)
-                                        .foregroundStyle(WbColor.textPrimary)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                    Spacer(minLength: WbSpace.sm)
-                                    Button(model.text("启动", "Launch")) { model.launch(app, device: device.id) }
-                                        .buttonStyle(.bordered).controlSize(.regular)
-                                }
-                                .padding(.horizontal, WbSpace.lg)
-                                .frame(minHeight: 44)
-                                .overlay(alignment: .bottom) { WbRowDivider() }
+                    List {
+                        ForEach(model.apps) { app in
+                            HStack(spacing: WbSpace.sm + 2) {
+                                WbAppIcon(symbol: WbIcon.appEmpty, imagePath: app.icon, size: 30)
+                                Text(app.name)
+                                    .wbFont(WbType.body)
+                                    .foregroundStyle(WbColor.textPrimary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                Spacer(minLength: WbSpace.sm)
+                                Button(model.text("启动", "Launch")) { model.launch(app, device: device.id) }
+                                    .buttonStyle(.bordered).controlSize(.regular)
                             }
+                            .padding(.vertical, 3)
+                            .listRowInsets(EdgeInsets(top: 3, leading: WbSpace.lg, bottom: 3, trailing: WbSpace.lg))
+                            .listRowBackground(Color.clear)
                         }
                     }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                    .frame(maxHeight: .infinity)
                 }
                 if let note = model.appsNote {
                     Text(note)

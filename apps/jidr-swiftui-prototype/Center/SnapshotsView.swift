@@ -153,16 +153,19 @@ struct SnapshotsView: View {
             } else if snapshots.isEmpty {
                 emptyState
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        ForEach(Array(snapshots.enumerated()), id: \.element.id) { index, snapshot in
-                            row(snapshot)
-                            if index != snapshots.count - 1 {
-                                WbRowDivider(inset: WbSpace.lg)
-                            }
-                        }
+                // Native list: row separators, scrolling and hover feedback come
+                // from AppKit; the sheet keeps its card surface behind it.
+                List {
+                    ForEach(snapshots) { snapshot in
+                        row(snapshot)
+                            .listRowInsets(EdgeInsets(top: 0, leading: WbSpace.md,
+                                                      bottom: 0, trailing: WbSpace.md))
+                            .listRowBackground(Color.clear)
                     }
                 }
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
+                .frame(maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -250,8 +253,7 @@ struct SnapshotsView: View {
                 }
             }
         }
-        .padding(.horizontal, WbSpace.lg)
-        .padding(.vertical, WbSpace.md)
+        .padding(.vertical, WbSpace.sm)
     }
 
     /// One line of real data: auto-save description, or root tag · size · time.

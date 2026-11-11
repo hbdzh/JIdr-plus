@@ -99,9 +99,6 @@ struct AdvancedToolsView: View {
     var body: some View {
         HStack(spacing: WbSpace.zero) {
             navigation
-            Rectangle()
-                .fill(WbColor.borderSubtle)
-                .frame(width: 1)
             contentColumn
         }
         .background(WbColor.surface)
@@ -134,37 +131,39 @@ struct AdvancedToolsView: View {
          t("使用电话、剪贴板和调试工具。", "Use phone, clipboard and debugging tools.")]
     }
 
-    private var navigation: some View {
-        VStack(alignment: .leading, spacing: WbSpace.xxs) {
-            WbGroupLabel(text: t("环境模拟", "Simulation"))
-                .padding(.horizontal, WbSpace.xs)
-                .padding(.top, WbSpace.sm)
-                .padding(.bottom, WbSpace.xxs)
-            navigationItem(0, t("电池", "Battery"), WbIcon.battery)
-            navigationItem(1, "GPS", WbIcon.location)
-            navigationItem(2, t("网络与传感器", "Network"), WbIcon.network)
-            WbGroupLabel(text: t("开发与调试", "Development"))
-                .padding(.horizontal, WbSpace.xs)
-                .padding(.top, WbSpace.lg)
-                .padding(.bottom, WbSpace.xxs)
-            navigationItem(3, "Logcat", WbIcon.logcat)
-            navigationItem(4, t("Root 管理", "Root"), WbIcon.rootTab)
-            navigationItem(5, t("更多", "More"), WbIcon.more)
-            Spacer(minLength: 0)
-        }
-        .padding(WbSpace.md)
-        .frame(width: 170)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(WbColor.chrome)
+    /// The section-driven side bar is a native sidebar List: AppKit provides the
+    /// selection highlight, hover feedback, keyboard navigation and section
+    /// headers. `tab` stays the single source of truth for the six tabs.
+    private var tabSelection: Binding<Int?> {
+        Binding(get: { tab }, set: { value in
+            if let value, value != tab { tab = value }
+        })
     }
 
-    private func navigationItem(_ index: Int, _ title: String, _ icon: String) -> some View {
-        Button { tab = index } label: {
-            WbSidebarRow(title: title, icon: icon, selected: tab == index)
+    private var navigation: some View {
+        List(selection: tabSelection) {
+            Section(header: Text(t("环境模拟", "Simulation")).wbFont(WbType.label)
+                        .foregroundStyle(WbColor.textSecondary)) {
+                navigationRow(0, t("电池", "Battery"), WbIcon.battery)
+                navigationRow(1, "GPS", WbIcon.location)
+                navigationRow(2, t("网络与传感器", "Network"), WbIcon.network)
+            }
+            Section(header: Text(t("开发与调试", "Development")).wbFont(WbType.label)
+                        .foregroundStyle(WbColor.textSecondary)) {
+                navigationRow(3, "Logcat", WbIcon.logcat)
+                navigationRow(4, t("Root 管理", "Root"), WbIcon.rootTab)
+                navigationRow(5, t("更多", "More"), WbIcon.more)
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(title)
-        .accessibilityAddTraits(tab == index ? .isSelected : [])
+        .listStyle(.sidebar)
+        .frame(width: 170)
+        .accessibilityLabel(t("高级工具分类", "Advanced tool categories"))
+    }
+
+    private func navigationRow(_ index: Int, _ title: String, _ icon: String) -> some View {
+        Label(title, systemImage: icon)
+            .tag(index)
+            .accessibilityLabel(title)
     }
 
     private var contentColumn: some View {
