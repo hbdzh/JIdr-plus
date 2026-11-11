@@ -46,24 +46,24 @@ struct SnapshotSaveDialog: View {
 
             WbGroupLabel(text: t("快照信息", "Snapshot"))
                 .padding(.bottom, WbSpace.sm)
-            WbFormGroup {
-                WbFormRow(label: t("名称", "Name")) {
-                    TextField(t("快照名称", "Snapshot name"), text: $name)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 220)
-                        .disabled(saving)
-                        .accessibilityLabel(t("名称", "Name"))
+            GroupBox {
+                VStack(alignment: .leading, spacing: WbSpace.sm) {
+                    LabeledContent(t("名称", "Name")) {
+                        TextField(t("快照名称", "Snapshot name"), text: $name)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 220)
+                            .disabled(saving)
+                            .accessibilityLabel(t("名称", "Name"))
+                    }
+                    Divider()
+                    LabeledContent(t("将标记为", "Will be tagged")) {
+                        Text(Snapshots.rootTag(mode: device.root.mode, magisk: magiskVersion, language: model.language))
+                            .wbFont(WbType.caption)
+                            .foregroundStyle(WbColor.textSecondary)
+                            .lineLimit(1).truncationMode(.middle)
+                    }
                 }
-                WbRowDivider()
-                WbFormRow(label: t("将标记为", "Will be tagged")) {
-                    Text(Snapshots.rootTag(mode: device.root.mode, magisk: magiskVersion, language: model.language))
-                        .wbFont(WbType.caption.weighted(.medium))
-                        .foregroundStyle(WbColor.textSecondary)
-                        .padding(.horizontal, WbSpace.sm)
-                        .padding(.vertical, WbSpace.xs)
-                        .background(WbColor.control, in: Capsule())
-                        .lineLimit(1).truncationMode(.middle)
-                }
+                .padding(.top, WbSpace.xxs)
             }
 
             if othersLoaded {

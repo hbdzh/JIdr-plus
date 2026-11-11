@@ -20,11 +20,6 @@ struct WbCard<Content: View>: View {
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(WbColor.raised, in: RoundedRectangle(cornerRadius: WbRadius.lg, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: WbRadius.lg, style: .continuous)
-                    .strokeBorder(WbColor.borderDefault, lineWidth: 1)
-            )
-            .wbShadow(WbShadow.card)
     }
 }
 
@@ -33,11 +28,6 @@ extension View {
     /// manage their own padding.
     func wbCardSurface(radius: CGFloat = WbRadius.lg) -> some View {
         background(WbColor.raised, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(WbColor.borderDefault, lineWidth: 1)
-            )
-            .wbShadow(WbShadow.card)
     }
 
     func wbDivider() -> some View {
@@ -140,9 +130,8 @@ struct WbDeviceThumbnail: View {
         .clipShape(RoundedRectangle(cornerRadius: WbRadius.sm + 2, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: WbRadius.sm + 2, style: .continuous)
-                .strokeBorder(.black.opacity(0.12), lineWidth: 1)
+                .strokeBorder(WbColor.borderSubtle, lineWidth: 1)
         )
-        .wbShadow(WbShadow.card)
     }
 }
 

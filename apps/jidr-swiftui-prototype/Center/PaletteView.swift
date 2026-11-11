@@ -3,6 +3,10 @@
 // in CommandPalette.swift; this file only draws them. Arrows/Return/Esc are
 // handled by CenterModel.handleShortcutEvent, so the search field keeps
 // normal typing behaviour.
+//
+// HIG pass: the palette is a genuine floating panel, so it keeps the popover
+// shadow and uses a system material instead of a hand-drawn card border; the
+// shortcut hints are plain secondary text rather than custom chips.
 
 import SwiftUI
 
@@ -26,7 +30,9 @@ struct CommandPaletteView: View {
                 .onTapGesture { model.closeOverlay() }
             VStack(spacing: WbSpace.zero) {
                 HStack(spacing: WbSpace.md) {
-                    Image(systemName: WbIcon.search).foregroundStyle(WbColor.textSecondary)
+                    Image(systemName: WbIcon.search)
+                        .font(.system(size: WbIconSize.iconSm, weight: .medium))
+                        .foregroundStyle(WbColor.textSecondary)
                         .accessibilityHidden(true)
                     TextField(model.text("输入命令或设备名称", "Type a command or a device name"), text: $model.paletteQuery)
                         .textFieldStyle(.plain)
@@ -37,8 +43,6 @@ struct CommandPaletteView: View {
                         .wbFont(WbType.caption)
                         .foregroundStyle(WbColor.textSecondary)
                         .accessibilityHidden(true)
-                        .padding(.horizontal, WbSpace.sm).padding(.vertical, WbSpace.xxs)
-                        .background(WbStatus.neutral.container, in: RoundedRectangle(cornerRadius: WbRadius.xs))
                 }
                 .padding(.horizontal, WbSpace.lg)
                 .frame(height: 52)
@@ -77,8 +81,7 @@ struct CommandPaletteView: View {
                 }
             }
             .frame(width: 560)
-            .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.lg))
-            .overlay(RoundedRectangle(cornerRadius: WbRadius.lg).strokeBorder(WbColor.borderDefault, lineWidth: WbBorder.hairline))
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: WbRadius.lg, style: .continuous))
             .wbShadow(WbShadow.popover)
             .padding(.top, 72)
         }
@@ -103,6 +106,7 @@ private struct PaletteRow: View {
     var body: some View {
         HStack(spacing: WbSpace.md) {
             Image(systemName: symbol)
+                .font(.system(size: WbIconSize.iconSm, weight: .medium))
                 .frame(width: WbIconSize.iconMd)
                 .foregroundStyle(WbColor.textSecondary)
                 .accessibilityHidden(true)
@@ -112,14 +116,12 @@ private struct PaletteRow: View {
                     Text(entry.subtitle).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).lineLimit(1)
                 }
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: WbSpace.sm)
             if !entry.keyboard.isEmpty {
                 Text(entry.keyboard)
                     .wbFont(WbType.caption)
-                    .accessibilityHidden(true)
                     .foregroundStyle(WbColor.textSecondary)
-                    .padding(.horizontal, WbSpace.sm).padding(.vertical, WbSpace.xxs)
-                    .background(WbStatus.neutral.container, in: RoundedRectangle(cornerRadius: WbRadius.xs))
+                    .accessibilityHidden(true)
             }
         }
         .padding(.horizontal, WbSpace.md)

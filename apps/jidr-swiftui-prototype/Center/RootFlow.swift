@@ -382,6 +382,7 @@ struct FullRootView: View {
                     if presentation.phase == .failed || presentation.phase == .unverified { failureBlocks }
                     if presentation.phase == .idle {
                         Label(t("没有正在进行的 Root 配置。", "No root setup is running."), systemImage: WbIcon.info)
+                            .wbFont(WbType.body)
                             .foregroundStyle(WbColor.textSecondary)
                     }
                 }.padding(WbSpace.xl)
@@ -420,7 +421,7 @@ struct FullRootView: View {
         HStack(spacing: WbSpace.md) {
             VStack(alignment: .leading, spacing: WbSpace.xxs) {
                 Text(t("完整 Root · \(presentation.deviceName)", "Full root · \(presentation.deviceName)"))
-                    .wbFont(WbType.title)
+                    .wbFont(WbType.headline)
                 if !presentation.serial.isEmpty {
                     Text(presentation.serial).wbFont(WbType.code)
                         .foregroundStyle(WbColor.textSecondary)
@@ -428,12 +429,14 @@ struct FullRootView: View {
             }
             Spacer()
             if presentation.playStore {
-                Text(t("Beta · Play 商店镜像", "Beta · Play Store image"))
-                    .wbFont(WbType.caption.weighted(.medium)).foregroundStyle(WbColor.warning)
-                    .padding(.horizontal, WbSpace.sm).padding(.vertical, WbSpace.xs)
-                    .background(WbStatus.warning.container, in: Capsule())
+                Label(t("Beta · Play 商店镜像", "Beta · Play Store image"),
+                      systemImage: WbIcon.warning)
+                    .wbFont(WbType.label)
+                    .foregroundStyle(WbColor.warning)
             }
             Button(t("关闭", "Close")) { dismiss() }
+                .buttonStyle(.bordered)
+                .keyboardShortcut(.cancelAction)
         }.padding(WbSpace.lg)
     }
 
@@ -442,18 +445,19 @@ struct FullRootView: View {
     private var seal: some View {
         let (symbol, status): (String, WbStatusColor) = {
             switch presentation.phase {
-            case .success: return (WbIcon.rootVerified, WbStatus.positive)
-            case .failed: return (WbIcon.errorCircle, WbStatus.negative)
-            case .unverified: return (WbIcon.rootUnverified, WbStatus.warning)
-            case .stopped: return (WbIcon.stopped, WbStatus.neutral)
+            case .success: return ("checkmark", WbStatus.positive)
+            case .failed: return ("xmark", WbStatus.negative)
+            case .unverified: return ("questionmark", WbStatus.warning)
+            case .stopped: return ("minus", WbStatus.neutral)
             case .grant: return (WbIcon.rootKey, WbStatus.warning)
             default: return (WbIcon.rootKey, WbStatus.transition)
             }
         }()
-        return Image(systemName: symbol).font(.system(size: WbType.hero.size, weight: WbType.hero.weight))
+        return Image(systemName: symbol)
+            .font(.system(size: 40, weight: .regular))
             .foregroundStyle(status.onContainer)
-            .frame(width: 72, height: 72)
-            .background(status.container, in: RoundedRectangle(cornerRadius: WbRadius.xl))
+            .frame(width: 56, height: 48)
+            .accessibilityHidden(true)
     }
 
     private var headline: String {
@@ -502,7 +506,7 @@ struct FullRootView: View {
     private var hero: some View {
         VStack(spacing: WbSpace.md) {
             HStack { Spacer(); seal; Spacer() }
-            Text(headline).wbFont(WbType.headline)
+            Text(headline).wbFont(WbType.display)
             if !badge.isEmpty {
                 Text(badge).wbFont(WbType.body).foregroundStyle(WbColor.textSecondary)
                     .multilineTextAlignment(.center)
@@ -521,12 +525,10 @@ struct FullRootView: View {
     private var stepsBlock: some View {
         VStack(alignment: .leading, spacing: WbSpace.zero) {
             ForEach(Array(presentation.steps.enumerated()), id: \.offset) { index, row in
-                if index > 0 { Divider().padding(.leading, WbSpace.xxxl) }
+                if index > 0 { Divider().padding(.leading, WbSpace.xxl) }
                 stepRow(row)
             }
         }
-        .background(WbColor.raised, in: RoundedRectangle(cornerRadius: WbRadius.lg))
-        .overlay(RoundedRectangle(cornerRadius: WbRadius.lg).strokeBorder(WbColor.borderDefault, lineWidth: WbBorder.hairline))
     }
 
     private func stepRow(_ row: RootStepRow) -> some View {
@@ -553,19 +555,19 @@ struct FullRootView: View {
             case .failed: Text(t("失败", "Failed")).wbFont(WbType.caption).foregroundStyle(WbStatus.jobFailed.onContainer)
             case .skipped: Text(t("未执行", "Not run")).wbFont(WbType.caption).foregroundStyle(WbStatus.jobCancelled.onContainer)
             }
-        }.padding(.horizontal, WbSpace.lg).padding(.vertical, row.state == .current || row.state == .failed ? 10 : 8)
-            .background(row.state == .current ? WbStatus.transition.container
-                        : row.state == .failed ? WbStatus.negative.container : Color.clear)
+        }
+        .padding(.horizontal, WbSpace.lg)
+        .padding(.vertical, WbSpace.sm)
     }
 
     @ViewBuilder
     private func stepIcon(_ row: RootStepRow) -> some View {
         switch row.state {
-        case .done: Image(systemName: WbIcon.checkCircleFill).foregroundStyle(WbColor.positive)
-        case .current: ProgressView().controlSize(.small).frame(width: 18, height: 18)
-        case .waiting: Image(systemName: WbIcon.progressRing).foregroundStyle(WbColor.textSecondary)
-        case .failed: Image(systemName: WbIcon.errorCircle).foregroundStyle(WbColor.negative)
-        case .skipped: Image(systemName: WbIcon.minusCircle).foregroundStyle(WbColor.textSecondary)
+        case .done: Image(systemName: "checkmark").font(.system(size: WbIconSize.iconSm, weight: .semibold)).foregroundStyle(WbColor.positive)
+        case .current: ProgressView().controlSize(.small).frame(width: WbIconSize.iconMd)
+        case .waiting: Image(systemName: "hourglass").font(.system(size: WbIconSize.iconSm)).foregroundStyle(WbColor.textSecondary)
+        case .failed: Image(systemName: "xmark").font(.system(size: WbIconSize.iconSm, weight: .semibold)).foregroundStyle(WbColor.negative)
+        case .skipped: Image(systemName: "minus").font(.system(size: WbIconSize.iconSm)).foregroundStyle(WbColor.textSecondary)
         }
     }
 
@@ -579,19 +581,17 @@ struct FullRootView: View {
             Spacer()
             Text(presentation.elapsed).wbFont(WbType.code).foregroundStyle(WbColor.textSecondary)
         }
-        .padding(WbSpace.md)
-        .background(WbColor.sunken, in: RoundedRectangle(cornerRadius: WbRadius.md))
     }
 
     private var grantBlock: some View {
-        HStack(spacing: WbSpace.md) {
-            Image(systemName: WbIcon.tap).foregroundStyle(WbColor.warning)
+        HStack(spacing: WbSpace.sm) {
+            Image(systemName: WbIcon.tap)
+                .font(.system(size: WbIconSize.iconSm, weight: .medium))
+                .foregroundStyle(WbColor.warning)
             Text(t("等待你点按“允许”：还剩 \(presentation.grantLeft)", "Waiting for your tap: \(presentation.grantLeft) left"))
                 .wbFont(WbType.body.weighted(.medium))
             Spacer()
         }
-        .padding(WbSpace.md)
-        .background(WbStatus.warning.container, in: RoundedRectangle(cornerRadius: WbRadius.md))
     }
 
     private var proofBlock: some View {
@@ -601,8 +601,6 @@ struct FullRootView: View {
             proofRow(t("启动镜像", "Boot image"), t("已修补 · 原始镜像已保留", "patched · original kept"))
             proofRow(t("耗时", "Took"), t("\(presentation.took) · 5 / 5 步", "\(presentation.took) · 5 of 5 steps"))
         }
-        .padding(WbSpace.md)
-        .background(WbColor.sunken, in: RoundedRectangle(cornerRadius: WbRadius.md))
     }
 
     private func proofRow(_ key: String, _ value: String) -> some View {
@@ -615,7 +613,9 @@ struct FullRootView: View {
 
     private var integrityBanner: some View {
         HStack(alignment: .top, spacing: WbSpace.sm) {
-            Image(systemName: WbIcon.integrity).foregroundStyle(WbColor.warning)
+            Image(systemName: WbIcon.integrity)
+                .font(.system(size: WbIconSize.iconSm, weight: .medium))
+                .foregroundStyle(WbColor.warning)
             Text(presentation.playStore
                  ? t("已 Root 的模拟器无法通过 Play Integrity。一旦 Root，Play 商店里的银行应用和部分游戏会拒绝运行。",
                      "Rooted emulators can't pass Play Integrity. Banking apps and some games from the Play Store will refuse to run once it is rooted.")
@@ -623,9 +623,7 @@ struct FullRootView: View {
                      "Rooted emulators can't pass Play Integrity. Apps that check it will refuse to run."))
                 .wbFont(WbType.caption).foregroundStyle(WbColor.warning)
         }
-        .padding(WbSpace.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(WbStatus.warning.container, in: RoundedRectangle(cornerRadius: WbRadius.md))
     }
 
     private func logTailBlock(_ lines: [RootLogLine], title: String) -> some View {
@@ -643,9 +641,7 @@ struct FullRootView: View {
                 }
             }
         }
-        .padding(WbSpace.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(WbColor.sunken, in: RoundedRectangle(cornerRadius: WbRadius.md))
     }
 
     private var failureBlocks: some View {
@@ -675,22 +671,31 @@ struct FullRootView: View {
             switch presentation.phase {
             case .progress:
                 Button(t("停止并回退", "Stop and revert"), role: .destructive) { store.stopAndRevert() }
+                    .buttonStyle(.bordered)
                 Spacer()
                 Button(t("在后台继续", "Continue in background")) { dismiss() }
+                    .buttonStyle(.bordered)
             case .grant:
                 Button(t("取消", "Cancel"), role: .destructive) { store.cancelGrant() }
+                    .buttonStyle(.bordered)
                 Spacer()
                 Button(t("在后台继续", "Continue in background")) { dismiss() }
+                    .buttonStyle(.bordered)
             case .success:
                 Button(showSteps ? t("隐藏步骤", "Hide steps") : t("显示步骤", "Show steps")) { showSteps.toggle() }
+                    .buttonStyle(.bordered)
                 if presentation.canOpenPlayer {
                     Button(t("打开设备窗口", "Open device window")) { model.openGame(target.id) }
+                        .buttonStyle(.bordered)
                 }
                 Spacer()
                 if snapshotDevice != nil {
                     Button(t("保存快照…", "Save snapshot…")) { showSnapshotSave = true }
+                        .buttonStyle(.bordered)
                 }
-                Button(t("完成", "Done")) { dismiss() }.keyboardShortcut(.defaultAction)
+                Button(t("完成", "Done")) { dismiss() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
             case .failed:
                 Button(t("复制日志", "Copy log")) {
                     let pasteboard = NSPasteboard.general
@@ -698,13 +703,20 @@ struct FullRootView: View {
                     pasteboard.setString(store.copyLog(), forType: .string)
                     model.notice = t("已复制 Root 配置日志。", "Copied the root setup log.")
                 }
+                .buttonStyle(.bordered)
                 Spacer()
                 Button(t("回退到无 Root", "Revert to unrooted"), role: .destructive) { confirmRevert = true }
-                Button(t("重试", "Try again")) { store.retry() }.keyboardShortcut(.defaultAction)
+                    .buttonStyle(.bordered)
+                Button(t("重试", "Try again")) { store.retry() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
             case .unverified:
                 Spacer()
                 Button(t("回退到无 Root", "Revert to unrooted"), role: .destructive) { confirmRevert = true }
-                Button(t("重试", "Try again")) { store.retry() }.keyboardShortcut(.defaultAction)
+                    .buttonStyle(.bordered)
+                Button(t("重试", "Try again")) { store.retry() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
             case .stopped:
                 Spacer()
                 ProgressView().controlSize(.small)
@@ -712,9 +724,9 @@ struct FullRootView: View {
             case .idle:
                 Spacer()
                 Button(t("关闭", "Close")) { dismiss() }
+                    .buttonStyle(.bordered)
             }
         }
         .padding(WbSpace.lg)
-        .background(WbColor.chrome)
     }
 }

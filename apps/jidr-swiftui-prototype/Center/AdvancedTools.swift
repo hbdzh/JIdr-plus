@@ -11,7 +11,7 @@ final class AdvancedToolsWindowController: NSWindowController, NSWindowDelegate 
         super.init(window:window)
         window.title = model.text("高级工具 — \(name)", "Advanced tools — \(name)")
         window.contentView = NSHostingView(rootView:AdvancedToolsView(model:model,id:id,initialRoot:root))
-        window.minSize = NSSize(width:600,height:480)
+        window.minSize = NSSize(width:680,height:480)
         window.isReleasedWhenClosed = false
         window.delegate = self
         window.center()
@@ -195,18 +195,18 @@ struct AdvancedToolsView: View {
         .frame(maxWidth:.infinity, maxHeight:.infinity, alignment:.topLeading)
     }
 
-    /// The visual container for each tab. The Root tab keeps its own cards
-    /// (RootDevToolsView renders its sections as cards already) so the sheet
-    /// does not end up with cards nested inside cards.
+    /// The tab content is flat on the utility window surface; no hand-drawn
+    /// card background, border or shadow. RootDevToolsView keeps its own
+    /// native grouping because it is a separate component.
     @ViewBuilder
     private var tabContent: some View {
         switch tab {
-        case 0: WbCard(padding: WbSpace.xl) { battery }
-        case 1: WbCard(padding: WbSpace.xl) { gps }
-        case 2: WbCard(padding: WbSpace.xl) { networkAndSensors }
-        case 3: WbCard(padding: WbSpace.xl) { logs }
+        case 0: battery
+        case 1: gps
+        case 2: networkAndSensors
+        case 3: logs
         case 4: RootDevToolsView(model:model, id:id, running:running)
-        default: WbCard(padding: WbSpace.xl) { additionalTools }
+        default: additionalTools
         }
     }
 
@@ -360,7 +360,6 @@ struct AdvancedToolsView: View {
                 }.onChange(of:logStream.revision) { _, _ in if followLog { reader.scrollTo("log-end",anchor:.bottom) } }
             }.frame(minHeight:280)
                 .background(WbColor.sunken, in:RoundedRectangle(cornerRadius: WbRadius.md))
-                .overlay(RoundedRectangle(cornerRadius: WbRadius.md).strokeBorder(WbColor.borderDefault, lineWidth: WbBorder.hairline))
         }
     }
     private var additionalTools: some View {
@@ -505,7 +504,6 @@ struct GPSMapSheet: View {
             }
             .frame(width: 620, height: 380)
             .clipShape(RoundedRectangle(cornerRadius: WbRadius.md))
-            .overlay(RoundedRectangle(cornerRadius: WbRadius.md).strokeBorder(WbColor.borderDefault, lineWidth: WbBorder.hairline))
             HStack(spacing: WbSpace.sm) {
                 if tileURL.isEmpty { Text("© OpenStreetMap contributors").wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary) }
                 Spacer()

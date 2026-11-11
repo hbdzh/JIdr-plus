@@ -116,7 +116,14 @@ struct SnapshotsView: View {
                 ProgressView().controlSize(.small)
                     .padding(.trailing, WbSpace.xs)
             } else {
-                SnapshotsIconButton(icon: WbIcon.refresh, label: t("刷新", "Refresh")) { load() }
+                Button { load() } label: {
+                    Image(systemName: WbIcon.refresh)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(WbColor.textSecondary)
+                }
+                .buttonStyle(.borderless)
+                .help(t("刷新", "Refresh"))
+                .accessibilityLabel(t("刷新", "Refresh"))
             }
             Button { showSave = true } label: {
                 Label(t("保存当前快照", "Save snapshot"), systemImage: WbIcon.plus)
@@ -125,8 +132,6 @@ struct SnapshotsView: View {
             .disabled(!running || busy)
             .help(t("保存当前快照", "Save snapshot"))
             .accessibilityLabel(t("保存当前快照", "Save snapshot"))
-            SnapshotsIconButton(icon: WbIcon.close, label: t("关闭", "Close")) { dismiss() }
-                .disabled(busy)
         }
     }
 
@@ -160,16 +165,13 @@ struct SnapshotsView: View {
                         row(snapshot)
                             .listRowInsets(EdgeInsets(top: 0, leading: WbSpace.md,
                                                       bottom: 0, trailing: WbSpace.md))
-                            .listRowBackground(Color.clear)
                     }
                 }
                 .listStyle(.inset)
-                .scrollContentBackground(.hidden)
                 .frame(maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .wbCardSurface()
     }
 
     private var loadingState: some View {
@@ -184,10 +186,8 @@ struct SnapshotsView: View {
     private var emptyState: some View {
         VStack(spacing: WbSpace.sm) {
             Image(systemName: WbIcon.camera)
-                .font(.system(size: 20, weight: .light))
+                .font(.system(size: 26, weight: .light))
                 .foregroundStyle(WbColor.textTertiary)
-                .frame(width: 44, height: 44)
-                .background(WbColor.control, in: Circle())
             Text(t("暂无快照", "No snapshots"))
                 .wbFont(WbType.body.weighted(.medium)).foregroundStyle(WbColor.textPrimary)
             Text(t("快照会按当前状态保存内存和磁盘，并记录保存时的 Root 模式。",
@@ -201,15 +201,11 @@ struct SnapshotsView: View {
 
     private func row(_ snapshot: SnapshotRow) -> some View {
         HStack(alignment: .top, spacing: WbSpace.md) {
-            ZStack {
-                Circle()
-                    .fill(snapshot.quick_boot ? WbColor.accentContainer : WbColor.control)
-                    .frame(width: 36, height: 36)
-                Image(systemName: snapshot.quick_boot ? WbIcon.quickBoot : WbIcon.camera)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(snapshot.quick_boot ? WbColor.accentText : WbColor.textSecondary)
-            }
-            .accessibilityHidden(true)
+            Image(systemName: snapshot.quick_boot ? WbIcon.quickBoot : WbIcon.camera)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(snapshot.quick_boot ? WbColor.accentText : WbColor.textSecondary)
+                .frame(width: 20)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: WbSpace.xxs + 1) {
                 Text(displayName(snapshot))
@@ -241,7 +237,7 @@ struct SnapshotsView: View {
                         alertItem = .delete(snapshot)
                     } label: {
                         Image(systemName: WbIcon.trash)
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .foregroundStyle(WbColor.negative)
                             .frame(width: 24, height: 24)
                             .contentShape(Rectangle())
@@ -278,7 +274,7 @@ struct SnapshotsView: View {
     }
 
     private var footer: some View {
-        HStack(alignment: .firstTextBaseline, spacing: WbSpace.md) {
+        HStack(alignment: .center, spacing: WbSpace.md) {
             Text(summaryText)
                 .wbFont(WbType.caption).foregroundStyle(WbColor.textTertiary)
                 .lineLimit(1)
@@ -286,6 +282,10 @@ struct SnapshotsView: View {
             Text(footerNote)
                 .wbFont(WbType.caption).foregroundStyle(WbColor.textTertiary)
                 .lineLimit(1)
+            Button(t("关闭", "Close")) { dismiss() }
+                .buttonStyle(.bordered)
+                .keyboardShortcut(.cancelAction)
+                .disabled(busy)
         }
     }
 
@@ -463,26 +463,5 @@ struct SnapshotsView: View {
                 error = OperationMessages.error(failure.localizedDescription, language: model.language)
             }
         }
-    }
-}
-
-/// Small square icon button used by the sheet header (refresh / close). Kept
-/// local to this file because it is the only header that needs it.
-private struct SnapshotsIconButton: View {
-    var icon: String
-    var label: String
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(WbColor.textSecondary)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .accessibilityLabel(label)
-        .help(label)
     }
 }

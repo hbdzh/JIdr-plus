@@ -88,7 +88,7 @@ struct RootDevToolsView: View {
     private var canCerts: Bool { capabilities.contains("root.cacert.install") }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: WbSpace.lg) {
+        VStack(alignment: .leading, spacing: WbSpace.xl) {
             statusCard
             if !fullRoot {
                 Label(t("以下功能需要完整 Root（Magisk）。请在设备详情中设置完整 Root。",
@@ -99,31 +99,28 @@ struct RootDevToolsView: View {
             }
             Group {
                 if fullRoot {
-                    autoGrantBlock
                     modulesBlock
                     propsBlock
                     if canCerts {
                         certsBlock
                     } else if capabilitiesLoaded {
-                        HStack(alignment: .top, spacing: WbSpace.sm) {
-                            Image(systemName: WbIcon.lock).foregroundStyle(WbColor.textSecondary)
-                            Text(t("需要更新 Jidr 后台才支持系统 CA 证书。", "Needs a newer Jidr daemon to manage system CA certificates."))
-                                .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
-                        }.padding(WbSpace.md)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(WbColor.raised, in: RoundedRectangle(cornerRadius: WbRadius.md))
+                        Label(t("需要更新 Jidr 后台才支持系统 CA 证书。", "Needs a newer Jidr daemon to manage system CA certificates."),
+                              systemImage: WbIcon.lock)
+                            .wbFont(WbType.label)
+                            .foregroundStyle(WbColor.textSecondary)
                     }
                 }
             }.disabled(!fullRoot || !running || working)
             if !statusText.isEmpty {
-                Label(statusText, systemImage: WbIcon.info).wbFont(WbType.caption)
+                Label(statusText, systemImage: WbIcon.info).wbFont(WbType.label)
                     .foregroundStyle(WbColor.textSecondary).textSelection(.enabled)
             }
             if !errorText.isEmpty {
-                Label(errorText, systemImage: WbIcon.warning).wbFont(WbType.caption)
+                Label(errorText, systemImage: WbIcon.warning).wbFont(WbType.label)
                     .foregroundStyle(WbColor.negative).textSelection(.enabled)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .onAppear(perform: load)
         .alert(item: $pending) { action in confirmAlert(action) }
     }
@@ -132,23 +129,24 @@ struct RootDevToolsView: View {
 
     private var statusCard: some View {
         VStack(alignment: .leading, spacing: WbSpace.sm) {
-            HStack {
+            HStack(spacing: WbSpace.sm) {
                 Text(t("Root 状态", "Root status")).wbFont(WbType.title)
                 if playStore, fullRoot {
-                    Text(t("Beta · Play 商店镜像", "Beta · Play Store image"))
-                        .wbFont(WbType.caption.weighted(.medium)).foregroundStyle(WbColor.warning)
-                        .padding(.horizontal, WbSpace.sm).padding(.vertical, WbSpace.xxs)
-                        .background(WbStatus.warning.container, in: Capsule())
+                    Label(t("Beta · Play 商店镜像", "Beta · Play Store image"), systemImage: WbIcon.warning)
+                        .wbFont(WbType.label)
+                        .foregroundStyle(WbColor.warning)
                 }
                 Spacer()
                 if statusLoading {
                     ProgressView().controlSize(.small)
                 } else {
-                    Button(t("刷新", "Refresh"), systemImage: WbIcon.refresh) { load() }.disabled(working)
+                    Button(t("刷新", "Refresh"), systemImage: WbIcon.refresh) { load() }
+                        .buttonStyle(.borderless)
+                        .disabled(working)
                 }
             }
             if !statusError.isEmpty {
-                Label(statusError, systemImage: WbIcon.warning).wbFont(WbType.caption).foregroundStyle(WbColor.negative)
+                Label(statusError, systemImage: WbIcon.warning).wbFont(WbType.label).foregroundStyle(WbColor.negative)
             }
             Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 6) {
                 GridRow {
@@ -167,22 +165,30 @@ struct RootDevToolsView: View {
             if fullRoot {
                 HStack(spacing: WbSpace.sm) {
                     Button(t("再次验证", "Verify again")) { verify() }
+                        .buttonStyle(.bordered)
                         .disabled(!running || working)
                     Button(t("回退到无 Root…", "Revert to unrooted…"), role: .destructive) {
                         pending = PendingRootAction(kind: .revert,
                                                     title: t("回退到无 Root？", "Revert to unrooted?"),
                                                     detail: t("将移除 Magisk 并冷启动设备，可能需要一些时间。游戏数据会保留。",
                                                               "Magisk is removed and the device cold-boots, which can take a while. Your game data is kept."))
-                    }.disabled(working)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(working)
                 }
             }
             if playStore, fullRoot, let notice = status?.play_integrity, !notice.isEmpty {
                 Label(t("已 Root 的模拟器无法通过 Play Integrity。银行应用和部分 Play 商店游戏会拒绝运行。",
                         "Rooted emulators can't pass Play Integrity. Banking apps and some Play Store games will refuse to run."),
-                      systemImage: WbIcon.integrity).wbFont(WbType.caption).foregroundStyle(WbColor.warning)
+                      systemImage: WbIcon.integrity)
+                    .wbFont(WbType.label)
+                    .foregroundStyle(WbColor.warning)
             }
-        }.padding(WbSpace.md)
-            .background(WbColor.raised, in: RoundedRectangle(cornerRadius: WbRadius.md))
+            if fullRoot {
+                Divider()
+                autoGrantRow
+            }
+        }
     }
 
     private var modeLabel: String {
@@ -214,12 +220,12 @@ struct RootDevToolsView: View {
 
     // MARK: auto-grant (D22)
 
-    private var autoGrantBlock: some View {
-        VStack(alignment: .leading, spacing: WbSpace.sm) {
+    private var autoGrantRow: some View {
+        VStack(alignment: .leading, spacing: WbSpace.xxs) {
             Toggle(t("自动授权所有应用（无需询问）", "Auto-grant root to all apps"), isOn: Binding(
                 get: { autoGrant },
                 set: { value in setAutoGrant(value) }))
-                .disabled(!canAutoGrant || autoGrantSaving || working)
+                .disabled(!canAutoGrant || !running || autoGrantSaving || working)
             Text(autoGrantHint).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -258,6 +264,7 @@ struct RootDevToolsView: View {
             Text(t("Magisk 模块", "Magisk modules")).wbFont(WbType.title)
             HStack(spacing: WbSpace.sm) {
                 Button(t("安装模块…", "Install module…")) { choose(["zip"]) { pending = .init(kind: .installModule($0), title: t("安装模块？", "Install module?"), detail: t("将安装 \($0.lastPathComponent) 并重启设备。请先保存游戏进度。", "Install \($0.lastPathComponent) and reboot the device. Save your game first.")) } }
+                    .buttonStyle(.bordered)
                     .disabled(!running || working)
                 Button(t("在 Magisk 中管理模块", "Manage modules in Magisk")) {
                     model.call("app.launch", ["device": id, "package": "com.topjohnwu.magisk"]) { result in
@@ -266,7 +273,9 @@ struct RootDevToolsView: View {
                         }
                     }
                     model.openGame(id)
-                }.disabled(!running || working)
+                }
+                .buttonStyle(.bordered)
+                .disabled(!running || working)
             }
             Text(t("卸载模块请在 Magisk 应用中操作，然后重启设备。", "Remove modules in the Magisk app, then restart the device."))
                 .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
@@ -281,11 +290,13 @@ struct RootDevToolsView: View {
                 Text(t("设备标识（构建属性）", "Build identity")).wbFont(WbType.title)
                 Spacer()
                 if canProps, !propsEditing {
-                    Button(t("编辑…", "Edit…"), systemImage: WbIcon.advancedTools) {
+                    Button(t("编辑…", "Edit…")) {
                         propsDraft = props
                         propsEditing = true
                         propsError = ""
-                    }.disabled(working)
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(working)
                 }
             }
             if !capabilitiesLoaded {
@@ -302,6 +313,8 @@ struct RootDevToolsView: View {
                         Label(t("已保存，下次启动（冷启动）时生效。", "Saved; applies on the next start (a cold boot)."),
                               systemImage: WbIcon.clock).wbFont(WbType.caption).foregroundStyle(WbColor.warning)
                         Button(t("立即重启", "Restart now")) { model.restart(id) }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
                             .disabled(!running || working)
                     }
                 }
@@ -309,11 +322,12 @@ struct RootDevToolsView: View {
                 VStack(alignment: .leading, spacing: WbSpace.sm) {
                     ForEach(Self.propFields, id: \.self) { field in
                         HStack {
-                            Text(propLabel(field)).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).frame(width: 90, alignment: .leading)
+                            Text(propLabel(field)).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).frame(width: 110, alignment: .leading)
                             TextField(propPlaceholder(field), text: Binding(
                                 get: { propsDraft[field] ?? "" },
                                 set: { propsDraft[field] = $0 }))
                                 .textFieldStyle(.roundedBorder)
+                                .frame(maxWidth: 220)
                                 .disabled(propsSaving)
                         }
                     }
@@ -330,21 +344,25 @@ struct RootDevToolsView: View {
                                             title: t("保存设备标识？", "Save build identity?"),
                                             detail: t("之后的下一次启动会执行冷启动。请先保存游戏进度。",
                                                       "The next start will be a cold boot. Save your game first."))
-                        }.buttonStyle(.borderedProminent).disabled(propsSaving)
-                        Button(t("取消", "Cancel")) { propsEditing = false; propsError = "" }.disabled(propsSaving)
+                        }
+                        .buttonStyle(.borderedProminent).disabled(propsSaving)
+                        Button(t("取消", "Cancel")) { propsEditing = false; propsError = "" }
+                            .buttonStyle(.bordered)
+                            .disabled(propsSaving)
                         Spacer()
                         if !props.isEmpty {
                             Button(t("恢复为镜像默认值", "Reset to stock")) {
                                 pending = .init(kind: .saveProps([:], reset: true),
                                                 title: t("恢复镜像默认值？", "Reset to stock values?"),
                                                 detail: t("移除 Jidr 保存的构建属性；下一次启动会冷启动。", "Removes the build props Jidr saved; the next start is a cold boot."))
-                            }.disabled(propsSaving)
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(propsSaving)
                         }
                     }
                 }
             }
-        }.padding(WbSpace.md)
-            .background(WbColor.raised, in: RoundedRectangle(cornerRadius: WbRadius.md))
+        }
     }
 
     private var propsSummary: String {
@@ -393,8 +411,12 @@ struct RootDevToolsView: View {
                                     title: t("信任此证书？", "Trust this certificate?"),
                                     detail: t("将信任 \(url.lastPathComponent) 并重启设备。请先保存游戏进度。",
                                               "Trust \(url.lastPathComponent) and reboot the device. Save your game first."))
-                } }.disabled(!running || working || certsBusy)
-                Button(t("验证", "Verify")) { verifyCerts() }.disabled(!running || working || certsBusy || certs.isEmpty)
+                } }
+                .buttonStyle(.borderless)
+                .disabled(!running || working || certsBusy)
+                Button(t("验证", "Verify")) { verifyCerts() }
+                    .buttonStyle(.borderless)
+                    .disabled(!running || working || certsBusy || certs.isEmpty)
             }
             if !certs.isEmpty {
                 ForEach(certs) { cert in
@@ -404,23 +426,22 @@ struct RootDevToolsView: View {
                             Text(cert.file).wbFont(WbType.code).foregroundStyle(WbColor.textSecondary)
                         }
                         Spacer()
-                        Text(cert.trusted == false ? t("重启后生效", "After restart") : t("已信任", "Trusted"))
-                            .wbFont(WbType.caption.weighted(.medium))
-                            .foregroundStyle(cert.trusted == false ? WbStatus.warning.onContainer : WbStatus.positive.onContainer)
-                            .padding(.horizontal, WbSpace.sm).padding(.vertical, WbSpace.xxs)
-                            .background(cert.trusted == false ? WbStatus.warning.container : WbStatus.positive.container, in: Capsule())
+                        WbStatusLabel(text: cert.trusted == false ? t("重启后生效", "After restart") : t("已信任", "Trusted"),
+                                      tone: cert.trusted == false ? .starting : .running)
                         Button(t("移除", "Remove")) {
                             pending = .init(kind: .removeCert(cert.file),
                                             title: t("移除证书？", "Remove certificate?"),
                                             detail: t("将移除 \(cert.file) 并重启设备。请先保存游戏进度。",
                                                       "Remove \(cert.file) and reboot the device. Save your game first."))
-                        }.disabled(!running || working || certsBusy)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(!running || working || certsBusy)
                     }
                     .padding(.vertical, WbSpace.xxs)
                 }
             }
             Text(certsHint).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
             if certsBusy {
                 HStack(spacing: WbSpace.sm) {
                     ProgressView().controlSize(.small)
@@ -430,8 +451,7 @@ struct RootDevToolsView: View {
             if !certsError.isEmpty {
                 Text(certsError).wbFont(WbType.caption).foregroundStyle(WbColor.negative)
             }
-        }.padding(WbSpace.md)
-            .background(WbColor.raised, in: RoundedRectangle(cornerRadius: WbRadius.md))
+        }
     }
 
     private func certSubject(_ cert: CertRow) -> String {
