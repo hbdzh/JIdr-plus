@@ -180,7 +180,7 @@ fn fixture_result(request: &Request, case: &str) -> Value {
         }
         "center.paths" => json!({"id":id,"type":"result","result":{
             "data":"/tmp/jidr-fixture/data","cache":"/tmp/jidr-fixture/cache","logs":"/tmp/jidr-fixture/logs",
-            "tools":{"android_sdk":null,"jdk_home":null}
+            "tools":{"android_sdk":null,"jdk_home":null,"jidr_sdk":null}
         }}),
         "center.about" => json!({"id":id,"type":"result","result":{
             "version":env!("CARGO_PKG_VERSION"),"repository":"https://github.com/hbdzh/JIdr-plus"
@@ -474,6 +474,7 @@ async fn main() -> Result<()> {
                         };
                         match kind {
                             "sdk" => tools.android_sdk = selected,
+                            "jidr_sdk" => tools.jidr_sdk = selected,
                             "jdk" => {
                                 tools.jdk_home = selected.map(|p| {
                                     if p.join("Contents/Home/bin/java").is_file() {

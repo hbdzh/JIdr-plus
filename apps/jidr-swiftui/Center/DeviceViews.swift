@@ -709,6 +709,31 @@ struct InstallSDKView: View {
         }
     }
 
+    private func chooseInstallLocation() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true; panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false; panel.canCreateDirectories = true
+        panel.prompt = t("选择安装位置", "Choose install location")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        setInstallLocation(url.path)
+    }
+    private func restoreInstallLocation() { setInstallLocation(NSNull()) }
+    private func setInstallLocation(_ path: Any) {
+        loading = true; error = ""
+        loadingMessage = t("正在保存安装位置…", "Saving install location…")
+        model.call("center.toolpath.set", ["kind": "jidr_sdk", "path": path]) { result in
+            loading = false
+            switch result {
+            case .success:
+                loadSDKStatus(); loadAvailableImages()
+            case .failure(let failure):
+                error = t("无法保存安装位置，请选择可写的目录后重试。",
+                          "Could not save the install location. Choose a writable directory and retry.")
+                    + "\n" + failure.localizedDescription
+            }
+        }
+    }
+
     private func prepare() {
         loading = true; error = ""; loadingMessage = model.text("正在读取许可…", "Loading licences…")
         model.call("sdk.licenses", ["packages":packages]) { result in
@@ -827,10 +852,27 @@ struct InstallSDKView: View {
                         }
                     }.labelsHidden().frame(maxWidth: 360).disabled(loading || loadingImages)
                 }
-                if let location = sdkStatus?.private_sdk {
-                    Text(t("下载位置：\(location)", "Download location: \(location)"))
-                        .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary).textSelection(.enabled)
+                if let location = sdkStatus?.install_sdk ?? sdkStatus?.private_sdk {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(t("安装位置：\(location)", "Install location: \(location)"))
+                            .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
+                            .textSelection(.enabled).lineLimit(2).truncationMode(.middle)
+                            .help(location)
+                        HStack(spacing: 8) {
+                            Button(t("更改安装位置…", "Change install location…"), action: chooseInstallLocation)
+                                .disabled(loading)
+                            if sdkStatus?.custom_sdk != nil {
+                                Button(t("恢复默认", "Restore default"), action: restoreInstallLocation)
+                                    .disabled(loading)
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                    }
                 }
+                Text(t("新安装的 emulator 和系统镜像会保存到此目录；已有默认目录中的镜像仍可继续使用。",
+                       "Newly installed emulator files and system images go to this directory; images in the existing default directory remain available."))
+                    .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(t("将安装模拟器工具、ADB 和所选镜像。下一步先检查许可协议。", "Installs emulator tools, ADB and the selected image. Review licences before installation."))
                     .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary).fixedSize(horizontal: false, vertical: true)
                 if loadingImages {
@@ -1127,7 +1169,7 @@ struct NewDeviceView: View {
     }
 }
 
-struct ToolPaths: Decodable { let android_sdk: String?; let jdk_home: String? }
+struct ToolPaths: Decodable { let android_sdk: String?; let jdk_home: String?; let jidr_sdk: String? }
 struct CenterPaths: Decodable { let data: String; let cache: String; let logs: String; let tools: ToolPaths }
 struct DaemonSettings: Decodable {
     let default_root_mode: String
@@ -1135,7 +1177,14 @@ struct DaemonSettings: Decodable {
     let budget_percent: UInt8
     let auto_hibernate_minutes: UInt32
 }
-struct SDKStatus: Decodable { let tools_sdk: String?; let private_sdk: String? }
+struct SDKStatus: Decodable {
+    let tools_sdk: String?
+    let private_sdk: String?
+    /// Writable SDK that Jidr installs into (custom root or the private SDK).
+    let install_sdk: String?
+    /// Set only when the user selected a custom writable install root.
+    let custom_sdk: String?
+}
 struct CacheEntry: Decodable { let size: UInt64 }
 struct AboutInfo: Decodable { let version: String; let repository: String }
 struct SettingsView: View {
