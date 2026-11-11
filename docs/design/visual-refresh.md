@@ -47,6 +47,28 @@ script), so the two UIs share colour, radius and type roles even while their lay
   two titlebar accessory buttons restyled. Input, recording, snapshots, window sizing and state
   restore are untouched.
 
+## Native controls pass (2026-11)
+
+The first visual pass had replaced several standard controls with custom SwiftUI
+drawings. They now use the AppKit-backed components again, while the card/token
+surfaces stay:
+
+- the centre search is a real `NSSearchField` (native clear button, focus
+  restore after the palette/task overlay closes, Esc clears);
+- toolbar icons are `.borderless` buttons;
+- the device list and installed-app list are native `List(selection:)` rows;
+- the settings and advanced-tools sidebars are native sidebar `List`s;
+- the settings pages are a grouped `Form` with `Section`s (all fields, alerts and
+  the static appearance preview are preserved);
+- the snapshot list is a native `List`, and the player side rail plus logcat
+  strip are borderless buttons.
+
+Still intentionally custom: the centre's title-bar row (an `NSToolbar` move is a
+larger separate change), cards, group labels, status dots, device artwork,
+sheet headers/footers, the player's dark chrome background, and the command
+palette/task centre overlays. The screenshot baselines were regenerated after
+this pass; `test.sh` and the window-lifecycle test still pass.
+
 ## Deviations from the design mockups
 
 The mockups assumed a few data sources the product does not have, so the implementation keeps the
