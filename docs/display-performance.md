@@ -82,6 +82,38 @@ homes, and verified the test SDK ramdisk hash was unchanged. Regression checks:
 473 Rust tests passed/1 skipped, full Swift logic/localization checks, 26 visual
 snapshots, player lifecycle checks, 65 benchmark self-tests and 4 runner tests.
 
+## Center refresh, parsing and hidden-window gating (2026-11-12)
+
+The center model no longer performs one full `device.list` + `jobs.list` per
+device event. Ordinary events coalesce into a 120 ms trailing refresh; boot
+progress updates its fraction directly without a full refresh, while boot
+failures, errors and mutation-triggered refreshes stay immediate. Both list
+queries are single-flight with a trailing request and generation/session guards
+so stale replies cannot win. NDJSON framing and `JSONSerialization` moved to a
+serial parse queue, and the large device/jobs list payloads decode on a separate
+queue before the main thread applies them. Unchanged device/job payloads are no
+longer republished to SwiftUI.
+
+`WbAppIcon`/`DeviceArt` now share a bounded 64-entry `NSCache` (including misses)
+instead of loading `NSImage` inside every body evaluation. `FrameDecoder` reads
+the four magic bytes and header words directly, removing two tiny array
+allocations per frame; the pixel buffer allocation is intentionally retained
+because the downstream `CGImage` provider owns it.
+
+The player transport tracks native window visibility (occlusion, minimize,
+active Space, app hide). While hidden it still drains/parses the bridge stream,
+but skips `CGImage` creation, pending-frame replacement and main-thread display
+scheduling; the first frame decoded after the window returns is shown, never the
+pre-hide image. Host/SDK combinations that report no usable `.visible` occlusion
+flag fall back to the other visibility signals so a shown window is not frozen.
+Recording, screenshots and the emulator stream are not paused. The local suites
+and the 26-image snapshot matrix pass; hardware occlusion/Space/fullscreen and
+real-device timing still need dedicated acceptance.
+
+Not changed here: the bridge's 750 ms ADB display-orientation poll and the
+drop-newest frame admission policy. Both remain deferred until a disposable
+device is available for rotation/multitouch and sustained-load measurement.
+
 ## FIFO input and independent connection (2026-11-12)
 
 The input path now has one bounded FIFO consumer and one input-state owner.
