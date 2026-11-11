@@ -4,17 +4,17 @@ import SwiftUI
 import Foundation
 import UniformTypeIdentifiers
 
-struct Device: Identifiable, Decodable {
-    struct Status: Decodable { let state: String }
-    struct ImageInfo: Decodable { let api: Int; let tag: String }
-    struct Root: Decodable {
+struct Device: Identifiable, Decodable, Equatable {
+    struct Status: Decodable, Equatable { let state: String }
+    struct ImageInfo: Decodable, Equatable { let api: Int; let tag: String }
+    struct Root: Decodable, Equatable {
         let mode: String
         let health: String?
         /// Set for a Full-root device once Magisk was installed.
         let magisk_version: String?
         let verified_at: String?
     }
-    struct Runtime: Decodable {
+    struct Runtime: Decodable, Equatable {
         let adb_serial: String?
         let console_port: Int?
         let grpc_port: Int?
@@ -27,7 +27,7 @@ struct Device: Identifiable, Decodable {
     let runtime: Runtime?
     let profile: String
     let sdk_root: String
-    struct Launch: Decodable { let audio: Bool?; let quick_boot: Bool?; let camera_back: String?; let camera_front: String? }
+    struct Launch: Decodable, Equatable { let audio: Bool?; let quick_boot: Bool?; let camera_back: String?; let camera_front: String? }
     let launch: Launch
     let auto_hibernate_minutes: Int?
     let id: String
@@ -112,6 +112,11 @@ struct CenterMessageError: LocalizedError {
     var errorDescription: String? { message }
 }
 
+/// Per-bridge partial-line buffer; owned by the serial parse queue after start.
+private final class ReadBuffer {
+    var data = Data()
+}
+
 final class CenterModel: ObservableObject {
     @Published var devices: [Device] = []
     @Published var deviceListLoaded = false
@@ -193,7 +198,8 @@ final class CenterModel: ObservableObject {
     private var process = Process()
     private var input = Pipe()
     private var output = Pipe()
-    private var buffer = Data()
+    private let parseQueue = DispatchQueue(label: "local.jidr.center.parse", qos: .userInitiated)
+    private let decodeQueue = DispatchQueue(label: "local.jidr.center.decode", qos: .userInitiated)
     private var callbacks: [Int:(Result<Any,Error>)->Void] = [:]
     private var progressCallbacks: [Int:(String,String?,Double?)->Void] = [:]
     private var requestDevices: [Int:String] = [:]
@@ -204,6 +210,12 @@ final class CenterModel: ObservableObject {
     var hasMutations: Bool { !mutations.isEmpty }
     private var sequence = 0
     private var refreshGeneration = 0
+    private var refreshInFlight = false
+    private var refreshPending = false
+    private var jobsGeneration = 0
+    private var jobsInFlight = false
+    private var jobsPending = false
+    private var eventRefreshWork: DispatchWorkItem?
     private var detailGeneration = 0
     private var selectionCleared = false
     private(set) var players: [String:GameWindowController] = [:]
@@ -228,7 +240,8 @@ final class CenterModel: ObservableObject {
     private func startBridge() throws {
         bridgeSession += 1
         let session = bridgeSession
-        buffer.removeAll(keepingCapacity: true)
+        resetRefreshTracking()
+        let readBuffer = ReadBuffer()
         output.fileHandleForReading.readabilityHandler = nil
         let process = Process()
         let input = Pipe()
@@ -240,7 +253,9 @@ final class CenterModel: ObservableObject {
         output.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             if data.isEmpty { handle.readabilityHandler = nil; return }
-            DispatchQueue.main.async { self?.receive(data, session: session) }
+            // Split lines and parse JSON on the serial parse queue; only the
+            // resulting events touch the model on the main thread.
+            self?.parseQueue.async { self?.receive(data, session: session, buffer: readBuffer) }
         }
         process.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async { self?.bridgeTerminated(session: session) }
@@ -290,6 +305,7 @@ final class CenterModel: ObservableObject {
     }
 
     private func failPendingRequests() {
+        resetRefreshTracking()
         let pending = Array(callbacks.values)
         callbacks.removeAll(); progressCallbacks.removeAll(); mutations.removeAll()
         requestDevices.removeAll(); requestProgress.removeAll(); requestMethods.removeAll(); bootProgress.removeAll()
@@ -437,50 +453,122 @@ final class CenterModel: ObservableObject {
         do { try input.fileHandleForWriting.write(contentsOf:data + Data([10])) }
         catch { callbacks.removeValue(forKey:id); progressCallbacks.removeValue(forKey:id); mutations.remove(id); requestDevices.removeValue(forKey:id); done(.failure(error)) }
     }
-    private func receive(_ data: Data, session: Int) {
-        guard session == bridgeSession else { return }
-        buffer.append(data)
-        while let end = buffer.firstIndex(of:10) {
-            let line = Data(buffer.prefix(upTo:end)); buffer.removeSubrange(...end)
-            guard let event = (try? JSONSerialization.jsonObject(with:line)) as? [String:Any], let kind = event["type"] as? String else { continue }
-            if kind == "device_event" {
-                bridgeAnswered()
-                if let event = event["event"] as? [String:Any], let topic = event["topic"] as? String,
-                   let data = event["data"] as? [String:Any], let device = data["device"] as? String {
-                    if topic == "device.boot", let progress = data["progress"] as? Double {
-                        bootProgress[device] = min(1,max(0,progress))
-                    } else if topic == "device.boot_failed" { bootProgress.removeValue(forKey:device) }
-                }
-                refresh(); refreshJobs(); continue
-            }
-            guard let id = event["id"] as? Int else { continue }
-            let method = requestMethods[id]
-            if kind == "progress" {
-                bridgeAnswered()
-                progressCallbacks[id]?(event["message"] as? String ?? "", event["job"] as? String, event["progress"] as? Double)
-                if let message = event["message"] as? String, !message.isEmpty {
-                    if requestDevices[id] != nil { requestProgress[id] = message }
-                    else { notice = OperationMessages.progress(message,language:language) }
-                }
-                continue
-            }
-            requestProgress.removeValue(forKey:id)
-            progressCallbacks.removeValue(forKey:id)
-            requestDevices.removeValue(forKey:id)
-            requestMethods.removeValue(forKey:id)
-            mutations.remove(id)
-            guard let completion = callbacks.removeValue(forKey:id) else { continue }
-            if kind == "error" {
-                let message = event["message"] as? String ?? "操作失败"
-                completion(.failure(CenterMessageError(message: message)))
-                if let method, !localMethods.contains(method) { bridgeAnswered() }
-                if ConnectionHealth.looksDisconnected(message) { connectionLost() }
-            } else {
-                completion(.success(event["result"] ?? NSNull()))
-                if let method, !localMethods.contains(method) { bridgeAnswered() }
-            }
+    /// Split NDJSON and parse each event on the serial parse queue. Only the
+    /// resulting dictionaries are handed to the main thread, keeping line
+    /// buffering and JSONSerialization off the UI thread.
+    private func receive(_ data: Data, session: Int, buffer: ReadBuffer) {
+        buffer.data.append(data)
+        while let end = buffer.data.firstIndex(of: 10) {
+            let line = Data(buffer.data.prefix(upTo: end))
+            buffer.data.removeSubrange(...end)
+            guard let event = (try? JSONSerialization.jsonObject(with: line)) as? [String:Any] else { continue }
+            DispatchQueue.main.async { [weak self] in self?.applyEvent(event, session: session) }
         }
     }
+
+    private func applyEvent(_ event: [String:Any], session: Int) {
+        guard session == bridgeSession else { return }
+        guard let kind = event["type"] as? String else { return }
+        if kind == "device_event" {
+            bridgeAnswered()
+            var immediateRefresh = false
+            if let event = event["event"] as? [String:Any], let topic = event["topic"] as? String,
+               let data = event["data"] as? [String:Any], let device = data["device"] as? String {
+                if topic == "device.boot", let progress = data["progress"] as? Double {
+                    // Boot progress is a cheap, high-frequency signal: update it
+                    // immediately but never trigger a full list refresh for it.
+                    let value = min(1, max(0, progress))
+                    if bootProgress[device] != value { bootProgress[device] = value }
+                    return
+                } else {
+                    if topic == "device.boot_failed" { bootProgress.removeValue(forKey:device) }
+                    immediateRefresh = topic == "device.boot_failed"
+                        || topic.localizedCaseInsensitiveContains("error")
+                        || topic.localizedCaseInsensitiveContains("failed")
+                }
+            }
+            if immediateRefresh { refreshImmediately() } else { scheduleCoalescedRefresh() }
+            return
+        }
+        guard let id = event["id"] as? Int else { return }
+        let method = requestMethods[id]
+        if kind == "progress" {
+            bridgeAnswered()
+            progressCallbacks[id]?(event["message"] as? String ?? "", event["job"] as? String, event["progress"] as? Double)
+            if let message = event["message"] as? String, !message.isEmpty {
+                if requestDevices[id] != nil { requestProgress[id] = message }
+                else { notice = OperationMessages.progress(message,language:language) }
+            }
+            return
+        }
+        requestProgress.removeValue(forKey:id)
+        progressCallbacks.removeValue(forKey:id)
+        requestDevices.removeValue(forKey:id)
+        requestMethods.removeValue(forKey:id)
+        mutations.remove(id)
+        guard let completion = callbacks.removeValue(forKey:id) else { return }
+        if kind == "error" {
+            let message = event["message"] as? String ?? "操作失败"
+            completion(.failure(CenterMessageError(message: message)))
+            if let method, !localMethods.contains(method) { bridgeAnswered() }
+            if ConnectionHealth.looksDisconnected(message) { connectionLost() }
+        } else {
+            completion(.success(event["result"] ?? NSNull()))
+            if let method, !localMethods.contains(method) { bridgeAnswered() }
+        }
+    }
+
+    // MARK: - Coalesced refresh scheduling
+
+    /// Ordinary device events arrive in bursts; one trailing refresh per short
+    /// window avoids one `device.list` + `jobs.list` pair per event.
+    private func scheduleCoalescedRefresh() {
+        guard eventRefreshWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.eventRefreshWork = nil
+            guard !self.stopping, self.process.isRunning else { return }
+            self.refresh(); self.refreshJobs()
+        }
+        eventRefreshWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+    }
+
+    private func refreshImmediately() {
+        eventRefreshWork?.cancel(); eventRefreshWork = nil
+        refresh(); refreshJobs()
+    }
+
+    private func resetRefreshTracking() {
+        refreshInFlight = false; refreshPending = false
+        jobsInFlight = false; jobsPending = false
+        eventRefreshWork?.cancel(); eventRefreshWork = nil
+    }
+
+    /// Decode the two large list payloads off the main thread, then hand the
+    /// typed value back on the main queue. Callers keep their existing
+    /// generation/session checks in the main-thread completion.
+    private func decodeDevicesInBackground(_ value: Any,
+                                           completion: @escaping (Result<[Device],Error>) -> Void) {
+        decodeQueue.async { [weak self] in
+            guard let self else { return }
+            let result: Result<[Device],Error>
+            do { result = .success(try self.decode(value, as: [Device].self)) }
+            catch { result = .failure(error) }
+            DispatchQueue.main.async { completion(result) }
+        }
+    }
+    private func decodeJobsInBackground(_ value: Any,
+                                        completion: @escaping (Result<[JobInfo],Error>) -> Void) {
+        decodeQueue.async { [weak self] in
+            guard let self else { return }
+            let result: Result<[JobInfo],Error>
+            do { result = .success(try self.decode(value, as: [JobInfo].self)) }
+            catch { result = .failure(error) }
+            DispatchQueue.main.async { completion(result) }
+        }
+    }
+
     func decode<T:Decodable>(_ value:Any, as: T.Type) throws -> T {
         try JSONDecoder().decode(T.self, from: JSONSerialization.data(withJSONObject:value, options:.fragmentsAllowed))
     }
@@ -679,21 +767,40 @@ final class CenterModel: ObservableObject {
 
     func refreshJobs() {
         guard !stopping, process.isRunning else { return }
+        if jobsInFlight { jobsPending = true; return }
+        jobsInFlight = true
+        jobsGeneration += 1; let generation = jobsGeneration
+        let session = bridgeSession
         call("jobs.list", ["all": true]) { [weak self] result in
             guard let self else { return }
             switch result {
             case .success(let value):
-                do {
-                    let list = try self.decode(value, as:[JobInfo].self)
-                    self.jobs = list
-                    self.ownJobs.formIntersection(Set(list.map(\.id)))
-                    self.jobsError = nil
-                    self.syncJobsTimer()
-                } catch { self.jobsError = self.readable(error) }
+                self.decodeJobsInBackground(value) { [weak self] decoded in
+                    guard let self else { return }
+                    if session == self.bridgeSession, generation == self.jobsGeneration {
+                        switch decoded {
+                        case .success(let list):
+                            if self.jobs != list { self.jobs = list }
+                            self.ownJobs.formIntersection(Set(list.map(\.id)))
+                            if self.jobsError != nil { self.jobsError = nil }
+                            self.syncJobsTimer()
+                        case .failure(let error): self.jobsError = self.readable(error)
+                        }
+                    }
+                    self.finishJobsRefresh(session: session)
+                }
             case .failure(let error):
-                self.jobsError = self.readable(error)
+                if session == self.bridgeSession, generation == self.jobsGeneration {
+                    self.jobsError = self.readable(error)
+                }
+                self.finishJobsRefresh(session: session)
             }
         }
+    }
+    private func finishJobsRefresh(session: Int) {
+        guard session == bridgeSession else { return }
+        jobsInFlight = false
+        if jobsPending { jobsPending = false; refreshJobs() }
     }
     private func syncJobsTimer() {
         if hasActiveJobs || tasksOpen { startJobsTimer() } else { stopJobsTimer() }
@@ -789,20 +896,43 @@ final class CenterModel: ObservableObject {
     }
     func refresh() {
         guard process.isRunning else { return }
+        eventRefreshWork?.cancel(); eventRefreshWork = nil
+        if refreshInFlight { refreshPending = true; return }
+        refreshInFlight = true
         refreshGeneration += 1; let generation = refreshGeneration
+        let session = bridgeSession
         call("device.list") { [weak self] result in
-            guard let self, generation == self.refreshGeneration else { return }
-            do {
-                let list = try self.decode(result.get(), as:[Device].self)
-                self.applyDeviceList(list)
-            } catch { self.notice = error.localizedDescription }
+            guard let self else { return }
+            switch result {
+            case .success(let value):
+                self.decodeDevicesInBackground(value) { [weak self] decoded in
+                    guard let self else { return }
+                    if session == self.bridgeSession, generation == self.refreshGeneration {
+                        switch decoded {
+                        case .success(let list): self.applyDeviceList(list)
+                        case .failure(let error): self.notice = error.localizedDescription
+                        }
+                    }
+                    self.finishRefresh(session: session)
+                }
+            case .failure(let error):
+                if session == self.bridgeSession, generation == self.refreshGeneration {
+                    self.notice = error.localizedDescription
+                }
+                self.finishRefresh(session: session)
+            }
         }
+    }
+    private func finishRefresh(session: Int) {
+        guard session == bridgeSession else { return }
+        refreshInFlight = false
+        if refreshPending { refreshPending = false; refresh() }
     }
     private func applyDeviceList(_ list: [Device]) {
         let previousID = selected
         let previousState = devices.first(where: { $0.id == previousID })?.status.state
-        devices = list
-        deviceListLoaded = true
+        if devices != list { devices = list }
+        if !deviceListLoaded { deviceListLoaded = true }
         for device in list where device.running || device.stopped { bootProgress.removeValue(forKey: device.id) }
         if !list.contains(where: { $0.id == selected }), selected != nil || !selectionCleared {
             if let next = list.first?.id { select(next) }
@@ -821,22 +951,33 @@ final class CenterModel: ObservableObject {
     /// A successful command reply alone does not prove deletion. Read back the
     /// authoritative list before reporting success or changing the selection.
     private func verifyDeletion(_ id: String, then: (() -> Void)?) {
+        let session = bridgeSession
         call("device.list") { [weak self] result in
             guard let self else { return }
-            defer { self.busy.remove(id); self.refreshJobs() }
-            do {
-                let list = try self.decode(result.get(), as: [Device].self)
-                self.refreshGeneration += 1 // Retire any older list requests.
-                self.applyDeviceList(list)
-                guard !list.contains(where: { $0.id == id }) else {
-                    self.showError(self.text("删除未生效，设备仍在列表中。请重试或检查后台日志。",
-                                             "Deletion did not take effect. The device is still listed. Retry or check the background logs."))
-                    return
-                }
-                self.showToast(self.text("设备已删除", "Device deleted"))
-                then?()
-            } catch {
+            switch result {
+            case .failure(let error):
+                guard session == self.bridgeSession else { return }
+                self.busy.remove(id); self.refreshJobs()
                 self.showError(self.text("无法确认设备已删除：", "Could not verify device deletion: ") + self.readable(error))
+            case .success(let value):
+                self.decodeDevicesInBackground(value) { [weak self] decoded in
+                    guard let self, session == self.bridgeSession else { return }
+                    self.busy.remove(id); self.refreshJobs()
+                    switch decoded {
+                    case .success(let list):
+                        self.refreshGeneration += 1 // Retire any older list requests.
+                        self.applyDeviceList(list)
+                        guard !list.contains(where: { $0.id == id }) else {
+                            self.showError(self.text("删除未生效，设备仍在列表中。请重试或检查后台日志。",
+                                                     "Deletion did not take effect. The device is still listed. Retry or check the background logs."))
+                            return
+                        }
+                        self.showToast(self.text("设备已删除", "Device deleted"))
+                        then?()
+                    case .failure(let error):
+                        self.showError(self.text("无法确认设备已删除：", "Could not verify device deletion: ") + self.readable(error))
+                    }
+                }
             }
         }
     }
