@@ -6,7 +6,7 @@ if [[ "${JIDR_HOME:-}" != /* ]]; then
   printf '%s\n' 'Set JIDR_HOME to an absolute, isolated test directory.' >&2
   exit 2
 fi
-center="$root/target/swiftui-center/JidrSwiftUICenter.app/Contents/MacOS/JidrSwiftUICenter"
+center="$root/target/swiftui-center/Jidr.app/Contents/MacOS/Jidr"
 center_bridge="$root/target/debug/jidr-center-bridge"
 player_bridge="$root/target/debug/jidr-swiftui-bridge"
 export JIDR_DAEMON_BIN="${JIDR_DAEMON_BIN:-$root/target/debug/jidr}"

@@ -192,7 +192,7 @@ run_self_test() {
   "$out/live-render" --self-test \
     --center-bridge "$root/target/debug/jidr-center-bridge" \
     --player-bridge "$root/target/debug/jidr-swiftui-bridge" \
-    --out "$out" --fonts "$root/target/swiftui-center/JidrSwiftUICenter.app/Contents/Resources/fonts" \
+    --out "$out" --fonts "$root/target/swiftui-center/Jidr.app/Contents/Resources/fonts" \
     || fail "self-test renderer failed"
   verify_outputs "$out/selftest" "$out/selftest/evidence-selftest.txt"
   echo "SELF-TEST PASSED: target/m4/selftest/{live-center-1000x640.png,live-center-820x600.png,live-player-432x768.png,evidence-selftest.txt}"
@@ -270,7 +270,7 @@ if installed:
     --player-bridge "$root/target/debug/jidr-swiftui-bridge" \
     --device "$name" --out "$out" \
     --create-ms "$((create_end-create_start))" --boot-ms "$((boot_end-boot_start))" \
-    --fonts "$root/target/swiftui-center/JidrSwiftUICenter.app/Contents/Resources/fonts" \
+    --fonts "$root/target/swiftui-center/Jidr.app/Contents/Resources/fonts" \
     2>&1 | tee "$out/live-render.log"
   local status="${PIPESTATUS[0]}"
   [[ "$status" == "0" ]] || fail "live renderer failed (log: target/m4/live-render.log)"

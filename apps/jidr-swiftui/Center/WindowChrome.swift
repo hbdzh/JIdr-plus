@@ -82,6 +82,8 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate, NSSearchFieldD
     private var subscriptions = Set<AnyCancellable>()
     private var focusRequest = 0
     private let toolbar = NSToolbar(identifier: "jidr.center")
+    private var showingEmptyLibrary: Bool?
+    private var populatedConfiguration: [NSToolbarItem.Identifier]?
 
     init(model: CenterModel, window: NSWindow) {
         self.model = model
@@ -109,8 +111,25 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate, NSSearchFieldD
         update()
     }
 
-    var backgroundEnabled: Bool { !model.paletteOpen && model.sheet == nil }
+    var backgroundEnabled: Bool { !model.isEmptyDeviceLibrary && !model.paletteOpen && model.sheet == nil }
     private func update() {
+        let empty = model.isEmptyDeviceLibrary
+        if showingEmptyLibrary != empty {
+            if empty, showingEmptyLibrary == false {
+                populatedConfiguration = toolbar.items.map(\.itemIdentifier)
+            }
+            showingEmptyLibrary = empty
+            if empty, !model.deviceQuery.isEmpty { model.deviceQuery = "" }
+            let identifiers = empty ? emptyItems : (populatedConfiguration ?? populatedItems)
+            if empty, window?.firstResponder === searchField.currentEditor() {
+                window?.makeFirstResponder(nil)
+            }
+            while !toolbar.items.isEmpty { toolbar.removeItem(at: 0) }
+            for (index, identifier) in identifiers.enumerated() {
+                toolbar.insertItem(withItemIdentifier: identifier, at: index)
+            }
+            toolbar.allowsUserCustomization = !empty
+        }
         window?.appearance = model.windowAppearance
         window?.title = model.text("Jidr 设备中心", "Jidr Device Center")
         searchField.placeholderString = model.text("搜索设备", "Search devices")
@@ -132,9 +151,15 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate, NSSearchFieldD
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [Self.searchID, .init("jidr.new"), .init("jidr.palette"), .init("jidr.tasks"),
-         .init("jidr.refresh"), .init("jidr.details"), .flexibleSpace, .space]
+         .init("jidr.refresh"), .init("jidr.details"), .init("jidr.settings"), .flexibleSpace, .space]
     }
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        model.isEmptyDeviceLibrary ? emptyItems : populatedItems
+    }
+    private var emptyItems: [NSToolbarItem.Identifier] {
+        [.flexibleSpace, .init("jidr.tasks"), .init("jidr.settings")]
+    }
+    private var populatedItems: [NSToolbarItem.Identifier] {
         [.init("jidr.new"), .flexibleSpace, Self.searchID, .init("jidr.palette"),
          .init("jidr.tasks"), .init("jidr.refresh"), .init("jidr.details")]
     }
@@ -159,6 +184,7 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate, NSSearchFieldD
         case "jidr.palette": title = model.text("命令面板", "Command palette"); symbol = WbIcon.command; item.action = #selector(palette)
         case "jidr.tasks": title = model.text("后台任务", "Background tasks"); symbol = WbIcon.tasks; item.action = #selector(tasks)
         case "jidr.refresh": title = model.text("刷新设备", "Refresh devices"); symbol = WbIcon.refresh; item.action = #selector(refresh)
+        case "jidr.settings": title = model.text("设置", "Settings"); symbol = WbIcon.settings; item.action = #selector(settings)
         default: title = model.detailsVisible ? model.text("隐藏详情", "Hide details") : model.text("显示详情", "Show details"); symbol = WbIcon.hideDetails; item.action = #selector(details)
         }
         item.label = title
@@ -176,6 +202,7 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate, NSSearchFieldD
     @objc private func tasks() { model.openTasks() }
     @objc private func refresh() { model.refresh(); model.refreshJobs() }
     @objc private func details() { model.detailsVisible.toggle() }
+    @objc private func settings() { model.present(.settings) }
 }
 
 /// Installs chrome for production and hosted UI tests through the same path.

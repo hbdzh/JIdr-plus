@@ -125,7 +125,8 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
     }
 
     private func buildAppMenu() -> NSMenu {
-        let appName = ProcessInfo.processInfo.processName
+        let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Jidr"
         let menu = NSMenu(title: appName)
         menu.addItem(menuItem(t("关于 Jidr", "About Jidr"),
                               #selector(NSApplication.orderFrontStandardAboutPanel(_:)), target: NSApp))

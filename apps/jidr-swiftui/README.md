@@ -4,6 +4,10 @@ SwiftUI/AppKit is the only desktop UI. `Center/main.swift` owns the device cente
 settings/tool windows and integrated player windows. The Rust bridges in `bridge/`
 connect to the real daemon and emulator; device state stays in the daemon.
 
+An empty device library shows one creation guide, with SDK setup as a secondary
+action. Device search, the inspector, app list and device-only actions appear
+when devices exist. Background tasks and settings remain accessible in either state.
+
 The Swift source is GPL-3.0-only (`LICENSE-GPL`); Rust bridges are Apache-2.0.
 Fonts in `Resources/fonts` retain their OFL notices. Shared Lucide SVGs and ISC
 license text live in `assets/lucide`; native UI icons use SF Symbols.
@@ -14,7 +18,7 @@ Requires macOS, Xcode, the pinned Rust toolchain and protoc:
 
 ```bash
 bash apps/jidr-swiftui/build-center.sh
-open target/swiftui-center/JidrSwiftUICenter.app
+open target/swiftui-center/Jidr.app
 ```
 
 The development bundle contains the real CLI, daemon and bridges. A plain launch
@@ -48,7 +52,7 @@ bash apps/jidr-swiftui/bench-player.sh --self-test
 
 Window/screenshot tests need a logged-in GUI session. Tests use temporary homes
 and fixture bridges and never change real devices or SDKs. Screenshot baselines
-cover 24 fixed language/appearance/layout scenarios; intentional visual changes
+cover 26 fixed language/appearance/layout scenarios; intentional visual changes
 use `snapshot.sh --update`. Fixture flags are test-only, never normal launch
 settings. Interactive mock sessions must set `JIDR_UI_PREVIEW=1` to display their
 limitations, and must reject unsupported device commands rather than claim success.

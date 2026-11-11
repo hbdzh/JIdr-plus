@@ -59,6 +59,8 @@ let allCases: [SnapshotCase] = [
     SnapshotCase(name: "player-running", kind: .player, language: 1, appearance: .dark),
     // English mode.
     SnapshotCase(name: "center-empty-en", kind: .center(fixture: "empty"), language: 0, appearance: .dark),
+    SnapshotCase(name: "center-empty-light", kind: .center(fixture: "empty"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "center-empty-en-minimum", kind: .center(fixture: "empty"), language: 0, appearance: .light, width: 800, height: 550),
     SnapshotCase(name: "center-populated-en", kind: .center(fixture: "populated"), language: 0, appearance: .dark),
     SnapshotCase(name: "center-long-task-en", kind: .center(fixture: "long-task"), language: 0, appearance: .dark),
     SnapshotCase(name: "player-running-en", kind: .player, language: 0, appearance: .dark),
@@ -144,7 +146,7 @@ func registerBundledFonts(explicitPath: String) {
     var candidates: [String] = []
     if !explicitPath.isEmpty { candidates.append(explicitPath) }
     candidates.append(root.appendingPathComponent("apps/jidr-swiftui/Resources/fonts").path)
-    candidates.append(root.appendingPathComponent("target/swiftui-center/JidrSwiftUICenter.app/Contents/Resources/fonts").path)
+    candidates.append(root.appendingPathComponent("target/swiftui-center/Jidr.app/Contents/Resources/fonts").path)
     for directory in candidates {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory) else { continue }
         let files = names.filter { $0.hasSuffix(".ttf") || $0.hasSuffix(".otf") }.sorted()

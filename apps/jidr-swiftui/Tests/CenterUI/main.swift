@@ -44,6 +44,7 @@ let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
 let model = try CenterModel(center: CommandLine.arguments[1], bridge: "/usr/bin/false")
 eventually("fixture loads") { model.connection.isOnline && model.details != nil }
+let originalDevices = model.devices
 model.language = 0
 model.appearance = 2
 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1050, height: 700),
@@ -235,6 +236,33 @@ model.operation("device.delete", id: retainedID)
 eventually("delete last device on retry") { !model.busy.contains(retainedID) }
 require(model.devices.isEmpty && model.selected == nil && model.details == nil && model.apps.isEmpty,
         "deleting the last device clears both row and stale inspector content")
+pump()
+require(model.isEmptyDeviceLibrary, "the confirmed empty library enters onboarding")
+require(!descendants(window.contentView!, NSSplitView.self).contains { $0.isVertical && $0.arrangedSubviews.count == 2 },
+        "an empty library has no redundant device/details/app split")
+let emptyToolbar = window.toolbar!.items.map(\.itemIdentifier.rawValue)
+require(emptyToolbar == [NSToolbarItem.Identifier.flexibleSpace.rawValue, "jidr.tasks", "jidr.settings"],
+        "empty-library chrome keeps only background tasks and settings")
+require(!background.isEnabled, "a hidden device search cannot take keyboard focus")
+model.searchFocusRequest += 1
+pump()
+require(window.firstResponder !== background.currentEditor() || background.currentEditor() == nil,
+        "search shortcuts never focus a field removed from the toolbar")
+// A new device restores the workspace and its toolbar; filtering a nonempty
+// library down to zero results must keep that workspace rather than onboarding.
+model.devices = originalDevices
+pump()
+require(!model.isEmptyDeviceLibrary, "adding a device leaves onboarding")
+require(window.toolbar!.items.contains { $0.itemIdentifier == CenterToolbarController.searchID }, "search returns with the device workspace")
+require(descendants(window.contentView!, NSSplitView.self).contains { $0.isVertical && $0.arrangedSubviews.count == 2 },
+        "the inspector split returns when devices exist")
+model.deviceQuery = "no-matching-device-name"
+pump()
+require(!model.isEmptyDeviceLibrary && background.isEnabled, "zero search results retain usable search and the workspace")
+model.devices = []
+pump()
+require(model.isEmptyDeviceLibrary && window.toolbar!.items.count == 3 && model.deviceQuery.isEmpty,
+        "the empty-library transition is repeatable and clears filters before a new device is created")
 tools.close()
 window.orderOut(nil)
 model.close()

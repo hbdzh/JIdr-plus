@@ -115,6 +115,7 @@ struct CenterMessageError: LocalizedError {
 final class CenterModel: ObservableObject {
     @Published var devices: [Device] = []
     @Published var deviceListLoaded = false
+    var isEmptyDeviceLibrary: Bool { deviceListLoaded && devices.isEmpty }
     @Published var selected: String?
     @Published var details: Details?
     @Published var apps: [AndroidApp] = []

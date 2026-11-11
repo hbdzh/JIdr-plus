@@ -95,5 +95,6 @@ swiftc -module-cache-path "$out/module-cache" \
 # Tests/i18n_allowlist.txt.
 python3 apps/jidr-swiftui/Tests/localization_coverage.py --self-test
 python3 apps/jidr-swiftui/Tests/Deployment/main.py
+python3 apps/jidr-swiftui/Tests/Metadata/main.py
 
 python3 apps/jidr-swiftui/Tests/CenterUI/contrast.py

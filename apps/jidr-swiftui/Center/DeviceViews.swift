@@ -1839,27 +1839,31 @@ struct CenterView: View {
 
     // MARK: Layout
 
-    private var layout: some View {
-        HSplitView {
-            VStack(spacing: 0) {
-                deviceListCard
-                WbDivider()
-                quickActionsCard
-            }
-            .frame(minWidth: 300, idealWidth: 330, maxWidth: model.detailsVisible ? 420 : .infinity, maxHeight: .infinity)
-            .layoutPriority(1)
-            if model.detailsVisible {
+    @ViewBuilder private var layout: some View {
+        if model.isEmptyDeviceLibrary {
+            emptyDeviceState
+        } else {
+            HSplitView {
                 VStack(spacing: 0) {
-                    // Only the inspector scrolls vertically; the app list keeps
-                    // its own distinct, bounded list below it.
-                    ScrollView { detailCard }.frame(height: 330)
+                    deviceListCard
                     WbDivider()
-                    appsCard
+                    quickActionsCard
                 }
-                .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: 300, idealWidth: 330, maxWidth: model.detailsVisible ? 420 : .infinity, maxHeight: .infinity)
+                .layoutPriority(1)
+                if model.detailsVisible {
+                    VStack(spacing: 0) {
+                        // Only the inspector scrolls vertically; the app list keeps
+                        // its own distinct, bounded list below it.
+                        ScrollView { detailCard }.frame(height: 330)
+                        WbDivider()
+                        appsCard
+                    }
+                    .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
+            .padding(WbSpace.md)
         }
-        .padding(WbSpace.md)
     }
 
     // MARK: Device list
@@ -1886,8 +1890,6 @@ struct CenterView: View {
                 CenterQuietState(icon: WbIcon.deviceEmpty,
                                  text: model.text("正在加载设备…", "Loading devices…"),
                                  height: 180, showsProgress: true)
-            } else if model.devices.isEmpty {
-                emptyDeviceState
             } else if filteredDevices.isEmpty {
                 CenterQuietState(icon: WbIcon.search,
                                  text: model.text("没有匹配的设备", "No matching devices"), height: 140)
@@ -1931,14 +1933,13 @@ struct CenterView: View {
     }
 
     private var emptyDeviceState: some View {
-        VStack(spacing: WbSpace.sm + 2) {
-            Spacer(minLength: WbSpace.md)
+        VStack(spacing: WbSpace.lg) {
             ZStack {
                 RoundedRectangle(cornerRadius: WbRadius.xl, style: .continuous)
                     .fill(WbColor.accentContainer)
-                    .frame(width: 96, height: 96)
+                    .frame(width: 80, height: 80)
                 Image(systemName: WbIcon.deviceEmpty)
-                    .font(.system(size: 36, weight: .light))
+                    .font(.system(size: 34, weight: .light))
                     .foregroundStyle(WbColor.textSecondary)
                 Circle()
                     .fill(WbColor.accent)
@@ -1948,28 +1949,31 @@ struct CenterView: View {
                             .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(WbColor.accentOnAccent)
                     )
-                    .offset(x: 38, y: 38)
+                    .offset(x: 31, y: 31)
             }
-            Text(model.text("创建你的第一台安卓设备", "Create your first Android device"))
-                .wbFont(WbType.title)
-                .foregroundStyle(WbColor.textPrimary)
-            Text(model.text("选择已有的 Android SDK，或安装所需组件后创建。",
-                            "Use an existing Android SDK, or install the components first."))
-                .wbFont(WbType.body)
-                .foregroundStyle(WbColor.textSecondary)
+            .accessibilityHidden(true)
+            VStack(spacing: WbSpace.sm) {
+                Text(model.text("创建你的第一台安卓设备", "Create your first Android device"))
+                    .font(.title.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(model.text("在 Mac 上运行安卓应用和游戏。", "Run Android apps and games on your Mac."))
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+            }
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, WbSpace.xl)
-            HStack(spacing: WbSpace.sm) {
+            VStack(spacing: WbSpace.md) {
                 Button(model.text("创建设备", "Create device")) { model.present(.newDevice) }
-                    .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
+                    .buttonStyle(.borderedProminent).controlSize(.large).tint(WbColor.accent)
                 Button(model.text("设置 Android SDK…", "Set up Android SDK…")) { model.present(.setupSDK) }
-                    .buttonStyle(.bordered).controlSize(.regular)
+                    .buttonStyle(.link)
             }
             .padding(.top, WbSpace.xs)
-            Spacer(minLength: WbSpace.lg)
         }
+        .frame(maxWidth: 480)
+        .padding(WbSpace.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityIdentifier("empty-device-library")
     }
 
     private func deviceListRow(_ device: Device) -> some View {
