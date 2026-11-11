@@ -126,6 +126,7 @@ struct ContentView: View {
     @ObservedObject var chrome: PlayerChromeState
     @ObservedObject private var shortcuts: GameShortcutsStore
     @StateObject private var logStream = LogStream()
+    @StateObject private var scripts = PlayerScriptsCoordinator()
     @State private var notice: String?
     @State private var noticeGeneration = 0
     @State private var logLevel = "D"
@@ -152,6 +153,9 @@ struct ContentView: View {
                                     recordingUnknown: transport.recordingStateUnknown)
     }
     private var canLogcat: Bool { transport.logcatExecutable != nil && linkState.isRunning }
+    /// Ordinary player input is ignored by the bridge during playback, so the
+    /// sidebar disables those entries until the script stops.
+    private var inputEnabled: Bool { linkState.isRunning && transport.scriptPlayback == .idle }
 
     var body: some View {
         ZStack(alignment: .trailing) {
@@ -198,10 +202,16 @@ struct ContentView: View {
         .environment(\.locale, Locale(identifier: language == 0 ? "en" : "zh-Hans"))
         .onAppear(perform: installHandlers)
         .onChange(of: chrome.logcatOpen) { open in updateLogStream(open: open) }
-        .onChange(of: transport.linkState) { _ in updateLogStream(open: chrome.logcatOpen) }
+        .onChange(of: transport.linkState) { state in
+            updateLogStream(open: chrome.logcatOpen)
+            if !state.isRunning { scripts.close() }
+        }
         .onChange(of: logLevel) { _ in restartLogStream() }
         .onChange(of: logFilter) { _ in restartLogStream() }
-        .onDisappear { logStream.stop() }
+        .onDisappear {
+            logStream.stop()
+            scripts.close()
+        }
         .sheet(isPresented: $showUninstall) { uninstallSheet }
         .alert(t("重新安装应用？", "Reinstall the app?", language),
                isPresented: Binding(get: { transport.reinstallPrompt != nil },
@@ -245,6 +255,7 @@ struct ContentView: View {
                 debugOverlay
             }
             recordingPill
+            scriptHUD
         }
         .overlay(alignment: .topLeading) {
             if ProcessInfo.processInfo.environment["JIDR_UI_PREVIEW"] == "1" {
@@ -377,6 +388,7 @@ struct ContentView: View {
                 .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.md))
                 .padding(WbSpace.sm)
         }
+        .padding(.bottom, scriptHUDActive ? 34 : 0)
         .allowsHitTesting(false)
     }
 
@@ -414,6 +426,108 @@ struct ContentView: View {
         }
     }
 
+    // MARK: Operation-recording HUD
+
+    private var scriptHUDActive: Bool {
+        transport.scriptRecording != .idle || transport.scriptPlayback != .idle
+    }
+
+    @ViewBuilder private var scriptHUD: some View {
+        if scriptHUDActive {
+            VStack {
+                Spacer()
+                HStack(spacing: WbSpace.sm) {
+                    Image(systemName: transport.scriptRecording != .idle ? "record.circle" : WbIcon.play)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(transport.scriptRecording != .idle
+                                         ? PlayerChromePalette.negative
+                                         : PlayerChromePalette.accentIcon)
+                    scriptHUDText
+                    scriptHUDActions
+                }
+                .padding(.horizontal, WbSpace.md)
+                .padding(.vertical, WbSpace.xs)
+                .background(WbColor.overlay, in: Capsule())
+                .overlay(
+                    Capsule().strokeBorder(PlayerChromePalette.hairline,
+                                           lineWidth: PlayerChromeMetrics.hairline)
+                )
+            }
+            .padding(.bottom, WbSpace.sm)
+            .padding(.horizontal, WbSpace.lg)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        }
+    }
+
+    @ViewBuilder private var scriptHUDText: some View {
+        if transport.scriptRecording != .idle {
+            if transport.scriptRecording == .recording {
+                TimelineView(.periodic(from: Date(), by: 1)) { _ in
+                    Text(PlayerScriptText.recordingState(transport.scriptRecording, language: language)
+                         + " · " + PlayerScriptFormat.elapsed(elapsedScriptRecording))
+                        .wbFont(WbType.label.weighted(.medium))
+                        .monospacedDigit()
+                }
+            } else {
+                Text(PlayerScriptText.recordingState(transport.scriptRecording, language: language))
+                    .wbFont(WbType.label.weighted(.medium))
+            }
+        } else {
+            Text(PlayerScriptText.playbackState(transport.scriptPlayback, language: language)
+                 + " · " + PlayerScriptText.loop(loop: transport.scriptPlaybackLoop,
+                                                 total: transport.scriptPlaybackTotal,
+                                                 mode: transport.scriptPlaybackMode,
+                                                 language: language))
+                .wbFont(WbType.label.weighted(.medium))
+                .monospacedDigit()
+        }
+    }
+
+    @ViewBuilder private var scriptHUDActions: some View {
+        if transport.scriptRecording != .idle {
+            if transport.scriptRecording == .paused {
+                Button(t("继续", "Resume", language)) { transport.scriptRecordResume() }
+                    .buttonStyle(.borderless)
+                    .help(t("继续录制", "Resume recording", language))
+            } else {
+                Button(t("暂停", "Pause", language)) { transport.scriptRecordPause() }
+                    .buttonStyle(.borderless)
+                    .help(t("暂停录制", "Pause recording", language))
+            }
+            Button(t("停止", "Stop", language)) { stopRecordingFromHUD() }
+                .buttonStyle(.borderless)
+                .help(t("停止并保存录制", "Stop and save the recording", language))
+        } else {
+            if transport.scriptPlayback == .paused {
+                Button(t("继续", "Resume", language)) { transport.scriptPlayResume() }
+                    .buttonStyle(.borderless)
+                    .help(t("继续回放", "Resume playback", language))
+            } else {
+                Button(t("暂停", "Pause", language)) { transport.scriptPlayPause() }
+                    .buttonStyle(.borderless)
+                    .help(t("暂停回放", "Pause playback", language))
+            }
+            Button(t("停止", "Stop", language)) { transport.scriptPlayStop() }
+                .buttonStyle(.borderless)
+                .help(t("停止回放", "Stop playback", language))
+        }
+    }
+
+    private var elapsedScriptRecording: TimeInterval {
+        guard let started = transport.scriptRecordingStartedAt else { return 0 }
+        return Date().timeIntervalSince(started)
+    }
+
+    private func stopRecordingFromHUD() {
+        guard let name = PlayerScriptPrompts.askName(
+            defaultValue: PlayerScriptFormat.suggestedRecordingName(language: language),
+            language: language) else {
+            transport.scriptRecordCancel()
+            return
+        }
+        transport.scriptRecordStop(name: name)
+    }
+
     private var debugOverlay: some View {
         VStack {
             Spacer()
@@ -429,6 +543,7 @@ struct ContentView: View {
             .padding(WbSpace.sm)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(.bottom, scriptHUDActive ? 34 : 0)
         .allowsHitTesting(false)
     }
 
@@ -457,24 +572,24 @@ struct ContentView: View {
         ScrollView(.vertical) {
             VStack(spacing: PlayerChromeMetrics.toolSpacing) {
                 sidebarGroup {
-                    tool("返回", WbIcon.back, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "back"]) }
-                    tool("主页", WbIcon.circle, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "home"]) }
-                    tool("最近使用", WbIcon.square, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "recents"]) }
+                    tool("返回", WbIcon.back, enabled: inputEnabled) { transport.send(["type": "tool_key", "key": "back"]) }
+                    tool("主页", WbIcon.circle, enabled: inputEnabled) { transport.send(["type": "tool_key", "key": "home"]) }
+                    tool("最近使用", WbIcon.square, enabled: inputEnabled) { transport.send(["type": "tool_key", "key": "recents"]) }
                 }
                 sidebarSeparator
                 sidebarGroup {
-                    tool("电源", WbIcon.power, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "power"]) }
+                    tool("电源", WbIcon.power, enabled: inputEnabled) { transport.send(["type": "tool_key", "key": "power"]) }
                     if transport.onAdvanced != nil {
                         tool(t("高级工具", "Advanced tools", language), WbIcon.advancedTools) { chrome.advancedAction?() }
                     }
-                    tool("音量增大", WbIcon.volumeUp, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "volume_up"]) }
-                    tool("音量减小", WbIcon.volumeDown, enabled: linkState.isRunning) { transport.send(["type": "tool_key", "key": "volume_down"]) }
-                    tool("向左旋转", WbIcon.rotateLeft, enabled: linkState.isRunning) { transport.send(["type": "rotate", "direction": 1]) }
-                    tool("向右旋转", WbIcon.rotateRight, enabled: linkState.isRunning) { transport.send(["type": "rotate", "direction": -1]) }
+                    tool("音量增大", WbIcon.volumeUp, enabled: inputEnabled) { transport.send(["type": "tool_key", "key": "volume_up"]) }
+                    tool("音量减小", WbIcon.volumeDown, enabled: inputEnabled) { transport.send(["type": "tool_key", "key": "volume_down"]) }
+                    tool("向左旋转", WbIcon.rotateLeft, enabled: inputEnabled) { transport.send(["type": "rotate", "direction": 1]) }
+                    tool("向右旋转", WbIcon.rotateRight, enabled: inputEnabled) { transport.send(["type": "rotate", "direction": -1]) }
                 }
                 sidebarSeparator
                 sidebarGroup {
-                    tool("键位映射", WbIcon.keyboard, enabled: linkState.isRunning, active: mapping.editing) {
+                    tool("键位映射", WbIcon.keyboard, enabled: inputEnabled, active: mapping.editing) {
                         if !mapping.editing {
                             if !mapping.begin() { transport.onStatus?(mapping.error ?? t("键位方案尚未加载", "The key mapping has not loaded", language)) }
                         }
@@ -488,6 +603,12 @@ struct ContentView: View {
                     tool("截图", WbIcon.camera, enabled: linkState.isRunning) { chrome.chooseScreenshotAction?() }
                     tool("安装 APK", WbIcon.installAPK, enabled: linkState.isRunning) { chrome.chooseAPKAction?() }
                     tool("发送文件", WbIcon.folder, enabled: linkState.isRunning) { chrome.chooseFileAction?() }
+                    tool(t("操作录制", "Operation recordings", language), "list.bullet.rectangle",
+                         enabled: linkState.isRunning,
+                         active: transport.scriptRecording != .idle || transport.scriptPlayback != .idle,
+                         activeTint: transport.scriptRecording != .idle ? PlayerChromePalette.negative : nil) {
+                        scripts.present(transport: transport)
+                    }
                     tool(t("卸载应用", "Uninstall app", language), WbIcon.trash,
                          enabled: linkState.isRunning, active: showUninstall) { showUninstall = true }
                 }
