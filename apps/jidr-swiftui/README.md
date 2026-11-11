@@ -84,3 +84,35 @@ manual/Space/fullscreen acceptance, and stops/deletes only its own device/home.
 No SDK download, license acceptance or normal Jidr data is involved. Use the same
 measurement revision, screen refresh rate, window size and scene for later A/B;
 `JIDR_BENCH_PROFILE=debug` exists for explicit build-mode comparisons only.
+
+The player bridge shares an immutable RGBA buffer with its output writer, and
+reserves the single waiting-frame slot before rotation or packet preparation.
+JFR1 bytes, quality, orientation rules and the drop-new-on-full policy are
+unchanged. One writer emits the header and payload with complete-write handling;
+their owner stays alive until the write finishes. `JIDR_PLAYER_FRAME_TRANSPORT=legacy`
+selects the copied-packet fallback when launching the app/bridge for rollback or
+comparison; the default is `shared`. This is independent of input scheduling.
+
+For a same-binary comparison, run the offline cleanup/ordering checks, then three
+pairs on one disposable real device (legacy/shared, shared/legacy, legacy/shared):
+
+```bash
+python3 scripts/test-player-baseline.py
+python3 scripts/player-baseline.py --sdk /absolute/path/to/clean-test-sdk --compare-frames
+```
+
+Reports include the transport selector and executable hashes. Compare total
+displayed FPS, unfiltered frame-interval tails, touch/restore probes and physical
+footprint, including failed runs; copying less data does not alone prove a user
+experience improvement. Rotation/channel/short-write/lifetime tests live in the
+Rust bridge's `frame_transport` module.
+
+For this change, the pre-measurement acceptance limits are: all touch and fresh
+restore probes detected, identical stream dimensions/quality, median displayed
+FPS no more than 5% lower, median per-run touch p95 no more than
+`max(5 ms, 20%)` higher, and maximum restore no more than 50 ms higher. A breach
+requires investigation or a longer repeated comparison; these short runs cannot
+certify games or long-duration behavior. Memory is reported per process; an
+improvement claim needs at least one RGBA frame of median bridge peak-footprint
+reduction or a repeatable bridge CPU reduction, rather than adding unrelated
+process footprints together.

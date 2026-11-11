@@ -1288,6 +1288,7 @@ final class Bench {
         mainQueueProbe.stop()
         let environment = ProcessInfo.processInfo.environment
         let build: [String: Any] = ["profile": environment["JIDR_BENCH_PROFILE"] ?? "unknown",
+                      "frame_transport": environment["JIDR_PLAYER_FRAME_TRANSPORT"] ?? "shared",
                       "revision": environment["JIDR_BENCH_REVISION"] ?? "unknown",
                       "tracked_dirty": environment["JIDR_BENCH_DIRTY"] ?? "unknown",
                       "inputs_sha256": environment["JIDR_BENCH_INPUTS_SHA256"] ?? "unknown",

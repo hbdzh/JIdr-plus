@@ -34,6 +34,14 @@ def cleanup_device(call, device):
     return cleanup
 
 
+def frame_run_plan(runs, compare):
+    if not compare:
+        return [(run, 'shared') for run in range(1, runs + 1)]
+    # Reverse each second pair to reduce the effect of warm-up/order drift.
+    return [(run, mode) for run in range(1, runs + 1)
+            for mode in (('legacy', 'shared') if run % 2 else ('shared', 'legacy'))]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sdk", type=Path, required=True)
@@ -42,6 +50,8 @@ def main():
     parser.add_argument("--seconds", type=int, default=10, choices=range(3, 121))
     parser.add_argument("--taps", type=int, default=30, choices=range(1, 101))
     parser.add_argument("--out", type=Path)
+    parser.add_argument("--compare-frames", action="store_true",
+                        help="compare legacy/shared frame transport using one Release binary, alternating pair order")
     args = parser.parse_args()
     sdk = args.sdk.resolve()
     image_path = sdk.joinpath(*args.image.split(";"))
@@ -56,6 +66,7 @@ def main():
     for key in ["JIDR_HOME", "JIDR_CENTER_FIXTURE", "JIDR_PLAYER_FIXTURE", "JIDR_UI_PREVIEW", "ANDROID_AVD_HOME",
                 "ANDROID_USER_HOME", "ANDROID_EMULATOR_HOME", "ANDROID_SDK_HOME"]:
         env.pop(key, None)
+    env.pop('JIDR_PLAYER_FRAME_TRANSPORT', None)
     env["JIDR_BENCH_PROFILE"] = "release"
     env.update(ANDROID_HOME=str(sdk), JIDR_TEST_SDK=str(sdk))
     # Build before booting, so compilation cannot contaminate the timing runs.
@@ -80,6 +91,7 @@ def main():
                  "ram_bytes": int(subprocess.check_output(["sysctl", "-n", "hw.memsize"], text=True)),
                  "logical_cpus": int(subprocess.check_output(["sysctl", "-n", "hw.logicalcpu"], text=True))},
         "unverified": ["manual game compatibility", "hardware keyboard/IME and copy/cut", "other Space/fullscreen transitions"],
+        "frame_run_plan": frame_run_plan(args.runs, args.compare_frames),
     }
     write_json(out / "manifest.json", manifest)
     device = None
@@ -113,11 +125,13 @@ def main():
         call("device", "start", device, timeout=300)
         manifest["boot_seconds"] = time.monotonic() - started
         call("call", "dev.set", json.dumps({"device": device, "show_taps": True}))
-        for run in range(1, args.runs + 1):
+        for run, mode in frame_run_plan(args.runs, args.compare_frames):
             call("call", "app.launch", json.dumps({"device": device, "package": "com.android.settings"}))
-            report = out / f"run-{run}.json"
-            print(f"Release run {run}/{args.runs}: real player, {args.seconds}s fps, {args.taps} taps, 3 restores", flush=True)
-            with (out / f"run-{run}.log").open("w") as log:
+            name = f"run-{run}-{mode}" if args.compare_frames else f"run-{run}"
+            report = out / f"{name}.json"
+            env['JIDR_PLAYER_FRAME_TRANSPORT'] = mode
+            print(f"Release run {run}/{args.runs} ({mode}): real player, {args.seconds}s fps, {args.taps} taps, 3 restores", flush=True)
+            with (out / f"{name}.log").open("w") as log:
                 subprocess.run(["bash", "apps/jidr-swiftui/bench-player.sh", "--device", device,
                                 "--seconds", str(args.seconds), "--taps", str(args.taps), "--settle", "7",
                                 "--fps-drive", "--restore-probes", "3", "--json-out", str(report)],
@@ -125,6 +139,8 @@ def main():
             value = json.loads(report.read_text())
             if value["build"]["profile"] != "release" or value["build"]["tracked_dirty"] != "false" or value["exit_code"] != 0:
                 raise RuntimeError("invalid release measurement")
+            if value['build']['frame_transport'] != mode:
+                raise RuntimeError('frame transport selector does not match measurement')
             if value["latency"]["detected"] != args.taps or value["latency"]["missed"] != 0:
                 raise RuntimeError("touch probes were missed; partial latency samples are not a passing baseline")
             if value["restore"]["attempts"] != 3 or value["restore"]["timeouts"] or value["restore"]["fresh_frame_ms"]["count"] != 3:

@@ -14,6 +14,9 @@ use std::sync::{
 use std::time::Duration;
 use tokio::sync::mpsc as async_mpsc;
 
+mod frame_transport;
+use frame_transport::{FramePacket, FrameTransport};
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Command {
@@ -641,11 +644,15 @@ async fn main() -> Result<()> {
         })
         .await?
         .into_inner();
-    let (frame_tx, frame_rx) = mpsc::sync_channel::<Vec<u8>>(1);
+    let transport = FrameTransport::parse(
+        &std::env::var("JIDR_PLAYER_FRAME_TRANSPORT").unwrap_or_else(|_| "shared".into()),
+    )
+    .context("JIDR_PLAYER_FRAME_TRANSPORT must be shared or legacy")?;
+    let (frame_tx, mut frame_rx) = async_mpsc::channel::<FramePacket>(1);
     std::thread::spawn(move || {
         let mut out = std::io::stdout().lock();
-        for frame in frame_rx {
-            if out.write_all(&frame).is_err() {
+        while let Some(frame) = frame_rx.blocking_recv() {
+            if frame.write_to(&mut out).is_err() {
                 break;
             }
         }
@@ -671,7 +678,7 @@ async fn main() -> Result<()> {
         Arc::clone(&logical_rotation),
     ));
     let mut held = HeldInputs::default();
-    let mut latest_frame: Option<(u32, u32, u32, Vec<u8>)> = None;
+    let mut latest_frame: Option<(u32, u32, u32, Arc<Vec<u8>>)> = None;
     let mut orientation_tick = tokio::time::interval(Duration::from_millis(150));
     loop {
         tokio::select! {
@@ -679,8 +686,7 @@ async fn main() -> Result<()> {
                 let logical = logical_rotation.load(Ordering::Relaxed);
                 if logical < 4 && logical != rotation.load(Ordering::Relaxed)
                     && let Some((width, height, pose, pixels)) = &latest_frame
-                    && let Some((shown, packet)) = oriented_packet(*width, *height, *pose, logical, pixels)
-                    && frame_tx.try_send(packet).is_ok() {
+                    && let Some(shown) = transport.offer(&frame_tx, (*width, *height), *pose, logical, pixels) {
                     rotation.store(shown, Ordering::Relaxed);
                 }
             },
@@ -688,10 +694,9 @@ async fn main() -> Result<()> {
                 if let Some(format) = image.format {
                     let pose = format.rotation.map_or(0, |r| r.rotation.rem_euclid(4) as u32);
                     physical_rotation.store(pose, Ordering::Relaxed);
-                    latest_frame = Some((format.width, format.height, pose, image.image));
+                    latest_frame = Some((format.width, format.height, pose, Arc::new(image.image)));
                     if let Some((w, h, q, pixels)) = &latest_frame
-                        && let Some((shown, packet)) = oriented_packet(*w, *h, *q, logical_rotation.load(Ordering::Relaxed), pixels)
-                        && frame_tx.try_send(packet).is_ok() {
+                        && let Some(shown) = transport.offer(&frame_tx, (*w, *h), *q, logical_rotation.load(Ordering::Relaxed), pixels) {
                         rotation.store(shown, Ordering::Relaxed);
                     }
                 }

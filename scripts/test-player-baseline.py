@@ -11,6 +11,12 @@ spec.loader.exec_module(baseline)
 
 
 class CleanupTests(unittest.TestCase):
+    def test_comparison_is_balanced_and_counterbalances_order(self):
+        plan = baseline.frame_run_plan(3, True)
+        self.assertEqual(plan, [(1, 'legacy'), (1, 'shared'), (2, 'shared'),
+                                (2, 'legacy'), (3, 'legacy'), (3, 'shared')])
+        self.assertEqual(baseline.frame_run_plan(2, False), [(1, 'shared'), (2, 'shared')])
+
     def test_stop_budget_and_order(self):
         calls = []
         def call(*command, timeout):
