@@ -170,7 +170,7 @@ def main():
         for run, mode in plan:
             if args.animated_input:
                 fixture_adb('shell','am','force-stop','local.jidr.inputprobe')
-                fixture_adb('shell','am','start','-n','local.jidr.inputprobe/.MainActivity','--ez','trace','false')
+                fixture_adb('shell','am','start','-n','local.jidr.inputprobe/.MainActivity','--ez','trace','false','--ez','no_copy','true')
             else:
                 call("call", "app.launch", json.dumps({"device": device, "package": "com.android.settings"}))
             name = f"run-{run}-{mode}" if args.compare_frames or args.compare_input else f"run-{run}"

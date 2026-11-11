@@ -22,6 +22,7 @@ import org.json.JSONObject;
 public final class MainActivity extends Activity {
     private EditText input;
     private boolean tracing = true;
+    private boolean noCopy = false;
     private void write(String name, String value, boolean append) {
         try (FileOutputStream out = openFileOutput(name, append ? MODE_APPEND : MODE_PRIVATE)) {
             out.write(value.getBytes(StandardCharsets.UTF_8));
@@ -32,6 +33,7 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         tracing = getIntent().getBooleanExtra("trace",true);
+        noCopy = getIntent().getBooleanExtra("no_copy",false);
         write("events.jsonl","",false);
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL); layout.setPadding(32,32,32,32);
@@ -72,10 +74,25 @@ public final class MainActivity extends Activity {
           }
         });
     }
+    @Override public void onWindowFocusChanged(boolean focused) {
+        super.onWindowFocusChanged(focused);
+        if (focused && input != null) {
+            input.requestFocus();
+            input.postDelayed(new Runnable() {
+                @Override public void run() {
+                    write("ready.txt",input.hasWindowFocus() && input.isFocused() ? "ready" : "not-focused",false);
+                }
+            },300);
+        }
+    }
     @Override public boolean dispatchKeyEvent(KeyEvent e) {
         try { event(value("key").put("action",e.getAction()).put("code",e.getKeyCode())
             .put("name",KeyEvent.keyCodeToString(e.getKeyCode())).put("meta",e.getMetaState())); }
         catch(Exception error) {throw new IllegalStateException(error);}
+        // A controlled app that does not implement Copy must leave the
+        // bridge awaiting a clipboard change. Native functional checks keep
+        // this false, so actual copy/cut are still verified normally.
+        if (noCopy && e.getKeyCode()==KeyEvent.KEYCODE_C) return true;
         return super.dispatchKeyEvent(e);
     }
     @Override public boolean dispatchTouchEvent(MotionEvent e) {

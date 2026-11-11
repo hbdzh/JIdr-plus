@@ -59,6 +59,7 @@ def main():
             try: return json.loads(read('layout.json') or 'null')
             except ValueError: return None
         field=wait(layout,'input fixture layout')
+        wait(lambda:read('ready.txt')=='ready','focused Android input window')
         env=dict(os.environ,JIDR_PLAYER_INPUT_SCHEDULER='fifo',JIDR_PLAYER_FRAME_TRANSPORT='shared')
         process=subprocess.Popen([str(bridge),args.device,'1080','2400','1'],env=env,
                                  stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
@@ -95,6 +96,7 @@ def main():
         def key(value,down): send(type='key',key=value,down=down)
         send(type='touch',x=field['x']/1080,y=field['y']/2400,down=True)
         send(type='touch',x=field['x']/1080,y=field['y']/2400,down=False)
+        wait(lambda:any(e['kind']=='touch' and e['action']==1 for e in events()),'initial point delivered to Android')
         key('Shift',True);key('a',True);time.sleep(.2);key('a',False);key('Shift',False)
         wait(lambda:read('text.txt')=='A','ordered Shift+A input')
         record('real modifier/long-press down-up order')
@@ -151,6 +153,8 @@ def main():
             try:process.wait(timeout=8)
             except subprocess.TimeoutExpired:process.kill();process.wait()
         (args.out/'events.json').write_text(json.dumps(events(),ensure_ascii=False,indent=2)+'\n')
+        for name in ['text.txt','layout.json','ready.txt']:
+            (args.out/name).write_text(read(name) or '')
         (args.out/'bridge-stderr.log').write_text('\n'.join(diagnostics)+'\n')
         android('uninstall',PACKAGE,check=False)
         (args.out/'report.json').write_text(json.dumps(report,ensure_ascii=False,indent=2)+'\n')

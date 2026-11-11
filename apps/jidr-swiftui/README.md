@@ -163,7 +163,8 @@ its low input-phase FPS alone cannot identify an RPC-induced freeze. For a
 controlled comparison add `--animated-input`. The fixture continuously moves a
 bar away from the static touch-probe patch, disables its trace-file writes,
 stays foreground with Volume Up instead of Home, and uses three Copy requests
-with an empty selection. The existing clipboard implementation awaits a fresh
+in a fixture mode that consumes the Copy shortcut without updating the clipboard
+(functional copy/cut smoke checks keep that mode disabled). The clipboard implementation awaits a fresh
 event for up to 1.5 seconds. In each first one-second wait window, record actual
 received/drawn frames. The controlled target is at least 45 drawn FPS in each
 FIFO wait window and at least twice its paired inline window, while the existing
