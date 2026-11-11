@@ -54,6 +54,8 @@ struct Options: Equatable {
     var selfTest = false
     var productionPlayer = false
     var restoreProbes = 0
+    var clipboardProbes = 0
+    var latencyTool = "home"
     /// Place the bench window on this NSScreen index (0-based) so a 60/120 Hz
     /// display can be measured; -1 keeps AppKit's default placement.
     var screen = -1
@@ -83,6 +85,8 @@ func usage() -> String {
       --production-player    measure the real GameWindowController/ScreenView;
                              requires a device UUID and explicit isolated JIDR_HOME
       --restore-probes N     measure fresh-frame latency after native minimize/restore
+      --clipboard-probes N   count frames during real Copy waits in the animated fixture
+      --latency-tool KEY     home (default) or volume_up (keeps the fixture foreground)
       --self-test            run offline checks and exit (no device/window)
       -h, --help             this text
     """
@@ -126,6 +130,10 @@ func parseOptions(_ arguments: [String]) throws -> Options {
         case "--self-test": options.selfTest = true
         case "--production-player": options.productionPlayer = true
         case "--restore-probes": options.restoreProbes = try int(argument, 0...10)
+        case "--clipboard-probes": options.clipboardProbes = try int(argument, 0...10)
+        case "--latency-tool":
+            options.latencyTool = try value(argument)
+            guard ["home", "volume_up"].contains(options.latencyTool) else { throw ParseError.message("--latency-tool must be home or volume_up") }
         case "--device": options.device = try value(argument)
         case "--bridge": options.bridge = try value(argument)
         case "--panel-width": options.panelWidth = try int(argument, 1...8192)
@@ -166,8 +174,8 @@ func parseOptions(_ arguments: [String]) throws -> Options {
         index += 1
     }
     if !options.selfTest {
-        if options.restoreProbes > 0 && !options.productionPlayer {
-            throw ParseError.message("restore probes require --production-player")
+        if (options.restoreProbes > 0 || options.clipboardProbes > 0) && !options.productionPlayer {
+            throw ParseError.message("window/clipboard probes require --production-player")
         }
         guard !options.device.isEmpty else { throw ParseError.message("--device is required") }
         guard !options.bridge.isEmpty else { throw ParseError.message("--bridge is required") }
@@ -756,6 +764,7 @@ final class Bench {
     // Latency phase
     var latencies: [Double] = []
     var latencyStart = 0.0
+    var clipboardWaitSamples: [[String: Any]] = []
     // Written by the single tap driver; read after its main-queue completion.
     var touchSentTimes: [Double] = []
 
@@ -1180,6 +1189,14 @@ final class Bench {
                    reason: "no NSView draws: the benchmark window is not visible (GUI session required)")
             return
         }
+        if options.clipboardProbes > 0 {
+            measureClipboardWait()
+            return
+        }
+        startLatencyOrRestore()
+    }
+
+    private func startLatencyOrRestore() {
         if options.taps <= 0 {
             startRestoreProbesOrFinish()
             return
@@ -1187,8 +1204,27 @@ final class Bench {
         startLatencyPhase()
     }
 
+    /// The animated Android fixture has an empty selection, so Copy awaits
+    /// a fresh clipboard event (up to 1.5s). Count actual frames in its first
+    /// second; the inline and FIFO paths receive the identical command.
+    private func measureClipboardWait() {
+        guard clipboardWaitSamples.count < options.clipboardProbes else { startLatencyOrRestore(); return }
+        let start = now()
+        send(["type": "copy", "request_id": 10_000 + clipboardWaitSamples.count])
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+            guard let self, !self.finished else { return }
+            let end = now()
+            let received = self.recorder.times("received", between: start, and: end).count
+            let drawn = self.recorder.times("drawn", between: start, and: end).count
+            self.clipboardWaitSamples.append(["seconds": end - start, "received_frames": received,
+                                              "drawn_frames": drawn, "displayed_fps": Double(drawn)/(end-start)])
+            writeStderr("bench: clipboard wait: \(drawn) drawn frames in \(end-start)s")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.measureClipboardWait() }
+        }
+    }
+
     private func startLatencyPhase() {
-        send(["type": "tool_key", "key": "home"])
+        send(["type": "tool_key", "key": options.latencyTool])
         writeStderr("bench: latency phase (\(options.taps) taps, probe \(options.probeX),\(options.probeY), show_taps must be on)")
         // A cold Android launcher may still be starting after the first HOME.
         // This untimed settling period is identical for every A/B run.
@@ -1221,7 +1257,7 @@ final class Bench {
                 } else {
                     writeStderr("bench: tap \(index + 1) timed out; baseline=\(baseline), latest=\(String(describing: self.recorder.presentedPatch))")
                 }
-                self.send(["type": "tool_key", "key": "home"])
+                self.send(["type": "tool_key", "key": self.options.latencyTool])
                 // Let a launcher/app transition finish before the next baseline,
                 // so only the show-taps dot can change the probe patch.
                 Thread.sleep(forTimeInterval: 0.35)
@@ -1345,6 +1381,8 @@ final class Bench {
                        "backing_scale": window.backingScaleFactor],
             "fps": fpsResult,
             "latency": latencyResult,
+            "latency_tool": options.latencyTool,
+            "clipboard_wait": clipboardWaitSamples,
         ]
         if !options.jsonOut.isEmpty {
             do {
@@ -1399,6 +1437,8 @@ func runSelfTest() -> Int32 {
     do {
         let mode = try parseOptions(["--self-test", "--production-player"])
         expect(mode.productionPlayer, "production measurement path is explicit")
+        let animated = try parseOptions(["--self-test", "--production-player", "--latency-tool", "volume_up", "--clipboard-probes", "3"])
+        expect(animated.latencyTool == "volume_up" && animated.clipboardProbes == 3, "controlled animation keeps the app visible and measures clipboard waits")
     } catch { expect(false, "production mode parse") }
 
     // 1. CLI parsing and defaults.
@@ -1419,7 +1459,8 @@ func runSelfTest() -> Int32 {
         expect(defaults.quality == 1, "default quality")
         for bad in [["--device", "x"], ["--device", "x", "--bridge", "/bin/sh", "--seconds", "0"],
                     ["--device", "x", "--bridge", "/bin/sh", "--window", "10x10"],
-                    ["--bogus"]] {
+                    ["--bogus"], ["--self-test", "--latency-tool", "invalid"],
+                    ["--device", "x", "--bridge", "/bin/sh", "--clipboard-probes", "1"]] {
             do {
                 _ = try parseOptions(bad)
                 expect(false, "invalid arguments accepted: \(bad)")

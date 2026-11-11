@@ -65,6 +65,7 @@ def main():
     parser.add_argument("--taps", type=int, default=30, choices=range(1, 101))
     parser.add_argument("--out", type=Path)
     parser.add_argument('--input-smoke', action='store_true', help='also run the real Android input fixture on this disposable device')
+    parser.add_argument('--animated-input', action='store_true', help='keep a continuously animated fixture visible, use volume-up and clipboard waits for controlled input A/B')
     parser.add_argument('--build-sdk',type=Path,help='installed SDK containing Android 36 platform/build-tools for the optional fixture')
     comparisons = parser.add_mutually_exclusive_group()
     comparisons.add_argument("--compare-frames", action="store_true",
@@ -72,6 +73,8 @@ def main():
     comparisons.add_argument('--compare-input', action='store_true',
                              help='compare inline/FIFO input with shared frames; retain probe failures and finish all pairs')
     args = parser.parse_args()
+    if args.animated_input and not (args.compare_input and args.input_smoke):
+        parser.error('--animated-input requires --compare-input and --input-smoke')
     sdk = args.sdk.resolve()
     image_path = sdk.joinpath(*args.image.split(";"))
     ramdisk = image_path / "ramdisk.img"
@@ -117,6 +120,7 @@ def main():
         "frame_run_plan": frame_run_plan(args.runs, args.compare_frames) if not args.compare_input else None,
         "input_run_plan": input_run_plan(args.runs) if args.compare_input else None,
         "probe_failures": [],
+        "scene": 'animated-input-probe' if args.animated_input else 'settings-scroll/home-touch',
     }
     write_json(out / "manifest.json", manifest)
     device = None
@@ -156,9 +160,19 @@ def main():
                                 '--apk',str(out/'input-probe/input-probe.apk'),'--out',str(out/'input-smoke')],
                                cwd=ROOT,env=env,stdout=log,stderr=subprocess.STDOUT,timeout=180,check=True)
             manifest['input_smoke_complete'] = True
+        if args.animated_input:
+            info = call('call','device.connect_info',json.dumps({'device':device}))
+            def fixture_adb(*arguments):
+                subprocess.run([info['adb_path'],'-s',info['adb_serial'],*arguments],
+                               stdout=subprocess.DEVNULL,stderr=subprocess.PIPE,timeout=30,check=True)
+            fixture_adb('install','-r',str(out/'input-probe/input-probe.apk'))
         plan = input_run_plan(args.runs) if args.compare_input else frame_run_plan(args.runs, args.compare_frames)
         for run, mode in plan:
-            call("call", "app.launch", json.dumps({"device": device, "package": "com.android.settings"}))
+            if args.animated_input:
+                fixture_adb('shell','am','force-stop','local.jidr.inputprobe')
+                fixture_adb('shell','am','start','-n','local.jidr.inputprobe/.MainActivity','--ez','trace','false')
+            else:
+                call("call", "app.launch", json.dumps({"device": device, "package": "com.android.settings"}))
             name = f"run-{run}-{mode}" if args.compare_frames or args.compare_input else f"run-{run}"
             report = out / f"{name}.json"
             frame_mode = mode if args.compare_frames else 'shared'
@@ -167,9 +181,10 @@ def main():
             env['JIDR_PLAYER_INPUT_SCHEDULER'] = scheduler
             print(f"Release run {run}/{args.runs} ({mode}): real player, {args.seconds}s fps, {args.taps} taps, 3 restores", flush=True)
             with (out / f"{name}.log").open("w") as log:
+                extra = ['--latency-tool','volume_up','--clipboard-probes','3'] if args.animated_input else []
                 subprocess.run(["bash", "apps/jidr-swiftui/bench-player.sh", "--device", device,
                                 "--seconds", str(args.seconds), "--taps", str(args.taps), "--settle", "7",
-                                "--fps-drive", "--restore-probes", "3", "--json-out", str(report)],
+                                "--fps-drive", "--restore-probes", "3", "--json-out", str(report), *extra],
                                cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=240, check=True)
             value = json.loads(report.read_text())
             if value["build"]["profile"] != "release" or value["build"]["tracked_dirty"] != "false" or value["exit_code"] != 0:
@@ -188,6 +203,8 @@ def main():
             print("  drawn fps:", round(value["fps"]["displayed_fps"], 2),
                   "touch p95 ms:", value["latency"]["p95_ms"], flush=True)
         manifest['collection_complete'] = True
+        if args.animated_input:
+            fixture_adb('uninstall','local.jidr.inputprobe')
         success = not manifest['probe_failures']
     finally:
         cleanup = {}

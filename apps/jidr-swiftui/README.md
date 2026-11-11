@@ -157,3 +157,22 @@ SIGTERM while inputs are held. Assertions read the Android app's own private
 event/text trace through `adb run-as`; no fake bridge or simulated device is
 used. This checks protocol-to-Android behavior and release on a real process
 signal; hardware IME composition and games remain separate acceptance.
+
+The home-screen input series can contain intervals without changing content;
+its low input-phase FPS alone cannot identify an RPC-induced freeze. For a
+controlled comparison add `--animated-input`. The fixture continuously moves a
+bar away from the static touch-probe patch, disables its trace-file writes,
+stays foreground with Volume Up instead of Home, and uses three Copy requests
+with an empty selection. The existing clipboard implementation awaits a fresh
+event for up to 1.5 seconds. In each first one-second wait window, record actual
+received/drawn frames. The controlled target is at least 45 drawn FPS in each
+FIFO wait window and at least twice its paired inline window, while the existing
+touch/restore/order/footprint limits still apply. The 50% interval-reduction
+target above is exploratory for ordinary input; continuous drawing during the
+explicit clipboard wait is the causal independence check.
+
+```bash
+python3 scripts/player-baseline.py --sdk /path/to/clean-test-sdk \
+  --compare-input --seconds 20 --taps 60 --input-smoke --animated-input \
+  --build-sdk /path/to/installed/build-sdk
+```

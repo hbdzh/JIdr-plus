@@ -7,6 +7,9 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+import android.view.View;
+import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -18,15 +21,17 @@ import org.json.JSONObject;
 /** Disposable integration fixture. Its private trace is read with adb run-as. */
 public final class MainActivity extends Activity {
     private EditText input;
+    private boolean tracing = true;
     private void write(String name, String value, boolean append) {
         try (FileOutputStream out = openFileOutput(name, append ? MODE_APPEND : MODE_PRIVATE)) {
             out.write(value.getBytes(StandardCharsets.UTF_8));
         } catch (Exception error) { throw new IllegalStateException(error); }
     }
-    private void event(JSONObject value) { write("events.jsonl", value.toString()+"\n", true); }
+    private void event(JSONObject value) { if (tracing) write("events.jsonl", value.toString()+"\n", true); }
     private JSONObject value(String kind) throws Exception { return new JSONObject().put("kind",kind); }
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        tracing = getIntent().getBooleanExtra("trace",true);
         write("events.jsonl","",false);
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL); layout.setPadding(32,32,32,32);
@@ -35,6 +40,19 @@ public final class MainActivity extends Activity {
         input = new EditText(this); input.setSingleLine(true); input.setHint("Input test");
         input.setShowSoftInputOnFocus(false);
         layout.addView(title); layout.addView(input,new LinearLayout.LayoutParams(-1,160));
+        // Continuous changing content keeps the emulator screenshot stream
+        // active. The touch-probe patch at screen center stays dark/static.
+        layout.addView(new View(this) {
+            final Paint paint = new Paint();
+            @Override protected void onDraw(Canvas canvas) {
+                canvas.drawRGB(32,33,36);
+                paint.setColor(0xff2684ff);
+                float x = (System.nanoTime()/1000000L % 2000L)/2000f * Math.max(1,getWidth()-80);
+                canvas.drawRect(x,getHeight()-100,x+80,getHeight()-40,paint);
+                postInvalidateOnAnimation();
+            }
+            @Override public boolean onTouchEvent(MotionEvent event) { return true; }
+        },new LinearLayout.LayoutParams(-1,0,1));
         setContentView(layout);
         input.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s,int start,int count,int after) {}
