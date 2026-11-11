@@ -1183,7 +1183,9 @@ final class Bench {
     private func startLatencyPhase() {
         send(["type": "tool_key", "key": "home"])
         writeStderr("bench: latency phase (\(options.taps) taps, probe \(options.probeX),\(options.probeY), show_taps must be on)")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.runTaps() }
+        // A cold Android launcher may still be starting after the first HOME.
+        // This untimed settling period is identical for every A/B run.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.runTaps() }
     }
 
     private func runTaps() {
@@ -1206,12 +1208,14 @@ final class Bench {
                 self.send(["type": "touch", "x": self.options.probeX, "y": self.options.probeY, "down": false])
                 if let latency {
                     self.recorder.recordLatency(latency)
+                    writeStderr("bench: tap \(index + 1): \(latency) ms")
+                } else {
+                    writeStderr("bench: tap \(index + 1) timed out; baseline=\(baseline), latest=\(String(describing: self.recorder.presentedPatch))")
                 }
                 self.send(["type": "tool_key", "key": "home"])
                 // Let a launcher/app transition finish before the next baseline,
                 // so only the show-taps dot can change the probe patch.
                 Thread.sleep(forTimeInterval: 0.35)
-                _ = index
             }
             DispatchQueue.main.async { [weak self] in self?.finishLatencyPhase() }
         }

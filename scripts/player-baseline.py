@@ -19,6 +19,21 @@ def write_json(path, value):
     path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
 
 
+def cleanup_device(call, device):
+    cleanup = {}
+    # The backend allows 120s to save quick-boot state plus 10s for a
+    # forced exit. Await that operation before deleting its locked AVD.
+    for command, timeout in [(('device', 'stop', device), 180),
+                             (('device', 'delete', device, '--yes'), 60)]:
+        try:
+            call(*command, timeout=timeout)
+            cleanup[command[1]] = 'ok'
+        except Exception as error:
+            cleanup[command[1]] = str(error)
+            break
+    return cleanup
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sdk", type=Path, required=True)
@@ -42,6 +57,7 @@ def main():
                 "ANDROID_USER_HOME", "ANDROID_EMULATOR_HOME", "ANDROID_SDK_HOME"]:
         env.pop(key, None)
     env["JIDR_BENCH_PROFILE"] = "release"
+    env.update(ANDROID_HOME=str(sdk), JIDR_TEST_SDK=str(sdk))
     # Build before booting, so compilation cannot contaminate the timing runs.
     with (out / "build.log").open("w") as log:
         subprocess.run(["cargo", "build", "--release", "--locked", "-p", "jidr", "-p", "jidr-swiftui-bridge"],
@@ -121,12 +137,7 @@ def main():
     finally:
         cleanup = {}
         if device:
-            for command in [("device", "stop", device), ("device", "delete", device, "--yes")]:
-                try:
-                    call(*command, timeout=60)
-                    cleanup[command[1]] = "ok"
-                except Exception as error:
-                    cleanup[command[1]] = str(error)
+            cleanup = cleanup_device(call, device)
         try:
             call("daemon", "stop", timeout=30)
             cleanup["daemon_stop"] = "ok"
