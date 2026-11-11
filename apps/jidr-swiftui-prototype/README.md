@@ -8,6 +8,11 @@ The SwiftUI/AppKit source is GPL-3.0-only; see `apps/jidr-gui/LICENSE-GPL`. The 
 
 Requires Xcode, the workspace Rust toolchain, and `protoc` (or `PROTOC` pointing at one). From the repository root:
 
+The player, center and optimized release builds explicitly target Apple Silicon
+macOS 13, using `LSMinimumSystemVersion` from the production plist as the compiler
+deployment target. Each build checks the resulting Mach-O `minos` against the
+bundle declaration; a newer host SDK must not silently raise the minimum.
+
 ```bash
 apps/jidr-swiftui-prototype/build.sh
 JIDR_HOME=/absolute/path/to/isolated-test-home \
@@ -18,6 +23,27 @@ JIDR_HOME=/absolute/path/to/isolated-test-home \
 The daemon for that `JIDR_HOME` and the test device must already be running. Pass the device's actual unrotated panel width and height; the prototype does not discover them. The app and helper live under `target/` and do not overwrite the installed Jidr app.
 
 ## Scope and limitations
+
+`test.sh` includes a real Mach-O deployment regression: a matching binary passes
+and a binary requiring a newer macOS fails. Run
+`bash apps/jidr-swiftui-prototype/test-player-lifecycle.sh` in a macOS GUI session
+for the center/player integration regressions (mock center bridge, temporary
+`JIDR_HOME`, no emulator). It checks button-triggered reconnection through the
+actual center callback, unsaved-edit/recording reconnect guards, and device
+stop/reboot during each recording phase. Interrupted recordings are marked as
+unknown rather than saved, release the window's pending recording state, and
+require checking the daemon's task before recording again.
+
+Interactive mock previews are not connected to an emulator. Set
+`JIDR_UI_PREVIEW=1` when presenting a mock center/player so both windows display
+that limitation. The CenterUI fixture persists simulated deletions only in its
+temporary `JIDR_HOME`; unsupported mutations return errors. The player fixture
+explicitly rejects device commands, including recording, while local window
+tools remain usable. `test-center-ui.sh` covers deletion read-back (including a
+false success reply and deleting the last device), fixture persistence, and
+unsupported operations. `test-player-lifecycle.sh` also opens the real window
+against the Rust fixture, verifies first-frame delivery, local mapping setup,
+device-command feedback and recording rejection without a stuck pending state.
 
 The helper reads frames directly from the emulator gRPC stream and sends mouse/key/clipboard commands. Raw frames use a bounded queue and the UI displays only the newest pending frame. Clipboard synchronization occurs only on user copy, cut, paste or committed IME text; a test-only named pasteboard can be selected with `JIDR_PROTOTYPE_TEST_PASTEBOARD`.
 
@@ -81,3 +107,11 @@ SDK installation can continue after its panel is closed, and can be cancelled on
 ## Isolated migration recovery check
 
 The SDK integration test `migration_restores_guest_data_and_snapshot` creates its own temporary AVD, writes a test marker, creates a snapshot, performs a verified offline copy and checks that the copied snapshot restores the marker while the source remains present. This proves that test scenario only; it is not evidence that a particular game's data or all existing snapshots can be restored. The SwiftUI preflight and tests never activate a storage location.
+
+## UI layout and regression checks
+
+The center uses a native customizable macOS toolbar and a resizable master/detail split down to an 800×550 content area. All six quick actions remain on screen and wrap into additional rows; device settings, restart and delete are exposed directly in the inspector. Settings uses native preference-toolbar categories in one nonmodal window, retaining its selected pane for the current session; independent tool windows follow the same appearance preference. Background tasks and command search use reusable lightweight native panels with identical frame and shadow styling, without traffic lights or a modal backdrop. Clicking outside or pressing Esc dismisses the active panel without cancelling jobs. SDK setup inside device creation and snapshot saving use an inline step rather than another sheet.
+
+Run `bash apps/jidr-swiftui-prototype/test-center-ui.sh` in a macOS GUI session for actual hosted-window regressions: command-palette first responder/input/Escape, native toolbar attachment, settings reuse and pane retention, transient task-panel reuse/outside dismissal, standard menu responder routing, native list deselection/stale-response rejection, unified title-bar appearance, full-label action wrapping, live auxiliary-window appearance changes, rendered Light preview under a Dark parent, and minimum-size split layout. Its bridge and preferences are isolated in a temporary directory. `test.sh` additionally checks helper-text contrast against actual sRGB token values. `snapshot.sh` includes English minimum-size/recording cases and light/dark settings, SDK setup, empty/active tasks and command-search cases; these capture content, while the window test and interactive review cover native chrome.
+
+Interactive regression steps: close Settings and immediately type in ⌘K; confirm the background search stays unchanged. At minimum width, check full action labels and drag the divider. In Snapshots, open Save and press Esc: the list must remain open. In New Device, enter a name, open SDK setup and cancel: the creation form and its inputs must remain. Check both Light/Dark previews while switching appearance and confirm an already-open Advanced Tools window updates. These checks do not establish full VoiceOver, increased-contrast, older-macOS or real-game acceptance.

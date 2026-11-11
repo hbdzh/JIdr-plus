@@ -64,6 +64,7 @@ private struct PlayerToolButton: View {
         }
         .buttonStyle(.borderless)
         .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.35)
         .help(label)
         .accessibilityLabel(label)
         .accessibilityAddTraits(active ? [.isSelected] : [])
@@ -196,10 +197,10 @@ struct ContentView: View {
         }
         .environment(\.locale, Locale(identifier: language == 0 ? "en" : "zh-Hans"))
         .onAppear(perform: installHandlers)
-        .onChange(of: chrome.logcatOpen) { _, open in updateLogStream(open: open) }
-        .onChange(of: transport.linkState) { _, _ in updateLogStream(open: chrome.logcatOpen) }
-        .onChange(of: logLevel) { _, _ in restartLogStream() }
-        .onChange(of: logFilter) { _, _ in restartLogStream() }
+        .onChange(of: chrome.logcatOpen) { open in updateLogStream(open: open) }
+        .onChange(of: transport.linkState) { _ in updateLogStream(open: chrome.logcatOpen) }
+        .onChange(of: logLevel) { _ in restartLogStream() }
+        .onChange(of: logFilter) { _ in restartLogStream() }
         .onDisappear { logStream.stop() }
         .sheet(isPresented: $showUninstall) { uninstallSheet }
         .alert(t("重新安装应用？", "Reinstall the app?", language),
@@ -244,6 +245,14 @@ struct ContentView: View {
                 debugOverlay
             }
             recordingPill
+        }
+        .overlay(alignment: .topLeading) {
+            if ProcessInfo.processInfo.environment["JIDR_UI_PREVIEW"] == "1" {
+                Text(t("界面预览 · 未连接真实模拟器", "UI preview · No real emulator connected", language))
+                    .font(.caption).foregroundStyle(.white)
+                    .padding(8).background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 8))
+                    .padding(8).allowsHitTesting(false)
+            }
         }
     }
 
@@ -438,7 +447,8 @@ struct ContentView: View {
                       active: Bool = false, activeTint: Color? = nil,
                       action: @escaping () -> Void) -> some View {
         PlayerToolButton(symbol: symbol,
-                         label: PlayerStatusText.translate(title, language: language),
+                         label: PlayerStatusText.translate(title, language: language)
+                            + (enabled ? "" : t("（设备连接后可用）", " (available after connecting)", language)),
                          enabled: enabled, active: active, activeTint: activeTint,
                          action: action)
     }
@@ -499,7 +509,7 @@ struct ContentView: View {
             .padding(.bottom, WbSpace.sm)
             .frame(maxWidth: .infinity)
         }
-        .scrollIndicators(.hidden)
+        .scrollIndicators(.automatic)
         .frame(width: sidebarWidth)
         .background(PlayerChromePalette.sidebar)
         .overlay(alignment: .leading) {
@@ -688,7 +698,7 @@ struct ContentView: View {
                     Color.clear.frame(height: 1).id("log-end")
                 }
                 .background(PlayerChromePalette.logbar)
-                .onChange(of: logStream.revision) { _, _ in
+                .onChange(of: logStream.revision) { _ in
                     reader.scrollTo("log-end", anchor: .bottom)
                 }
             }

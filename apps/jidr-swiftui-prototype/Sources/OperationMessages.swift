@@ -22,6 +22,7 @@ enum OperationMessages {
     static func error(_ value:String, language:Int) -> String {
         guard language != 0 else { return value }
         let exact = [
+            "UI preview: this operation requires a real device connection.":"界面预览无法执行此操作，请连接真实设备。",
             "speed must be between 0 and 64×":"路线速度倍率须大于 0 且不超过 64。",
             "no track, route or way points in the file":"文件中没有有效的路线或坐标点。",
             "root.module.install needs a Full-root (Magisk) device":"安装模块需要完整 Root（Magisk）设备。",

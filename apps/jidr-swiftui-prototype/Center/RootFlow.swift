@@ -394,7 +394,7 @@ struct FullRootView: View {
         .tint(WbColor.accent)
         .onAppear { store.attach() }
         .onDisappear { store.detach() }
-        .onChange(of: store.closeRequested) { _, close in if close { dismiss() } }
+        .onChange(of: store.closeRequested) { close in if close { dismiss() } }
         .alert(t("回退到无 Root？", "Revert to unrooted?"), isPresented: $confirmRevert) {
             Button(t("取消", "Cancel"), role: .cancel) { }
             Button(t("回退", "Revert"), role: .destructive) { store.revertToUnrooted(); dismiss() }
@@ -402,13 +402,17 @@ struct FullRootView: View {
             Text(t("将移除 Magisk 并冷启动设备，可能需要一些时间。游戏数据不受影响，但请先保存进度。",
                    "Magisk is removed and the device cold-boots, which can take a while. Your game data is kept, but save your progress first."))
         }
-        .sheet(isPresented: $showSnapshotSave) {
-            if let device = snapshotDevice {
-                SnapshotSaveDialog(model: model, device: device, magiskVersion: presentation.magisk) { _ in
+        .disabled(showSnapshotSave)
+        .accessibilityHidden(showSnapshotSave)
+        .overlay {
+            if showSnapshotSave, let device = snapshotDevice {
+                SnapshotSaveDialog(model: model, device: device, magiskVersion: presentation.magisk,
+                                   onCancel: { showSnapshotSave = false }, onSaved: { _ in
                     showSnapshotSave = false
                     store.snapshotSaved()
-                }
-                .environment(\.locale, Locale(identifier: model.language == 0 ? "en" : "zh-Hans"))
+                })
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(WbColor.raised)
             }
         }
     }

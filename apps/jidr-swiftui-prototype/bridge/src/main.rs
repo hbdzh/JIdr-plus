@@ -515,9 +515,36 @@ fn fixture_pixels(width: u32, height: u32) -> Vec<u8> {
     pixels
 }
 
-/// `JIDR_PLAYER_FIXTURE=1` replaces the gRPC stream with three identical
-/// synthetic frames and one fixed diagnostic line. The normal path below is
-/// untouched; only this process sees the variable.
+const PREVIEW_UNSUPPORTED: Diagnostic = Diagnostic::new(
+    "preview.unsupported",
+    "UI preview: this operation requires a real device connection.",
+);
+
+/// Fixtures must never silently accept a device command. Recording and app
+/// flows need their own failure envelopes to release the UI's pending state.
+fn fixture_reply(line: &str) -> (&'static str, serde_json::Value) {
+    let mut value =
+        json!({"ok":false,"code":PREVIEW_UNSUPPORTED.code,"message":PREVIEW_UNSUPPORTED.message});
+    let prefix = match serde_json::from_str::<Command>(line) {
+        Ok(Command::StartRecording { .. } | Command::StopRecording) => {
+            value["state"] = json!("failed");
+            "JIDR_RECORD:"
+        }
+        Ok(Command::AppInspect { .. }) => {
+            value["op"] = json!("inspect");
+            "JIDR_APP:"
+        }
+        Ok(Command::AppUninstall { .. }) => {
+            value["op"] = json!("uninstall");
+            "JIDR_APP:"
+        }
+        _ => "JIDR_OPERATION:",
+    };
+    (prefix, value)
+}
+
+/// `JIDR_PLAYER_FIXTURE=1` replaces the gRPC stream with synthetic frames.
+/// Device commands explicitly fail; local window tools still work normally.
 async fn player_fixture(width: u32, height: u32) -> Result<()> {
     let frame_width = 360u32.min(width).max(1);
     let frame_height = 640u32.min(height).max(1);
@@ -558,9 +585,10 @@ async fn player_fixture(width: u32, height: u32) -> Result<()> {
         }
         tokio::time::sleep(Duration::from_millis(40)).await;
     }
-    // Drain UI commands until the player closes stdin so the lifecycle matches
-    // the real bridge. Toolbar commands are accepted and ignored.
-    while input_rx.recv().await.is_some() {}
+    while let Some(line) = input_rx.recv().await {
+        let (prefix, value) = fixture_reply(&line);
+        eprintln!("{prefix}{value}");
+    }
     Ok(())
 }
 
@@ -733,6 +761,54 @@ async fn main() -> Result<()> {
 mod tests {
     use super::*;
 
+    #[test]
+    fn preview_commands_fail_explicitly_and_release_pending_flows() {
+        for (command, prefix, field, expected) in [
+            (
+                r#"{"type":"tool_key","key":"home"}"#,
+                "JIDR_OPERATION:",
+                "code",
+                "preview.unsupported",
+            ),
+            (
+                r#"{"type":"rotate","direction":1}"#,
+                "JIDR_OPERATION:",
+                "code",
+                "preview.unsupported",
+            ),
+            (
+                r#"{"type":"start_recording","path":"/tmp/preview.mp4"}"#,
+                "JIDR_RECORD:",
+                "state",
+                "failed",
+            ),
+            (
+                r#"{"type":"stop_recording"}"#,
+                "JIDR_RECORD:",
+                "state",
+                "failed",
+            ),
+            (
+                r#"{"type":"app_inspect","path":"/tmp/preview.apk"}"#,
+                "JIDR_APP:",
+                "op",
+                "inspect",
+            ),
+            (
+                r#"{"type":"app_uninstall","package":"example.test"}"#,
+                "JIDR_APP:",
+                "op",
+                "uninstall",
+            ),
+        ] {
+            let (actual, value) = fixture_reply(command);
+            assert_eq!(actual, prefix);
+            assert_eq!(value["ok"], false);
+            assert_eq!(value[field], expected);
+            assert_eq!(value["message"], PREVIEW_UNSUPPORTED.message);
+        }
+    }
+
     /// The player's UI copy lives in Swift; the bridge must only send stable
     /// codes and English fallbacks. This guards the contract M3 introduced.
     #[test]
@@ -746,6 +822,7 @@ mod tests {
             RECORDING_INVALID_PATH,
             RECORDING_STARTED,
             RECORDING_SAVED,
+            PREVIEW_UNSUPPORTED,
         ] {
             assert!(
                 diagnostic.code.is_ascii() && !diagnostic.code.contains(' '),

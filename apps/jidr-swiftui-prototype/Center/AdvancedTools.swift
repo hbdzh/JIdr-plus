@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import AppKit
+import Combine
 import MapKit
 import SwiftUI
 import UniformTypeIdentifiers
 
 final class AdvancedToolsWindowController: NSWindowController, NSWindowDelegate {
     var onClose: (() -> Void)?
+    private var appearanceSubscription: AnyCancellable?
     init(model: CenterModel, id: String, name: String, root: Bool) {
         let window = NSWindow(contentRect:NSRect(x:0,y:0,width:680,height:600), styleMask:[.titled,.closable,.miniaturizable,.resizable], backing:.buffered, defer:false)
         super.init(window:window)
@@ -14,6 +16,10 @@ final class AdvancedToolsWindowController: NSWindowController, NSWindowDelegate 
         window.minSize = NSSize(width:680,height:480)
         window.isReleasedWhenClosed = false
         window.delegate = self
+        window.appearance = model.windowAppearance
+        appearanceSubscription = model.$appearance.sink { [weak window] value in
+            window?.appearance = value == 0 ? nil : NSAppearance(named: value == 2 ? .darkAqua : .aqua)
+        }
         window.center()
     }
     required init?(coder: NSCoder) { return nil }
@@ -88,6 +94,11 @@ struct AdvancedToolsView: View {
         let panel = NSOpenPanel(); panel.allowedContentTypes = types.compactMap { UTType(filenameExtension:$0) }
         guard panel.runModal() == .OK, let url = panel.url else { return }; done(url)
     }
+    private func loadInitialState() {
+        guard running else { return }
+        if tab == 0, !batteryLoaded { loadBattery() }
+        if tab == 2, !networkLoaded { loadNetwork() }
+    }
     private func loadBattery() { call("battery.get") { value in
         guard let d = value as? [String:Any], let n = d["level"] as? Int, let c = d["charger"] as? String else { message = t("电池状态格式无效。", "Invalid battery response."); return }
         level = String(n); charger = c; batteryLoaded = true
@@ -101,12 +112,17 @@ struct AdvancedToolsView: View {
             navigation
             contentColumn
         }
+        .preferredColorScheme(model.colorScheme)
         .background(WbColor.surface)
         .tint(WbColor.accent)
         .environment(\.locale,Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
-        .onChange(of:tab) { _, value in if value != 3 { stopLogStream() } }
-        .onChange(of:running) { _, value in if !value { stopLogStream() } }
-        .onChange(of:logStream.active) { _, active in if !active { followLog = false } }
+        .onAppear { loadInitialState() }
+        .onChange(of:tab) { value in
+            if value != 3 { stopLogStream() }
+            loadInitialState()
+        }
+        .onChange(of:running) { value in if !value { stopLogStream() } }
+        .onChange(of:logStream.active) { active in if !active { followLog = false } }
         .onDisappear { stopLogStream() }
         .alert(item:$pending) { action in
             Alert(title:Text(action.title), message:Text(action.detail), primaryButton:.destructive(Text(t("继续", "Continue"))) {
@@ -239,8 +255,8 @@ struct AdvancedToolsView: View {
             HStack { Text(t("电池状态", "Battery status")).wbFont(WbType.title); Spacer(); Button(t("读取状态", "Read status"),action:loadBattery).buttonStyle(.bordered).controlSize(.regular) }
             WbDivider()
             Grid(alignment:.leading, horizontalSpacing:24, verticalSpacing:14) {
-                GridRow { Text(t("电量（0–100）", "Charge (0–100)")).foregroundStyle(WbColor.textSecondary); TextField("%",text:$level).frame(width:150) }
-                GridRow { Text(t("充电方式", "Charger")).foregroundStyle(WbColor.textSecondary); Picker("",selection:$charger) { Text(t("未连接", "None")).tag("none"); Text("AC").tag("ac"); Text("USB").tag("usb"); Text(t("无线", "Wireless")).tag("wireless") }.labelsHidden().frame(width:150, alignment:.leading) }
+                GridRow { Text(t("电量（0–100）", "Charge (0–100)")).foregroundStyle(WbColor.textSecondary); TextField("%",text:$level).frame(width:150).accessibilityLabel(t("电量（0–100）", "Charge (0–100)")) }
+                GridRow { Text(t("充电方式", "Charger")).foregroundStyle(WbColor.textSecondary); Picker("",selection:$charger) { Text(t("未连接", "None")).tag("none"); Text("AC").tag("ac"); Text("USB").tag("usb"); Text(t("无线", "Wireless")).tag("wireless") }.labelsHidden().frame(width:150, alignment:.leading).accessibilityLabel(t("充电方式", "Charger")) }
             }
             Button(t("应用", "Apply")) {
                 guard let n = Int(level), (0...100).contains(n) else { message = t("电量必须为 0–100 的整数。", "Charge must be an integer from 0 to 100."); return }
@@ -333,7 +349,7 @@ struct AdvancedToolsView: View {
                     ForEach(["V", "D", "I", "W", "E", "F"], id:\.self) { Text($0).tag($0) }
                 }.fixedSize().disabled(followLog)
                 Toggle(t("实时跟随", "Follow live"),isOn:$followLog)
-                    .onChange(of:followLog) { _, enabled in
+                    .onChange(of:followLog) { enabled in
                         if enabled {
                             logStream.start(executable:model.centerExecutable,device:id,filters:LogFilter.arguments(filter,level:logLevel))
                             if !logStream.active { followLog = false }
@@ -357,7 +373,7 @@ struct AdvancedToolsView: View {
                             .frame(maxWidth:.infinity,alignment:.leading).padding(WbSpace.md)
                     }
                     Color.clear.frame(height:1).id("log-end")
-                }.onChange(of:logStream.revision) { _, _ in if followLog { reader.scrollTo("log-end",anchor:.bottom) } }
+                }.onChange(of:logStream.revision) { _ in if followLog { reader.scrollTo("log-end",anchor:.bottom) } }
             }.frame(minHeight:280)
                 .background(WbColor.sunken, in:RoundedRectangle(cornerRadius: WbRadius.md))
         }

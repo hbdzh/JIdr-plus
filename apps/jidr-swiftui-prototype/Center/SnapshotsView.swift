@@ -41,6 +41,24 @@ struct SnapshotsView: View {
     private var currentDevice: Device { model.devices.first(where: { $0.id == device.id }) ?? device }
 
     var body: some View {
+        ZStack {
+            snapshotList.opacity(showSave ? 0 : 1)
+                .allowsHitTesting(!showSave).accessibilityHidden(showSave).disabled(showSave)
+            if showSave {
+                SnapshotSaveDialog(model: model, device: currentDevice,
+                                   magiskVersion: verifiedMagiskVersion,
+                                   onCancel: { showSave = false }, onSaved: { _ in
+                    showSave = false
+                    load()
+                    model.refresh()
+                    model.notice = t("快照已保存。", "Snapshot saved.")
+                })
+                .background(WbColor.raised)
+            }
+        }
+        .frame(width: 600, height: 560)
+    }
+    private var snapshotList: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
                 .padding(.bottom, WbSpace.lg)
@@ -70,16 +88,6 @@ struct SnapshotsView: View {
         .frame(width: 600, height: 560)
         .tint(WbColor.accent)
         .onAppear(perform: load)
-        .sheet(isPresented: $showSave) {
-            SnapshotSaveDialog(model: model, device: currentDevice,
-                               magiskVersion: verifiedMagiskVersion) { _ in
-                showSave = false
-                load()
-                model.refresh()
-                model.notice = t("快照已保存。", "Snapshot saved.")
-            }
-            .environment(\.locale, Locale(identifier: model.language == 0 ? "en" : "zh-Hans"))
-        }
         .alert(item: $alertItem) { item in
             switch item {
             case .restore(let row): return restoreAlert(row)
@@ -230,8 +238,15 @@ struct SnapshotsView: View {
             HStack(spacing: WbSpace.sm) {
                 Button(t("恢复", "Restore")) { requestRestore(snapshot) }
                     .buttonStyle(.bordered).controlSize(.regular)
-                    .disabled(!running || busy)
-                    .help(t("恢复此快照", "Restore this snapshot"))
+                    .disabled(!running || busy || !snapshot.restorable)
+                    .help(snapshot.restorable ? t("恢复此快照", "Restore this snapshot") : refusalLine(snapshot))
+                if !snapshot.restorable {
+                    Button { requestRestore(snapshot) } label: { Image(systemName: WbIcon.info) }
+                        .buttonStyle(.borderless)
+                        .disabled(busy)
+                        .help(refusalLine(snapshot))
+                        .accessibilityLabel(t("查看无法恢复的原因", "Explain why this snapshot cannot be restored"))
+                }
                 if !snapshot.quick_boot {
                     Button {
                         alertItem = .delete(snapshot)
@@ -341,12 +356,14 @@ struct SnapshotsView: View {
     // MARK: actions
 
     private func requestRestore(_ snapshot: SnapshotRow) {
-        guard running else {
-            model.notice = t("启动设备后才能恢复快照。", "Start the device to restore a snapshot.")
-            return
-        }
+        // The explanation button also works for stopped devices. Only an
+        // actual restore requires the emulator to be running.
         if let refusal = Snapshots.refusal(snapshot, deviceMode: deviceMode ?? currentDevice.root.mode, language: model.language) {
             alertItem = .refusal(refusal)
+            return
+        }
+        guard running else {
+            model.notice = t("启动设备后才能恢复快照。", "Start the device to restore a snapshot.")
             return
         }
         alertItem = .restore(snapshot)

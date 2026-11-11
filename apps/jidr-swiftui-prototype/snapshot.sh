@@ -6,6 +6,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
+source "$root/apps/jidr-swiftui-prototype/swift-target.sh"
 cargo build -p jidr-swiftui-bridge --bin jidr-center-bridge --bin jidr-swiftui-bridge
 out="$root/target/swiftui-snapshot"
 mkdir -p "$out/module-cache"
@@ -16,7 +17,7 @@ for file in "$root"/apps/jidr-swiftui-prototype/Center/*.swift; do
   [[ "$(basename "$file")" == "main.swift" ]] && continue
   center_sources+=("$file")
 done
-swiftc -module-cache-path "$out/module-cache" \
+swiftc -target "$jidr_swift_target" -module-cache-path "$out/module-cache" \
   "$root"/apps/jidr-swiftui-prototype/Sources/*.swift \
   "${center_sources[@]}" \
   "$root"/apps/jidr-swiftui-prototype/Tests/Snapshot/main.swift \
@@ -34,9 +35,13 @@ cp "$root/crates/jidr-ui/ui/assets/device-detail-generated.png" "$out/device-det
 # JIDR_HOME at all, but an isolated home keeps any accidental path usage local.
 home="$(mktemp -d "${TMPDIR:-/tmp}/jidr-snapshot-home.XXXXXX")"
 trap 'rm -rf "$home"' EXIT
+mkdir -p "$home/data"
+cp "$root/apps/jidr-swiftui-prototype/Tests/CenterUI/center-fixture.py" "$home/ui-fixture"
+chmod +x "$home/ui-fixture"
 JIDR_HOME="$home" "$out/jidr-snapshot" \
   --center-bridge "$root/target/debug/jidr-center-bridge" \
   --player-bridge "$root/target/debug/jidr-swiftui-bridge" \
+  --ui-fixture "$home/ui-fixture" \
   --golden "$root/apps/jidr-swiftui-prototype/Tests/golden" \
   --fonts "$root/apps/jidr-gui/assets/fonts" \
   "$@"

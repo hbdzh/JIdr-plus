@@ -47,19 +47,21 @@ struct Device: Identifiable, Decodable {
         default: return status.state
         }
     }
+    var profileLabel: String { profile.replacingOccurrences(of: "_", with: " ").capitalized }
     var androidVersion: String {
         let known = [28:"9",29:"10",30:"11",31:"12",32:"12L",33:"13",34:"14",35:"15",36:"16"]
         return known[image.api].map { "Android \($0) · API \(image.api)" } ?? "Android API \(image.api)"
     }
     /// Image tag as users read it (same mapping as the Slint launcher).
-    var imageLabel: String {
-        switch image.tag {
+    var imageLabel: String { Self.imageTagLabel(image.tag) }
+    static func imageTagLabel(_ tag: String) -> String {
+        switch tag {
         case "google_apis": return "Google APIs"
         case "google_apis_playstore", "playstore": return "Play Store"
         case "default": return "AOSP"
         case "aosp_atd": return "AOSP ATD"
         case "google_atd": return "Google ATD"
-        default: return image.tag.replacingOccurrences(of: "_", with: " ")
+        default: return tag.replacingOccurrences(of: "_", with: " ")
         }
     }
 }
@@ -127,6 +129,13 @@ final class CenterModel: ObservableObject {
     @Published private var bootProgress: [String:Double] = [:]
     @Published var language = 1
     @Published var appearance = 0
+    weak var centerWindow: NSWindow?
+    @Published var deviceQuery = ""
+    @Published var detailsVisible = true
+    @Published var settingsCategory = 0
+    private(set) var settingsWindow: SettingsWindowController?
+    private(set) var taskPanel: TaskPanelController?
+    private(set) var paletteWindow: PaletteWindowController?
     @Published var tileURL = ""
     @Published var dataDirectory: String?
     @Published var rootPresentation: RootPresentation?
@@ -195,6 +204,7 @@ final class CenterModel: ObservableObject {
     private var sequence = 0
     private var refreshGeneration = 0
     private var detailGeneration = 0
+    private var selectionCleared = false
     private(set) var players: [String:GameWindowController] = [:]
     private var advancedWindows: [String:AdvancedToolsWindowController] = [:]
     private var openingPlayers = Set<String>()
@@ -503,26 +513,45 @@ final class CenterModel: ObservableObject {
         paletteQuery = ""
         paletteSelection = 0
         paletteOpen = true
+        if paletteWindow == nil { paletteWindow = PaletteWindowController(model: self) }
+        paletteWindow?.present(relativeTo: centerWindow ?? NSApp.mainWindow)
     }
     func togglePalette() { paletteOpen ? dismissOverlay() : openPalette() }
-    func closeOverlay() {
+    func hidePalette() {
         paletteOpen = false
-        setTasksOpen(false)
-        quitReason = nil
+        paletteWindow?.window?.orderOut(nil)
+    }
+    func closeOverlay() {
+        if paletteOpen { hidePalette() }
+        else { setTasksOpen(false); quitReason = nil }
     }
     func dismissOverlay() { closeOverlay() }
     func openTasks() {
         paletteOpen = false
+        paletteWindow?.window?.orderOut(nil)
         quitReason = nil
         setTasksOpen(true)
         refreshJobs()
     }
     private func setTasksOpen(_ open: Bool) {
         tasksOpen = open
+        if open {
+            if taskPanel == nil { taskPanel = TaskPanelController(model: self) }
+            if taskPanel?.window?.isMiniaturized == true { taskPanel?.window?.deminiaturize(nil) }
+            taskPanel?.showWindow(nil)
+            taskPanel?.window?.makeKeyAndOrderFront(nil)
+        } else { taskPanel?.window?.orderOut(nil) }
         if open || hasActiveJobs { startJobsTimer() } else { stopJobsTimer() }
     }
+    func taskPanelDidClose() { setTasksOpen(false); quitReason = nil }
     func present(_ sheet: CenterSheet) {
-        closeOverlay()
+        hidePalette()
+        if sheet == .settings {
+            if settingsWindow == nil { settingsWindow = SettingsWindowController(model: self) }
+            settingsWindow?.showWindow(nil)
+            settingsWindow?.window?.makeKeyAndOrderFront(nil)
+            return
+        }
         // Swapping the presented sheet in place is not reliable; dismiss the
         // current one first so menu/palette actions always land.
         if self.sheet != nil {
@@ -534,7 +563,7 @@ final class CenterModel: ObservableObject {
     }
     /// Opens a sheet that needs freshly loaded `device.details`.
     func presentDeviceSheet(_ sheet: CenterSheet, device: String) {
-        closeOverlay()
+        hidePalette()
         if selected != device || details?.device.id != device {
             pendingSheetAfterDetails = sheet
             select(device)
@@ -569,7 +598,7 @@ final class CenterModel: ObservableObject {
         case .refreshDevices:
             refresh(); refreshJobs()
         case .focusSearch:
-            guard !paletteOpen, !tasksOpen else { return false }
+            guard !paletteOpen else { return false }
             searchFocusRequest += 1
         case .dismissOverlay:
             guard paletteOpen || tasksOpen else { return false }
@@ -621,6 +650,7 @@ final class CenterModel: ObservableObject {
 
     func presentQuitBlocker() {
         paletteOpen = false
+        paletteWindow?.window?.orderOut(nil)
         quitReason = quitBlockReason ?? self.text("暂时无法退出。", "Cannot quit right now.")
         setTasksOpen(true)
         refreshJobs()
@@ -639,7 +669,8 @@ final class CenterModel: ObservableObject {
         onlineSince = nil
         stopHeartbeat()
         jobsTimer?.invalidate(); jobsTimer = nil
-        closeOverlay()
+        hidePalette()
+        setTasksOpen(false)
     }
 
     // MARK: - Jobs
@@ -764,19 +795,65 @@ final class CenterModel: ObservableObject {
             guard let self, generation == self.refreshGeneration else { return }
             do {
                 let list = try self.decode(result.get(), as:[Device].self)
-                let previousID = self.selected
-                let previousState = self.devices.first(where: { $0.id == previousID })?.status.state
-                self.devices = list
-                self.deviceListLoaded = true
-                for device in list where device.running || device.stopped { self.bootProgress.removeValue(forKey:device.id) }
-                if !list.contains(where:{ $0.id == self.selected }) { self.selected = list.first?.id }
-                let nextState = list.first(where: { $0.id == self.selected })?.status.state
-                if let id = self.selected, self.details == nil || previousID != id || previousState != nextState { self.load(id) }
-                self.syncPlayerLaunchStates()
+                self.applyDeviceList(list)
             } catch { self.notice = error.localizedDescription }
         }
     }
-    func select(_ id:String) { selected = id; details = nil; apps = []; appsNote = nil; load(id) }
+    private func applyDeviceList(_ list: [Device]) {
+        let previousID = selected
+        let previousState = devices.first(where: { $0.id == previousID })?.status.state
+        devices = list
+        deviceListLoaded = true
+        for device in list where device.running || device.stopped { bootProgress.removeValue(forKey: device.id) }
+        if !list.contains(where: { $0.id == selected }), selected != nil || !selectionCleared {
+            if let next = list.first?.id { select(next) }
+            else {
+                let deliberatelyCleared = selectionCleared
+                setDeviceSelection(nil)
+                selectionCleared = deliberatelyCleared
+            }
+        } else if let id = selected,
+                  details == nil || previousState != list.first(where: { $0.id == id })?.status.state {
+            load(id)
+        }
+        syncPlayerLaunchStates()
+    }
+
+    /// A successful command reply alone does not prove deletion. Read back the
+    /// authoritative list before reporting success or changing the selection.
+    private func verifyDeletion(_ id: String, then: (() -> Void)?) {
+        call("device.list") { [weak self] result in
+            guard let self else { return }
+            defer { self.busy.remove(id); self.refreshJobs() }
+            do {
+                let list = try self.decode(result.get(), as: [Device].self)
+                self.refreshGeneration += 1 // Retire any older list requests.
+                self.applyDeviceList(list)
+                guard !list.contains(where: { $0.id == id }) else {
+                    self.showError(self.text("删除未生效，设备仍在列表中。请重试或检查后台日志。",
+                                             "Deletion did not take effect. The device is still listed. Retry or check the background logs."))
+                    return
+                }
+                self.showToast(self.text("设备已删除", "Device deleted"))
+                then?()
+            } catch {
+                self.showError(self.text("无法确认设备已删除：", "Could not verify device deletion: ") + self.readable(error))
+            }
+        }
+    }
+    func setDeviceSelection(_ id: String?) {
+        guard let id else {
+            selectionCleared = true
+            detailGeneration += 1
+            appListLoader.cancel()
+            pendingSheetAfterDetails = nil
+            selected = nil; details = nil; apps = []
+            appsLoading = false; appsError = nil; appsNote = nil
+            return
+        }
+        if selected != id { select(id) }
+    }
+    func select(_ id:String) { selectionCleared = false; selected = id; details = nil; apps = []; appsNote = nil; load(id) }
     func load(_ id:String) {
         detailGeneration += 1; let generation = detailGeneration
         call("device.details", ["device":id]) { [weak self] result in
@@ -828,6 +905,10 @@ final class CenterModel: ObservableObject {
             if let job { self?.ownJobs.insert(job) }
         }) { [weak self] result in
             guard let self else { return }
+            if method == "device.delete", case .success = result {
+                self.verifyDeletion(id, then: then)
+                return
+            }
             self.busy.remove(id)
             switch result {
             case .success:
@@ -1067,6 +1148,9 @@ final class CenterModel: ObservableObject {
         }
     }
     func close() {
+        paletteWindow?.close(); paletteWindow = nil
+        taskPanel?.close(); taskPanel = nil
+        settingsWindow?.close(); settingsWindow = nil
         stopping = true
         stopHeartbeat()
         jobsTimer?.invalidate(); jobsTimer = nil

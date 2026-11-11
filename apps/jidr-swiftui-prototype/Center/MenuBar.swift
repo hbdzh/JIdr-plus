@@ -116,7 +116,10 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
     private func menuItem(_ title: String, _ action: Selector, _ key: String = "",
                           target: AnyObject? = nil, modifiers: NSEvent.ModifierFlags = [.command]) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
-        item.target = target ?? self
+        // Standard editing/window commands must reach the first responder.
+        let responderActions: Set<String> = ["undo:", "redo:", "cut:", "copy:", "paste:", "selectAll:",
+                                             "performMiniaturize:", "performZoom:", "performClose:", "toggleFullScreen:"]
+        item.target = responderActions.contains(NSStringFromSelector(action)) ? target : (target ?? self)
         if !key.isEmpty { item.keyEquivalentModifierMask = modifiers }
         return item
     }
@@ -223,6 +226,8 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         appearanceItem.submenu = appearance
         menu.addItem(appearanceItem)
         menu.addItem(.separator())
+        menu.addItem(menuItem(t("显示/隐藏设备详情", "Show/Hide Device Details"), #selector(toggleCenterDetails), ""))
+        menu.addItem(menuItem(t("搜索设备", "Search Devices"), #selector(focusDeviceSearch), "f"))
         menu.addItem(menuItem(t("显示/隐藏侧边栏", "Show/Hide Sidebar"), #selector(toggleSidebarAction), ""))
         menu.addItem(.separator())
         menu.addItem(menuItem(t("进入全屏", "Enter Full Screen"), #selector(NSWindow.toggleFullScreen(_:)), "f",
@@ -334,6 +339,8 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         model?.refresh()
         model?.refreshJobs()
     }
+    @objc private func toggleCenterDetails() { showCenter(); model?.detailsVisible.toggle() }
+    @objc private func focusDeviceSearch() { showCenter(); model?.hidePalette(); model?.searchFocusRequest += 1 }
     @objc private func toggleSidebarAction() {
         keyPlayer()?.toggleSidebarFromMenu()
     }

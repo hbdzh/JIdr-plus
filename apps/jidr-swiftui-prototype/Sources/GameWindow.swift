@@ -115,7 +115,10 @@ final class PlayerTransport: ObservableObject {
         diagnosticPipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
             let data = handle.availableData
             guard !data.isEmpty else { handle.readabilityHandler = nil; return }
-            self?.consumeDiagnostics(data)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.generation == token else { return }
+                self.consumeDiagnostics(data, generation: token)
+            }
         }
         child.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async { [weak self] in
@@ -146,6 +149,9 @@ final class PlayerTransport: ObservableObject {
     }
 
     private func processEnded() {
+        // Diagnostics already queued on the main thread belong to the ended
+        // stream and must not put an interrupted recording back into motion.
+        generation = UUID()
         process = nil
         input = nil
         frames = nil
@@ -153,14 +159,20 @@ final class PlayerTransport: ObservableObject {
         connectionEnded = true
         linkState = PlayerExitClassifier.classify(diagnostic: lastDiagnostic)
         onStatus?("")
-        if recording != .idle {
-            recordingStateUnknown = true
-            recording = .idle
-            onStatus?(t("连接已结束，录屏状态未知；请在设备中心检查录屏。",
-                        "The connection ended and the recording state is unknown. Check it in the device center.",
-                        language))
-        }
+        markRecordingInterrupted()
         reconnectPromptIfEditing()
+    }
+
+    /// The recording job belongs to the daemon. Losing its reporting stream
+    /// cannot establish that the file was saved, but must release the UI's
+    /// pending phase so the window can close. Keep the uncertainty explicit.
+    private func markRecordingInterrupted() {
+        guard recording != .idle else { return }
+        recordingStateUnknown = true
+        recording = .idle
+        onStatus?(t("连接已结束，录屏状态未知；请在设备中心检查录屏。",
+                    "The connection ended and the recording state is unknown. Check it in the device center.",
+                    language))
     }
 
     private func reconnectPromptIfEditing() {
@@ -182,14 +194,16 @@ final class PlayerTransport: ObservableObject {
                 linkState = .connecting
             }
         case .booting(let progress, let message):
+            onStatus?("")
+            markRecordingInterrupted()
             stopProcess()
             connectionEnded = false
-            onStatus?("")
             linkState = .booting(progress: progress.map { min(1, max(0, $0)) }, message: message)
         case .stopped(let reason):
+            onStatus?("")
+            markRecordingInterrupted()
             stopProcess()
             connectionEnded = false
-            onStatus?("")
             linkState = .stopped(reason: reason)
         }
     }
@@ -200,7 +214,8 @@ final class PlayerTransport: ObservableObject {
                                           recording: recording != .idle,
                                           recordingUnknown: recordingStateUnknown) else { return }
         if let onReconnect {
-            connectionEnded = false
+            // The center uses this flag to retire the disconnected controller.
+            // Only a successful new stream may clear it.
             onReconnect()
             return
         }
@@ -245,6 +260,10 @@ final class PlayerTransport: ObservableObject {
     }
 
     func toggleRecording() {
+        guard !recordingStateUnknown else {
+            onStatus?(t("录屏状态未知，请先在设备中心确认。", "The recording state is unknown. Confirm it in the device center first.", language))
+            return
+        }
         switch recording {
         case .idle:
             let panel = NSSavePanel()
@@ -412,24 +431,24 @@ final class PlayerTransport: ObservableObject {
         onFrame?(image, rotation)
     }
 
-    private func consumeDiagnostics(_ data: Data) {
+    private func consumeDiagnostics(_ data: Data, generation token: UUID) {
         diagnosticBuffer.append(data)
         while let newline = diagnosticBuffer.firstIndex(of: 10) {
             let line = String(decoding: diagnosticBuffer.prefix(upTo: newline), as: UTF8.self)
             diagnosticBuffer.removeSubrange(...newline)
             if !line.isEmpty { lastDiagnostic = line }
-            handleDiagnostic(line)
+            handleDiagnostic(line, generation: token)
         }
     }
 
-    private func handleDiagnostic(_ line: String) {
+    private func handleDiagnostic(_ line: String, generation token: UUID) {
         if line.hasPrefix("JIDR_CLIPBOARD:") {
             let payload = String(line.dropFirst("JIDR_CLIPBOARD:".count))
             if let data = payload.data(using: .utf8),
                let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                let id = value["request_id"] as? Int, let text = value["text"] as? String {
                 DispatchQueue.main.async { [weak self] in
-                    guard let self, let pending = self.pendingCopy, pending.id == id else { return }
+                    guard let self, self.generation == token, let pending = self.pendingCopy, pending.id == id else { return }
                     self.pendingCopy = nil
                     guard self.pasteboard.changeCount == pending.changeCount else {
                         self.onStatus?(t("Mac 剪贴板已变化，请重新复制", "The Mac clipboard changed. Copy again", self.language))
@@ -445,7 +464,7 @@ final class PlayerTransport: ObservableObject {
                let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                let path = result["path"] as? String {
                 DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
+                    guard let self, self.generation == token else { return }
                     self.mapping.load(path: path)
                     let url = URL(fileURLWithPath: path)
                     let root = url.deletingLastPathComponent().deletingLastPathComponent().path
@@ -465,13 +484,14 @@ final class PlayerTransport: ObservableObject {
                let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                let state = result["state"] as? String, let message = result["message"] as? String {
                 DispatchQueue.main.async { [weak self] in
-                    guard let self else { return }
+                    guard let self, self.generation == token else { return }
                     switch state {
                     case "recording":
                         self.recording = .recording
                         if self.recordingStartedAt == nil { self.recordingStartedAt = Date() }
                     case "finished", "failed":
                         self.recording = .idle
+                        self.recordingStateUnknown = false
                     case "stop_failed":
                         if self.recording == .stopping { self.recording = .recording }
                     default:
@@ -485,7 +505,7 @@ final class PlayerTransport: ObservableObject {
             guard let data = payload.data(using: .utf8),
                   let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+                guard let self, self.generation == token else { return }
                 let ok = result["ok"] as? Bool == true
                 switch result["op"] as? String {
                 case "inspect":
@@ -533,7 +553,7 @@ final class PlayerTransport: ObservableObject {
                 readable = message
             }
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+                guard let self, self.generation == token else { return }
                 if result["ok"] as? Bool == false,
                    message.contains("INSTALL_FAILED_UPDATE_INCOMPATIBLE") || message.contains("signatures do not match"),
                    let apk = self.reinstallAPK {
@@ -549,7 +569,7 @@ final class PlayerTransport: ObservableObject {
             // presenting the raw serde error as a successful action.
             let detail = line.trimmingCharacters(in: .whitespacesAndNewlines)
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+                guard let self, self.generation == token else { return }
                 self.onStatus?(self.unsupportedBridgeMessage(detail))
             }
         } else if !line.isEmpty {
@@ -558,7 +578,10 @@ final class PlayerTransport: ObservableObject {
             // status bubble.
             guard !line.hasPrefix("Error:") else { return }
             let value = line
-            DispatchQueue.main.async { [weak self] in self?.onStatus?(value) }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.generation == token else { return }
+                self.onStatus?(value)
+            }
         }
     }
 
@@ -1061,6 +1084,12 @@ final class GameWindowController: NSObject, NSWindowDelegate {
                 onWarning?(windowStateMessage(error))
             }
             transport.shortcuts.load(dataDirectory: dataDirectory, device: device)
+            if ProcessInfo.processInfo.environment["JIDR_PLAYER_FIXTURE"] == "1" {
+                // The fixture has no daemon connect_info response to supply
+                // this path. Keep local mapping editing usable in its temp home.
+                transport.mapping.load(path: URL(fileURLWithPath: dataDirectory)
+                    .appendingPathComponent("keymaps").appendingPathComponent("\(device).json").path)
+            }
         }
         if let sidebarVisible = saved?.sidebar ?? legacy?.sidebar {
             sidebar.visible = sidebarVisible

@@ -12,6 +12,7 @@ struct SnapshotSaveDialog: View {
     let device: Device
     let magiskVersion: String
     let onSaved: (String) -> Void
+    let onCancel: (() -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var othersLoaded = false
@@ -20,11 +21,12 @@ struct SnapshotSaveDialog: View {
     @State private var progress = ""
     @State private var error = ""
 
-    init(model: CenterModel, device: Device, magiskVersion: String = "", onSaved: @escaping (String) -> Void = { _ in }) {
+    init(model: CenterModel, device: Device, magiskVersion: String = "", onCancel: (() -> Void)? = nil, onSaved: @escaping (String) -> Void = { _ in }) {
         self.model = model
         self.device = device
         self.magiskVersion = magiskVersion
         self.onSaved = onSaved
+        self.onCancel = onCancel
         _name = State(initialValue: Snapshots.defaultName(language: model.language))
     }
 
@@ -94,7 +96,8 @@ struct SnapshotSaveDialog: View {
 
             HStack(spacing: WbSpace.sm) {
                 Spacer()
-                Button(t("取消", "Cancel")) { dismiss() }
+                Button(t("取消", "Cancel")) { if let onCancel { onCancel() } else { dismiss() } }
+                    .keyboardShortcut(.cancelAction)
                     .buttonStyle(.bordered).controlSize(.regular)
                     .disabled(saving)
                 Button(saving ? t("正在保存…", "Saving…") : t("保存", "Save")) { save() }
@@ -135,7 +138,7 @@ struct SnapshotSaveDialog: View {
             saving = false
             switch result {
             case .success:
-                dismiss()
+                if onCancel == nil { dismiss() }
                 onSaved(trimmed)
             case .failure(let failure):
                 error = OperationMessages.error(failure.localizedDescription, language: model.language)

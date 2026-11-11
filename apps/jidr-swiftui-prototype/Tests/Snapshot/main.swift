@@ -32,6 +32,7 @@ struct SnapshotCase {
     enum Kind {
         case center(fixture: String)
         case player
+        case auxiliary(page: String)
     }
 
     let name: String
@@ -39,6 +40,11 @@ struct SnapshotCase {
     /// 0 = English, 1 = Chinese; matches `CenterModel.language`/`PlayerTransport.language`.
     let language: Int
     let appearance: SnapshotAppearance
+
+    var width = 1000
+    var height = 640
+    var recording = false
+    var deselected = false
 
     var localeIdentifier: String { language == 0 ? "en" : "zh-Hans" }
     var languageName: String { language == 0 ? "en" : "zh" }
@@ -56,6 +62,19 @@ let allCases: [SnapshotCase] = [
     SnapshotCase(name: "center-populated-en", kind: .center(fixture: "populated"), language: 0, appearance: .dark),
     SnapshotCase(name: "center-long-task-en", kind: .center(fixture: "long-task"), language: 0, appearance: .dark),
     SnapshotCase(name: "player-running-en", kind: .player, language: 0, appearance: .dark),
+    SnapshotCase(name: "center-populated-en-minimum", kind: .center(fixture: "populated"), language: 0, appearance: .dark, width: 800, height: 550),
+    SnapshotCase(name: "center-populated-en-light", kind: .center(fixture: "populated"), language: 0, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "center-recording-en-minimum", kind: .center(fixture: "populated"), language: 0, appearance: .dark, width: 800, height: 550, recording: true),
+    SnapshotCase(name: "center-deselected-light", kind: .center(fixture: "populated"), language: 1, appearance: .light, deselected: true),
+    SnapshotCase(name: "center-deselected-en-dark", kind: .center(fixture: "populated"), language: 0, appearance: .dark, deselected: true),
+    SnapshotCase(name: "settings-general-light", kind: .auxiliary(page: "settings"), language: 1, appearance: .light, width: 700, height: 360),
+    SnapshotCase(name: "settings-general-en-dark", kind: .auxiliary(page: "settings"), language: 0, appearance: .dark, width: 700, height: 360),
+    SnapshotCase(name: "sdk-setup-light", kind: .auxiliary(page: "sdk"), language: 1, appearance: .light, width: 650, height: 520),
+    SnapshotCase(name: "sdk-setup-en-dark", kind: .auxiliary(page: "sdk"), language: 0, appearance: .dark, width: 650, height: 520),
+    SnapshotCase(name: "tasks-empty-light", kind: .auxiliary(page: "tasks"), language: 1, appearance: .light, width: 480, height: 260),
+    SnapshotCase(name: "tasks-active-en-dark", kind: .auxiliary(page: "tasks-active"), language: 0, appearance: .dark, width: 480, height: 264),
+    SnapshotCase(name: "command-search-light", kind: .auxiliary(page: "palette"), language: 1, appearance: .light, width: 600, height: 450),
+    SnapshotCase(name: "command-search-en-dark", kind: .auxiliary(page: "palette"), language: 0, appearance: .dark, width: 600, height: 450),
     // Light theme (player chrome is intentionally dark-only, so no light player).
     SnapshotCase(name: "center-populated-light", kind: .center(fixture: "populated"), language: 1, appearance: .light),
     SnapshotCase(name: "center-load-failure-light", kind: .center(fixture: "load-failure"), language: 1, appearance: .light),
@@ -63,7 +82,6 @@ let allCases: [SnapshotCase] = [
 
 // Small enough that every baseline stays well under 150 KB while preserving the
 // real layout: the center window is 1050×700, the player content is 432×768.
-let centerSize = (width: 1000, height: 640)
 let playerSize = (width: 432, height: 768)
 
 
@@ -75,6 +93,7 @@ struct Options {
     var only: String?
     var centerBridge = ""
     var playerBridge = ""
+    var uiFixture = ""
     var golden = ""
     var fonts = ""
 }
@@ -100,6 +119,7 @@ while argumentIndex < arguments.count {
     case "--only": options.only = value("--only")
     case "--center-bridge": options.centerBridge = value("--center-bridge")
     case "--player-bridge": options.playerBridge = value("--player-bridge")
+    case "--ui-fixture": options.uiFixture = value("--ui-fixture")
     case "--golden": options.golden = value("--golden")
     case "--fonts": options.fonts = value("--fonts")
     default: fail("unknown argument \(argument); usage: snapshot --update|--check [--only CASE] --center-bridge PATH --player-bridge PATH --golden DIR [--fonts DIR]")
@@ -329,9 +349,11 @@ func renderCenter(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
     // Apply the matrix language/appearance only after the async state loaded, so
     // every view re-evaluates with the requested deterministic values.
     model.language = language
+    if snapshotCase.recording, let id = model.selected { model.recording.insert(id) }
+    if snapshotCase.deselected { model.setDeviceSelection(nil) }
     model.appearance = snapshotCase.appearance == .light ? 1 : 2
     pump(0.1)
-    let canvas = Canvas(width: centerSize.width, height: centerSize.height, appearance: snapshotCase.appearance)
+    let canvas = Canvas(width: snapshotCase.width, height: snapshotCase.height, appearance: snapshotCase.appearance)
     canvas.mount(CenterView(model: model))
     canvas.settle(0.4)
     let rep = canvas.capture()
@@ -376,10 +398,42 @@ func renderPlayer(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
     return rep
 }
 
+func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImageRep {
+    require(!options.uiFixture.isEmpty, "auxiliary views require --ui-fixture")
+    if page == "tasks-active" { setenv("JIDR_UI_TASKS", "1", 1) }
+    else { unsetenv("JIDR_UI_TASKS") }
+    defer { unsetenv("JIDR_UI_TASKS") }
+    let model: CenterModel
+    do { model = try CenterModel(center: options.uiFixture, game: options.centerBridge, bridge: options.playerBridge) }
+    catch { fail("cannot start UI fixture: \(error)") }
+    defer { model.close() }
+    require(waitUpTo(5) { model.connection.isOnline && model.details != nil }, "UI fixture did not load")
+    model.language = snapshotCase.language
+    model.appearance = snapshotCase.appearance == .light ? 1 : 2
+    if page == "tasks-active" {
+        model.refreshJobs()
+        require(waitUpTo(5) { model.taskRows.count == 2 }, "task fixture did not load")
+    }
+    let canvas = Canvas(width: snapshotCase.width, height: snapshotCase.height, appearance: snapshotCase.appearance)
+    switch page {
+    case "settings": canvas.mount(SettingsView(model: model, onClose: {}))
+    case "sdk": canvas.mount(InstallSDKView(model: model))
+    case "tasks", "tasks-active": canvas.mount(TaskCenterView(model: model))
+    case "palette": canvas.mount(CommandPaletteView(model: model))
+    default: fail("unknown auxiliary view: \(page)")
+    }
+    canvas.settle(0.5)
+    let rep = canvas.capture()
+    canvas.unmount()
+    pump(0.05)
+    return rep
+}
+
 func render(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
     switch snapshotCase.kind {
     case .center: return renderCenter(snapshotCase)
     case .player: return renderPlayer(snapshotCase)
+    case .auxiliary(let page): return renderAuxiliary(snapshotCase, page: page)
     }
 }
 

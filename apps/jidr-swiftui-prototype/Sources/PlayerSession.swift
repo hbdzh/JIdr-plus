@@ -82,6 +82,9 @@ enum PlayerDiagnosis {
 enum PlayerStatusText {
     static func translate(_ text: String, language: Int) -> String {
         guard !text.isEmpty else { return text }
+        if text == "UI preview: this operation requires a real device connection." {
+            return t("界面预览无法执行此操作，请连接真实设备。", text, language)
+        }
         // The existing en.lproj mechanism stays first (titlebar/save-panel copy).
         if language == 0,
            let path = Bundle.main.path(forResource: "en", ofType: "lproj"),

@@ -32,6 +32,11 @@ func expectNoChinese(_ label: String, _ value: String) {
     precondition(!containsChinese(value), "\(label) still contains Chinese: \(value)")
 }
 
+let previewMessage = "UI preview: this operation requires a real device connection."
+precondition(PlayerStatusText.translate(previewMessage, language: 0) == previewMessage)
+precondition(PlayerStatusText.translate(previewMessage, language: 1) == "界面预览无法执行此操作，请连接真实设备。")
+precondition(OperationMessages.error(previewMessage, language: 1) == "界面预览无法执行此操作，请连接真实设备。")
+
 // 1. OperationMessages: daemon diagnostics are English, so language 0 passes
 //    them through unchanged; the known notice pairs still get their English text.
 let daemonMessages = [

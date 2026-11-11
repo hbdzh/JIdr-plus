@@ -94,3 +94,6 @@ swiftc -module-cache-path "$out/module-cache" \
 # before the real tree is checked; the baseline allowlist lives in
 # Tests/i18n_allowlist.txt.
 python3 apps/jidr-swiftui-prototype/Tests/localization_coverage.py --self-test
+python3 apps/jidr-swiftui-prototype/Tests/Deployment/main.py
+
+python3 apps/jidr-swiftui-prototype/Tests/CenterUI/contrast.py

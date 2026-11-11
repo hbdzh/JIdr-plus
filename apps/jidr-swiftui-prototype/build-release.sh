@@ -8,12 +8,14 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
+source "$root/apps/jidr-swiftui-prototype/swift-target.sh"
 out="$root/target/swiftui-center-release"
 binary="$out/JidrSwiftUICenter"
 mkdir -p "$out/module-cache"
 CLANG_MODULE_CACHE_PATH="$out/module-cache" \
-  swiftc -O -module-cache-path "$out/module-cache" \
+  swiftc -O -target "$jidr_swift_target" -module-cache-path "$out/module-cache" \
   apps/jidr-swiftui-prototype/Sources/*.swift \
   apps/jidr-swiftui-prototype/Center/*.swift \
   -o "$binary"
+python3 "$root/apps/jidr-swiftui-prototype/check-deployment.py" "$binary" "$root/packaging/swiftui/Jidr-Info.plist.in"
 printf 'Built %s\n' "$binary"

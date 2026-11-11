@@ -165,7 +165,7 @@ struct DeviceDetailsView: View {
                                     .wbFont(WbType.caption)
                                     .foregroundStyle(WbColor.textSecondary)
                             }
-                            Text(details.device.imageLabel + " · " + details.device.profile)
+                            Text(details.device.imageLabel + " · " + details.device.profileLabel)
                                 .wbFont(WbType.caption)
                                 .foregroundStyle(WbColor.textTertiary)
                                 .lineLimit(1)
@@ -224,7 +224,7 @@ struct DeviceDetailsView: View {
                 Section("Android") {
                     LabeledContent(model.text("版本", "Version"), value: details.device.androidVersion)
                     LabeledContent(model.text("镜像", "Image"), value: details.device.imageLabel)
-                    LabeledContent(model.text("配置", "Profile"), value: details.device.profile)
+                    LabeledContent(model.text("配置", "Profile"), value: details.device.profileLabel)
                     LabeledContent(model.text("序列号", "Serial"), value: details.device.runtime?.adb_serial ?? "—")
                     LabeledContent("SDK") {
                         Text(details.device.sdk_root)
@@ -410,7 +410,9 @@ struct EditDeviceView: View {
                 Section(model.text("基本信息", "Basic information")) {
                     LabeledContent(model.text("设备名称", "Device name")) {
                         TextField("", text: $name)
-                            .multilineTextAlignment(.trailing)
+                            .labelsHidden()
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.leading)
                             .frame(width: 220)
                             .disabled(!details.device.stopped || saving)
                             .accessibilityLabel(model.text("设备名称", "Device name"))
@@ -647,6 +649,8 @@ struct AvailableImage: Decodable, Identifiable {
 }
 struct InstallSDKView: View {
     @ObservedObject var model: CenterModel
+    var onClose: (() -> Void)? = nil
+    private func finish() { if let onClose { onClose() } else { dismiss() } }
     @Environment(\.dismiss) private var dismiss
     @State private var images: [AvailableImage] = []
     @State private var selection = ""
@@ -699,7 +703,7 @@ struct InstallSDKView: View {
         model.call("center.toolpath.set",["kind":"sdk","path":url.path]) { result in
             loading = false
             switch result {
-            case .success: model.refresh(); dismiss()
+            case .success: model.refresh(); finish()
             case .failure(let failure): error = model.text("无法使用该 SDK，请确认目录包含 emulator 和 platform-tools。", "Cannot use this SDK. Check that it contains emulator and platform-tools.") + "\n" + failure.localizedDescription
             }
         }
@@ -734,96 +738,195 @@ struct InstallSDKView: View {
             }
         }
     }
+    private func t(_ zh: String, _ en: String) -> String { model.text(zh, en) }
+
     var body: some View {
-        VStack(alignment:.leading,spacing:WbSpace.lg) {
-            Text("安装 Android SDK 和系统镜像").wbFont(WbType.headline)
-            if showingInstallStatus {
-                if model.sdkInstalling {
-                    if let fraction = model.sdkInstallFraction {
-                        ProgressView(value:fraction) { Text(model.sdkInstallMessage) }
-                        Text(model.text("当前步骤 \(Int(fraction * 100))%", "Current step \(Int(fraction * 100))%"))
-                            .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
-                    } else { ProgressView(model.sdkInstallMessage) }
-                    Text(model.text("安装可以在后台继续；退出前请等待安装或取消完成。", "Installation can continue in the background. Wait for installation or cancellation before quitting."))
-                        .wbFont(WbType.body).foregroundStyle(WbColor.textSecondary)
-                } else {
-                    Text(model.sdkInstallMessage).wbFont(WbType.body)
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 14) {
+                Image(systemName: "shippingbox")
+                    .font(.system(size: 22)).foregroundStyle(WbColor.accentText)
+                    .frame(width: 44, height: 44)
+                    .background(WbColor.accentContainer, in: RoundedRectangle(cornerRadius: 10))
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(showingInstallStatus ? t("安装进度", "Installation progress") : showingLicenses ? t("许可协议", "Licence agreements") : "Android SDK")
+                        .font(.system(size: 18, weight: .semibold))
+                    Text(t("配置模拟器工具和 Android 系统镜像。", "Set up emulator tools and Android system images."))
+                        .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
                 }
-                if let installError = model.sdkInstallError { Text(installError).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).textSelection(.enabled) }
-            } else if showingLicenses {
-                if licenses.isEmpty { Text("所选组件没有需要接受的新许可。") }
-                else {
-                    ScrollView { VStack(alignment:.leading,spacing:WbSpace.md) { ForEach(licenses) { license in
-                        Text(license.id).wbFont(WbType.title)
-                        Text(license.text).textSelection(.enabled)
-                    } }.frame(maxWidth:.infinity,alignment:.leading) }.frame(height:280)
-                    Toggle("我已阅读并同意上述许可协议",isOn:$reviewed)
-                }
+                Spacer(minLength: 8)
+                Text(showingInstallStatus ? "3 / 3" : showingLicenses ? "2 / 3" : "1 / 3")
+                    .font(.system(size: 11, weight: .medium)).monospacedDigit().foregroundStyle(WbColor.textSecondary)
+            }
+            .padding(24)
+            Divider()
+            if showingLicenses {
+                licenceContent
             } else {
-                Text("选择要安装的系统镜像；也可以只安装模拟器工具。")
-                if !sdkStatusError.isEmpty {
-                    Text(sdkStatusError).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).textSelection(.enabled)
-                    Button(model.text("重新检查 SDK", "Retry SDK check"),action:loadSDKStatus)
-                }
-                if let existing = sdkStatus?.tools_sdk {
-                    VStack(alignment:.leading,spacing:WbSpace.sm) {
-                        Label(model.text("已检测到可用的 Android SDK", "Android SDK detected"),systemImage:WbIcon.checkCircle)
-                            .foregroundStyle(WbColor.textSecondary)
-                        Text(existing).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
-                            .lineLimit(1).truncationMode(.middle).help(existing).textSelection(.enabled)
-                        Button(model.text("使用检测到的 SDK", "Use detected SDK")) { dismiss() }.disabled(loading)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        if showingInstallStatus { installationContent }
+                        else { configurationContent }
+                        if loading { ProgressView(loadingMessage).controlSize(.small) }
+                        if !error.isEmpty {
+                            Label(error, systemImage: "exclamationmark.triangle")
+                                .font(.system(size: 12)).foregroundStyle(WbColor.negative).textSelection(.enabled)
+                        }
                     }
-                }
-                if let location = sdkStatus?.private_sdk {
-                    Text(model.text("下载位置：\(location)", "Download location: \(location)"))
-                        .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).textSelection(.enabled)
-                }
-                Button("使用已有 SDK…") { chooseExistingSDK() }.disabled(loading)
-                Picker("系统镜像",selection:$selection) {
-                    Text("仅安装模拟器工具").tag("")
-                    ForEach(images.filter { $0.installed_in == nil }) { image in
-                        Text("Android API \(image.api) · \(image.tag) · \(image.abi)").tag(image.id)
-                    }
-                }
-                if loadingImages {
-                    ProgressView(model.text("正在读取镜像列表…", "Loading system images…")).controlSize(.small)
-                } else if !imageError.isEmpty {
-                    Text(imageError).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).textSelection(.enabled)
-                    Button(model.text("重新读取镜像", "Retry images"),action:loadAvailableImages)
-                } else if images.allSatisfy({ $0.installed_in != nil }) {
-                    Text("未找到可下载的镜像；请检查网络，或使用已有 SDK。") .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
-                    Button(model.text("重新读取镜像", "Retry images"),action:loadAvailableImages)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(24)
                 }
             }
-            if loading { ProgressView(loadingMessage) }
-            if !error.isEmpty { Text(error).foregroundStyle(WbColor.negative).textSelection(.enabled) }
-            HStack { Spacer()
-                if showingInstallStatus {
-                    if model.sdkInstalling {
-                        Button(model.sdkCancelPending ? model.text("正在取消…", "Cancelling…") : model.text("取消安装", "Cancel installation")) { model.cancelSDKInstall() }
-                            .disabled(model.sdkInstallJob == nil || model.sdkCancelPending)
-                        Button(model.text("后台运行", "Run in background")) { dismiss() }.keyboardShortcut(.cancelAction)
-                    } else {
-                        if model.sdkInstallSucceeded == false { Button(model.text("重新选择并重试", "Choose and retry"),action:retrySetup) }
-                        Button("关闭") { dismiss() }.keyboardShortcut(.cancelAction)
-                    }
-                } else {
-                Button("取消") { dismiss() }.disabled(loading).keyboardShortcut(.cancelAction)
-                if showingLicenses {
-                    Button(licenses.isEmpty ? "安装" : "同意并安装") { loading = true; error = ""; loadingMessage = model.text("正在确认许可…", "Confirming licences…"); accept(0) }
-                        .disabled(loading || (!licenses.isEmpty && !reviewed))
-                        .keyboardShortcut(.defaultAction)
-                } else { Button("继续") { prepare() }.disabled(loading).keyboardShortcut(.defaultAction) }
-                }
-            }
-        }.padding(WbSpace.xl).frame(width:650)
+            Divider()
+            footer
+        }
+        .frame(width: 650, height: 520)
+        .font(.system(size: 13))
+        .background(WbColor.surface)
+        .tint(WbColor.accent)
         .onAppear {
             if model.sdkInstalling { showingInstallStatus = true; return }
             loadSDKStatus(); loadAvailableImages()
         }
         .interactiveDismissDisabled(loading)
     }
+
+    @ViewBuilder private var configurationContent: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 12) {
+                if let existing = sdkStatus?.tools_sdk {
+                    Label(t("已检测到可用的 Android SDK", "Android SDK detected"), systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(WbColor.positive).font(.system(size: 12, weight: .medium))
+                    Text(existing).font(.system(size: 11, design: .monospaced)).foregroundStyle(WbColor.textSecondary)
+                        .lineLimit(2).truncationMode(.middle).help(existing).textSelection(.enabled)
+                    HStack(spacing: 8) {
+                        Button(t("使用此 SDK", "Use this SDK")) { finish() }.disabled(loading)
+                        Button(t("选择其他位置…", "Choose another location…"), action: chooseExistingSDK).disabled(loading)
+                    }.buttonStyle(.bordered)
+                } else {
+                    Text(t("已有 SDK？选择包含 emulator 和 platform-tools 的目录。", "Already have an SDK? Choose its emulator and platform-tools directory."))
+                        .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
+                    Button(t("选择 SDK 目录…", "Choose SDK folder…"), action: chooseExistingSDK).buttonStyle(.bordered).disabled(loading)
+                }
+                if !sdkStatusError.isEmpty {
+                    Text(sdkStatusError).font(.system(size: 12)).foregroundStyle(WbColor.negative).textSelection(.enabled)
+                    Button(t("重新检查", "Check again"), action: loadSDKStatus).buttonStyle(.link)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+        } label: { Label(t("使用现有 SDK", "Use an existing SDK"), systemImage: "folder").font(.system(size: 12, weight: .semibold)) }
+
+        GroupBox {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text(t("系统镜像", "System image"))
+                    Spacer(minLength: 16)
+                    Picker(t("系统镜像", "System image"), selection: $selection) {
+                        Text(t("仅安装模拟器工具", "Emulator tools only")).tag("")
+                        ForEach(images.filter { $0.installed_in == nil }) { image in
+                            Text("Android API \(image.api) · \(Device.imageTagLabel(image.tag)) · \(image.abi)").tag(image.id)
+                        }
+                    }.labelsHidden().frame(maxWidth: 360).disabled(loading || loadingImages)
+                }
+                if let location = sdkStatus?.private_sdk {
+                    Text(t("下载位置：\(location)", "Download location: \(location)"))
+                        .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary).textSelection(.enabled)
+                }
+                Text(t("将安装模拟器工具、ADB 和所选镜像。下一步先检查许可协议。", "Installs emulator tools, ADB and the selected image. Review licences before installation."))
+                    .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary).fixedSize(horizontal: false, vertical: true)
+                if loadingImages {
+                    ProgressView(t("正在读取镜像列表…", "Loading system images…")).controlSize(.small)
+                } else if !imageError.isEmpty {
+                    Text(imageError).font(.system(size: 12)).foregroundStyle(WbColor.negative).textSelection(.enabled)
+                    Button(t("重新读取镜像", "Retry images"), action: loadAvailableImages).buttonStyle(.link)
+                } else if images.allSatisfy({ $0.installed_in != nil }) {
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(t("暂无可下载的镜像，可以只安装工具。", "No downloadable images are available. You can still install tools."))
+                            .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
+                        Spacer(minLength: 0)
+                        Button(t("刷新", "Refresh"), action: loadAvailableImages).buttonStyle(.link)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).padding(10)
+        } label: { Label(t("安装或更新组件", "Install or update components"), systemImage: "arrow.down.circle").font(.system(size: 12, weight: .semibold)) }
+    }
+
+    private var licenceContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if licenses.isEmpty {
+                Label(t("所选组件没有需要接受的新许可。", "The selected components have no new licences to accept."), systemImage: "checkmark.circle")
+                    .foregroundStyle(WbColor.textSecondary)
+                Spacer()
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        ForEach(licenses) { license in
+                            Text(license.id).font(.system(size: 13, weight: .semibold))
+                            Text(license.text).font(.system(size: 12)).textSelection(.enabled)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
+                }
+                .background(WbColor.raised, in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(WbColor.borderDefault))
+                Toggle(t("我已阅读并同意上述许可协议", "I have read and agree to the licences above"), isOn: $reviewed).disabled(loading)
+            }
+            if loading { ProgressView(loadingMessage).controlSize(.small) }
+            if !error.isEmpty { Text(error).font(.system(size: 12)).foregroundStyle(WbColor.negative).textSelection(.enabled) }
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var installationContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if model.sdkInstalling {
+                if let fraction = model.sdkInstallFraction {
+                    ProgressView(value: fraction) { Text(model.sdkInstallMessage).font(.system(size: 13)) }
+                    Text(t("当前步骤 \(Int(fraction * 100))%", "Current step \(Int(fraction * 100))%"))
+                        .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
+                } else { ProgressView(model.sdkInstallMessage).controlSize(.small) }
+                Text(t("可在后台继续。退出前请等待安装或取消完成。", "You can continue in the background. Wait for installation or cancellation before quitting."))
+                    .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
+            } else {
+                Label(model.sdkInstallMessage, systemImage: model.sdkInstallSucceeded == false ? "exclamationmark.triangle" : "checkmark.circle")
+            }
+            if let message = model.sdkInstallError { Text(message).font(.system(size: 12)).foregroundStyle(WbColor.negative).textSelection(.enabled) }
+        }
+    }
+
+    private var footer: some View {
+        HStack(spacing: 8) {
+            if showingLicenses, !loading {
+                Button(t("返回", "Back")) { showingLicenses = false; reviewed = false }
+            }
+            Spacer()
+            if showingInstallStatus {
+                if model.sdkInstalling {
+                    Button(model.sdkCancelPending ? t("正在取消…", "Cancelling…") : t("取消安装", "Cancel installation")) { model.cancelSDKInstall() }
+                        .disabled(model.sdkInstallJob == nil || model.sdkCancelPending)
+                    Button(t("后台运行", "Run in background")) { finish() }.keyboardShortcut(.cancelAction)
+                } else {
+                    if model.sdkInstallSucceeded == false { Button(t("重新选择并重试", "Choose and retry"), action: retrySetup) }
+                    Button(t("完成", "Done")) { finish() }.keyboardShortcut(.cancelAction)
+                }
+            } else {
+                Button(t("取消", "Cancel")) { finish() }.disabled(loading).keyboardShortcut(.cancelAction)
+                Button(showingLicenses ? (licenses.isEmpty ? t("安装", "Install") : t("同意并安装", "Agree and install")) : t("继续", "Continue")) {
+                    if showingLicenses {
+                        loading = true; error = ""; loadingMessage = t("正在确认许可…", "Confirming licences…"); accept(0)
+                    } else { prepare() }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(loading || (showingLicenses && !licenses.isEmpty && !reviewed))
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .buttonStyle(.bordered).controlSize(.regular)
+        .padding(.horizontal, 24).padding(.vertical, 16)
+        .background(WbColor.chrome)
+    }
 }
+
 struct NewDeviceView: View {
     @ObservedObject var model: CenterModel
     @Environment(\.dismiss) private var dismiss
@@ -856,6 +959,17 @@ struct NewDeviceView: View {
     }
 
     var body: some View {
+        ZStack {
+            creationForm.opacity(installing ? 0 : 1)
+                .allowsHitTesting(!installing).accessibilityHidden(installing).disabled(installing)
+            if installing {
+                InstallSDKView(model: model, onClose: { installing = false; loadImages() })
+                    .background(WbColor.raised)
+            }
+        }
+        .frame(width: installing ? 650 : 520, height: 520)
+    }
+    private var creationForm: some View {
         VStack(spacing: 0) {
             DeviceSheetHeader(title: model.text("添加设备", "Add device"),
                               subtitle: model.text("选择已经安装的系统镜像和硬件配置。", "Choose an installed system image and hardware profile."))
@@ -863,7 +977,9 @@ struct NewDeviceView: View {
                 Section(model.text("基础配置", "Basic configuration")) {
                     LabeledContent(model.text("设备名称", "Device name")) {
                         TextField(model.text("例如：Pixel 9 Pro", "e.g. Pixel 9 Pro"), text: $name)
-                            .multilineTextAlignment(.trailing)
+                            .labelsHidden()
+                            .textFieldStyle(.roundedBorder)
+                            .multilineTextAlignment(.leading)
                             .frame(width: 220)
                             .disabled(saving)
                             .accessibilityLabel(model.text("设备名称", "Device name"))
@@ -872,7 +988,7 @@ struct NewDeviceView: View {
                         Picker("", selection: $image) {
                             Text(model.text("请选择", "Select")).tag("")
                             ForEach(images) { item in
-                                Text("Android API \(item.api) · \(item.tag)").tag(item.id)
+                                Text("Android API \(item.api) · \(Device.imageTagLabel(item.tag))").tag(item.id)
                             }
                         }
                         .labelsHidden()
@@ -886,7 +1002,7 @@ struct NewDeviceView: View {
                         }
                         .labelsHidden()
                         .frame(width: 220)
-                        .onChange(of: profile) { _, value in applyProfile(value) }
+                        .onChange(of: profile) { value in applyProfile(value) }
                         .accessibilityLabel(model.text("硬件配置", "Hardware profile"))
                     }
                     LabeledContent(model.text("Root 模式", "Root mode")) {
@@ -907,13 +1023,8 @@ struct NewDeviceView: View {
                     }
                 }
 
-                Section(model.text("高级配置", "Advanced configuration")) {
-                    Button(showAdvanced ? model.text("隐藏高级配置", "Hide advanced configuration")
-                                        : model.text("显示高级配置", "Show advanced configuration")) {
-                        showAdvanced.toggle()
-                    }
-                    .buttonStyle(.borderless)
-                    if showAdvanced {
+                Section {
+                    DisclosureGroup(model.text("高级配置", "Advanced configuration"), isExpanded: $showAdvanced) {
                         LabeledContent(model.text("内存 (MB)", "Memory (MB)")) {
                             numberField($ram, label: model.text("内存 (MB)", "Memory (MB)"))
                         }
@@ -973,7 +1084,7 @@ struct NewDeviceView: View {
                     .keyboardShortcut(.defaultAction)
             }
         }
-        .frame(width: 520, height: showAdvanced ? 650 : 520)
+        .frame(width: 520, height: 520)
         .background(WbColor.raised)
         .onAppear {
             model.call("profile.list") { result in
@@ -984,9 +1095,6 @@ struct NewDeviceView: View {
                 if let data = try? result.get(), let value = try? model.decode(data,as:DaemonSettings.self) { root = value.default_root_mode }
             }
             loadImages()
-        }
-        .sheet(isPresented:$installing,onDismiss:loadImages) {
-            InstallSDKView(model:model).environment(\.locale,Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
         }
     }
 
@@ -1032,8 +1140,8 @@ struct CacheEntry: Decodable { let size: UInt64 }
 struct AboutInfo: Decodable { let version: String; let repository: String }
 struct SettingsView: View {
     @ObservedObject var model: CenterModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var category = 0
+    let onClose: () -> Void
+    private var category: Int { model.settingsCategory }
     @State private var migrationParent: URL?
     @State private var migrationChecking = false
     @State private var migrationMessage = ""
@@ -1175,13 +1283,12 @@ struct SettingsView: View {
         }.resume()
     }
     var body: some View {
-        HStack(spacing: WbSpace.zero) {
-            settingsSidebar
-            Rectangle().fill(WbColor.borderSubtle).frame(width: 1)
-            settingsContent
-        }
-        .frame(width: 780, height: 580)
-        .background(WbColor.raised)
+        settingsContent
+        .frame(minWidth: 640, minHeight: 340)
+        .preferredColorScheme(model.colorScheme)
+        .environment(\.locale, Locale(identifier: model.language == 0 ? "en" : "zh-Hans"))
+        .background(WbColor.surface)
+        .onExitCommand { if !saving { onClose() } }
         .onAppear(perform:load)
         .sheet(isPresented:$installing,onDismiss:load) {
             InstallSDKView(model:model).environment(\.locale,Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
@@ -1206,203 +1313,111 @@ struct SettingsView: View {
         } message: { Text("已下载的缓存文件会被删除，之后需要时可能重新下载。设备数据和快照不会删除。") }
     }
 
-    // MARK: - Sidebar and page chrome
-
-    private var sectionTitles: [String] {
-        [model.text("通用", "General"),
-         model.text("设备默认值", "Device defaults"),
-         model.text("数据与工具", "Data & tools"),
-         model.text("高级", "Advanced"),
-         model.text("关于", "About")]
-    }
-
-    private var sectionIcons: [String] {
-        [WbIcon.settings, WbIcon.advancedTools, WbIcon.dataTools, WbIcon.advancedConfig, WbIcon.info]
-    }
-
-    private var categorySelection: Binding<Int?> {
-        Binding(get: { category }, set: { newValue in
-            if let newValue { category = newValue }
-        })
-    }
-
-    private var settingsSidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(model.text("设置", "Settings"))
-                .wbFont(WbType.headline)
-                .foregroundStyle(WbColor.textPrimary)
-                .padding(.horizontal, WbSpace.lg)
-                .padding(.top, WbSpace.xl)
-                .padding(.bottom, WbSpace.sm)
-            List(selection: categorySelection) {
-                ForEach(Array(sectionTitles.enumerated()), id: \.offset) { index, title in
-                    Label {
-                        Text(title)
-                    } icon: {
-                        Image(systemName: sectionIcons[index])
-                    }
-                    .tag(index)
-                }
-            }
-            .listStyle(.sidebar)
-            .tint(WbColor.accent)
-            .frame(maxHeight: .infinity)
-            Text("Jidr 0.3.1 · GPL-3.0-only")
-                .wbFont(WbType.caption)
-                .foregroundStyle(WbColor.textTertiary)
-                .padding(.horizontal, WbSpace.lg)
-                .padding(.bottom, WbSpace.lg)
-                .padding(.top, WbSpace.sm)
-        }
-        .frame(width: 200)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(WbColor.chrome)
-    }
+    // MARK: - Preference panes (navigation is the native window toolbar)
 
     private var settingsContent: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: WbSpace.sm) {
-                Text(sectionTitles[category])
-                    .wbFont(WbType.headline)
-                    .foregroundStyle(WbColor.textPrimary)
-                Spacer(minLength: WbSpace.sm)
-                Button(model.text("关闭", "Close")) { dismiss() }
-                    .buttonStyle(.bordered).controlSize(.regular)
-                    .disabled(saving)
-                    .keyboardShortcut(.cancelAction)
-            }
-            .padding(.horizontal, WbSpace.xl)
-            .padding(.top, WbSpace.lg)
-            .padding(.bottom, WbSpace.sm)
-
-            Form {
-                switch category {
-                case 0: generalPage
-                case 1: defaultsPage
-                case 2: dataPage
-                case 3: advancedPage
-                default: aboutPage
+        Group {
+            if category == 0 {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        GroupBox {
+                            HStack {
+                                Text(model.text("语言", "Language"))
+                                Spacer()
+                                Picker(model.text("语言", "Language"), selection: Binding(get: { model.language }, set: { model.setPreference("language", $0) })) {
+                                    Text("中文").tag(1)
+                                    Text("English").tag(0)
+                                }
+                                .labelsHidden().frame(width: 180)
+                            }
+                            .padding(10)
+                        }
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text(model.text("外观", "Appearance")).font(.system(size: 13, weight: .semibold))
+                            AppearancePreviewCard(model: model)
+                            Text(model.text("选择跟随系统时，外观会随 macOS 自动切换。", "With System selected, appearance changes automatically with macOS."))
+                                .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Text(model.text("更改会立即生效。", "Changes take effect immediately."))
+                            .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
+                    }
+                    .frame(maxWidth: 600, alignment: .leading)
+                    .padding(28)
+                    .frame(maxWidth: .infinity, alignment: .top)
                 }
-                if !message.isEmpty {
-                    Section {
-                        Text(message)
-                            .wbFont(WbType.caption)
-                            .foregroundStyle(WbColor.textSecondary)
-                            .textSelection(.enabled)
+            } else {
+                Form {
+                    switch category {
+                    case 1: defaultsPage
+                    case 2: dataPage
+                    case 3: advancedPage
+                    default: aboutPage
+                    }
+                    if !message.isEmpty {
+                        Section { Text(message).font(.system(size: 12)).foregroundStyle(WbColor.textSecondary).textSelection(.enabled) }
                     }
                 }
+                .formStyle(.grouped)
+                .scrollContentBackground(.hidden)
+                .frame(maxWidth: 680)
+                .frame(maxWidth: .infinity)
             }
-            .formStyle(.grouped)
-            .scrollContentBackground(.hidden)
-            .background(WbColor.raised)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(WbColor.raised)
+        .font(.system(size: 13))
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    // MARK: - General
-
-    @ViewBuilder private var generalPage: some View {
-        Section(model.text("界面", "Interface")) {
-            Picker(selection: Binding(get:{model.language},set:{model.setPreference("language",$0)})) {
-                Text("中文").tag(1)
-                Text("English").tag(0)
-            } label: {
-                Text(model.text("语言", "Language"))
-            }
-            Picker(selection: Binding(get:{model.appearance},set:{model.setPreference("appearance",$0)})) {
-                Text(model.text("跟随系统", "Follow system")).tag(0)
-                Text(model.text("浅色", "Light")).tag(1)
-                Text(model.text("深色", "Dark")).tag(2)
-            } label: {
-                Text(model.text("外观", "Appearance"))
-            }
-            Text(model.text("界面语言与外观会立即生效。", "Language and appearance changes take effect immediately."))
-                .wbFont(WbType.caption)
-                .foregroundStyle(WbColor.textSecondary)
-        }
-        Section(model.text("外观预览", "Appearance preview")) {
-            AppearancePreviewCard(model: model)
-                .listRowInsets(EdgeInsets(top: WbSpace.sm, leading: WbSpace.sm,
-                                          bottom: WbSpace.sm, trailing: WbSpace.sm))
-        }
-    }
-
-    /// A static illustration of the two appearances; no controls, purely for
-    /// explaining what "follow the system" means.
-    private struct AppearancePreviewCard: View {
+    /// Actual appearance choices, including System. The thumbnail colours are
+    /// fixed; only surrounding labels and selection follow the current theme.
+    struct AppearancePreviewCard: View {
         @ObservedObject var model: CenterModel
-
         var body: some View {
-            VStack(alignment: .leading, spacing: WbSpace.sm) {
-                HStack(spacing: WbSpace.md) {
-                    miniWindow(title: model.text("浅色", "Light"), dark: false)
-                    miniWindow(title: model.text("深色", "Dark"), dark: true)
-                    Spacer(minLength: 0)
-                }
-                Text(model.text("跟随系统时，Jidr 会随 macOS 的外观自动切换。",
-                                "With Follow system, Jidr switches with the macOS appearance."))
-                    .wbFont(WbType.caption)
-                    .foregroundStyle(WbColor.textSecondary)
+            HStack(alignment: .top, spacing: 16) {
+                option(0, title: model.text("跟随系统", "System"))
+                option(1, title: model.text("浅色", "Light"))
+                option(2, title: model.text("深色", "Dark"))
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, WbSpace.xs)
         }
-
-        private func miniWindow(title: String, dark: Bool) -> some View {
-            VStack(alignment: .leading, spacing: WbSpace.xs + 1) {
-                ZStack(alignment: .topLeading) {
-                    RoundedRectangle(cornerRadius: WbRadius.sm, style: .continuous)
-                        .fill(dark ? Color(red: 0.13, green: 0.13, blue: 0.15) : WbColor.raised)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: WbRadius.sm, style: .continuous)
-                                .strokeBorder(dark ? Color.white.opacity(0.10) : WbColor.borderDefault, lineWidth: 1)
-                        )
-                    HStack(spacing: 3) {
-                        ForEach(0..<3, id: \.self) { _ in
-                            Circle()
-                                .fill(dark ? Color.white.opacity(0.18) : WbColor.borderStrong.opacity(0.55))
-                                .frame(width: 4, height: 4)
-                        }
-                    }
-                    .padding(.leading, WbSpace.sm)
-                    .frame(height: 16)
-                    HStack(spacing: 0) {
+        private func option(_ mode: Int, title: String) -> some View {
+            Button { model.setPreference("appearance", mode) } label: {
+                VStack(spacing: 9) {
+                    GeometryReader { geometry in
                         ZStack(alignment: .topLeading) {
-                            Rectangle()
-                                .fill(dark ? Color(red: 0.09, green: 0.09, blue: 0.11) : WbColor.chrome)
-                            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                                .fill(WbColor.accent)
-                                .frame(width: 24, height: 5)
-                                .padding(.leading, 7)
-                                .padding(.top, 8)
+                            HStack(spacing: 0) {
+                                Rectangle().fill(mode == 2 ? JidrColor.surfaceRaised.dark : JidrColor.surfaceRaised.light)
+                                if mode == 0 { Rectangle().fill(JidrColor.surfaceRaised.dark) }
+                            }
+                            HStack(spacing: 0) {
+                                Rectangle().fill(mode == 2 ? JidrColor.surfaceChrome.dark : JidrColor.surfaceChrome.light)
+                                    .frame(width: geometry.size.width * 0.28)
+                                VStack(alignment: .leading, spacing: 7) {
+                                    Capsule().fill(mode == 2 ? JidrColor.textSecondary.dark : JidrColor.textSecondary.light).frame(width: 36, height: 4)
+                                    Capsule().fill(mode == 2 ? JidrColor.borderStrong.dark : JidrColor.borderStrong.light).frame(width: 52, height: 4)
+                                    Capsule().fill(mode == 2 ? JidrColor.borderStrong.dark : JidrColor.borderStrong.light).frame(width: 44, height: 4)
+                                    Spacer(minLength: 0)
+                                }.padding(12)
+                                Spacer(minLength: 0)
+                            }.padding(.top, 16)
+                            HStack(spacing: 3) {
+                                ForEach(0..<3, id: \.self) { _ in Circle().fill(JidrColor.textSecondary.light.opacity(0.5)).frame(width: 4, height: 4) }
+                            }.padding(6)
+                            RoundedRectangle(cornerRadius: 3).fill(WbColor.accent).frame(width: 22, height: 5).offset(x: 6, y: 27)
                         }
-                        .frame(width: 44)
-                        VStack(alignment: .leading, spacing: 5) {
-                            previewBar(width: 58, dark: dark, strong: true)
-                            previewBar(width: 92, dark: dark, strong: false)
-                            previewBar(width: 78, dark: dark, strong: false)
-                        }
-                        .padding(.leading, WbSpace.sm)
-                        .padding(.top, WbSpace.sm)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.top, 16)
+                        .clipShape(RoundedRectangle(cornerRadius: 7))
+                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(model.appearance == mode ? WbColor.accent : WbColor.borderStrong, lineWidth: model.appearance == mode ? 2 : 1))
+                    }.frame(height: 82)
+                    HStack(spacing: 5) {
+                        Image(systemName: model.appearance == mode ? "checkmark.circle.fill" : "circle")
+                            .foregroundStyle(model.appearance == mode ? WbColor.accent : WbColor.textSecondary)
+                        Text(title).foregroundStyle(WbColor.textPrimary)
+                    }.font(.system(size: 12))
                 }
-                .frame(width: 190, height: 92)
-                .clipShape(RoundedRectangle(cornerRadius: WbRadius.sm, style: .continuous))
-                Text(title)
-                    .wbFont(WbType.caption)
-                    .foregroundStyle(WbColor.textSecondary)
             }
-        }
-
-        private func previewBar(width: CGFloat, dark: Bool, strong: Bool) -> some View {
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
-                .fill(strong
-                      ? (dark ? Color.white.opacity(0.82) : WbColor.textSecondary.opacity(0.7))
-                      : (dark ? Color.white.opacity(0.14) : WbColor.borderSubtle))
-                .frame(width: width, height: 5)
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
+            .accessibilityLabel(title)
+            .accessibilityValue(model.appearance == mode ? model.text("已选择", "Selected") : model.text("未选择", "Not selected"))
         }
     }
 
@@ -1704,102 +1719,6 @@ private struct SettingsPathRow<Actions: View>: View {
 
 // MARK: - Device center
 
-/// Native NSSearchField bridged into SwiftUI: the standard magnifier, clear
-/// button and focus ring, with the existing query binding and keyboard focus
-/// restoration driven through the coordinator.
-private struct NativeSearchField: NSViewRepresentable {
-    @Binding var text: String
-    var placeholder: String
-    var width: CGFloat
-    var focusRequest: Int
-
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
-
-    func makeNSView(context: Context) -> ClearingSearchField {
-        let field = ClearingSearchField()
-        field.delegate = context.coordinator
-        field.fieldCoordinator = context.coordinator
-        field.placeholderString = placeholder
-        field.stringValue = text
-        field.sendsWholeSearchString = false
-        field.sendsSearchStringImmediately = true
-        field.target = context.coordinator
-        field.action = #selector(Coordinator.searchChanged(_:))
-        field.setAccessibilityLabel(placeholder)
-        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return field
-    }
-
-    func updateNSView(_ field: ClearingSearchField, context: Context) {
-        context.coordinator.parent = self
-        if field.stringValue != text { field.stringValue = text }
-        field.placeholderString = placeholder
-        field.setAccessibilityLabel(placeholder)
-        if context.coordinator.lastFocusRequest != focusRequest {
-            context.coordinator.lastFocusRequest = focusRequest
-            DispatchQueue.main.async {
-                guard let window = field.window else { return }
-                window.makeFirstResponder(field)
-                field.currentEditor()?.selectAll(nil)
-            }
-        }
-    }
-
-    final class Coordinator: NSObject, NSSearchFieldDelegate {
-        var parent: NativeSearchField
-        var lastFocusRequest: Int
-
-        init(_ parent: NativeSearchField) {
-            self.parent = parent
-            self.lastFocusRequest = parent.focusRequest
-        }
-
-        @objc func searchChanged(_ sender: NSSearchField) {
-            parent.text = sender.stringValue
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSSearchField else { return }
-            parent.text = field.stringValue
-        }
-
-        func controlTextDidEndEditing(_ notification: Notification) {
-            guard let field = notification.object as? NSSearchField else { return }
-            parent.text = field.stringValue
-        }
-
-        /// Esc inside the field editor clears the query (the standard NSSearchField
-        /// behaviour) without resigning search or closing the window.
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            guard commandSelector == NSSelectorFromString("cancelOperation:") else { return false }
-            guard let field = control as? NSSearchField, !field.stringValue.isEmpty else { return false }
-            field.stringValue = ""
-            parent.text = ""
-            return true
-        }
-
-        func clear(_ field: ClearingSearchField) {
-            field.stringValue = ""
-            parent.text = ""
-        }
-    }
-}
-
-/// NSSearchField clears its text on Escape; keep focus rather than dismissing
-/// the search when there was something to clear.
-private final class ClearingSearchField: NSSearchField {
-    weak var fieldCoordinator: NativeSearchField.Coordinator?
-
-    override func cancelOperation(_ sender: Any?) {
-        guard !stringValue.isEmpty else {
-            super.cancelOperation(sender)
-            return
-        }
-        fieldCoordinator?.clear(self)
-    }
-}
-
 /// Quiet centred state used by the device/detail/app cards (loading, empty,
 /// disconnected) instead of ad-hoc ProgressViews.
 private struct CenterQuietState: View {
@@ -1830,26 +1749,29 @@ private struct CenterQuietState: View {
 
 struct CenterView: View {
     @ObservedObject var model: CenterModel
-    @State private var query = ""
-    @State private var detailsVisible = true
-    @FocusState private var deviceListFocused: Bool
-    @State private var searchFocusToken = 0
 
-    private let compactWidth: CGFloat = 940
     var selectedDevice: Device? { model.devices.first(where: {$0.id == model.selected}) }
     private var filteredDevices: [Device] {
-        model.devices.filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) }
+        model.devices.filter { model.deviceQuery.isEmpty || $0.name.localizedCaseInsensitiveContains(model.deviceQuery) }
     }
 
     // MARK: Body
 
     var body: some View {
         ZStack {
-            GeometryReader { geometry in
-                let compact = geometry.size.width < compactWidth
+            GeometryReader { _ in
                 VStack(spacing: WbSpace.zero) {
-                    toolbar(compact: compact)
-                    layout(compact: compact, height: geometry.size.height)
+                    if ProcessInfo.processInfo.environment["JIDR_UI_PREVIEW"] == "1" {
+                        Label(model.text("界面预览 · 测试设备，未连接真实模拟器", "UI preview · Test devices; no real emulator connected"), systemImage: "eye")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, WbSpace.lg).padding(.vertical, WbSpace.sm)
+                    }
+                    if !model.connection.isOnline {
+                        ConnectionStatusPill(model: model).padding(.horizontal, WbSpace.lg).padding(.top, WbSpace.sm)
+                    }
+                    layout
                     if !model.notice.isEmpty {
                         Text(model.displayNotice)
                             .wbFont(WbType.caption)
@@ -1861,29 +1783,27 @@ struct CenterView: View {
                 }
                 .background(WbColor.surface)
             }
-            if model.paletteOpen { CommandPaletteView(model:model) }
-            if model.tasksOpen { TaskCenterView(model:model) }
             if let toast = model.toast {
                 VStack { Spacer(); ToastOverlay(toast:toast) { model.dismissToast() } }
             }
         }
         .frame(minWidth:800,minHeight:550)
-        .ignoresSafeArea(.container, edges:.top)
+        .background(WbColor.surface.ignoresSafeArea(.container, edges: .top))
+        .background(CenterWindowChrome(model: model).frame(width: 0, height: 0))
         .environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
-        .preferredColorScheme(model.appearance == 1 ? .light : model.appearance == 2 ? .dark : nil)
-        .onChange(of:model.searchFocusRequest) { _, _ in searchFocusToken += 1 }
-        .onChange(of:model.paletteOpen) { _, open in
-            if !open, model.sheet == nil { searchFocusToken += 1 }
+        .preferredColorScheme(model.colorScheme)
+        .onChange(of:model.paletteOpen) { open in
+            if !open, model.sheet == nil, !model.tasksOpen { model.searchFocusRequest += 1 }
         }
-        .onChange(of:model.tasksOpen) { _, open in
-            if !open, model.sheet == nil { searchFocusToken += 1 }
+        .onChange(of:model.tasksOpen) { open in
+            if !open, model.sheet == nil, !model.paletteOpen { model.searchFocusRequest += 1 }
         }
         .sheet(item:$model.sheet) { sheet in
             Group {
                 switch sheet {
                 case .newDevice: NewDeviceView(model:model)
                 case .setupSDK: InstallSDKView(model:model)
-                case .settings: SettingsView(model:model)
+                case .settings: EmptyView() // Routed to the independent settings window.
                 case .snapshots:
                     if let device = selectedDevice { SnapshotsView(model:model, device:device) }
                     else { Text("请选择设备") }
@@ -1917,123 +1837,29 @@ struct CenterView: View {
         }
     }
 
-    // MARK: Toolbar
-
-    private func toolbar(compact: Bool) -> some View {
-        HStack(spacing: WbSpace.sm) {
-            Text(model.text("安卓模拟器", "Android emulator"))
-                .wbFont(WbType.body.weighted(.semibold))
-                .foregroundStyle(WbColor.textPrimary)
-            Spacer(minLength: WbSpace.md)
-            searchField(compact: compact)
-            toolbarIcon(WbIcon.command,
-                        help: model.text("打开命令面板（⌘K）", "Open the command palette (⌘K)")) { model.openPalette() }
-            ConnectionStatusPill(model:model)
-            if !model.activeJobs.isEmpty {
-                Button { model.openTasks() } label: {
-                    HStack(spacing: WbSpace.xs) {
-                        Image(systemName: WbIcon.tasks).font(.system(size: 12, weight: .medium))
-                        Text("\(model.activeJobs.count)").wbFont(WbType.label)
-                    }
-                    .foregroundStyle(WbColor.textSecondary)
-                    .padding(.horizontal, WbSpace.sm)
-                    .frame(height: 24)
-                    .background(WbColor.control, in: RoundedRectangle(cornerRadius: WbRadius.sm, style: .continuous))
-                }
-                .buttonStyle(.borderless)
-                .help(model.text("后台任务", "Background tasks"))
-                .accessibilityLabel(model.text("后台任务（\(model.activeJobs.count)）", "Background tasks (\(model.activeJobs.count))"))
-            }
-            if compact {
-                Button { model.present(.newDevice) } label: {
-                    Image(systemName: WbIcon.plus)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .tint(WbColor.accent)
-                .help(model.text("新建设备（⌘N）", "New device (⌘N)"))
-                .accessibilityLabel(model.text("新建设备（⌘N）", "New device (⌘N)"))
-            } else {
-                Button(model.text("添加设备", "Add device"), systemImage: WbIcon.plus) { model.present(.newDevice) }
-                    .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
-                    .help(model.text("新建设备（⌘N）", "New device (⌘N)"))
-            }
-            toolbarIcon(WbIcon.settings, help: model.text("设置（⌘,）", "Settings (⌘,)")) { model.present(.settings) }
-            toolbarIcon(WbIcon.refresh, help: model.text("刷新设备（⌘R）", "Refresh devices (⌘R)")) { model.refresh() }
-            toolbarIcon(detailsVisible ? WbIcon.hideDetails : WbIcon.showDetails,
-                        help: detailsVisible ? model.text("隐藏详情", "Hide details") : model.text("显示详情", "Show details")) {
-                detailsVisible.toggle()
-            }
-        }
-        .padding(.leading, compact ? 84 : 94)
-        .padding(.trailing, WbSpace.md)
-        .frame(height: WbLayout.windowTitlebarHeight)
-        .background(WbColor.chrome)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(WbColor.borderSubtle).frame(height: 1)
-        }
-    }
-
-    private func searchField(compact: Bool) -> some View {
-        NativeSearchField(text: $query,
-                          placeholder: model.text("搜索设备", "Search devices"),
-                          width: compact ? 150 : 200,
-                          focusRequest: searchFocusToken)
-            .frame(width: compact ? 150 : 200)
-            .help(model.text("搜索设备", "Search devices"))
-    }
-
-    private func toolbarIcon(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(WbColor.textSecondary)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .help(help)
-        .accessibilityLabel(help)
-    }
-
     // MARK: Layout
 
-    @ViewBuilder private func layout(compact: Bool, height: CGFloat) -> some View {
-        if compact {
-            ScrollView {
-                VStack(spacing: 0) {
-                    deviceListCard.compactHeight(max(280, min(360, height * 0.45)))
-                    WbDivider()
-                    quickActionsCard
-                    if detailsVisible {
-                        WbDivider()
-                        detailCard
-                        WbDivider()
-                        appsCard.compactHeight(220)
-                    }
-                }
-                .padding(WbSpace.lg)
+    private var layout: some View {
+        HSplitView {
+            VStack(spacing: 0) {
+                deviceListCard
+                WbDivider()
+                quickActionsCard
             }
-        } else {
-            HStack(alignment: .top, spacing: 0) {
+            .frame(minWidth: 300, idealWidth: 330, maxWidth: model.detailsVisible ? 420 : .infinity, maxHeight: .infinity)
+            .layoutPriority(1)
+            if model.detailsVisible {
                 VStack(spacing: 0) {
-                    deviceListCard
+                    // Only the inspector scrolls vertically; the app list keeps
+                    // its own distinct, bounded list below it.
+                    ScrollView { detailCard }.frame(height: 330)
                     WbDivider()
-                    quickActionsCard
+                    appsCard
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                Rectangle().fill(WbColor.borderSubtle).frame(width: 1)
-                if detailsVisible {
-                    VStack(spacing: 0) {
-                        detailCard
-                        WbDivider()
-                        appsCard
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+                .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
             }
-            .padding(WbSpace.lg)
         }
+        .padding(WbSpace.md)
     }
 
     // MARK: Device list
@@ -2068,17 +1894,15 @@ struct CenterView: View {
             } else {
                 List(selection: deviceSelection) {
                     ForEach(filteredDevices) { device in
-                        deviceListRow(device, emphasized: deviceListFocused && model.selected == device.id)
+                        deviceListRow(device)
                             .tag(device.id)
                             .listRowInsets(EdgeInsets(top: 3, leading: WbSpace.sm + 2,
                                                       bottom: 3, trailing: WbSpace.sm + 2))
                             .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
                     }
                 }
                 .listStyle(.inset)
                 .scrollContentBackground(.hidden)
-                .focused($deviceListFocused)
                 .frame(maxHeight: .infinity)
             }
 
@@ -2102,8 +1926,7 @@ struct CenterView: View {
 
     private var deviceSelection: Binding<String?> {
         Binding(get: { model.selected }, set: { newValue in
-            guard let id = newValue, model.selected != id else { return }
-            model.select(id)
+            model.setDeviceSelection(newValue)
         })
     }
 
@@ -2149,35 +1972,32 @@ struct CenterView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func deviceListRow(_ device: Device, emphasized: Bool) -> some View {
-        let primary = emphasized ? AnyShapeStyle(.white) : AnyShapeStyle(WbColor.textPrimary)
-        let secondary = emphasized ? AnyShapeStyle(.white.opacity(0.85)) : AnyShapeStyle(WbColor.textSecondary)
-        let tertiary = emphasized ? AnyShapeStyle(.white.opacity(0.7)) : AnyShapeStyle(WbColor.textTertiary)
+    private func deviceListRow(_ device: Device) -> some View {
         return HStack(spacing: WbSpace.sm + 2) {
             HStack(spacing: WbSpace.sm + 2) {
                 WbDeviceThumbnail(name: "device-list", width: 36, height: 62)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(device.name)
                         .wbFont(WbType.body.weighted(.semibold))
-                        .foregroundStyle(primary)
+                        .foregroundStyle(.primary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     HStack(spacing: WbSpace.xs) {
                         if let holder = model.busyHolder(for: device.id) {
-                            statusText(holder, tone: .busy, emphasized: emphasized)
+                            statusText(holder, tone: .busy)
                         } else {
-                            statusText(device.statusText(language: model.language), tone: statusTone(device), emphasized: emphasized)
+                            statusText(device.statusText(language: model.language), tone: statusTone(device))
                         }
                         if let progress = model.progress(for: device.id) {
                             Text(progress)
                                 .wbFont(WbType.caption)
-                                .foregroundStyle(tertiary)
+                                .foregroundStyle(.secondary)
                                 .lineLimit(1)
                         }
                     }
                     Text(deviceMeta(device))
                         .wbFont(WbType.caption)
-                        .foregroundStyle(secondary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                     if let fraction = model.bootProgressFraction(for: device.id), device.running == false {
                         ProgressView(value: min(max(fraction, 0), 1))
@@ -2196,8 +2016,7 @@ struct CenterView: View {
             .accessibilityAction(named: Text(model.text("打开设备窗口", "Open device window"))) {
                 model.focusOrOpenDeviceWindow(device.id)
             }
-            rowAction(device, emphasized: emphasized)
-            deviceMenu(device, emphasized: emphasized)
+            rowAction(device)
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
@@ -2209,35 +2028,35 @@ struct CenterView: View {
         })
     }
 
-    @ViewBuilder private func rowAction(_ device: Device, emphasized: Bool) -> some View {
+    @ViewBuilder private func rowAction(_ device: Device) -> some View {
         let busy = model.busy.contains(device.id)
         switch device.status.state {
         case "running":
             rowIconButton("arrow.up.forward.app", help: model.text("打开设备", "Open device"),
-                          emphasized: emphasized, disabled: false) {
+                          disabled: false) {
                 model.focusOrOpenDeviceWindow(device.id)
             }
         case "starting", "booting":
             rowIconButton("xmark.circle", help: model.text("取消启动", "Cancel start"),
-                          emphasized: emphasized, disabled: busy) {
+                          disabled: busy) {
                 model.stop(device.id)
             }
         case "stopping":
             ProgressView().controlSize(.small).frame(width: 24, height: 24)
         default:
             rowIconButton("play.fill", help: model.text("启动设备", "Start device"),
-                          emphasized: emphasized, disabled: busy) {
+                          disabled: busy) {
                 model.start(device.id)
             }
         }
     }
 
-    private func rowIconButton(_ symbol: String, help: String, emphasized: Bool,
+    private func rowIconButton(_ symbol: String, help: String,
                                disabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(emphasized ? AnyShapeStyle(.white) : AnyShapeStyle(WbColor.accentText))
+                .foregroundStyle(.primary)
                 .frame(width: 24, height: 24)
                 .contentShape(Rectangle())
         }
@@ -2247,14 +2066,10 @@ struct CenterView: View {
         .accessibilityLabel(help)
     }
 
-    @ViewBuilder private func statusText(_ text: String, tone: WbStatusTone, emphasized: Bool) -> some View {
-        if emphasized {
-            HStack(spacing: WbSpace.xxs + 2) {
-                Circle().fill(.white.opacity(0.9)).frame(width: 6, height: 6)
-                Text(text).wbFont(WbType.label).foregroundStyle(.white)
-            }
-        } else {
-            WbStatusLabel(text: text, tone: tone)
+    private func statusText(_ text: String, tone: WbStatusTone) -> some View {
+        HStack(spacing: WbSpace.xxs + 2) {
+            Circle().fill(tone.color).frame(width: 6, height: 6)
+            Text(text).wbFont(WbType.label).foregroundStyle(.secondary)
         }
     }
 
@@ -2274,80 +2089,33 @@ struct CenterView: View {
         .disabled(!device.stopped || model.busy.contains(device.id))
     }
 
-    private func deviceMenu(_ device: Device, emphasized: Bool) -> some View {
-        Menu {
-            deviceMenuItems(device)
-        } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(emphasized ? AnyShapeStyle(.white) : AnyShapeStyle(WbColor.textSecondary))
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help(model.text("更多操作", "More actions"))
-        .accessibilityLabel(model.text("更多操作", "More actions"))
-    }
-
-    // MARK: Quick actions
+    // MARK: Direct device actions
 
     private var quickActionsCard: some View {
-        HStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(model.text("常用操作", "Quick actions"))
-                .wbFont(WbType.label)
-                .foregroundStyle(WbColor.textSecondary)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .padding(.leading, WbSpace.lg)
-                .padding(.trailing, WbSpace.sm)
-            quickAction(model.text("安装 APK", "Install APK"), WbIcon.installAPK,
-                        enabled: selectedDevice?.running == true) {
-                if let device = selectedDevice { model.chooseFile(device: device.id, apk: true) }
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(WbColor.textSecondary)
+            ActionFlowLayout(spacing: 8) {
+                quickAction(model.text("安装 APK", "Install APK"), WbIcon.installAPK, enabled: selectedDevice?.running == true) {
+                    if let device = selectedDevice { model.chooseFile(device: device.id, apk: true) }
+                }
+                quickAction(model.text("截图", "Screenshot"), WbIcon.camera, enabled: selectedDevice?.running == true) {
+                    if let device = selectedDevice { model.screenshot(device: device.id) }
+                }
+                quickAction(recordingLabel, WbIcon.record, enabled: selectedDevice?.running == true) {
+                    if let device = selectedDevice { model.toggleRecording(device: device.id) }
+                }
+                quickAction(model.text("管理快照", "Snapshots"), WbIcon.quickBoot, enabled: selectedDevice != nil) { model.present(.snapshots) }
+                quickAction(model.text("发送文件", "Send file"), WbIcon.folder, enabled: selectedDevice?.running == true) {
+                    if let device = selectedDevice { model.chooseFile(device: device.id, apk: false) }
+                }
+                quickAction(model.text("截图目录", "Screenshots folder"), "photo.on.rectangle", enabled: true) { model.openScreenshotFolder() }
             }
-            quickSeparator
-            quickAction(model.text("截图", "Screenshot"), WbIcon.camera,
-                        enabled: selectedDevice?.running == true) {
-                if let device = selectedDevice { model.screenshot(device: device.id) }
-            }
-            quickSeparator
-            quickAction(recordingLabel, WbIcon.record,
-                        enabled: selectedDevice?.running == true) {
-                if let device = selectedDevice { model.toggleRecording(device: device.id) }
-            }
-            quickSeparator
-            quickAction(model.text("管理快照", "Snapshots"), WbIcon.quickBoot,
-                        enabled: selectedDevice != nil) {
-                if let device = selectedDevice { model.selected = device.id; model.present(.snapshots) }
-            }
-            quickSeparator
-            moreActionsMenu
-            Spacer(minLength: 0)
         }
-        .frame(height: 52)
-    }
-
-    /// Secondary quick actions live in a menu so the strip stays one line at
-    /// the narrow snapshot baseline (1000pt) while every action stays reachable.
-    private var moreActionsMenu: some View {
-        Menu {
-            Button(model.text("发送文件", "Send file"), systemImage: WbIcon.folder) {
-                if let device = selectedDevice { model.chooseFile(device: device.id, apk: false) }
-            }
-            .disabled(selectedDevice?.running != true)
-            Button(model.text("截图目录", "Screenshots folder"), systemImage: WbIcon.folder) {
-                model.openScreenshotFolder()
-            }
-        } label: {
-            WbFlatActionLabel(title: model.text("更多", "More"), icon: "ellipsis")
-        }
-        .buttonStyle(.borderless)
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .help(model.text("更多操作", "More actions"))
-        .accessibilityLabel(model.text("更多操作", "More actions"))
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(model.text("常用操作", "Quick actions"))
     }
 
     private var recordingLabel: String {
@@ -2358,16 +2126,9 @@ struct CenterView: View {
     }
 
     private func quickAction(_ title: String, _ icon: String, enabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            WbFlatActionLabel(title: title, icon: icon)
-                .opacity(enabled ? 1 : 0.45)
-        }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-    }
-
-    private var quickSeparator: some View {
-        Rectangle().fill(WbColor.borderSubtle).frame(width: 1, height: 14)
+        Button(action: action) { Label(title, systemImage: icon).font(.system(size: 12)).fixedSize() }
+            .buttonStyle(.bordered).controlSize(.regular)
+            .disabled(!enabled)
     }
 
     // MARK: Detail card
@@ -2423,12 +2184,15 @@ struct CenterView: View {
                                          text: model.text("正在读取设备详情…", "Loading device details…"),
                                          height: 76, showsProgress: true)
                     }
-                    HStack(spacing: WbSpace.sm) {
-                        detailStartStopButton(device)
-                        restartButton(device)
-                        settingsButton(device)
-                        deleteButton(device)
-                        Spacer(minLength: 0)
+                    ActionFlowLayout(spacing: 8) {
+                        if device.running { detailStartStopButton(device).fixedSize() }
+                        restartButton(device).fixedSize()
+                        settingsButton(device).fixedSize()
+                        Button(model.text("删除设备", "Delete device"), systemImage: WbIcon.trash, role: .destructive) {
+                            model.select(device.id); model.deleteRequested = true
+                        }
+                        .buttonStyle(.bordered).controlSize(.regular).fixedSize()
+                        .disabled(!device.stopped || model.busy.contains(device.id))
                     }
                     if let holder = model.busyHolder(for: device.id) {
                         Label(holder, systemImage: WbIcon.warning)
@@ -2479,7 +2243,7 @@ struct CenterView: View {
             (model.text("屏幕", "Screen"), "\(d.config["hw.lcd.width"] ?? "—") × \(d.config["hw.lcd.height"] ?? "—")"),
             (model.text("DPI", "DPI"), d.config["hw.lcd.density"] ?? "—"),
             (model.text("镜像", "Image"), device.imageLabel),
-            (model.text("配置", "Profile"), device.profile),
+            (model.text("配置", "Profile"), device.profileLabel),
             (model.text("磁盘占用", "Disk usage"),
              d.disk_usage.map { ByteCountFormatter.string(fromByteCount:Int64(clamping:$0),countStyle:.file) } ?? "—"),
             (model.text("序列号", "Serial"), device.runtime?.adb_serial ?? "—"),
@@ -2527,15 +2291,6 @@ struct CenterView: View {
         }
         .buttonStyle(.bordered).controlSize(.regular)
         .disabled(model.busy.contains(device.id))
-    }
-
-    private func deleteButton(_ device: Device) -> some View {
-        Button(model.text("删除", "Delete"), systemImage: WbIcon.trash, role: .destructive) {
-            model.select(device.id)
-            model.deleteRequested = true
-        }
-        .buttonStyle(.bordered).controlSize(.regular)
-        .disabled(!device.stopped || model.busy.contains(device.id))
     }
 
     // MARK: Apps card
@@ -2597,7 +2352,6 @@ struct CenterView: View {
                             }
                             .padding(.vertical, 3)
                             .listRowInsets(EdgeInsets(top: 3, leading: WbSpace.lg, bottom: 3, trailing: WbSpace.lg))
-                            .listRowBackground(Color.clear)
                         }
                     }
                     .listStyle(.plain)
@@ -2614,7 +2368,9 @@ struct CenterView: View {
                 }
             } else {
                 CenterQuietState(icon: WbIcon.appEmpty,
-                                 text: model.text("启动设备后查看已安装的游戏和应用。", "Start the device to see installed games and apps."),
+                                 text: selectedDevice == nil
+                                    ? model.text("选择一台设备查看应用。", "Select a device to see its apps.")
+                                    : model.text("启动设备后查看已安装的游戏和应用。", "Start the device to see installed games and apps."),
                                  height: 150)
             }
         }
@@ -2641,12 +2397,5 @@ struct CenterView: View {
             if let ram = details.config["hw.ramSize"], !ram.isEmpty { parts.append("\(ram) MB") }
         }
         return parts.joined(separator: " · ")
-    }
-}
-
-private extension View {
-    /// Caps a card's height inside the compact single-column scroll layout.
-    func compactHeight(_ height: CGFloat) -> some View {
-        frame(height: height)
     }
 }

@@ -94,8 +94,17 @@ jobs:
         run: |
           bash apps/jidr-swiftui-prototype/build.sh
           bash apps/jidr-swiftui-prototype/build-center.sh
+      - name: Optimized center build and macOS deployment check
+        # This is a gate, independent of the optional GUI/DMG rehearsal.
+        run: bash apps/jidr-swiftui-prototype/build-release.sh
       - name: Logic tests and localization gate (test.sh)
         run: bash apps/jidr-swiftui-prototype/test.sh
+      - name: Center and player lifecycle regressions
+        # Real controller/transport callbacks with a mock bridge and isolated
+        # home; no Android SDK or emulator. A regression fails the macOS job.
+        run: bash apps/jidr-swiftui-prototype/test-player-lifecycle.sh
+      - name: Center UI interaction regressions
+        run: bash apps/jidr-swiftui-prototype/test-center-ui.sh
       - name: Design tokens are in sync with tokens.json
         # generate-tokens.sh --check regenerates from docs/design/tokens.json
         # into the generated Swift files and fails when they differ.

@@ -1,13 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-// Center overlays that are not sheets: the task list (jobs + quit guard), the
-// toast and the daemon connection status. Slint draws all three in the window
-// (shell.slint TasksDialog, app.slint Toast, TitleBar conn pill); the center
-// follows the same pattern.
-//
-// HIG pass: content is flat (no decorative card fills or borders), the task
-// dialog uses a system material + standard dialog buttons, and the only
-// elevation kept is the popover shadow of the two genuinely floating layers
-// (the task dialog and the toast).
+// Connection status, native task-window content and transient toast feedback.
 
 import SwiftUI
 
@@ -54,73 +46,65 @@ struct ConnectionStatusPill: View {
 
 // MARK: - Task list
 
-/// The background-task dialog: a floating layer over the window scrim, so it
-/// keeps the popover shadow; its content is a flat list with separators.
+/// Supplemental progress in a standard nonmodal window; closing it keeps jobs running.
 struct TaskCenterView: View {
     @ObservedObject var model: CenterModel
 
     private var rows: [TaskRow] { model.taskRows }
 
     var body: some View {
-        ZStack {
-            WbColor.scrim
-                .ignoresSafeArea()
-                .onTapGesture { model.closeOverlay() }
-            VStack(alignment: .leading, spacing: WbSpace.lg) {
-                Text(model.text("后台任务", "Background tasks"))
-                    .wbFont(WbType.headline)
-
-                if let reason = model.quitReason {
-                    Label(reason, systemImage: WbIcon.quitGuard)
-                        .wbFont(WbType.body)
-                        .foregroundStyle(WbColor.warning)
-                        .fixedSize(horizontal: false, vertical: true)
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: WbIcon.tasks).foregroundStyle(WbColor.textSecondary)
+                Text(model.text("后台任务", "Background tasks")).font(.system(size: 14, weight: .semibold))
+                Spacer()
+                if !rows.isEmpty {
+                    Button { model.refreshJobs() } label: { Image(systemName: WbIcon.refresh) }
+                        .buttonStyle(.borderless).accessibilityLabel(model.text("刷新任务", "Refresh tasks"))
                 }
-                if let error = model.jobsError {
-                    Label(error, systemImage: WbIcon.warning)
-                        .wbFont(WbType.label)
-                        .foregroundStyle(WbColor.textSecondary)
-                        .textSelection(.enabled)
-                }
-                if rows.isEmpty {
-                    Label(model.text("没有正在运行或最近完成的任务", "No running or recently finished tasks"),
-                          systemImage: "checkmark")
-                        .foregroundStyle(WbColor.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .padding(.vertical, WbSpace.xl)
-                } else {
-                    ScrollView {
-                        LazyVStack(spacing: WbSpace.zero) {
-                            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                                if index > 0 { WbRowDivider() }
-                                TaskRowView(model: model, row: row) { model.cancelJob(row.id) }
-                            }
-                        }
-                    }
-                    .frame(maxHeight: 380)
-                }
-                if model.hasMutations {
-                    Text(model.text("正在等待当前设备操作完成…", "Waiting for the current device operation to finish…"))
-                        .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
-                }
-
-                Divider()
-                HStack(spacing: WbSpace.md) {
-                    Text(model.text("取消任务会停止对应的工作，设备保持原状。", "Cancelling a task stops its work and leaves the device as it was."))
-                        .wbFont(WbType.caption)
-                        .foregroundStyle(WbColor.textTertiary)
-                    Spacer(minLength: WbSpace.md)
-                    Button(model.text("关闭", "Close")) { model.closeOverlay() }
-                        .buttonStyle(.bordered)
-                        .keyboardShortcut(.cancelAction)
-                }
+                PanelCloseButton(label: model.text("关闭", "Close")) { model.taskPanelDidClose() }
+            }.padding(.horizontal, 18).frame(height: 50)
+            Divider()
+            if let reason = model.quitReason {
+                Label(reason, systemImage: WbIcon.quitGuard)
+                    .font(.system(size: 13)).foregroundStyle(WbColor.warning)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16).background(WbStatus.warning.container)
             }
-            .padding(WbSpace.xl)
-            .frame(width: 520)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: WbRadius.xl, style: .continuous))
-            .wbShadow(WbShadow.popover)
-            .tint(WbColor.accent)
+            if let error = model.jobsError {
+                Label(error, systemImage: WbIcon.warning)
+                    .font(.system(size: 12)).foregroundStyle(WbColor.negative)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(16).textSelection(.enabled)
+            }
+            if rows.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "checkmark.circle").font(.system(size: 26, weight: .light)).accessibilityHidden(true)
+                        .foregroundStyle(WbColor.textSecondary)
+                    Text(model.text("暂无后台任务", "No background tasks"))
+                        .font(.system(size: 15, weight: .semibold)).foregroundStyle(WbColor.textPrimary)
+                    Text(model.text("下载、安装和设备操作的进度会显示在这里。", "Downloads, installations and device operations appear here."))
+                        .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
+                        .multilineTextAlignment(.center).frame(maxWidth: 340)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(24)
+            } else {
+                List(rows) { row in TaskRowView(model: model, row: row) { model.cancelJob(row.id) } }
+                    .listStyle(.inset).scrollContentBackground(.hidden)
+            }
+            if model.hasMutations {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(model.text("正在等待当前设备操作完成…", "Waiting for the current device operation to finish…"))
+                        .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
+                }.padding(16)
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .modifier(LightweightPanelSurface())
+        .tint(WbColor.accent)
+        .preferredColorScheme(model.colorScheme)
+        .environment(\.locale, Locale(identifier: model.language == 0 ? "en" : "zh-Hans"))
     }
 }
 

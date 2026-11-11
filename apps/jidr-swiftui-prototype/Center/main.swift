@@ -93,11 +93,11 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard let paths else { fputs(usage,stderr); NSApp.terminate(nil); return }
         do {
             let model = try CenterModel(center:paths.center,game:paths.game,bridge:paths.bridge); self.model = model
-            let window = NSWindow(contentRect:NSRect(x:0,y:0,width:1050,height:700),styleMask:[.titled,.closable,.miniaturizable,.resizable,.fullSizeContentView],backing:.buffered,defer:false)
+            let window = NSWindow(contentRect:NSRect(x:0,y:0,width:1050,height:700),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
             // Keep the native resize limit consistent with CenterView's minimum layout.
             window.contentMinSize = NSSize(width:800,height:550)
-            window.title = model.text("Jidr 设备中心", "Jidr Device Center"); window.titleVisibility = .hidden
-            window.titlebarAppearsTransparent = true; window.backgroundColor = NSColor(WbColor.surface); window.delegate = self
+            window.title = model.text("Jidr 设备中心", "Jidr Device Center")
+            window.titlebarAppearsTransparent = true; window.titlebarSeparatorStyle = .none; window.backgroundColor = NSColor(WbColor.surface); window.delegate = self
             window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView:CenterView(model:model)); self.window = window
             menuController = CenterMenuController(model:model, presenter:self)
