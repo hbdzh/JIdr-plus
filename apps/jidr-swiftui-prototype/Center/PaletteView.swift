@@ -81,7 +81,11 @@ struct CommandPaletteView: View {
                 }
             }
             .frame(width: 560)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: WbRadius.lg, style: .continuous))
+            .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.lg, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: WbRadius.lg, style: .continuous)
+                    .strokeBorder(WbColor.borderSubtle, lineWidth: 1)
+            )
             .wbShadow(WbShadow.popover)
             .padding(.top, 72)
         }
@@ -96,10 +100,26 @@ private struct PaletteRow: View {
     let selected: Bool
 
     private var symbol: String {
-        switch entry.kind {
-        case .device: return WbIcon.smartphone
-        case .action: return WbIcon.command
-        case .setting: return WbIcon.advancedTools
+        switch entry.action {
+        case .openDevice: return "arrow.up.forward.app"
+        case .startDevice: return WbIcon.play
+        case .stopDevice: return WbIcon.stop
+        case .restartDevice: return WbIcon.refresh
+        case .editDevice: return WbIcon.settings
+        case .deleteDevice: return WbIcon.trash
+        case .deviceDetails: return WbIcon.info
+        case .snapshots: return WbIcon.camera
+        case .advancedTools: return WbIcon.advancedTools
+        case .rootTools: return WbIcon.rootTab
+        case .installAPK: return WbIcon.installAPK
+        case .sendFile: return "paperplane"
+        case .screenshot: return WbIcon.camera
+        case .record: return WbIcon.record
+        case .newDevice: return WbIcon.plus
+        case .setupSDK: return "shippingbox"
+        case .settings: return WbIcon.settings
+        case .toggleAppearance: return "circle.lefthalf.filled"
+        case .tasks: return WbIcon.tasks
         }
     }
 

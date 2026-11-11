@@ -1242,7 +1242,6 @@ struct SettingsView: View {
                         Image(systemName: sectionIcons[index])
                     }
                     .tag(index)
-                    .listRowBackground(category == index ? WbColor.accentContainer : Color.clear)
                 }
             }
             .listStyle(.sidebar)
