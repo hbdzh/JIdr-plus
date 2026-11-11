@@ -1,5 +1,7 @@
-//! Android SDK locations. Jidr installs into its private SDK; Android Studio's
-//! SDK is only ever read (D3).
+//! Android SDK locations. Jidr installs into its own writable root — the
+//! private SDK by default or a user-configured custom install root; Android
+//! Studio's SDK (and any explicitly configured external SDK) is only ever read
+//! (D3).
 
 use std::path::{Path, PathBuf};
 
@@ -9,7 +11,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SdkKind {
-    /// `~/Library/Application Support/Jidr/sdk`, owned by Jidr.
+    /// A Jidr-owned writable SDK: `~/Library/Application Support/Jidr/sdk`
+    /// (private) or a custom install root.
     Private,
     /// Android Studio's SDK: read-only.
     StudioReadOnly,
@@ -27,6 +30,16 @@ impl Sdk {
     pub fn private(paths: &JidrPaths) -> Self {
         Self {
             root: paths.sdk(),
+            kind: SdkKind::Private,
+        }
+    }
+
+    /// A Jidr-owned writable SDK outside the private default, configured in
+    /// `tool-paths.json` as `jidr_sdk`. It reuses [`SdkKind::Private`], so
+    /// [`Sdk::ensure_writable`] allows installations into it.
+    pub fn custom_writable(root: impl Into<PathBuf>) -> Self {
+        Self {
+            root: root.into(),
             kind: SdkKind::Private,
         }
     }
@@ -141,18 +154,43 @@ impl Sdk {
     }
 }
 
-/// The SDKs Jidr can use: its own, plus Studio's read-only.
+/// The SDKs Jidr can use: its own writable root (the private SDK or a custom
+/// install root), plus Studio's or an explicitly configured read-only SDK.
 #[derive(Debug, Clone)]
 pub struct SdkSet {
+    /// Jidr's private SDK (`<data>/sdk`); the default install root.
     pub private: Sdk,
+    /// An optional Jidr-owned writable install root (`ToolPaths.jidr_sdk`).
+    pub custom: Option<Sdk>,
+    /// Android Studio's SDK or an explicitly configured external SDK; read-only.
     pub studio: Option<Sdk>,
 }
 
 impl SdkSet {
+    /// Discovers the SDK set from `tool-paths.json` and the host defaults.
     pub fn discover(paths: &JidrPaths) -> Self {
-        Self {
-            private: Sdk::private(paths),
-            studio: Self::configured_or_studio(paths),
+        Self::discover_with(paths, None)
+    }
+
+    /// Like [`discover`](Self::discover), but keeps a caller-supplied Studio
+    /// SDK (used by the daemon's tests) when none is explicitly configured.
+    pub fn discover_with(paths: &JidrPaths, studio: Option<Sdk>) -> Self {
+        match jidr_core::tool_paths::ToolPaths::load(paths) {
+            Ok(config) => Self {
+                private: Sdk::private(paths),
+                custom: config.jidr_sdk.map(Sdk::custom_writable),
+                studio: config
+                    .android_sdk
+                    .map(Sdk::configured)
+                    .or(studio)
+                    .or_else(Sdk::studio),
+            },
+            // Preserve a fail-closed selection if the configuration is unreadable.
+            Err(_) => Self {
+                private: Sdk::private(paths),
+                custom: None,
+                studio: Some(Sdk::configured(PathBuf::new())),
+            },
         }
     }
 
@@ -172,8 +210,16 @@ impl SdkSet {
         }
     }
 
-    /// The SDK that provides `emulator` and `adb`: the private one if complete,
-    /// else Studio's.
+    /// The writable SDK root Jidr installs packages and images into: the custom
+    /// root when configured, else the private SDK. Read-only SDKs are never
+    /// install targets.
+    pub fn install_root(&self) -> &Sdk {
+        self.custom.as_ref().unwrap_or(&self.private)
+    }
+
+    /// The SDK that provides `emulator` and `adb`. An explicitly configured
+    /// read-only SDK fails closed when incomplete; otherwise the first complete
+    /// SDK wins: custom → private → Studio.
     pub fn tools(&self) -> JidrResult<&Sdk> {
         if let Some(selected) = self
             .studio
@@ -189,15 +235,21 @@ impl SdkSet {
                 )))
             };
         }
-        std::iter::once(&self.private)
+        self.custom
+            .as_ref()
+            .into_iter()
+            .chain(std::iter::once(&self.private))
             .chain(self.studio.as_ref())
             .find(|s| s.has_emulator() && s.has_adb())
             .ok_or_else(|| JidrError::sdk("no Android emulator installed; run `jidr sdk install`"))
     }
 
-    /// The SDK holding `image`, preferring the private one.
+    /// The SDK holding `image`: custom → private → Studio.
     pub fn find_image(&self, image: &ImageRef) -> Option<&Sdk> {
-        std::iter::once(&self.private)
+        self.custom
+            .as_ref()
+            .into_iter()
+            .chain(std::iter::once(&self.private))
             .chain(self.studio.as_ref())
             .find(|s| s.has_image(image))
     }
@@ -292,6 +344,7 @@ mod tests {
         jidr_core::tool_paths::ToolPaths {
             android_sdk: Some(selected.clone()),
             jdk_home: None,
+            jidr_sdk: None,
         }
         .save(&paths)
         .unwrap();
@@ -310,6 +363,7 @@ mod tests {
         fake_image(&studio, &img(31, "google_apis"), true);
         let set = SdkSet {
             private: Sdk::private(&paths),
+            custom: None,
             studio: Some(Sdk::read_only(&studio)),
         };
         assert_eq!(
@@ -322,5 +376,91 @@ mod tests {
             Some(SdkKind::Private)
         );
         assert!(set.tools().is_err());
+    }
+
+    fn write_tools(root: &Path) {
+        std::fs::create_dir_all(root.join("emulator")).unwrap();
+        std::fs::create_dir_all(root.join("platform-tools")).unwrap();
+        std::fs::write(root.join("emulator/emulator"), b"x").unwrap();
+        std::fs::write(root.join("platform-tools/adb"), b"x").unwrap();
+    }
+
+    fn save_custom_root(paths: &JidrPaths, root: &Path) {
+        std::fs::create_dir_all(&paths.data).unwrap();
+        jidr_core::tool_paths::ToolPaths {
+            android_sdk: None,
+            jdk_home: None,
+            jidr_sdk: Some(root.to_path_buf()),
+        }
+        .save(paths)
+        .unwrap();
+    }
+
+    #[test]
+    fn custom_writable_root_is_the_install_target_and_is_searched_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = JidrPaths::under(dir.path().join("jidr"));
+        let custom = dir.path().join("custom-sdk");
+        std::fs::create_dir_all(&custom).unwrap();
+        save_custom_root(&paths, &custom);
+        // Both roots are complete, with the same image; the custom one wins.
+        for root in [&custom, &paths.sdk()] {
+            write_tools(root);
+            fake_image(root, &img(31, "google_apis"), true);
+        }
+
+        let sdks = SdkSet::discover(&paths);
+        let custom_sdk = sdks.custom.as_ref().expect("custom SDK discovered");
+        assert_eq!(custom_sdk.root, custom);
+        assert_eq!(custom_sdk.kind, SdkKind::Private);
+        assert!(
+            custom_sdk.ensure_writable().is_ok(),
+            "the custom root is writable"
+        );
+        assert_eq!(sdks.install_root().root, custom);
+        assert_eq!(sdks.tools().unwrap().root, custom);
+        assert_eq!(
+            sdks.find_image(&img(31, "google_apis")).map(|s| &s.root),
+            Some(&custom)
+        );
+    }
+
+    #[test]
+    fn an_empty_custom_root_is_still_the_install_target() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = JidrPaths::under(dir.path().join("jidr"));
+        let custom = dir.path().join("custom-sdk");
+        std::fs::create_dir_all(&custom).unwrap();
+        save_custom_root(&paths, &custom);
+        // The private SDK is complete; the custom root is empty and is where
+        // new packages and images must be installed.
+        write_tools(&paths.sdk());
+        fake_image(&paths.sdk(), &img(31, "google_apis"), true);
+
+        let mut sdks = SdkSet::discover(&paths);
+        // The host's Studio SDK (if any) must not make this test environment-dependent.
+        sdks.studio = None;
+        assert_eq!(sdks.install_root().root, custom);
+        assert!(!sdks.install_root().has_emulator());
+        // Runtime keeps working from the private SDK until the custom root is complete.
+        assert_eq!(sdks.tools().unwrap().root, paths.sdk());
+        assert_eq!(
+            sdks.find_image(&img(31, "google_apis")).map(|s| &s.root),
+            Some(&paths.sdk())
+        );
+        assert!(sdks.find_image(&img(36, "google_apis")).is_none());
+    }
+
+    #[test]
+    fn the_install_root_defaults_to_the_private_sdk() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = JidrPaths::under(dir.path().join("jidr"));
+        let sdks = SdkSet {
+            private: Sdk::private(&paths),
+            custom: None,
+            studio: None,
+        };
+        assert_eq!(sdks.install_root().root, paths.sdk());
+        assert!(sdks.install_root().ensure_writable().is_ok());
     }
 }

@@ -906,7 +906,7 @@ Record consent to a license text by its SHA-256 (D8)
 
 #### `sdk.install`
 
-Install SDK packages into Jidr's private SDK · long-running (job)
+Install SDK packages into the configured writable SDK · long-running (job)
 
 | Param | Type | Required | Description |
 |---|---|---|---|
@@ -1037,3 +1037,4 @@ Save a snapshot of a running device · long-running (job) · locks the device
 | 0.1 (additive) | `device.create` and `device.edit` accept optional `audio` to control host audio from the next start. Omitted values preserve the profile or existing device setting. |
 | 0.1 (additive) | `device.edit` accepts `quick_boot`: `true` or `false` overrides the global setting for this device; `null` restores the global setting. Changes require a stopped device. Disabled quick boot skips automatic snapshot loading and saving; named hibernation resumes are preserved. |
 | 0.1 (additive) | `app.list` lists launchable third-party applications for a running device, returning the package name, display name and an optional path to a cached icon. |
+| 0.1 (additive) | Custom SDK install root: `sdk.status` gains `install_sdk` (the writable SDK root installations go to: the user-configured `jidr_sdk` root or the private SDK) and `custom_sdk` (the configured custom root, or `null`). `sdk.install` and `image.install` install into that root; `image.install` also installs `emulator` and `platform-tools` into it when they are missing. No existing field changed meaning. |

@@ -1,5 +1,6 @@
 //! Per-library paths to independently installed developer tools.
-//! Existing Android SDKs are always treated as read-only.
+//! Existing (external) Android SDKs are always treated as read-only; the
+//! optional `jidr_sdk` is a Jidr-owned writable root Jidr may install into.
 use serde::{Deserialize, Serialize};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -9,6 +10,10 @@ use std::path::{Path, PathBuf};
 pub struct ToolPaths {
     pub android_sdk: Option<PathBuf>,
     pub jdk_home: Option<PathBuf>,
+    /// A Jidr-owned, writable SDK root used as the install target for tools
+    /// and system images instead of the private SDK. Unlike `android_sdk` it
+    /// need not be a complete SDK: it is where Jidr puts what it installs.
+    pub jidr_sdk: Option<PathBuf>,
 }
 
 impl ToolPaths {
@@ -30,6 +35,24 @@ impl ToolPaths {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "Android SDK must contain emulator/emulator and platform-tools/adb",
+            ));
+        }
+        Ok(())
+    }
+    /// Validates a user-selected Jidr install root: an absolute, existing
+    /// directory. It does not need to contain emulator/platform-tools yet —
+    /// it is often an empty directory chosen as a future install target.
+    pub fn validate_jidr_sdk(path: &Path) -> io::Result<()> {
+        if !path.is_absolute() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the Jidr SDK install root must be an absolute path",
+            ));
+        }
+        if !path.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "the Jidr SDK install root must be an existing directory",
             ));
         }
         Ok(())
@@ -57,6 +80,11 @@ impl ToolPaths {
             && let Some(jdk) = &self.jdk_home
         {
             Self::validate_jdk(jdk)?;
+        }
+        if self.jidr_sdk != previous.jidr_sdk
+            && let Some(root) = &self.jidr_sdk
+        {
+            Self::validate_jidr_sdk(root)?;
         }
         // Never recreate a missing selected volume under an empty mountpoint.
         if !paths.data.is_dir() {
@@ -110,6 +138,7 @@ mod tests {
         let selected = ToolPaths {
             android_sdk: Some(sdk.clone()),
             jdk_home: Some(jdk),
+            jidr_sdk: None,
         };
         selected.save(&paths).unwrap();
         assert_eq!(ToolPaths::load(&paths).unwrap(), selected);
@@ -122,6 +151,50 @@ mod tests {
         let mut reset = selected.clone();
         reset.jdk_home = None;
         reset.save(&paths).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn jidr_install_root_roundtrips_and_is_validated() {
+        let root = std::env::temp_dir().join(format!("jidr-jidr-sdk-{}", uuid::Uuid::new_v4()));
+        let paths = crate::JidrPaths::under(&root);
+        std::fs::create_dir_all(&paths.data).unwrap();
+        // An empty existing directory is a valid future install target.
+        let install_root = root.join("custom");
+        std::fs::create_dir_all(&install_root).unwrap();
+
+        let selected = ToolPaths {
+            android_sdk: None,
+            jdk_home: None,
+            jidr_sdk: Some(install_root.clone()),
+        };
+        selected.save(&paths).unwrap();
+        assert_eq!(ToolPaths::load(&paths).unwrap(), selected);
+        assert_eq!(
+            ToolPaths::load(&paths).unwrap().jidr_sdk,
+            Some(install_root.clone())
+        );
+
+        // Relative and missing directories are refused.
+        let relative = ToolPaths {
+            jidr_sdk: Some(PathBuf::from("relative/sdk")),
+            ..ToolPaths::default()
+        };
+        assert!(relative.save(&paths).is_err());
+        let missing = ToolPaths {
+            jidr_sdk: Some(root.join("missing")),
+            ..ToolPaths::default()
+        };
+        assert!(missing.save(&paths).is_err());
+        // The refused saves did not overwrite the persisted selection.
+        assert_eq!(
+            ToolPaths::load(&paths).unwrap().jidr_sdk,
+            Some(install_root.clone())
+        );
+
+        // Resetting to the default private SDK is allowed.
+        ToolPaths::default().save(&paths).unwrap();
+        assert_eq!(ToolPaths::load(&paths).unwrap(), ToolPaths::default());
         std::fs::remove_dir_all(root).unwrap();
     }
 }

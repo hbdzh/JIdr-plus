@@ -71,7 +71,13 @@ pub fn image_catalog(repo: &Repository, sdks: &SdkSet, filter: &CatalogFilter) -
         }
     }
     // Installed images, including ones no longer listed remotely.
-    for sdk in std::iter::once(&sdks.private).chain(sdks.studio.as_ref()) {
+    for sdk in sdks
+        .custom
+        .as_ref()
+        .into_iter()
+        .chain(std::iter::once(&sdks.private))
+        .chain(sdks.studio.as_ref())
+    {
         for image in sdk
             .installed_images()
             .into_iter()
@@ -132,6 +138,7 @@ mod tests {
         let repo = Repository::parse(XML, "file:///x.xml").unwrap();
         let sdks = SdkSet {
             private: Sdk::private(&JidrPaths::under(dir.path())),
+            custom: None,
             studio: None,
         };
         let filter = CatalogFilter {
@@ -169,6 +176,7 @@ mod tests {
         }
         let sdks = SdkSet {
             private: Sdk::private(&JidrPaths::under(dir.path().join("j"))),
+            custom: None,
             studio: Some(Sdk::read_only(&studio)),
         };
         let filter = CatalogFilter {

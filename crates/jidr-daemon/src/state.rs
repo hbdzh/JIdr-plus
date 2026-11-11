@@ -380,13 +380,7 @@ impl State {
     }
 
     pub fn sdks(&self) -> SdkSet {
-        SdkSet {
-            private: Sdk::private(&self.paths),
-            studio: SdkSet::configured_or(
-                &self.paths,
-                self.studio_sdk.as_ref().map(Sdk::read_only),
-            ),
-        }
+        SdkSet::discover_with(&self.paths, self.studio_sdk.as_ref().map(Sdk::read_only))
     }
 
     pub fn avds(&self) -> AvdManager {

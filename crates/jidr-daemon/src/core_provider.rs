@@ -1,6 +1,6 @@
 //! The daemon's own commands: daemon, sdk, image, profile, device, file, logcat.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,7 +11,9 @@ use jidr_core::provider::{
     CallCtx, CommandProvider, CommandSpec, DaemonContext, DeviceParams, NoParams, parse_params,
 };
 use jidr_core::{Device, ImageRef, JidrError, JidrResult, LaunchPrefs, RootMode, RootState};
-use jidr_sdk::{AvdSpec, CatalogFilter, ConsentStore, Fetcher, Repository, profiles, repo};
+use jidr_sdk::{
+    AvdSpec, CatalogFilter, ConsentStore, Fetcher, Repository, Sdk, SdkKind, SdkSet, profiles, repo,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -388,6 +390,47 @@ pub(crate) fn validate_device_name(name: &str) -> JidrResult<()> {
     Ok(())
 }
 
+/// The writable root installs go to, checked before writing: a configured
+/// custom root must still be an absolute existing directory (the UI validates
+/// when setting it, but the config file can be edited by hand). The private
+/// root is created on first install and is not pre-checked.
+fn install_sdk(sdks: &SdkSet) -> JidrResult<Sdk> {
+    let root = sdks.install_root().clone();
+    if sdks.custom.is_some() {
+        jidr_core::tool_paths::ToolPaths::validate_jidr_sdk(&root.root).map_err(|error| {
+            JidrError::sdk(format!(
+                "the custom SDK install root {} is unavailable: {error}",
+                root.root.display()
+            ))
+        })?;
+    }
+    Ok(root)
+}
+
+/// The packages `image.install` must install: the image itself plus, when the
+/// configured writable install root lacks them, `emulator` and
+/// `platform-tools` — installed into that same root, never silently into the
+/// private SDK. An explicitly configured read-only SDK keeps failing closed.
+fn image_install_plan(sdks: &SdkSet, image: &ImageRef) -> JidrResult<Vec<String>> {
+    let mut packages = Vec::new();
+    let install_root = sdks.install_root();
+    if sdks
+        .studio
+        .as_ref()
+        .is_some_and(|sdk| sdk.kind == SdkKind::ConfiguredReadOnly)
+    {
+        // An explicitly selected SDK must not silently trigger an
+        // installation to a different location when it disappears.
+        sdks.tools()?;
+    } else if !install_root.has_emulator() || !install_root.has_adb() {
+        packages.extend(["emulator".to_string(), "platform-tools".to_string()]);
+    }
+    if sdks.find_image(image).is_none() {
+        packages.push(image.package());
+    }
+    Ok(packages)
+}
+
 fn json<T: Serialize>(v: T) -> JidrResult<Value> {
     serde_json::to_value(v).map_err(|e| JidrError::unexpected(format!("encoding result: {e}")))
 }
@@ -430,7 +473,8 @@ impl CoreProvider {
         ConsentStore::load(self.state.paths.consent_file())
     }
 
-    /// Installs packages into the private SDK after checking licenses.
+    /// Installs packages into the configured writable SDK after checking
+    /// licenses.
     async fn install_packages(
         &self,
         ctx: &CallCtx,
@@ -458,7 +502,9 @@ impl CoreProvider {
             .with_data(json!({ "pending_licenses": pending })));
         }
         let fetcher = Fetcher::new()?;
-        let sdk = self.state.sdks().private;
+        // Install into the configured writable root: the custom install root
+        // when set, else Jidr's private SDK.
+        let sdk = install_sdk(&self.state.sdks())?;
         let n = pkgs.len() as f32;
         let mut installed = Vec::new();
         for (i, pkg) in pkgs.iter().enumerate() {
@@ -868,22 +914,7 @@ impl CoreProvider {
 
     async fn image_install(&self, ctx: &CallCtx, p: ImageParams) -> JidrResult<Value> {
         let image = parse_image(&p.image)?;
-        let mut packages = Vec::new();
-        let sdks = self.state.sdks();
-        if sdks
-            .studio
-            .as_ref()
-            .is_some_and(|s| s.kind == jidr_sdk::SdkKind::ConfiguredReadOnly)
-        {
-            // An explicitly selected SDK must not silently trigger an
-            // installation to a different location when it disappears.
-            sdks.tools()?;
-        } else if sdks.tools().is_err() {
-            packages.extend(["emulator".to_string(), "platform-tools".to_string()]);
-        }
-        if sdks.find_image(&image).is_none() {
-            packages.push(image.package());
-        }
+        let packages = image_install_plan(&self.state.sdks(), &image)?;
         if packages.is_empty() {
             return Ok(
                 json!({ "installed": [], "message": format!("{} is already installed", image.package()) }),
@@ -898,17 +929,30 @@ impl CoreProvider {
         tokio::task::spawn_blocking(move || {
             let sdks = state.sdks();
             let tools = sdks.tools().ok().cloned();
+            let mut seen = BTreeSet::new();
+            let installed_images: Vec<String> = sdks
+                .custom
+                .as_ref()
+                .into_iter()
+                .chain(std::iter::once(&sdks.private))
+                .chain(sdks.studio.as_ref())
+                .flat_map(|sdk| sdk.installed_images())
+                .map(|image| image.package())
+                .filter(|package| seen.insert(package.clone()))
+                .collect();
             Ok(json!({
                 "private_sdk": sdks.private.root,
+                // additive: the writable root installs go to (custom or private)
+                "install_sdk": sdks.install_root().root,
+                // additive: the configured custom root, or null when unset
+                "custom_sdk": sdks.custom.as_ref().map(|s| &s.root),
                 "studio_sdk": sdks.studio.as_ref().map(|s| &s.root),
                 "tools_sdk": tools.as_ref().map(|s| &s.root),
                 "emulator_version": tools.as_ref().and_then(|s| s.emulator_version()),
                 "hypervisor": jidr_sdk::host::hypervisor_available(),
                 "host_abi": jidr_sdk::host::host_abi(),
                 "free_bytes": jidr_sdk::host::free_space(&state.paths.data).unwrap_or(0),
-                "installed_images": sdks.private.installed_images().into_iter()
-                    .chain(sdks.studio.iter().flat_map(|s| s.installed_images()))
-                    .map(|i| i.package()).collect::<Vec<_>>(),
+                "installed_images": installed_images,
             }))
         })
         .await
@@ -946,7 +990,7 @@ impl CommandProvider for CoreProvider {
             ),
             CommandSpec::new::<PackagesParams>(
                 "sdk.install",
-                "Install SDK packages into Jidr's private SDK",
+                "Install SDK packages into the configured writable SDK",
             )
             .long_running(),
             CommandSpec::new::<ImageListParams>(
@@ -1297,6 +1341,150 @@ mod tests {
         assert_eq!(tail_lines("a\nb\nc\n", 2), "b\nc\n");
         assert_eq!(tail_lines("a\n", 5), "a\n");
         assert_eq!(tail_lines("", 5), "");
+    }
+
+    fn write_tools(root: &std::path::Path) {
+        std::fs::create_dir_all(root.join("emulator")).unwrap();
+        std::fs::create_dir_all(root.join("platform-tools")).unwrap();
+        std::fs::write(root.join("emulator/emulator"), b"x").unwrap();
+        std::fs::write(root.join("platform-tools/adb"), b"x").unwrap();
+    }
+
+    fn write_image(root: &std::path::Path, image: &ImageRef) {
+        let dir = root.join(image.sysdir());
+        std::fs::create_dir_all(&dir).unwrap();
+        for file in ["source.properties", "system.img", "ramdisk.img"] {
+            std::fs::write(dir.join(file), b"x").unwrap();
+        }
+    }
+
+    #[test]
+    fn image_install_plan_uses_the_configured_writable_root() {
+        use jidr_core::JidrPaths;
+        use jidr_sdk::Sdk;
+
+        let dir = tempfile::tempdir().unwrap();
+        let image = ImageRef {
+            api: 35,
+            tag: "google_apis".into(),
+            abi: jidr_sdk::host::host_abi().into(),
+        };
+        let private = Sdk::private(&JidrPaths::under(dir.path().join("j")));
+        let custom_root = dir.path().join("custom");
+        std::fs::create_dir_all(&custom_root).unwrap();
+
+        // An empty custom root is the install target: tools and the image go there.
+        let sdks = SdkSet {
+            private: private.clone(),
+            custom: Some(Sdk::custom_writable(&custom_root)),
+            studio: None,
+        };
+        assert_eq!(
+            image_install_plan(&sdks, &image).unwrap(),
+            vec![
+                "emulator".to_string(),
+                "platform-tools".to_string(),
+                image.package()
+            ]
+        );
+
+        // Tools present in the custom root: only the image is missing.
+        write_tools(&custom_root);
+        assert_eq!(
+            image_install_plan(&sdks, &image).unwrap(),
+            vec![image.package()]
+        );
+
+        // A complete custom root holding the image needs nothing.
+        write_image(&custom_root, &image);
+        assert!(image_install_plan(&sdks, &image).unwrap().is_empty());
+
+        // An image installed in the private SDK does not stop the tools from
+        // being installed into the configured writable root.
+        let empty_custom = dir.path().join("custom-empty");
+        std::fs::create_dir_all(&empty_custom).unwrap();
+        write_tools(&private.root);
+        write_image(&private.root, &image);
+        let sdks = SdkSet {
+            private: private.clone(),
+            custom: Some(Sdk::custom_writable(&empty_custom)),
+            studio: None,
+        };
+        assert_eq!(
+            image_install_plan(&sdks, &image).unwrap(),
+            vec!["emulator".to_string(), "platform-tools".to_string()]
+        );
+
+        // Explicitly configured read-only SDKs keep failing closed.
+        let read_only = dir.path().join("configured");
+        std::fs::create_dir_all(&read_only).unwrap();
+        let sdks = SdkSet {
+            private: private.clone(),
+            custom: Some(Sdk::custom_writable(&empty_custom)),
+            studio: Some(Sdk::configured(&read_only)),
+        };
+        let error = image_install_plan(&sdks, &image).expect_err("incomplete configured SDK");
+        assert_eq!(error.code, jidr_core::ErrorCode::Sdk);
+
+        // A complete configured SDK provides the tools; only the image installs.
+        write_tools(&read_only);
+        let missing = ImageRef {
+            api: 36,
+            ..image.clone()
+        };
+        let sdks = SdkSet {
+            private: private.clone(),
+            custom: Some(Sdk::custom_writable(&empty_custom)),
+            studio: Some(Sdk::configured(&read_only)),
+        };
+        assert_eq!(
+            image_install_plan(&sdks, &missing).unwrap(),
+            vec![missing.package()]
+        );
+
+        // Without a custom root the private SDK stays the install target.
+        let sdks = SdkSet {
+            private: private.clone(),
+            custom: None,
+            studio: None,
+        };
+        assert_eq!(sdks.install_root().root, private.root);
+        assert_eq!(install_sdk(&sdks).unwrap().root, private.root);
+    }
+
+    #[test]
+    fn install_sdk_refuses_an_unusable_custom_root() {
+        use jidr_core::JidrPaths;
+        use jidr_sdk::Sdk;
+
+        let dir = tempfile::tempdir().unwrap();
+        let private = Sdk::private(&JidrPaths::under(dir.path().join("j")));
+        let valid = dir.path().join("custom");
+        std::fs::create_dir_all(&valid).unwrap();
+
+        let sdks = SdkSet {
+            private: private.clone(),
+            custom: Some(Sdk::custom_writable(&valid)),
+            studio: None,
+        };
+        assert_eq!(install_sdk(&sdks).unwrap().root, valid);
+
+        // A hand-edited relative or missing root must fail loudly instead of
+        // silently installing into the private SDK.
+        for root in [PathBuf::from("relative/sdk"), dir.path().join("missing")] {
+            let sdks = SdkSet {
+                private: private.clone(),
+                custom: Some(Sdk::custom_writable(&root)),
+                studio: None,
+            };
+            let error = install_sdk(&sdks).expect_err("unusable custom root");
+            assert_eq!(error.code, jidr_core::ErrorCode::Sdk);
+            assert!(
+                error.message.contains("custom SDK install root"),
+                "{}",
+                error.message
+            );
+        }
     }
 
     #[test]

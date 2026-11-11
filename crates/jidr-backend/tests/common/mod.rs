@@ -46,6 +46,7 @@ pub fn fixture(base: &str) -> Fixture {
     let paths = JidrPaths::under(tmp.path());
     let sdks = SdkSet {
         private: Sdk::private(&paths),
+        custom: None,
         studio: Some(Sdk::read_only(test_sdk())),
     };
     let image = test_image();

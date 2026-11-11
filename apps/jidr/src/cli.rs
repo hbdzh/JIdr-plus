@@ -492,7 +492,7 @@ pub enum SdkCmd {
     Status,
     /// Licenses still to accept for these packages, with their text.
     Licenses { packages: Vec<String> },
-    /// Install SDK packages into Jidr's private SDK.
+    /// Install SDK packages into Jidr's configured writable SDK.
     Install {
         packages: Vec<String>,
         /// Accept the licenses shown (prints each license id and hash).

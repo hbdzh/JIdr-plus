@@ -50,6 +50,7 @@ fn create_clone_boot_delete() {
     let paths = JidrPaths::under(tmp.path());
     let sdks = SdkSet {
         private: Sdk::private(&paths),
+        custom: None,
         studio: Some(Sdk::read_only(test_sdk())),
     };
     let image = test_image();
@@ -255,6 +256,7 @@ fn snapshot_clone_resumes_independently() {
     let paths = JidrPaths::under(tmp.path());
     let sdks = SdkSet {
         private: Sdk::private(&paths),
+        custom: None,
         studio: Some(Sdk::read_only(test_sdk())),
     };
     let image = test_image();
@@ -382,6 +384,7 @@ fn migration_restores_guest_data_and_snapshot() {
     let source = JidrPaths::under(temp.path().join("source"));
     let sdks = SdkSet {
         private: Sdk::private(&source),
+        custom: None,
         studio: Some(Sdk::read_only(test_sdk())),
     };
     let image = test_image();
