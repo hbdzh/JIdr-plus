@@ -140,8 +140,9 @@ python3 scripts/player-baseline.py --sdk /absolute/path/to/clean-test-sdk \
 
 This comparison keeps shared frames fixed and alternates inline/FIFO order.
 Reports include input-phase received/drawn FPS and interval/main-queue timelines,
-in addition to touch latency. Probe failures are retained and all input pairs
-are collected; any failed probe leaves `manifest.complete=false` and a nonzero
+in addition to touch latency. Touch misses in otherwise completed input runs are
+retained while the remaining pairs are collected; process/render failures can
+abort collection. Any failed probe leaves `manifest.complete=false` and a nonzero
 exit status. `collection_complete` only says that every planned run was captured.
 Acceptance requires all FIFO probes, order/cancellation regressions and fresh
 restores to pass; the same 5% FPS, `max(5 ms, 20%)` touch-p95 and 50 ms restore

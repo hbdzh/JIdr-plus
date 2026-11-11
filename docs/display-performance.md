@@ -82,6 +82,116 @@ homes, and verified the test SDK ramdisk hash was unchanged. Regression checks:
 473 Rust tests passed/1 skipped, full Swift logic/localization checks, 26 visual
 snapshots, player lifecycle checks, 65 benchmark self-tests and 4 runner tests.
 
+## FIFO input and independent connection (2026-11-12)
+
+The input path now has one bounded FIFO consumer and one input-state owner.
+Frame reception runs independently of its RPC awaits. FIFO mode also creates
+an actual second gRPC connection: cloning a Controller would share the
+screenshot connection and its HTTP/2 transport resources. The native animated
+Copy check failed with the shared connection and passed with the independent
+connection. Existing media/app job tasks retain their previous behavior.
+
+Potential downs are tracked before a request can be delivered. Acknowledged
+ups remove them. EOF drains the queue; frame/output loss, SIGTERM and Ctrl-C
+cancel pending work and attempt held-input releases in reverse press order.
+Temporary clipboard-chord keys are included, and cancellation during an error
+recovery retains unfinished releases. Each release attempt has a one-second
+bound. The screenshot stream is dropped before releasing inputs. SIGTERM keeps
+its immediate default behavior during startup before inputs can be delivered.
+`JIDR_PLAYER_INPUT_SCHEDULER=inline` retains coupled scheduling/shared transport
+for rollback; `fifo` is the default. Both branches use the current release-safety
+fixes. This is a same-binary comparison of scheduling/connection isolation.
+
+### Controlled real-emulator evidence
+
+Revision `c8f7dab`, Release, same benchmark and bridge hashes for all six runs.
+The host/device/stream/window/quality configuration matches the shared-frame
+comparison above. Three pairs reverse order in the middle pair. Each run uses
+20 seconds of continuous drawing/gesture traffic, 3 clipboard-wait windows,
+60 touch probes and 3 native minimize/restores. Shared frame transport is fixed.
+
+The Android fixture continuously moves a bar away from the touch-sampling
+patch. Its benchmark mode consumes C without changing the clipboard, modeling
+an app that does not implement Copy. Each real Copy request therefore waits for
+the existing fresh-clipboard timeout while animation continues. Trace-file writes
+are disabled for timing runs. Volume Up replaces Home to keep this scene visible.
+
+| Metric | Inline/shared connection | FIFO/independent connection |
+| --- | ---: | ---: |
+| Frames drawn in each first ~1s Copy wait | 0–2 | **60–62** |
+| Copy-wait windows captured | 9 | 9 |
+| Gesture-phase FPS, median of runs | 59.68 | 59.64 |
+| Touch p95, median of per-run detected-sample p95s | 22.80 ms | 22.64 ms |
+| Detected touches | **179/180 (1 missed)** | **180/180** |
+| Fresh restores | 9/9 | 9/9 |
+| Worst fresh restore, including macOS animation | 573.92 ms | 573.63 ms |
+| Bridge peak physical footprint, median of runs | 20.3 MiB | 20.4 MiB |
+| Player harness peak physical footprint, median of runs | 126.2 MiB | 126.1 MiB |
+
+Every FIFO wait window exceeded the predeclared 45 drawn-FPS/twice-inline
+target. All three candidate runs passed the FPS, touch-p95, restore and
+per-process footprint limits in the README. One-second boundaries may include
+an already-received pending image, explaining counts slightly above 60. This
+shows continued rendering during a specific input wait; ordinary typing latency
+and non-waiting FPS were essentially unchanged. No CPU saving is claimed for
+doing the rendering that the inline path skipped while frozen.
+
+**Candidate acceptance passed; the complete comparison suite remains failed.**
+The inline baseline missed one touch, so `manifest.complete=false` and the runner
+exited nonzero. `collection_complete=true` says all six runs were captured.
+The failed probe is retained and the baseline's p95 covers detected samples
+only; it cannot establish a general tail-latency improvement.
+
+### Native input/release checks and regression tests
+
+Before timing, the production bridge drives a debug APK built from the checked-in
+Android fixture using the already installed SDK/JDK and an ephemeral test key.
+The fixture records its actual Android events/text in private files read by
+`adb run-as`. Its normal Copy handler is enabled for functional checks. All six
+checks passed under continuously changing frames:
+
+- Modifier plus held-letter down/up behavior.
+- Chinese/Japanese/Emoji paste replacing a selection.
+- Copy returning fresh Android clipboard text.
+- Cut updating the clipboard and removing the selected text.
+- A two-finger gesture with a final up.
+- Actual SIGTERM while keys and both fingers remain held, followed by observed
+  Android key/touch releases and a normal bridge exit.
+
+Offline input regressions cover
+bounded FIFO ordering/repeats, cancellation at all four chord steps, cancellation
+during recovery, ambiguous/lost replies, mapped-touch release after rotation and
+bounded cleanup. Full validation: 484 Rust tests passed/1 skipped, Swift logic
+and localization checks, 26 visual snapshots, player lifecycle checks,
+68 benchmark self-tests and 6 runner tests.
+
+### Evidence retained and scope
+
+Local artifacts are under `target/performance/input-fifo-controlled-v3-20261112/`:
+`manifest.json`, `comparison.json`, `run-*.json`, `input-smoke/report.json`, the
+Android event trace/RPC-stage log and the fixture's source/APK hashes. RPC tracing
+records method/status/timing only, is enabled for the native functional check,
+and is disabled in timing runs and normal launches. The test app was uninstalled;
+device, daemon and isolated home were removed. The test SDK ramdisk hash matched.
+
+Earlier results remain available:
+
+- `input-fifo-ab-20261112`: ordinary Home/static-screen series, 178/180 touches
+  in each mode. Both paths had misses. Content-change demand confounded input-
+  phase receive-rate measurements, so this series did not prove independence.
+- `input-fifo-controlled-20261112`: aborted initial animated-fixture input check;
+  no timed runs. The harness subsequently added window-focus readiness and
+  explicit initial-touch delivery checks, plus saved layout/text diagnostics.
+- `input-fifo-controlled-v2-20261112`: Unicode paste passed, then animated Copy
+  failed before its chord reached Android with the shared connection. No timed
+  runs. Input transport was subsequently isolated before the successful v3 check.
+
+Hardware macOS IME composition, games, free rotation during gestures,
+fullscreen/Space and long-duration stability remain separate acceptance. These
+results cover the real emulator and the current native player rendering path;
+they exclude physical input delivery and GPU scanout and do not prove those
+broader scenarios or whole-application memory savings.
+
 ## Historical Slint measurements (2026-11-09)
 
 The implementation and command described below were retired on 2026-11-11; this is
