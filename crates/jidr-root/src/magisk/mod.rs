@@ -9,6 +9,7 @@
 //! pinned version differs from what was recorded; patches never stack.
 
 pub mod auto_grant;
+pub mod boot_image;
 pub mod env;
 pub mod grant;
 pub mod patch;

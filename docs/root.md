@@ -33,6 +33,14 @@ jidr root status <device>       # stored mode, health, Magisk version
    `magiskinit`, the compressed payload goes under `overlay.d/sbin`, and the
    config is recorded in `.backup/.magisk`. The result is written to
    `<avd>/jidr/ramdisk.magisk-<ver>.img` atomically (temp file + rename).
+Some system images, notably images installed by Android Studio, store
+   `ramdisk.img` as an Android boot image (`ANDROID!` container) rather than a
+   bare compressed cpio. Jidr detects this and extracts the embedded ramdisk
+   payload before patching; the per-device patched file remains a bare ramdisk
+   for the emulator's `-ramdisk` option. Boot-image headers v0–v4 are supported;
+   other or truncated containers fail with a specific boot-image error rather
+   than the old misleading "unknown compression" message.
+
 4. **Cold boot** with `-ramdisk <patched>`.
 5. **Install** the Magisk app (the release APK is also the manager app).
 6. **Set up** `/data/adb/magisk`, then **reboot once** so `magiskd` enables su.

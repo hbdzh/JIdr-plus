@@ -8,7 +8,10 @@
 //! uses for the manager app.
 //!
 //! We always patch the *pristine* `ramdisk.img` read fresh from the SDK (the
-//! shared image is never written, D3), so patches never stack. The result is
+//! shared image is never written, D3), so patches never stack. Some system
+//! images ship that file as an Android boot image (`ANDROID!` container), so
+//! the ramdisk payload is extracted with [`super::boot_image`] before parsing;
+//! the patched output is the bare ramdisk `-ramdisk` expects. The result is
 //! written to a temp file and renamed into place, so a crash never leaves a
 //! half-written image.
 
@@ -19,6 +22,8 @@ use jidr_core::{ErrorCode, JidrError, JidrResult, ResultExt};
 use jidr_cpio::compress::XzCheck;
 use jidr_cpio::{Compression, Entry, Ramdisk};
 use serde::{Deserialize, Serialize};
+
+use super::boot_image;
 
 /// xz settings matching `magiskboot compress=xz` (preset 6, CRC32).
 fn payload_xz() -> Compression {
@@ -135,7 +140,10 @@ pub fn patch_ramdisk(
     payload: &Payload,
     props: &crate::props::BuildProps,
 ) -> JidrResult<Vec<u8>> {
-    let mut ramdisk = Ramdisk::parse(pristine)
+    // The SDK may store the ramdisk inside an Android boot image; patch the
+    // payload and return a bare ramdisk, which is what `-ramdisk` takes.
+    let ramdisk_bytes = boot_image::extract_ramdisk(pristine)?;
+    let mut ramdisk = Ramdisk::parse(ramdisk_bytes)
         .map_err(|e| JidrError::root_failed(format!("parsing ramdisk.img: {e}")))?;
     let archive = &mut ramdisk
         .segments
@@ -317,6 +325,17 @@ mod tests {
         ramdisk.to_bytes().unwrap()
     }
 
+    /// Wraps a ramdisk in a minimal v0 Android boot image (kernel size 0).
+    fn boot_image_wrapped(ramdisk: &[u8]) -> Vec<u8> {
+        let page = 2048usize;
+        let mut image = vec![0u8; page];
+        image[..8].copy_from_slice(b"ANDROID!");
+        image[16..20].copy_from_slice(&(ramdisk.len() as u32).to_le_bytes());
+        image[36..40].copy_from_slice(&(page as u32).to_le_bytes());
+        image.extend_from_slice(ramdisk);
+        image
+    }
+
     fn payload() -> Payload {
         Payload {
             abi: "arm64-v8a".into(),
@@ -388,6 +407,45 @@ mod tests {
 
         // The stock entries that were not touched stay out of the backup.
         assert!(ramdisk.get(".backup/dev.xz").is_none());
+    }
+
+    /// Regression: external system images (e.g. android-36 google_apis
+    /// arm64-v8a) ship `ramdisk.img` as an `ANDROID!` boot image. The patcher
+    /// must extract the cpio payload instead of failing with "unknown
+    /// compression", and must write a bare ramdisk back.
+    #[test]
+    fn patch_accepts_a_boot_image_wrapped_ramdisk() {
+        let pristine = boot_image_wrapped(&pristine_ramdisk());
+        assert!(pristine.starts_with(b"ANDROID!"));
+        let patched = patch_ramdisk(&pristine, &payload(), &Default::default()).unwrap();
+        assert!(
+            !patched.starts_with(b"ANDROID!"),
+            "the patched file is a bare ramdisk"
+        );
+        // The stock segment stays uncompressed, and the patch is applied.
+        assert!(patched.starts_with(b"070701"));
+        let ramdisk = Ramdisk::parse(&patched).unwrap();
+        assert_eq!(ramdisk.get("init").unwrap().1.data, b"MAGISKINIT");
+        assert!(ramdisk.get("overlay.d/sbin/magisk.xz").is_some());
+        assert!(ramdisk.get(".backup/.magisk").is_some());
+    }
+
+    #[test]
+    fn patch_reports_a_truncated_boot_image_as_such() {
+        let pristine = boot_image_wrapped(&pristine_ramdisk());
+        let truncated = &pristine[..pristine.len() - 8];
+        let err = patch_ramdisk(truncated, &payload(), &Default::default()).unwrap_err();
+        assert_eq!(err.code, ErrorCode::RootFailed);
+        assert!(
+            err.message.contains("truncated Android boot image"),
+            "{}",
+            err.message
+        );
+        assert!(
+            !err.message.contains("unknown compression"),
+            "a boot image is not an unknown compression: {}",
+            err.message
+        );
     }
 
     #[test]
