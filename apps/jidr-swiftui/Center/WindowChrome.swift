@@ -185,10 +185,7 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate, NSSearchFieldD
         case "jidr.tasks": title = model.text("后台任务", "Background tasks"); symbol = WbIcon.tasks; item.action = #selector(tasks)
         case "jidr.refresh": title = model.text("刷新设备", "Refresh devices"); symbol = WbIcon.refresh; item.action = #selector(refresh)
         case "jidr.settings": title = model.text("设置", "Settings"); symbol = WbIcon.settings; item.action = #selector(settings)
-        default:
-            title = model.detailsVisible ? model.text("隐藏设备检查器", "Hide device inspector") : model.text("显示设备检查器", "Show device inspector")
-            symbol = "sidebar.right"
-            item.action = #selector(details)
+        default: title = model.detailsVisible ? model.text("隐藏详情", "Hide details") : model.text("显示详情", "Show details"); symbol = WbIcon.hideDetails; item.action = #selector(details)
         }
         item.label = title
         item.paletteLabel = title

@@ -45,7 +45,6 @@ struct SnapshotCase {
     var height = 640
     var recording = false
     var deselected = false
-    var inspector = false
 
     var localeIdentifier: String { language == 0 ? "en" : "zh-Hans" }
     var languageName: String { language == 0 ? "en" : "zh" }
@@ -81,10 +80,6 @@ let allCases: [SnapshotCase] = [
     // Light theme (player chrome is intentionally dark-only, so no light player).
     SnapshotCase(name: "center-populated-light", kind: .center(fixture: "populated"), language: 1, appearance: .light),
     SnapshotCase(name: "center-load-failure-light", kind: .center(fixture: "load-failure"), language: 1, appearance: .light),
-    // On-demand device inspector (default hidden) and its empty state.
-    SnapshotCase(name: "center-inspector-light", kind: .center(fixture: "populated"), language: 1, appearance: .light, inspector: true),
-    SnapshotCase(name: "center-inspector-empty-light", kind: .center(fixture: "populated"), language: 1, appearance: .light, deselected: true, inspector: true),
-    SnapshotCase(name: "center-inspector-en-dark-minimum", kind: .center(fixture: "populated"), language: 0, appearance: .dark, width: 800, height: 550, inspector: true),
 ]
 
 // Small enough that every baseline stays well under 150 KB while preserving the
@@ -359,7 +354,6 @@ func renderCenter(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
     model.language = language
     if snapshotCase.recording, let id = model.selected { model.recording.insert(id) }
     if snapshotCase.deselected { model.setDeviceSelection(nil) }
-    model.detailsVisible = snapshotCase.inspector
     model.appearance = snapshotCase.appearance == .light ? 1 : 2
     pump(0.1)
     let canvas = Canvas(width: snapshotCase.width, height: snapshotCase.height, appearance: snapshotCase.appearance)
