@@ -399,18 +399,6 @@ final class PlayerTransport: ObservableObject {
                   : t("正在发送文件…", "Sending the file…", language))
     }
 
-    /// Direct uninstall entry (player bridge command, pending the M1 increment).
-    func uninstall(package: String) {
-        let value = package.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !value.isEmpty else {
-            onStatus?(t("请输入要卸载的应用包名。", "Enter the package name to uninstall.", language))
-            return
-        }
-        pendingUninstallAPK = nil
-        send(["type": "app_uninstall", "package": value])
-        onStatus?(t("正在卸载应用…", "Uninstalling the app…", language))
-    }
-
     /// Confirms a signature-conflict reinstall: inspect the APK to find its
     /// package, uninstall it (data is lost) and install the APK again.
     func confirmReinstall() {
@@ -1523,7 +1511,6 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         chrome.chooseAPKAction = { [weak self] in self?.transport.chooseFile(apkOnly: true) }
         chrome.chooseFileAction = { [weak self] in self?.transport.chooseFile(apkOnly: false) }
         chrome.advancedAction = { [weak self] in self?.transport.onAdvanced?() }
-        chrome.uninstallAction = { [weak self] package in self?.transport.uninstall(package: package) }
     }
 
     private func fitScreen() {

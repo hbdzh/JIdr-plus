@@ -73,7 +73,6 @@ final class PlayerChromeState: ObservableObject {
     @Published var reveal = false
     @Published var overlay = false
     @Published var pixelPerfect = false
-    @Published var shortcutsPanel = false
 
     var pixelPerfectAction: (() -> Void)?
     var fitAction: (() -> Void)?
@@ -84,7 +83,6 @@ final class PlayerChromeState: ObservableObject {
     var chooseAPKAction: (() -> Void)?
     var chooseFileAction: (() -> Void)?
     var advancedAction: (() -> Void)?
-    var uninstallAction: ((String) -> Void)?
 
     private var revealHideWork: DispatchWorkItem?
 
@@ -118,13 +116,9 @@ struct ContentView: View {
     @ObservedObject var mapping: KeyMappingStore
     @ObservedObject var sidebar: SidebarState
     @ObservedObject var chrome: PlayerChromeState
-    @ObservedObject private var shortcuts: GameShortcutsStore
     @StateObject private var scripts = PlayerScriptsCoordinator()
     @State private var notice: String?
     @State private var noticeGeneration = 0
-    @State private var showUninstall = false
-    @State private var uninstallPackage = ""
-    @State private var shortcutError: String?
 
     init(transport: PlayerTransport, mapping: KeyMappingStore, sidebar: SidebarState,
          chrome: PlayerChromeState = PlayerChromeState()) {
@@ -132,7 +126,6 @@ struct ContentView: View {
         _mapping = ObservedObject(wrappedValue: mapping)
         _sidebar = ObservedObject(wrappedValue: sidebar)
         _chrome = ObservedObject(wrappedValue: chrome)
-        _shortcuts = ObservedObject(wrappedValue: transport.shortcuts)
     }
 
     private var language: Int { transport.language }
@@ -190,7 +183,6 @@ struct ContentView: View {
         .onDisappear {
             scripts.close()
         }
-        .sheet(isPresented: $showUninstall) { uninstallSheet }
         .alert(t("重新安装应用？", "Reinstall the app?", language),
                isPresented: Binding(get: { transport.reinstallPrompt != nil },
                                     set: { if !$0 { transport.cancelReinstall() } })) {
@@ -225,9 +217,6 @@ struct ContentView: View {
             }
             if mapping.editing {
                 mappingBar
-            }
-            if chrome.shortcutsPanel {
-                shortcutsPanel
             }
             if chrome.overlay {
                 debugOverlay
@@ -572,7 +561,6 @@ struct ContentView: View {
                             if !mapping.begin() { transport.onStatus?(mapping.error ?? t("键位方案尚未加载", "The key mapping has not loaded", language)) }
                         }
                     }
-                    tool(t("快捷键", "Shortcuts", language), WbIcon.command, active: chrome.shortcutsPanel) { chrome.shortcutsPanel.toggle() }
                     tool(transport.recording == .idle || transport.recording == .starting ? "开始录屏" : "停止录屏",
                          transport.recording == .idle || transport.recording == .starting ? WbIcon.record : WbIcon.recordStop,
                          enabled: linkState.isRunning,
@@ -587,8 +575,6 @@ struct ContentView: View {
                          activeTint: transport.scriptRecording != .idle ? PlayerChromePalette.negative : nil) {
                         scripts.present(transport: transport)
                     }
-                    tool(t("卸载应用", "Uninstall app", language), WbIcon.trash,
-                         enabled: linkState.isRunning, active: showUninstall) { showUninstall = true }
                 }
                 sidebarSeparator
                 sidebarGroup {
@@ -654,76 +640,6 @@ struct ContentView: View {
         }
         .padding(WbSpace.sm)
         .padding(.trailing, sidebar.visible && !chrome.fullscreen ? sidebarWidth : 0)
-    }
-
-    private var shortcutsPanel: some View {
-        VStack {
-            HStack {
-                VStack(alignment: .leading, spacing: WbSpace.sm) {
-                    Text(shortcuts.capture == nil
-                         ? t("快捷键（点击编辑，Esc 取消）", "Shortcuts (click to edit, Esc cancels)", language)
-                         : t("按下新的快捷键", "Press a new shortcut", language))
-                        .wbFont(WbType.caption.weighted(.semibold))
-                    ForEach(GameShortcutAction.allCases, id: \.rawValue) { action in
-                        Button {
-                            shortcutError = nil
-                            if !shortcuts.beginCapture(action.rawValue) {
-                                shortcutError = ShortcutFailure.describe(shortcuts.failure ?? .unreadable, language: language)
-                            }
-                        } label: {
-                            HStack {
-                                Text(GameShortcutsStore.actionLabel(action, language: language)).wbFont(WbType.caption)
-                                Spacer()
-                                Text(shortcuts.binding(for: action)?.display ?? "—")
-                                    .wbFont(WbType.code)
-                                    .foregroundStyle(WbColor.textSecondary)
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    if let shortcutError {
-                        Text(shortcutError).wbFont(WbType.caption).foregroundStyle(WbColor.negative)
-                    }
-                    if let failure = shortcuts.failure {
-                        Text(ShortcutFailure.describe(failure, language: language)).wbFont(WbType.caption).foregroundStyle(WbColor.warning)
-                    }
-                }
-                .padding(WbSpace.md)
-                .frame(width: WbLayout.windowInspectorWidth)
-                .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.md))
-                Spacer()
-            }
-            .padding(WbSpace.sm)
-            Spacer()
-        }
-    }
-
-    private var uninstallSheet: some View {
-        VStack(alignment: .leading, spacing: WbSpace.md) {
-            Text(t("卸载应用", "Uninstall app", language)).wbFont(WbType.title)
-            Text(t("可通过应用包名卸载设备中的应用。卸载会删除该应用的应用数据，无法撤销。",
-                   "Uninstall an app from the device by package name. Uninstalling deletes the app's data and cannot be undone.",
-                   language))
-                .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            TextField(t("应用包名，例如 com.example.game", "Package name, e.g. com.example.game", language),
-                      text: $uninstallPackage)
-                .textFieldStyle(.roundedBorder)
-            HStack {
-                Spacer()
-                Button(t("取消", "Cancel", language)) { showUninstall = false }
-                    .keyboardShortcut(.cancelAction)
-                Button(t("卸载", "Uninstall", language), role: .destructive) {
-                    chrome.uninstallAction?(uninstallPackage)
-                    showUninstall = false
-                    uninstallPackage = ""
-                }
-                .disabled(uninstallPackage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(WbSpace.xl)
-        .frame(width: 420)
     }
 
     // MARK: Handlers
