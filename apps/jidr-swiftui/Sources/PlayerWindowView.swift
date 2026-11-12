@@ -76,13 +76,11 @@ final class PlayerChromeState: ObservableObject {
 
     var pixelPerfectAction: (() -> Void)?
     var fitAction: (() -> Void)?
-    var toggleFullscreenAction: (() -> Void)?
     var toggleSidebarAction: (() -> Void)?
     var chooseScreenshotAction: (() -> Void)?
     var toggleRecordingAction: (() -> Void)?
     var chooseAPKAction: (() -> Void)?
     var chooseFileAction: (() -> Void)?
-    var advancedAction: (() -> Void)?
 
     private var revealHideWork: DispatchWorkItem?
 
@@ -546,9 +544,6 @@ struct ContentView: View {
                 sidebarSeparator
                 sidebarGroup {
                     tool("电源", WbIcon.power, enabled: inputEnabled) { transport.send(["type": "tool_key", "key": "power"]) }
-                    if transport.onAdvanced != nil {
-                        tool(t("高级工具", "Advanced tools", language), WbIcon.advancedTools) { chrome.advancedAction?() }
-                    }
                     tool("音量增大", WbIcon.volumeUp, enabled: inputEnabled) { transport.send(["type": "tool_key", "key": "volume_up"]) }
                     tool("音量减小", WbIcon.volumeDown, enabled: inputEnabled) { transport.send(["type": "tool_key", "key": "volume_down"]) }
                     tool("向左旋转", WbIcon.rotateLeft, enabled: inputEnabled) { transport.send(["type": "rotate", "direction": 1]) }
@@ -582,8 +577,6 @@ struct ContentView: View {
                          enabled: linkState.isRunning, active: chrome.overlay) { chrome.overlay.toggle() }
                     tool("画面原始像素大小", WbIcon.pixelPerfect,
                          enabled: linkState.isRunning, active: chrome.pixelPerfect) { chrome.pixelPerfectAction?() }
-                    tool(chrome.fullscreen ? t("退出全屏", "Exit fullscreen", language) : "全屏",
-                         iconForFullscreen, enabled: true, active: chrome.fullscreen) { chrome.toggleFullscreenAction?() }
                 }
             }
             .padding(.top, WbSpace.sm + 2)
@@ -603,10 +596,6 @@ struct ContentView: View {
 
     private func sidebarGroup<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: PlayerChromeMetrics.toolSpacing) { content() }
-    }
-
-    private var iconForFullscreen: String {
-        chrome.fullscreen ? WbIcon.exitFullscreen : WbIcon.enterFullscreen
     }
 
     private var sidebarSeparator: some View {

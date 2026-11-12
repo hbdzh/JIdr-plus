@@ -1504,13 +1504,11 @@ final class GameWindowController: NSObject, NSWindowDelegate {
     private func wireChrome() {
         chrome.pixelPerfectAction = { [weak self] in self?.applyPixelPerfectSize() }
         chrome.fitAction = { [weak self] in self?.fitScreen() }
-        chrome.toggleFullscreenAction = { [weak self] in self?.toggleFullscreen() }
         chrome.toggleSidebarAction = { [weak self] in self?.toggleSidebar() }
         chrome.chooseScreenshotAction = { [weak self] in self?.transport.chooseScreenshot() }
         chrome.toggleRecordingAction = { [weak self] in self?.transport.toggleRecording() }
         chrome.chooseAPKAction = { [weak self] in self?.transport.chooseFile(apkOnly: true) }
         chrome.chooseFileAction = { [weak self] in self?.transport.chooseFile(apkOnly: false) }
-        chrome.advancedAction = { [weak self] in self?.transport.onAdvanced?() }
     }
 
     private func fitScreen() {

@@ -512,6 +512,27 @@ struct EditDeviceView: View {
                     }
                 }
 
+                Section(model.text("工具", "Tools")) {
+                    HStack(alignment: .center, spacing: WbSpace.md) {
+                        Image(systemName: WbIcon.advancedTools)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundStyle(WbColor.accent)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(model.text("高级工具", "Advanced tools"))
+                                .wbFont(WbType.body)
+                            Text(model.text("电池、GPS、网络、传感器、Root、证书和更多。",
+                                            "Battery, GPS, network, sensors, Root, certificates and more."))
+                                .wbFont(WbType.caption)
+                                .foregroundStyle(WbColor.textSecondary)
+                        }
+                        Spacer(minLength: WbSpace.md)
+                        Button(model.text("打开高级工具…", "Open advanced tools…")) {
+                            model.openAdvanced(details.device.id, name: details.device.name)
+                        }
+                        .buttonStyle(.bordered).controlSize(.regular)
+                    }
+                }
+
                 Section(model.text("存储", "Storage")) {
                     LabeledContent(model.text("磁盘占用", "Disk usage"),
                                    value: details.disk_usage.map { ByteCountFormatter.string(fromByteCount:Int64(clamping:$0),countStyle:.file) } ?? "—")
