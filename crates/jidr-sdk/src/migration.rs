@@ -909,16 +909,18 @@ pub fn rewrite_known_references(staging: &Path, old: &Path, new: &Path) -> io::R
     let tools = staging.join("tool-paths.json");
     if tools.exists() {
         let mut values: serde_json::Value = serde_json::from_slice(&fs::read(&tools)?)?;
-        if !values.is_object() {
-            return Err(invalid("invalid tool path configuration"));
-        }
-        for pointer in ["/android_sdk", "/jdk_home"] {
-            if let Some(value) = values.pointer_mut(pointer)
-                && let Some(path) = value.as_str()
-                && let Some(rewritten) = relocate_path(path, old, new)?
-            {
-                *value = serde_json::Value::String(rewritten);
-            }
+        let object = values
+            .as_object_mut()
+            .ok_or_else(|| invalid("invalid tool path configuration"))?;
+        // JDK settings were removed: drop the legacy key from the migrated copy
+        // instead of rewriting a path Jidr no longer uses (ToolPaths::load also
+        // ignores it when reading older homes).
+        object.remove("jdk_home");
+        if let Some(value) = values.pointer_mut("/android_sdk")
+            && let Some(path) = value.as_str()
+            && let Some(rewritten) = relocate_path(path, old, new)?
+        {
+            *value = serde_json::Value::String(rewritten);
         }
         write_changed(&tools, &serde_json::to_vec_pretty(&values)?)?;
     }
@@ -1319,7 +1321,8 @@ mod tests {
         let tools: serde_json::Value =
             serde_json::from_slice(&fs::read(stage.join("tool-paths.json")).unwrap()).unwrap();
         assert_eq!(tools["android_sdk"], format!("{}/sdk", target.display()));
-        assert_eq!(tools["jdk_home"], "/other/jdk");
+        // The removed JDK setting is dropped from the migrated copy.
+        assert!(tools.get("jdk_home").is_none(), "{tools}");
         assert_eq!(fs::read_to_string(avd.join("hardware.ini")).unwrap(), ini);
     }
 

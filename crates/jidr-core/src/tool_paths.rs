@@ -1,6 +1,10 @@
 //! Per-library paths to independently installed developer tools.
 //! Existing (external) Android SDKs are always treated as read-only; the
 //! optional `jidr_sdk` is a Jidr-owned writable root Jidr may install into.
+//!
+//! Jidr used to persist a `jdk_home` selection. It has no JDK setting any more,
+//! so [`ToolPaths::load`] drops that legacy key from older `tool-paths.json`
+//! files instead of failing on it; saves never write it again.
 use serde::{Deserialize, Serialize};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -9,7 +13,6 @@ use std::path::{Path, PathBuf};
 #[serde(default, deny_unknown_fields)]
 pub struct ToolPaths {
     pub android_sdk: Option<PathBuf>,
-    pub jdk_home: Option<PathBuf>,
     /// A Jidr-owned, writable SDK root used as the install target for tools
     /// and system images instead of the private SDK. Unlike `android_sdk` it
     /// need not be a complete SDK: it is where Jidr puts what it installs.
@@ -22,7 +25,17 @@ impl ToolPaths {
     }
     pub fn load(paths: &crate::JidrPaths) -> io::Result<Self> {
         match std::fs::read(Self::path(paths)) {
-            Ok(data) => Ok(serde_json::from_slice(&data)?),
+            Ok(data) => {
+                // Older Jidr versions stored a `jdk_home` selection. The field
+                // is gone, and the struct denies unknown fields: drop the
+                // legacy key here so existing homes keep loading, then resolve
+                // the current shape strictly.
+                let mut value: serde_json::Value = serde_json::from_slice(&data)?;
+                if let Some(object) = value.as_object_mut() {
+                    object.remove("jdk_home");
+                }
+                Ok(serde_json::from_value(value)?)
+            }
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(e),
         }
@@ -57,29 +70,12 @@ impl ToolPaths {
         }
         Ok(())
     }
-    pub fn validate_jdk(path: &Path) -> io::Result<()> {
-        if !path.is_absolute()
-            || !path.join("bin/java").is_file()
-            || !path.join("bin/javac").is_file()
-        {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "JDK must contain bin/java and bin/javac",
-            ));
-        }
-        Ok(())
-    }
     pub fn save(&self, paths: &crate::JidrPaths) -> io::Result<()> {
         let previous = Self::load(paths)?;
         if self.android_sdk != previous.android_sdk
             && let Some(sdk) = &self.android_sdk
         {
             Self::validate_sdk(sdk)?;
-        }
-        if self.jdk_home != previous.jdk_home
-            && let Some(jdk) = &self.jdk_home
-        {
-            Self::validate_jdk(jdk)?;
         }
         if self.jidr_sdk != previous.jidr_sdk
             && let Some(root) = &self.jidr_sdk
@@ -123,21 +119,16 @@ mod tests {
         let paths = crate::JidrPaths::under(&root);
         std::fs::create_dir_all(&paths.data).unwrap();
         let sdk = root.join("sdk");
-        let jdk = root.join("jdk");
         std::fs::create_dir_all(sdk.join("emulator")).unwrap();
         std::fs::create_dir_all(sdk.join("platform-tools")).unwrap();
-        std::fs::create_dir_all(jdk.join("bin")).unwrap();
         for file in [
             sdk.join("emulator/emulator"),
             sdk.join("platform-tools/adb"),
-            jdk.join("bin/java"),
-            jdk.join("bin/javac"),
         ] {
             std::fs::write(file, b"x").unwrap();
         }
         let selected = ToolPaths {
             android_sdk: Some(sdk.clone()),
-            jdk_home: Some(jdk),
             jidr_sdk: None,
         };
         selected.save(&paths).unwrap();
@@ -148,9 +139,8 @@ mod tests {
         invalid.android_sdk = Some(root.join("missing"));
         assert!(invalid.save(&paths).is_err());
         assert_eq!(ToolPaths::load(&paths).unwrap(), selected);
-        let mut reset = selected.clone();
-        reset.jdk_home = None;
-        reset.save(&paths).unwrap();
+        ToolPaths::default().save(&paths).unwrap();
+        assert_eq!(ToolPaths::load(&paths).unwrap(), ToolPaths::default());
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -165,7 +155,6 @@ mod tests {
 
         let selected = ToolPaths {
             android_sdk: None,
-            jdk_home: None,
             jidr_sdk: Some(install_root.clone()),
         };
         selected.save(&paths).unwrap();
@@ -195,6 +184,61 @@ mod tests {
         // Resetting to the default private SDK is allowed.
         ToolPaths::default().save(&paths).unwrap();
         assert_eq!(ToolPaths::load(&paths).unwrap(), ToolPaths::default());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn legacy_jdk_home_key_is_ignored_and_dropped() {
+        let root = std::env::temp_dir().join(format!("jidr-legacy-{}", uuid::Uuid::new_v4()));
+        let paths = crate::JidrPaths::under(&root);
+        std::fs::create_dir_all(&paths.data).unwrap();
+        let sdk = root.join("sdk");
+        std::fs::create_dir_all(sdk.join("emulator")).unwrap();
+        std::fs::create_dir_all(sdk.join("platform-tools")).unwrap();
+        for file in [
+            sdk.join("emulator/emulator"),
+            sdk.join("platform-tools/adb"),
+        ] {
+            std::fs::write(file, b"x").unwrap();
+        }
+
+        // A tool-paths.json written before the JDK setting was removed.
+        let legacy = serde_json::json!({
+            "android_sdk": sdk,
+            "jdk_home": "/Library/Java/JavaVirtualMachines/temurin-21.jdk/Contents/Home"
+        });
+        std::fs::write(
+            ToolPaths::path(&paths),
+            serde_json::to_vec(&legacy).unwrap(),
+        )
+        .unwrap();
+        let loaded = ToolPaths::load(&paths).unwrap();
+        assert_eq!(loaded.android_sdk, Some(sdk.clone()));
+        assert_eq!(
+            loaded,
+            ToolPaths {
+                android_sdk: Some(sdk),
+                jidr_sdk: None
+            }
+        );
+
+        // Saving rewrites the configuration without the removed key.
+        loaded.save(&paths).unwrap();
+        let saved = std::fs::read_to_string(ToolPaths::path(&paths)).unwrap();
+        assert!(
+            !saved.contains("jdk_home"),
+            "legacy key must not be re-written: {saved}"
+        );
+        assert!(saved.contains("android_sdk"));
+
+        // A legacy-only file is simply the default configuration.
+        std::fs::write(ToolPaths::path(&paths), br#"{"jdk_home":"/other/jdk"}"#).unwrap();
+        assert_eq!(ToolPaths::load(&paths).unwrap(), ToolPaths::default());
+
+        // Compatibility is scoped to the removed key: other unknown keys still fail.
+        std::fs::write(ToolPaths::path(&paths), br#"{"bogus":true}"#).unwrap();
+        assert!(ToolPaths::load(&paths).is_err());
+
         std::fs::remove_dir_all(root).unwrap();
     }
 }

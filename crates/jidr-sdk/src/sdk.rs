@@ -343,7 +343,6 @@ mod tests {
         }
         jidr_core::tool_paths::ToolPaths {
             android_sdk: Some(selected.clone()),
-            jdk_home: None,
             jidr_sdk: None,
         }
         .save(&paths)
@@ -389,7 +388,6 @@ mod tests {
         std::fs::create_dir_all(&paths.data).unwrap();
         jidr_core::tool_paths::ToolPaths {
             android_sdk: None,
-            jdk_home: None,
             jidr_sdk: Some(root.to_path_buf()),
         }
         .save(paths)
