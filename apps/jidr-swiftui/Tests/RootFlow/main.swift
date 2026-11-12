@@ -91,6 +91,39 @@ assert(download.reason == .downloadFailed)
 let other = RootSteps.failure("something odd", step: .install, grantSeen: false)
 assert(other.reason == .installFailed)
 
+// A ramdisk/patch failure must be classified by its content even when the job
+// still reports the download step (the centers' reported Full-root failure).
+let ramdiskMessage = "parsing ramdisk.img: unknown compression format at byte 0"
+let ramdisk = RootSteps.failure(ramdiskMessage, step: .download, grantSeen: false)
+assert(ramdisk.reason == .patchFailed)
+assert(ramdisk.step == .patch)
+assert(ramdisk.message == ramdiskMessage, "the daemon message must be preserved")
+let bootImage = RootSteps.failure("unsupported boot image header", step: .download, grantSeen: false)
+assert(bootImage.reason == .patchFailed && bootImage.step == .patch)
+let chinesePatch = RootSteps.failure("修补启动镜像失败：unknown compression format at byte 0", step: .download, grantSeen: false)
+assert(chinesePatch.reason == .patchFailed && chinesePatch.step == .patch)
+
+// Explicit download/network errors likewise move the shown step to Download.
+let downloadFromPatch = RootSteps.failure("Downloading Magisk 30.7 failed: network unavailable", step: .patch, grantSeen: false)
+assert(downloadFromPatch.reason == .downloadFailed)
+assert(downloadFromPatch.step == .download)
+let http = RootSteps.failure("HTTP 503 while fetching the Magisk release", step: .verify, grantSeen: false)
+assert(http.reason == .downloadFailed && http.step == .download)
+
+// Existing higher-priority classifications still win over the content rules.
+let cancelledOnPatch = RootSteps.failure("cancelled while parsing ramdisk", step: .download, grantSeen: false)
+assert(cancelledOnPatch.isStopped && cancelledOnPatch.step == .download)
+let grantOnPatch = RootSteps.failure("root grant to Shell was denied or timed out", step: .patch, grantSeen: false)
+assert(grantOnPatch.isUnverified && grantOnPatch.step == .verify)
+
+// The engine records the original message in the log and reports the patch reason.
+var brokenPatch = RootFlowEngine(now: t0)
+brokenPatch.observe("Downloading Magisk 30.7", at: t0)
+brokenPatch.failed(ramdiskMessage, at: t0 + 4)
+guard case .failed(let brokenFailure) = brokenPatch.outcome else { fatalError("expected a failure") }
+assert(brokenFailure.reason == .patchFailed && brokenFailure.step == .patch)
+assert(brokenPatch.log.last?.text == ramdiskMessage)
+
 // Clock and log tail.
 assert(RootSteps.clock(18) == "0:18")
 assert(RootSteps.clock(120) == "2:00")

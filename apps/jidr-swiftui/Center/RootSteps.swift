@@ -199,6 +199,20 @@ enum RootSteps {
         if m.contains("su -c id") || m.localizedCaseInsensitiveContains("su didn't answer as root") {
             return RootFailure(reason: .suNotRoot, step: .verify, message: m)
         }
+        // The center bridge only forwards message text, and a failed root job
+        // can end on an earlier step than the one that actually failed: a
+        // ramdisk patch error arrives while the job still reports "download".
+        // Classify the message content before falling back to the reached step.
+        let patchSignals = ["parsing ramdisk", "ramdisk.img", "ramdisk", "unknown compression",
+                            "boot image", "patch", "修补", "启动镜像"]
+        if patchSignals.contains(where: { m.localizedCaseInsensitiveContains($0) }) {
+            return RootFailure(reason: .patchFailed, step: .patch, message: m)
+        }
+        let downloadSignals = ["download", "http", "https", "network", "fetch", "socket",
+                               "connection", "下载", "网络", "连接"]
+        if downloadSignals.contains(where: { m.localizedCaseInsensitiveContains($0) }) {
+            return RootFailure(reason: .downloadFailed, step: .download, message: m)
+        }
         switch step {
         case .download:
             return RootFailure(reason: .downloadFailed, step: step, message: m)
