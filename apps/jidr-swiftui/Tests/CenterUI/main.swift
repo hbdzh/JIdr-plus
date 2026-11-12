@@ -58,6 +58,17 @@ require(window.toolbar != nil, "center has a real native toolbar")
 require(window.styleMask.contains(.fullSizeContentView), "content extends into the title-bar area")
 require(window.titlebarAppearsTransparent && window.titlebarSeparatorStyle == .none, "native toolbar blends with content without a separator")
 require(window.titleVisibility == .hidden, "window title does not duplicate the content heading")
+// The native toolbar item reflects the on-demand inspector state.
+let inspectorItem = window.toolbar!.items.first { $0.itemIdentifier.rawValue == "jidr.details" }!
+require(inspectorItem.label == "Show device inspector", "toolbar offers to show the hidden inspector")
+model.detailsVisible = true
+pump()
+require(inspectorItem.label == "Hide device inspector", "toolbar reflects the visible inspector")
+let inspectorSubject = model.selected
+model.detailsVisible = false
+pump()
+require(inspectorItem.label == "Show device inspector", "toolbar reflects the hidden inspector again")
+require(model.selected == inspectorSubject, "hiding the inspector keeps the device selection")
 
 // Clear the actual native list selection, rather than only changing the model.
 // A nil selection must clear the inspector and invalidate in-flight app/details
@@ -200,13 +211,19 @@ let dark = render(preview.environment(\.colorScheme, .dark), width: 450, height:
 require(brightPixels(dark) > 10000, "Light thumbnail remains white inside a Dark parent")
 require(abs(brightPixels(light) - brightPixels(dark)) < 3000, "Light thumbnail is independent of surrounding appearance")
 
-// The split remains side by side at the supported minimum, without an outer
-// vertical scroll view containing the device list.
+// The inspector is hidden until requested; at the supported minimum the
+// on-demand split must still be side by side when it is opened.
 window.setContentSize(NSSize(width: 800, height: 550))
 pump()
+require(!descendants(window.contentView!, NSSplitView.self).contains { $0.isVertical && $0.arrangedSubviews.count == 2 },
+        "the device inspector starts hidden")
+model.detailsVisible = true
+pump()
 let splits = descendants(window.contentView!, NSSplitView.self)
-require(splits.contains { $0.isVertical && $0.arrangedSubviews.count == 2 }, "minimum window retains a resizable master/detail split")
+require(splits.contains { $0.isVertical && $0.arrangedSubviews.count == 2 }, "minimum window retains a resizable inspector split when shown")
 require(window.contentView!.bounds.width <= 801, "layout does not force the window beyond its minimum width")
+model.detailsVisible = false
+pump()
 
 // Deletion must be verified against device.list, including a server that lies
 // about success. The script configures device 2 as a deliberate no-op.
@@ -254,8 +271,12 @@ model.devices = originalDevices
 pump()
 require(!model.isEmptyDeviceLibrary, "adding a device leaves onboarding")
 require(window.toolbar!.items.contains { $0.itemIdentifier == CenterToolbarController.searchID }, "search returns with the device workspace")
+model.detailsVisible = true
+pump()
 require(descendants(window.contentView!, NSSplitView.self).contains { $0.isVertical && $0.arrangedSubviews.count == 2 },
-        "the inspector split returns when devices exist")
+        "the inspector split returns when devices exist and the inspector is shown")
+model.detailsVisible = false
+pump()
 model.deviceQuery = "no-matching-device-name"
 pump()
 require(!model.isEmptyDeviceLibrary && background.isEnabled, "zero search results retain usable search and the workspace")

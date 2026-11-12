@@ -137,7 +137,7 @@ final class CenterModel: ObservableObject {
     @Published var appearance = 0
     weak var centerWindow: NSWindow?
     @Published var deviceQuery = ""
-    @Published var detailsVisible = true
+    @Published var detailsVisible = false
     @Published var settingsCategory = 0
     private(set) var settingsWindow: SettingsWindowController?
     private(set) var taskPanel: TaskPanelController?

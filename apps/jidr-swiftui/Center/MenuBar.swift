@@ -227,7 +227,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         appearanceItem.submenu = appearance
         menu.addItem(appearanceItem)
         menu.addItem(.separator())
-        menu.addItem(menuItem(t("显示/隐藏设备详情", "Show/Hide Device Details"), #selector(toggleCenterDetails), ""))
+        menu.addItem(menuItem(t("显示/隐藏设备检查器", "Show/Hide Device Inspector"), #selector(toggleCenterDetails), ""))
         menu.addItem(menuItem(t("搜索设备", "Search Devices"), #selector(focusDeviceSearch), "f"))
         menu.addItem(menuItem(t("显示/隐藏侧边栏", "Show/Hide Sidebar"), #selector(toggleSidebarAction), ""))
         menu.addItem(.separator())
