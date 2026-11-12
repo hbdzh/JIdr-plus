@@ -15,6 +15,14 @@ func eventually(_ message: String, _ condition: () -> Bool) {
     require(condition(), message)
 }
 
+func findScreenView(in view: NSView) -> ScreenView? {
+    if let screen = view as? ScreenView { return screen }
+    for subview in view.subviews {
+        if let found = findScreenView(in: subview) { return found }
+    }
+    return nil
+}
+
 let application = NSApplication.shared
 application.setActivationPolicy(.accessory)
 let home = URL(fileURLWithPath: ProcessInfo.processInfo.environment["JIDR_HOME"]!)
@@ -119,6 +127,24 @@ preview.transport.onFrameDrawn = { actualDraws += 1 }
 preview.open(device: id, width: 480, height: 640, executable: CommandLine.arguments[3], dataDirectory: home.appendingPathComponent("data").path)
 eventually("real fixture produces a first frame and enables tools") { preview.transport.linkState.isRunning && preview.transport.frameWidth > 0 }
 eventually("measurement counts actual ScreenView draws and matched samples") { matchingSamples > 0 && actualDraws > 0 }
+
+// Regression: the player has no bottom Logcat strip. The screen area must use
+// the full window content height (otherwise the window's device aspect would
+// produce side letterboxing), leave the sidebar strip at its width, and keep the
+// device frame aspect.
+guard let playerContent = preview.window?.contentView,
+      let playerContentSize = preview.window?.contentLayoutRect.size,
+      let screenView = findScreenView(in: playerContent) else {
+    preconditionFailure("player window has no ScreenView for the layout regression")
+}
+let expectedSidebarWidth = WbLayout.windowDeviceToolbarWidth
+require(abs(screenView.frame.height - playerContentSize.height) < 1.5,
+        "screen area uses the full content height (no Logcat strip)")
+require(abs(screenView.frame.width - (playerContentSize.width - expectedSidebarWidth)) < 1.5,
+        "screen area is content width minus the sidebar")
+require(abs(screenView.frame.width / screenView.frame.height
+            - CGFloat(preview.transport.frameWidth) / CGFloat(preview.transport.frameHeight)) < 0.01,
+        "screen area aspect matches the device frame (no letterbox)")
 require(preview.transport.mapping.begin(), "local key mapping loads without a daemon in preview")
 preview.transport.mapping.cancel()
 var previewNotices: [String] = []

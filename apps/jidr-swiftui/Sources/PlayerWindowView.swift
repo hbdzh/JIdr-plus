@@ -14,8 +14,6 @@ private enum PlayerChromePalette {
     static let ground = JidrColor.surfaceChrome.dark
     /// The device toolbar: one step darker than the chrome ground.
     static let sidebar = JidrColor.surfaceBase.dark
-    /// The folded Logcat strip and the log well: the darkest surface.
-    static let logbar = JidrColor.logcatBackground.dark
     static let hairline = JidrColor.borderSubtle.dark
     /// The titlebar seam is one step stronger than the in-sidebar rules so the
     /// native titlebar visibly separates from the dark content.
@@ -24,8 +22,6 @@ private enum PlayerChromePalette {
     static let text = JidrColor.textSecondary.dark
     static let textDim = JidrColor.textTertiary.dark
     static let negative = JidrColor.negative.dark
-    static let negativeBadge = JidrColor.statusNegativeContainer.dark
-    static let negativeBadgeText = JidrColor.statusNegativeOnContainer.dark
     static let accent = JidrColor.accentFill.dark
     /// Active toolbar glyphs: the accent-text token is the accent colour meant
     /// for icons/text on dark surfaces (the fill token is for filled controls).
@@ -38,7 +34,6 @@ private enum PlayerChromeMetrics {
     static let toolGlyph: CGFloat = 13
     static let toolSpacing: CGFloat = 3
     static let groupSeparatorWidth: CGFloat = 26
-    static let logcatBarHeight: CGFloat = 30
     static let hairline: CGFloat = 1
 }
 
@@ -79,7 +74,6 @@ final class PlayerChromeState: ObservableObject {
     @Published var overlay = false
     @Published var pixelPerfect = false
     @Published var shortcutsPanel = false
-    @Published var logcatOpen = false
 
     var pixelPerfectAction: (() -> Void)?
     var fitAction: (() -> Void)?
@@ -125,12 +119,9 @@ struct ContentView: View {
     @ObservedObject var sidebar: SidebarState
     @ObservedObject var chrome: PlayerChromeState
     @ObservedObject private var shortcuts: GameShortcutsStore
-    @StateObject private var logStream = LogStream()
     @StateObject private var scripts = PlayerScriptsCoordinator()
     @State private var notice: String?
     @State private var noticeGeneration = 0
-    @State private var logLevel = "D"
-    @State private var logFilter = ""
     @State private var showUninstall = false
     @State private var uninstallPackage = ""
     @State private var shortcutError: String?
@@ -152,7 +143,6 @@ struct ContentView: View {
                                     recording: transport.recording != .idle,
                                     recordingUnknown: transport.recordingStateUnknown)
     }
-    private var canLogcat: Bool { transport.logcatExecutable != nil && linkState.isRunning }
     /// Ordinary player input is ignored by the bridge during playback, so the
     /// sidebar disables those entries until the script stops.
     private var inputEnabled: Bool { linkState.isRunning && transport.scriptPlayback == .idle }
@@ -160,14 +150,7 @@ struct ContentView: View {
     var body: some View {
         ZStack(alignment: .trailing) {
             HStack(spacing: WbSpace.zero) {
-                VStack(spacing: WbSpace.zero) {
-                    screenArea
-                    if !chrome.fullscreen && chrome.logcatOpen && canLogcat {
-                        logcatPanel
-                    } else if !chrome.fullscreen && canLogcat {
-                        logcatBar
-                    }
-                }
+                screenArea
                 if !chrome.fullscreen && sidebar.visible {
                     sidebarColumn
                 }
@@ -201,15 +184,10 @@ struct ContentView: View {
         }
         .environment(\.locale, Locale(identifier: language == 0 ? "en" : "zh-Hans"))
         .onAppear(perform: installHandlers)
-        .onChange(of: chrome.logcatOpen) { open in updateLogStream(open: open) }
         .onChange(of: transport.linkState) { state in
-            updateLogStream(open: chrome.logcatOpen)
             if !state.isRunning { scripts.close() }
         }
-        .onChange(of: logLevel) { _ in restartLogStream() }
-        .onChange(of: logFilter) { _ in restartLogStream() }
         .onDisappear {
-            logStream.stop()
             scripts.close()
         }
         .sheet(isPresented: $showUninstall) { uninstallSheet }
@@ -616,10 +594,6 @@ struct ContentView: View {
                 sidebarGroup {
                     tool(t("调试浮层", "Debug overlay", language), WbIcon.performance,
                          enabled: linkState.isRunning, active: chrome.overlay) { chrome.overlay.toggle() }
-                    if canLogcat {
-                        tool(t("日志", "Logcat", language), WbIcon.logcat,
-                             enabled: linkState.isRunning, active: chrome.logcatOpen) { chrome.logcatOpen.toggle() }
-                    }
                     tool("画面原始像素大小", WbIcon.pixelPerfect,
                          enabled: linkState.isRunning, active: chrome.pixelPerfect) { chrome.pixelPerfectAction?() }
                     tool(chrome.fullscreen ? t("退出全屏", "Exit fullscreen", language) : "全屏",
@@ -724,117 +698,6 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder private var logcatBar: some View {
-        Button { chrome.logcatOpen = true } label: {
-            HStack(spacing: 7) {
-                Image(systemName: WbIcon.logcat)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(PlayerChromePalette.text)
-                Text("Logcat")
-                    .wbFont(WbType.label.weighted(.semibold))
-                    .foregroundStyle(PlayerChromePalette.text)
-                if logStream.errorCount > 0 {
-                    Text(logStream.errorCount == 1 ? t("1 个错误", "1 error", language)
-                                                   : t("\(logStream.errorCount) 个错误", "\(logStream.errorCount) errors", language))
-                        .wbFont(WbType.caption.weighted(.medium))
-                        .foregroundStyle(PlayerChromePalette.negativeBadgeText)
-                        .padding(.horizontal, WbSpace.sm)
-                        .padding(.vertical, 1)
-                        .background(PlayerChromePalette.negativeBadge, in: Capsule())
-                }
-                Text(logStream.lastError)
-                    .wbFont(WbType.code)
-                    .lineLimit(1)
-                    .foregroundStyle(PlayerChromePalette.negative)
-                Spacer(minLength: WbSpace.sm)
-                Text("⌘L")
-                    .font(.system(size: 10.5, weight: .medium, design: .rounded))
-                    .foregroundStyle(PlayerChromePalette.textDim)
-            }
-            .padding(.horizontal, 12)
-            .frame(height: PlayerChromeMetrics.logcatBarHeight)
-            .background(PlayerChromePalette.logbar)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .help(t("打开日志面板（⌘L）", "Open Logcat (⌘L)", language))
-        .accessibilityLabel(t("打开日志面板", "Open Logcat", language))
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(PlayerChromePalette.hairline)
-                .frame(height: PlayerChromeMetrics.hairline)
-                .allowsHitTesting(false)
-        }
-    }
-
-    private var logcatPanel: some View {
-        VStack(spacing: WbSpace.zero) {
-            HStack(spacing: WbSpace.sm) {
-                Text("Logcat").wbFont(WbType.label.weighted(.semibold))
-                Picker("", selection: $logLevel) {
-                    ForEach(["V", "D", "I", "W", "E", "F"], id: \.self) { Text($0).tag($0) }
-                }
-                .labelsHidden().frame(width: 66)
-                .tint(PlayerChromePalette.accent)
-                TextField(t("过滤标签、PID 或文本", "Filter tag, PID or text", language), text: $logFilter)
-                    .textFieldStyle(.plain)
-                    .wbFont(WbType.caption)
-                    .foregroundStyle(JidrColor.textPrimary.dark)
-                    .padding(.horizontal, WbSpace.sm)
-                    .frame(height: 22)
-                    .background(JidrColor.surfaceControl.dark,
-                                in: RoundedRectangle(cornerRadius: WbRadius.sm, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: WbRadius.sm, style: .continuous)
-                            .strokeBorder(PlayerChromePalette.hairline, lineWidth: 1)
-                    )
-                Spacer()
-                if let error = logStream.error, !error.isEmpty {
-                    Text(PlayerStatusText.translate(error, language: language))
-                        .wbFont(WbType.caption).foregroundStyle(WbColor.warning).lineLimit(1)
-                }
-                Button { logStream.clear() } label: {
-                    Image(systemName: WbIcon.trash).foregroundStyle(PlayerChromePalette.text)
-                }
-                .buttonStyle(.borderless)
-                .help(t("清空日志", "Clear log", language))
-                .accessibilityLabel(t("清空日志", "Clear log", language))
-                Button { chrome.logcatOpen = false } label: {
-                    Image(systemName: WbIcon.close).foregroundStyle(PlayerChromePalette.text)
-                }
-                .buttonStyle(.borderless)
-                .help(t("关闭日志面板", "Close Logcat", language))
-                .accessibilityLabel(t("关闭日志面板", "Close Logcat", language))
-            }
-            .padding(.horizontal, WbSpace.sm).frame(height: PlayerChromeMetrics.logcatBarHeight)
-            .background(PlayerChromePalette.ground)
-            Rectangle().fill(PlayerChromePalette.hairline).frame(height: PlayerChromeMetrics.hairline)
-            ScrollViewReader { reader in
-                ScrollView {
-                    Text(logStream.text)
-                        .wbFont(WbType.code)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(WbSpace.sm)
-                    Color.clear.frame(height: 1).id("log-end")
-                }
-                .background(PlayerChromePalette.logbar)
-                .onChange(of: logStream.revision) { _ in
-                    reader.scrollTo("log-end", anchor: .bottom)
-                }
-            }
-            Rectangle().fill(PlayerChromePalette.hairline).frame(height: PlayerChromeMetrics.hairline)
-            Text(logStream.active
-                 ? t("跟随中", "Following", language) + " · \(transport.device ?? "")"
-                 : t("未连接", "Not connected", language))
-                .wbFont(WbType.caption).foregroundStyle(PlayerChromePalette.textDim)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, WbSpace.sm).frame(height: 22)
-                .background(PlayerChromePalette.ground)
-        }
-        .frame(height: 232)
-    }
-
     private var uninstallSheet: some View {
         VStack(alignment: .leading, spacing: WbSpace.md) {
             Text(t("卸载应用", "Uninstall app", language)).wbFont(WbType.title)
@@ -877,22 +740,6 @@ struct ContentView: View {
         }
     }
 
-    private func updateLogStream(open: Bool) {
-        guard open, linkState.isRunning, let executable = transport.logcatExecutable, let device = transport.device else {
-            logStream.stop()
-            return
-        }
-        if !logStream.active {
-            logStream.start(executable: executable, device: device,
-                            filters: LogFilter.arguments(logFilter, level: logLevel))
-        }
-    }
-
-    private func restartLogStream() {
-        guard chrome.logcatOpen, canLogcat else { return }
-        logStream.stop()
-        updateLogStream(open: true)
-    }
 }
 
 private let sidebarWidth = WbLayout.windowDeviceToolbarWidth

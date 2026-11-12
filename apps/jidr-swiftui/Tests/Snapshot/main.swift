@@ -83,8 +83,10 @@ let allCases: [SnapshotCase] = [
 ]
 
 // Small enough that every baseline stays well under 150 KB while preserving the
-// real layout: the center window is 1050×700, the player content is 432×768.
-let playerSize = (width: 432, height: 768)
+// real layout: the center window is 1050×700. The player content is the device
+// screen plus the 48pt side rail: the fixture streams 360×640 (aspect 0.5625),
+// so 768pt of height needs 432pt of screen plus 48pt of sidebar.
+let playerSize = (width: 480, height: 768)
 
 
 // MARK: - CLI

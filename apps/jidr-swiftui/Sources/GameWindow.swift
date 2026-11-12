@@ -35,8 +35,9 @@ final class PlayerTransport: ObservableObject {
     @Published private(set) var frameHeight = 0
     @Published private(set) var device: String?
     @Published private(set) var dataDirectory: String?
-    /// A sibling `jidr-center-bridge` exposes `--logcat`; discovered once so the
-    /// player can show the folded logcat bar without changing the player bridge.
+    /// A sibling `jidr-center-bridge` exposes `--logcat`; the player itself no
+    /// longer shows a Logcat UI (it lives in the device center), but the bridge
+    /// capability stays available without changing the player bridge.
     @Published private(set) var logcatExecutable: String?
 
     // MARK: Operation recordings (docs/player-scripts.md)
@@ -1679,10 +1680,6 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         }
         if flags == [.command, .option], key == "0" {
             applyPixelPerfectSize()
-            return true
-        }
-        if flags == [.command], key == "l", transport.logcatExecutable != nil, transport.linkState.isRunning {
-            chrome.logcatOpen.toggle()
             return true
         }
         if let binding = ShortcutBinding.make(key: characters,
