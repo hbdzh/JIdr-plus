@@ -818,7 +818,7 @@ struct InstallSDKView: View {
     @ViewBuilder private var configurationContent: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 12) {
-                if let existing = sdkStatus?.tools_sdk {
+                if let existing = sdkStatus?.studio_sdk {
                     Label(t("已检测到可用的 Android SDK", "Android SDK detected"), systemImage: "checkmark.circle.fill")
                         .foregroundStyle(WbColor.positive).font(.system(size: 12, weight: .medium))
                     Text(existing).font(.system(size: 11, design: .monospaced)).foregroundStyle(WbColor.textSecondary)
@@ -1179,6 +1179,7 @@ struct DaemonSettings: Decodable {
 }
 struct SDKStatus: Decodable {
     let tools_sdk: String?
+    let studio_sdk: String?
     let private_sdk: String?
     /// Writable SDK that Jidr installs into (custom root or the private SDK).
     let install_sdk: String?
@@ -1538,13 +1539,13 @@ struct SettingsView: View {
         }
         Section(model.text("外部 Android SDK（只读）", "External Android SDK (read-only)")) {
             SettingsPathRow(title: model.text("外部 Android SDK", "External Android SDK"),
-                            path: paths?.tools.android_sdk ?? sdkStatus?.tools_sdk ?? model.text("自动选择", "Automatic")) {
+                            path: paths?.tools.android_sdk ?? sdkStatus?.studio_sdk ?? model.text("自动选择", "Automatic")) {
                 Button(model.text("选择 SDK", "Choose SDK")) { choose("sdk") }
                     .buttonStyle(.bordered).controlSize(.regular)
                     .disabled(paths == nil || saving)
                 linkButton(model.text("恢复自动选择", "Restore automatic"), disabled: paths == nil || saving) { tool("sdk",path:NSNull()) }
-                linkButton(model.text("显示目录", "Show folder"), disabled: paths?.tools.android_sdk == nil && sdkStatus?.tools_sdk == nil) {
-                    showFolder(paths?.tools.android_sdk ?? sdkStatus?.tools_sdk)
+                linkButton(model.text("显示目录", "Show folder"), disabled: paths?.tools.android_sdk == nil && sdkStatus?.studio_sdk == nil) {
+                    showFolder(paths?.tools.android_sdk ?? sdkStatus?.studio_sdk)
                 }
             }
             Text(model.text("Jidr 只读取此 SDK，不会安装或修改其中的文件。",
