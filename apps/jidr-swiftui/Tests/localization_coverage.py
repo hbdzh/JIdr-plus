@@ -907,7 +907,6 @@ BRIDGE_ROLES = {
     "bridge/src/main.rs": "player bridge (jidr-swiftui-bridge)",
     "bridge/src/bin/jidr-center-bridge.rs": "center bridge (jidr-center-bridge)",
     "bridge/src/bin/jidr-offline-copy.rs": "offline copy helper (no user text)",
-    "bridge/src/bin/jidr_center/migration_preflight.rs": "center migration preflight (no user text)",
 }
 
 

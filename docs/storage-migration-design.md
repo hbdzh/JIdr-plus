@@ -1,8 +1,15 @@
 # Storage migration: implementation constraints
 
-Status: the migration helper is not wired to the application and does not activate a destination. Do not use it as a complete migration tool.
+Status: the GUI migration-target/preflight entry has been removed. The offline
+copy helpers and their tests remain internal/developer-only, are not wired to the
+application, and do not activate a destination. Do not present them as a user
+feature or use them as a complete migration tool.
 
-The Storage settings page can save a proposed destination and run read-only preliminary checks for device status, SDK tools, target conflicts and free space. These checks do not stop devices, create or activate a copy, or verify game data and snapshots.
+The former Storage settings page could save a proposed destination and run
+read-only preliminary checks for device status, SDK tools, target conflicts and
+free space. Those checks never stopped devices, created or activated a copy, or
+verified game data and snapshots; the entry was removed rather than leaving a
+non-functional control in Settings.
 
 A safe migration must quiesce all writers before copying: stop devices cleanly and verify that their emulator processes have exited, stop the daemon, and prevent clients from automatically restarting the old daemon until the transaction is finished. A status value in a stale device registry is not sufficient. Keep the original files untouched as a backup.
 
@@ -10,7 +17,7 @@ Copy into a new, unique staging directory on the destination volume. Refuse syml
 
 Activation requires a stable, atomic location pointer understood by GUI, CLI and daemon. Persist a destination identity and fail closed when the external volume is missing, changes identity, or contains an incomplete migration. Never silently create a new empty device library when the selected disk is missing. The pointer must not live only inside the data directory being moved. Handle rollback and interrupted copies without overwriting either the source or an existing destination.
 
-SDK paths must distinguish the Jidr-owned writable SDK from an independently selected existing read-only Android SDK. Preserve image and emulator compatibility and never write to an Android Studio SDK. Jidr currently has no Java subprocess; a JDK selection must not claim to affect tools that do not use Java. Ensure GUI and daemon agree on all selected paths after restart and when `JIDR_HOME` is explicitly set.
+SDK paths must distinguish the Jidr-owned writable SDK (the private SDK or a custom install root) from an independently selected existing read-only Android SDK. Preserve image and emulator compatibility and never write to an Android Studio SDK. Jidr has no JDK setting: its tools are native binaries and it must not persist or migrate a Java home, and a migrated configuration must drop any legacy JDK path. Ensure GUI and daemon agree on all selected paths after restart and when `JIDR_HOME` is explicitly set.
 
 Required acceptance: independently boot a disposable copied device, write and read a guest data marker, save and restore a snapshot, compare hashes, simulate destination unavailable, source modification, failed copy and interrupted activation, and verify rollback. Only then stop the user's actual device, repeat validation on its copy, and switch the pointer. Keep the original until the user has confirmed the migrated device and snapshots work.
 

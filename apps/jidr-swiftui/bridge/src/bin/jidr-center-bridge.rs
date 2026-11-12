@@ -1,6 +1,4 @@
 //! Private SwiftUI device-center bridge over the existing control protocol.
-#[path = "jidr_center/migration_preflight.rs"]
-mod migration_preflight;
 
 use anyhow::Result;
 use jidr_core::JidrPaths;
@@ -180,7 +178,7 @@ fn fixture_result(request: &Request, case: &str) -> Value {
         }
         "center.paths" => json!({"id":id,"type":"result","result":{
             "data":"/tmp/jidr-fixture/data","cache":"/tmp/jidr-fixture/cache","logs":"/tmp/jidr-fixture/logs",
-            "tools":{"android_sdk":null,"jdk_home":null,"jidr_sdk":null}
+            "tools":{"android_sdk":null,"jidr_sdk":null}
         }}),
         "center.about" => json!({"id":id,"type":"result","result":{
             "version":env!("CARGO_PKG_VERSION"),"repository":"https://github.com/hbdzh/JIdr-plus"
@@ -418,33 +416,6 @@ async fn main() -> Result<()> {
                 }
                 return;
             }
-            if request.method == "center.migration.preflight" {
-                let parent = request
-                    .params
-                    .get("parent")
-                    .and_then(Value::as_str)
-                    .map(std::path::PathBuf::from);
-                let sdk = request
-                    .params
-                    .get("sdk")
-                    .and_then(Value::as_str)
-                    .map(std::path::PathBuf::from);
-                let result = tokio::task::spawn_blocking(move || -> anyhow::Result<Value> {
-                    let paths = JidrPaths::discover()?;
-                    let parent = parent.ok_or_else(|| anyhow::anyhow!("missing destination"))?;
-                    let sdk = sdk.ok_or_else(|| anyhow::anyhow!("missing SDK path"))?;
-                    let result = migration_preflight::check(&paths, &parent, &sdk)?;
-                    Ok(json!({"target":result.target,"source_bytes":result.space.source_bytes,"required_bytes":result.space.required_bytes,"available_bytes":result.space.available_bytes,"incomplete_snapshots":result.incomplete_snapshots}))
-                }).await;
-                match result {
-                    Ok(Ok(value)) => send(json!({"id":id,"type":"result","result":value})),
-                    Ok(Err(error)) => send(error_reply(id, &error)),
-                    Err(error) => send(
-                        json!({"id":id,"type":"error","code":"preflight.worker_failed","message":format!("preflight worker failed: {error}")}),
-                    ),
-                }
-                return;
-            }
             if request.method == "center.paths" || request.method == "center.toolpath.set" {
                 let _guard = tool_lock.lock().await;
                 let result = (|| -> anyhow::Result<Value> {
@@ -475,15 +446,6 @@ async fn main() -> Result<()> {
                         match kind {
                             "sdk" => tools.android_sdk = selected,
                             "jidr_sdk" => tools.jidr_sdk = selected,
-                            "jdk" => {
-                                tools.jdk_home = selected.map(|p| {
-                                    if p.join("Contents/Home/bin/java").is_file() {
-                                        p.join("Contents/Home")
-                                    } else {
-                                        p
-                                    }
-                                })
-                            }
                             _ => {
                                 return Err(DiagnosticError::new(
                                     "toolpath.unknown_kind",
@@ -494,9 +456,14 @@ async fn main() -> Result<()> {
                         }
                         tools.save(&paths)?;
                     }
-                    Ok(
-                        json!({"data":paths.data,"cache":paths.cache,"logs":paths.logs,"tools":tools}),
-                    )
+                    // JDK configuration was removed from the product; the bridge
+                    // only exposes the writable Jidr root and the external SDK.
+                    Ok(json!({
+                        "data":paths.data,
+                        "cache":paths.cache,
+                        "logs":paths.logs,
+                        "tools":{"android_sdk":tools.android_sdk,"jidr_sdk":tools.jidr_sdk},
+                    }))
                 })();
                 match result {
                     Ok(value) => send(json!({"id":id,"type":"result","result":value})),

@@ -838,7 +838,7 @@ struct InstallSDKView: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading).padding(10)
-        } label: { Label(t("使用现有 SDK", "Use an existing SDK"), systemImage: "folder").font(.system(size: 12, weight: .semibold)) }
+        } label: { Label(t("外部 Android SDK（只读，可选）", "External Android SDK (read-only, optional)"), systemImage: "folder").font(.system(size: 12, weight: .semibold)) }
 
         GroupBox {
             VStack(alignment: .leading, spacing: 12) {
@@ -1169,7 +1169,7 @@ struct NewDeviceView: View {
     }
 }
 
-struct ToolPaths: Decodable { let android_sdk: String?; let jdk_home: String?; let jidr_sdk: String? }
+struct ToolPaths: Decodable { let android_sdk: String?; let jidr_sdk: String? }
 struct CenterPaths: Decodable { let data: String; let cache: String; let logs: String; let tools: ToolPaths }
 struct DaemonSettings: Decodable {
     let default_root_mode: String
@@ -1191,9 +1191,6 @@ struct SettingsView: View {
     @ObservedObject var model: CenterModel
     let onClose: () -> Void
     private var category: Int { model.settingsCategory }
-    @State private var migrationParent: URL?
-    @State private var migrationChecking = false
-    @State private var migrationMessage = ""
     @State private var tileURL = ""
     @State private var mcpBinary = "jidr"
     @State private var confirmClaudeConfig = false
@@ -1258,52 +1255,38 @@ struct SettingsView: View {
         guard !saving else { return }; saving = true
         model.call("center.toolpath.set",["kind":kind,"path":path]) { result in
             saving = false
-            switch result { case .success: message = kind == "sdk" ? model.text("SDK 路径已保存，下次启动设备时生效。", "SDK path saved; it will apply on the next device start.") : model.text("JDK 路径已保存。", "JDK path saved."); load()
-            case .failure(let failure): message = failure.localizedDescription }
+            switch result {
+            case .success:
+                message = model.text("外部 Android SDK 路径已保存，下次启动设备时生效。", "External Android SDK path saved; it will apply on the next device start.")
+                load()
+            case .failure(let failure): message = failure.localizedDescription
+            }
+        }
+    }
+    func chooseJidrSDKLocation() {
+        let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = model.text("选择安装位置", "Choose install location")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        setJidrSDKLocation(url.path)
+    }
+    func restoreJidrSDKLocation() { setJidrSDKLocation(NSNull()) }
+    private func setJidrSDKLocation(_ path:Any) {
+        guard !saving else { return }; saving = true
+        model.call("center.toolpath.set",["kind":"jidr_sdk","path":path]) { result in
+            saving = false
+            switch result {
+            case .success:
+                message = model.text("Jidr SDK 安装位置已保存。", "Jidr SDK install location saved.")
+                load()
+            case .failure(let failure): message = failure.localizedDescription
+            }
         }
     }
     func choose(_ kind:String) {
         let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
         tool(kind,path:url.path)
-    }
-    func chooseMigrationParent() {
-        let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
-        panel.prompt = model.text("选择位置", "Choose location")
-        guard panel.runModal() == .OK, let folder = panel.url else { return }
-        migrationParent = folder; migrationMessage = model.text("已选择目标位置，数据尚未迁移。", "Destination selected; no data has been moved.")
-    }
-    func checkMigration() {
-        guard let parent = migrationParent, let sdk = paths?.tools.android_sdk ?? sdkStatus?.tools_sdk else {
-            migrationMessage = model.text("请选择目标位置并确认 SDK 可用。", "Choose a destination and ensure the SDK is available."); return
-        }
-        migrationChecking = true
-        model.call("center.migration.preflight",["parent":parent.path,"sdk":sdk]) { result in
-            migrationChecking = false
-            switch result {
-            case .success(let value):
-                guard let data = value as? [String:Any], let required = data["required_bytes"] as? Int64, let available = data["available_bytes"] as? Int64 else {
-                    migrationMessage = model.text("检查结果无效。", "Invalid preflight result."); return
-                }
-                let needed = ByteCountFormatter.string(fromByteCount:required,countStyle:.file)
-                let free = ByteCountFormatter.string(fromByteCount:available,countStyle:.file)
-                migrationMessage = model.text("空间初步检查通过：需要约 \(needed)，可用 \(free)。数据尚未迁移或切换。", "Space preflight passed: needs about \(needed), \(free) available. No data has been moved or switched.")
-                if let issues = data["incomplete_snapshots"] as? [String], !issues.isEmpty {
-                    migrationMessage += "\n" + model.text("发现文件不完整的快照，不能保证恢复：", "Incomplete snapshots cannot be assumed recoverable: ") + issues.joined(separator:", ")
-                }
-            case .failure(let error):
-                let reason = error.localizedDescription
-                let translated: String
-                switch reason {
-                case "destination already exists": translated = model.text("目标目录已存在，请选择其他位置。", "The destination already exists. Choose another location.")
-                case "destination overlaps source": translated = model.text("目标位置与现有数据重叠。", "The destination overlaps existing data.")
-                case "destination or qemu-img unavailable": translated = model.text("目标目录或 SDK 磁盘工具不可用。", "The destination or SDK disk tool is unavailable.")
-                case "paths must be absolute": translated = model.text("目标和 SDK 路径必须是绝对路径。", "Destination and SDK paths must be absolute.")
-                default: translated = reason
-                }
-                migrationMessage = model.text("初步检查未通过：", "Preliminary check failed: ") + translated
-            }
-        }
     }
     func showFolder(_ path:String?) {
         guard let path, FileManager.default.fileExists(atPath:path), NSWorkspace.shared.open(URL(fileURLWithPath:path)) else { message = model.text("无法打开目录。", "Cannot open the folder."); return }
@@ -1529,14 +1512,32 @@ struct SettingsView: View {
     // MARK: - Data and tools
 
     @ViewBuilder private var dataPage: some View {
-        Section(model.text("位置与存储", "Locations & storage")) {
-            SettingsPathRow(title: model.text("数据目录", "Data folder"),
-                            path: paths?.data ?? model.text("读取中…", "Loading…")) {
-                Button(model.text("显示数据目录", "Show data folder")) { showFolder(paths?.data) }
+        Section(model.text("Jidr SDK（可写安装位置）", "Jidr SDK (writable install location)")) {
+            SettingsPathRow(title: model.text("安装位置", "Install location"),
+                            path: installSDKPath ?? model.text("读取中…", "Loading…")) {
+                Button(model.text("更改位置…", "Change location…"), action: chooseJidrSDKLocation)
                     .buttonStyle(.bordered).controlSize(.regular)
-                    .disabled(paths == nil)
+                    .disabled(saving)
+                if sdkStatus?.custom_sdk != nil {
+                    Button(model.text("恢复默认", "Restore default"), action: restoreJidrSDKLocation)
+                        .buttonStyle(.bordered).controlSize(.regular)
+                        .disabled(saving)
+                }
+                linkButton(model.text("显示目录", "Show folder"), disabled: installSDKPath == nil) {
+                    showFolder(installSDKPath)
+                }
+                Spacer(minLength: 0)
+                Button(model.text("安装 SDK 和系统镜像…", "Install SDK & system images…")) { installing = true }
+                    .buttonStyle(.bordered).controlSize(.regular)
+                    .disabled(saving)
             }
-            SettingsPathRow(title: "Android SDK",
+            Text(model.text("新安装的 emulator 和系统镜像会保存到此目录；已有默认目录中的镜像仍可继续使用。",
+                            "Newly installed emulator files and system images go to this directory; images in the existing default directory remain available."))
+                .wbFont(WbType.caption)
+                .foregroundStyle(WbColor.textSecondary)
+        }
+        Section(model.text("外部 Android SDK（只读）", "External Android SDK (read-only)")) {
+            SettingsPathRow(title: model.text("外部 Android SDK", "External Android SDK"),
                             path: paths?.tools.android_sdk ?? sdkStatus?.tools_sdk ?? model.text("自动选择", "Automatic")) {
                 Button(model.text("选择 SDK", "Choose SDK")) { choose("sdk") }
                     .buttonStyle(.bordered).controlSize(.regular)
@@ -1545,38 +1546,19 @@ struct SettingsView: View {
                 linkButton(model.text("显示目录", "Show folder"), disabled: paths?.tools.android_sdk == nil && sdkStatus?.tools_sdk == nil) {
                     showFolder(paths?.tools.android_sdk ?? sdkStatus?.tools_sdk)
                 }
-                Spacer(minLength: 0)
-                Button(model.text("安装 SDK 和系统镜像…", "Install SDK & system images…")) { installing = true }
-                    .buttonStyle(.bordered).controlSize(.regular)
-                    .disabled(saving)
             }
-            SettingsPathRow(title: "JDK",
-                            path: paths?.tools.jdk_home ?? model.text("系统默认", "System default")) {
-                Button(model.text("选择 JDK", "Choose JDK")) { choose("jdk") }
-                    .buttonStyle(.bordered).controlSize(.regular)
-                    .disabled(paths == nil || saving)
-                linkButton(model.text("恢复系统默认", "Restore system default"), disabled: paths == nil || saving) { tool("jdk",path:NSNull()) }
-            }
-            SettingsPathRow(title: model.text("迁移目标", "Migration destination"),
-                            path: migrationParent.map { $0.appendingPathComponent("Jidr").path } ?? model.text("未选择", "Not selected")) {
-                Button(model.text("选择目标位置…", "Choose destination…")) { chooseMigrationParent() }
-                    .buttonStyle(.bordered).controlSize(.regular)
-                    .disabled(saving || migrationChecking)
-                Button(model.text("初步检查", "Preliminary check")) { checkMigration() }
-                    .buttonStyle(.bordered).controlSize(.regular)
-                    .disabled(migrationParent == nil || saving || migrationChecking)
-            }
-            Text(model.text("目前仅支持初步检查；尚不能迁移或切换数据位置。", "Only preliminary checks are available; migration and switching are not yet supported."))
+            Text(model.text("Jidr 只读取此 SDK，不会安装或修改其中的文件。",
+                            "Jidr only reads this SDK; it never installs into or modifies it."))
                 .wbFont(WbType.caption)
                 .foregroundStyle(WbColor.textSecondary)
-            if !migrationMessage.isEmpty {
-                Text(migrationMessage)
-                    .wbFont(WbType.caption)
-                    .foregroundStyle(WbColor.textSecondary)
-                    .textSelection(.enabled)
-            }
         }
-        Section(model.text("存储用量", "Storage usage")) {
+        Section(model.text("存储", "Storage")) {
+            SettingsPathRow(title: model.text("数据目录", "Data folder"),
+                            path: paths?.data ?? model.text("读取中…", "Loading…")) {
+                Button(model.text("显示数据目录", "Show data folder")) { showFolder(paths?.data) }
+                    .buttonStyle(.bordered).controlSize(.regular)
+                    .disabled(paths == nil)
+            }
             HStack(alignment: .center, spacing: WbSpace.md) {
                 Text(storageSummary)
                     .wbFont(WbType.body)
@@ -1589,6 +1571,8 @@ struct SettingsView: View {
             }
         }
     }
+
+    private var installSDKPath: String? { sdkStatus?.install_sdk ?? sdkStatus?.private_sdk }
 
     private var storageSummary: String {
         let images = imageCount.map(String.init) ?? "…"

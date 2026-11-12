@@ -173,7 +173,7 @@ final class CenterModel: ObservableObject {
     /// Methods answered by the bridge itself, without the daemon. A reply to
     /// one of them does not prove the daemon is reachable.
     private let localMethods: Set<String> = ["center.prefs.get", "center.prefs.set", "center.paths",
-                                             "center.about", "center.toolpath.set", "center.migration.preflight"]
+                                             "center.about", "center.toolpath.set"]
     private var requestMethods: [Int:String] = [:]
 
     // Background tasks (daemon jobs).
@@ -448,7 +448,7 @@ final class CenterModel: ObservableObject {
         progressCallbacks[id] = onProgress
         requestMethods[id] = method
         if let device = params["device"] as? String { requestDevices[id] = device }
-        let readOnly = ["device.list", "device.details", "app.list", "app.inspect", "image.list", "profile.list", "snapshot.list", "sdk.status", "settings.get", "cache.list", "center.about", "center.paths", "center.prefs.get", "center.quit", "center.migration.preflight", "battery.get", "gps.get", "network.get", "network.proxy.get", "sensor.get", "logcat.dump", "root.cacert.list", "device.props.get", "dev.get", "clipboard.get", "jobs.list", "jobs.get", "daemon.status"]
+        let readOnly = ["device.list", "device.details", "app.list", "app.inspect", "image.list", "profile.list", "snapshot.list", "sdk.status", "settings.get", "cache.list", "center.about", "center.paths", "center.prefs.get", "center.quit", "battery.get", "gps.get", "network.get", "network.proxy.get", "sensor.get", "logcat.dump", "root.cacert.list", "device.props.get", "dev.get", "clipboard.get", "jobs.list", "jobs.get", "daemon.status"]
         if !readOnly.contains(method) { mutations.insert(id) }
         do { try input.fileHandleForWriting.write(contentsOf:data + Data([10])) }
         catch { callbacks.removeValue(forKey:id); progressCallbacks.removeValue(forKey:id); mutations.remove(id); requestDevices.removeValue(forKey:id); done(.failure(error)) }
