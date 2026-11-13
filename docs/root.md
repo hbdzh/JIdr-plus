@@ -101,7 +101,7 @@ unaffected.
 
 A Full-root device can report another identity: `Build.MODEL`, `BRAND`,
 `MANUFACTURER`, `DEVICE`, `FINGERPRINT` and `VERSION.SECURITY_PATCH`. In the
-GUI, open the player's widget panel → More → Developer tools → Build identity.
+GUI, open Device Center → Device tools → Root → Build identity.
 From the CLI or an agent:
 
 ```bash
@@ -131,6 +131,12 @@ dropped. Play Integrity is unaffected: a changed fingerprint doesn't make an
 emulator pass it.
 
 ## Writable /system (adb mode)
+
+In JIdr Plus 0.4, Device Center → Device tools → Root → System partition
+provides the same setting with eligibility checks and a cold-boot confirmation.
+Restore read-only removes the writable overlay and its system changes. The
+overview displays Root information only; verification and changes live in Root
+tools. See the [device-center guide](device-center.md) for the GUI workflow.
 
 A shell-root (`adb`) device on API 31 or later can boot with a writable
 `/system`, so you can push files into the system partitions
@@ -190,7 +196,7 @@ jidr proxy set <device> 8080                        # then send traffic to 10.0.
 
 Burp exports its CA from Proxy › Proxy settings › Import / export CA
 certificate (DER); mitmproxy keeps it in `~/.mitmproxy/mitmproxy-ca-cert.pem`.
-In the GUI: the player's widget panel → More → Developer tools → CA
+In the GUI: Device Center → Device tools → Root → CA
 certificates → Add….
 
 How it works: Jidr writes its own Magisk module, `/data/adb/modules/jidr_cacerts`,

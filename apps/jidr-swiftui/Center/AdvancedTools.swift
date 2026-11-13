@@ -175,7 +175,7 @@ struct AdvancedToolsView: View {
     private var toolTitles: [String] {
         [t("电池", "Battery"), "GPS", t("网络与传感器", "Network & sensors"), "Logcat",
          t("Root 管理", "Root"), t("电话与短信", "Calls & SMS"),
-         t("剪贴板", "Clipboard"), t("指纹", "Fingerprint"), t("摄像头", "Cameras"), t("开发者选项", "Developer options")]
+         t("剪贴板", "Clipboard"), t("指纹", "Fingerprint"), t("摄像头", "Cameras"), t("开发者选项", "Developer options"), t("麦克风", "Microphone")]
     }
 
     private var toolDescriptions: [String] {
@@ -188,7 +188,8 @@ struct AdvancedToolsView: View {
          t("在 Mac 和设备间传递文字。", "Transfer text between your Mac and device."),
          t("测试已注册和未注册的指纹。", "Test enrolled and unrecognized fingerprints."),
          t("配置前后置摄像头来源。", "Choose sources for the front and back cameras."),
-         t("检查触摸反馈、布局与动画。", "Inspect touch feedback, layouts and animations.")]
+         t("检查触摸反馈、布局与动画。", "Inspect touch feedback, layouts and animations."),
+         t("将音频文件播放为设备的麦克风输入。", "Play an audio file into the device's microphone.")]
     }
 
     private var navigation: some View {
@@ -202,6 +203,7 @@ struct AdvancedToolsView: View {
             .init(section: 6, title: toolTitles[6], symbol: "doc.on.clipboard"),
             .init(section: 7, title: toolTitles[7], symbol: "touchid"),
             .init(section: 8, title: toolTitles[8], symbol: "camera"),
+            .init(section: 10, title: toolTitles[10], symbol: "mic"),
             .init(section: nil, title: t("开发与调试", "Development")),
             .init(section: 3, title: toolTitles[3], symbol: WbIcon.logcat),
             .init(section: 4, title: toolTitles[4], symbol: WbIcon.rootTab),
@@ -218,13 +220,13 @@ struct AdvancedToolsView: View {
                     Text(toolDescriptions[selection.section]).font(.system(size: 12))
                         .foregroundStyle(WbColor.textSecondary).fixedSize(horizontal: false, vertical: true)
                 }
-                if !running && selection.section != 4 && selection.section != 8 {
+                if !running && selection.section != 4 && selection.section != 8 && selection.section != 10 {
                     Label(t("启动设备后可调整此项设置。", "Start the device to adjust these settings."), systemImage: WbIcon.info)
                         .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 selectedTool
-                    .disabled(working || (!running && selection.section != 4 && selection.section != 8))
+                    .disabled(working || (!running && selection.section != 4 && selection.section != 8 && selection.section != 10))
                     .controlSize(.small)
             }
             .frame(maxWidth: 430, alignment: .leading)
@@ -249,6 +251,7 @@ struct AdvancedToolsView: View {
         case 3:
             DeviceToolPageGroup { logs }
         case 4: RootDevToolsView(model: model, id: id, running: running, embedded: true)
+        case 10: MicrophoneToolsView(model: model, id: id)
         case 5:
             DeviceToolPageGroup { phoneTools }
         case 6:
@@ -465,8 +468,13 @@ struct AdvancedToolsView: View {
     }
     private var logs: some View {
         Group {
-            toolField(t("过滤条件", "Filter"), placeholder: t("例如 ActivityManager:I", "e.g. ActivityManager:I"), text: $filter)
-                .disabled(followLog)
+            LabeledContent(t("过滤条件", "Filter")) {
+                NativeSearchField(text: $filter,
+                                  placeholder: t("例如 ActivityManager:I", "e.g. ActivityManager:I"),
+                                  identifier: "logcat-search")
+                    .frame(width: 220, height: 30)
+            }
+            .disabled(followLog)
             LabeledContent(t("级别", "Level")) {
                 Picker("", selection: $logLevel) {
                     Text(t("全部", "All")).tag("")
@@ -638,7 +646,7 @@ struct AdvancedToolsView: View {
             }
             guard cameraBackOptions.contains(where: { $0.0 == back }), cameraFrontOptions.contains(where: { $0.0 == front }) else {
                 cameraEdits = DeviceCameraEdits()
-                message = t("当前摄像头来源暂不受支持，请使用设备设置检查配置。", "The current camera source is unsupported. Review it in device settings.")
+                message = t("当前摄像头来源暂不受支持，配置未修改。", "The current camera source is unsupported. Its configuration was not changed.")
                 return
             }
             cameraEdits.load(DeviceCameraDraft(back: back, front: front))

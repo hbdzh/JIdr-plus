@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // The "Root" tab of the advanced-tools window: root status + Verify/Revert,
 // the opt-in auto-grant toggle (D22), Magisk modules, build props (Phase 9f)
-// and system CA certificates. Slint reference: crates/jidr-ui/src/root/mod.rs,
+// writable /system and system CA certificates. Slint reference: crates/jidr-ui/src/root/mod.rs,
 // ui/root/root.slint (RootDevTools), props/props.slint and cacerts/cacerts.slint.
 import AppKit
 import SwiftUI
@@ -15,6 +15,7 @@ struct RootStatus: Decodable {
         let magisk_version: String?
         let verified_at: String?
         let auto_grant_all: Bool?
+        let writable_system: Bool?
     }
     let root: Root
     let adb_root_allowed: Bool?
@@ -72,6 +73,7 @@ struct RootDevToolsView: View {
             case installCert(URL)
             case removeCert(String)
             case saveProps([String: String], reset: Bool)
+            case writableSystem(Bool)
         }
         let id = UUID()
         let kind: Kind
@@ -111,9 +113,12 @@ struct RootDevToolsView: View {
             .onAppear(perform: load)
             .onChange(of: running) { value in
                 certsError = ""
-                if value { load() } else { certs = [] }
+                load()
+                if !value { certs = [] }
             }
+            .onChange(of: device?.root.mode) { _ in load() }
             .alert(item: $pending) { action in confirmAlert(action) }
+            DeviceToolSection { writableSystemBlock }
             if !fullRoot {
                 Label(t("以下功能需要完整 Root（Magisk）。请在上方选择并设置完整 Root。",
                         "These tools require Full Root (Magisk). Choose and set up Full Root above."),
@@ -230,6 +235,52 @@ struct RootDevToolsView: View {
         formatter.locale = Locale(identifier: model.language == 0 ? "en_US_POSIX" : "zh_CN")
         formatter.dateFormat = model.language == 0 ? "MMM d, HH:mm" : "M月d日 HH:mm"
         return formatter.string(from: date)
+    }
+
+    // MARK: writable system
+
+    private var writableSystem: Bool { status?.root.writable_system ?? false }
+    private var canChangeSystem: Bool {
+        guard let device, status != nil, statusError.isEmpty else { return false }
+        return WritableSystemPolicy.canChange(enabled: writableSystem,
+            mode: status?.root.mode ?? device.root.mode, api: device.image.api,
+            adbAllowed: status?.adb_root_allowed ?? !playStore,
+            available: capabilities.contains("root.writable_system"),
+            idle: !working && !statusLoading && (device.stopped || running)
+                && !model.activeJobs.contains { $0.device == id && $0.kind != "audio.inject" })
+    }
+
+    private var writableSystemBlock: some View {
+        VStack(alignment: .leading, spacing: WbSpace.sm) {
+            HStack {
+                Text(t("系统分区", "System partition")).wbFont(WbType.label)
+                Spacer()
+                Text(status == nil || !statusError.isEmpty
+                     ? t("状态未知", "Status unknown")
+                     : (writableSystem ? t("已启用写入", "Write access enabled") : t("只读", "Read-only")))
+                    .foregroundStyle(WbColor.textSecondary)
+            }
+            Text(t("Shell Root 设备可启用 /system 写入，需要 Android 12（API 31）及以上且镜像支持 adb root。Magisk 设备请通过模块修改系统文件。",
+                   "Enable /system writes on Shell Root devices with Android 12 (API 31) or later and an image that supports adb root. Use modules for system changes on Magisk devices."))
+                .foregroundStyle(WbColor.textSecondary).fixedSize(horizontal: false, vertical: true)
+            if capabilitiesLoaded && !capabilities.contains("root.writable_system") {
+                Text(t("当前后台不支持系统分区写入，请更新后台。", "Update the daemon to manage system write access."))
+                    .foregroundStyle(WbColor.textSecondary)
+            }
+            Button(writableSystem ? t("恢复只读…", "Restore read-only…") : t("启用系统写入…", "Enable system writes…")) {
+                let enable = !writableSystem
+                let effect = running
+                    ? t("设备将立即冷启动。请先保存应用和游戏进度。", "The device will cold boot now. Save app and game progress first.")
+                    : t("更改会在下次启动时生效，并使用冷启动。", "The change applies on the next start, using a cold boot.")
+                pending = .init(kind: .writableSystem(enable),
+                    title: enable ? t("启用系统写入？", "Enable system writes?") : t("恢复系统分区只读？", "Restore read-only system?"),
+                    detail: (enable
+                        ? t("允许修改 /system 中的文件。", "Allow changes to files in /system.")
+                        : t("将移除系统写入覆盖层，恢复原始只读系统；覆盖层中的系统修改将丢弃。", "Remove the system overlay and restore the stock read-only system. System changes in the overlay will be discarded.")) + " " + effect)
+            }
+            .buttonStyle(.bordered).disabled(!canChangeSystem)
+            .accessibilityIdentifier("root-writable-system")
+        }
     }
 
     // MARK: auto-grant (D22)
@@ -595,6 +646,10 @@ struct RootDevToolsView: View {
 
     private func perform(_ action: PendingRootAction) {
         switch action.kind {
+        case .writableSystem(let enabled):
+            guard canChangeSystem else { return }
+            let restart = running
+            run("root.writable_system", ["enabled": enabled], restart: restart)
         case .installModule(let url):
             run("root.module.install", ["device": id, "path": url.path], restart: true)
         case .installCert(let url):
@@ -647,6 +702,9 @@ struct RootDevToolsView: View {
             case .failure(let error):
                 statusText = ""
                 errorText = OperationMessages.error(error.localizedDescription, language: model.language)
+                // The daemon can persist the flag before a reboot/remount fails.
+                // Reload its actual state so the user can still revert it.
+                if method == "root.writable_system" { model.refresh(); load() }
             }
         }
     }

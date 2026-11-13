@@ -147,8 +147,8 @@ final class PaletteWindowController: NSWindowController, NSWindowDelegate {
         window.appearance = model.windowAppearance
         window.title = model.text("命令搜索", "Command search")
         window.contentView?.layoutSubtreeIfNeeded()
-        func find(_ view: NSView) -> PaletteSearchField.Field? {
-            if let field = view as? PaletteSearchField.Field { return field }
+        func find(_ view: NSView) -> NSSearchField? {
+            if let field = view as? NSSearchField, field.identifier?.rawValue == "palette-search" { return field }
             return view.subviews.lazy.compactMap { find($0) }.first
         }
         if let content = window.contentView, let field = find(content) {

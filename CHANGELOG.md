@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.4.0 — JIdr Plus (2026-11-14)
+
+### Features
+
+- Replace the device grid/list and separate inspector with a native device sidebar and responsive overview.
+- Consolidate APK installation/drop targets, app management and snapshot actions; keep device settings/tools in the header and capture/send actions in a compact row.
+- Share native search controls across device search, the command palette and operation recordings.
+- Expose writable `/system` configuration in Root tools with eligibility checks, cold-boot confirmation and read-only restoration.
+- Add a Microphone page for WAV injection, looping, progress and cancellation, retaining playback controls across tool-page changes.
+- Keep camera editing in Device tools and link to it from device settings without discarding other staged changes.
+
+### Maintenance
+
+- Bundle stopped-device artwork in development and release applications, with a packaging regression test.
+- Update scoped UI fixtures, screenshot baselines, localization checks and device-tool operation tests.
+- Set workspace and release metadata to 0.4.0. Local build/install outputs stay outside version control.
+
+This entry describes the JIdr Plus source tree, not an upstream Jidr release or a published binary release. Signing/notarization and real-emulator acceptance of the new system-write and microphone UI flows remain separate checks.
+
 ## [0.3.1](https://github.com/AbdurahmanAlmehdi/jidr/compare/v0.3.0...v0.3.1) (2026-11-03)
 
 

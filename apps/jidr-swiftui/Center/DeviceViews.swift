@@ -103,191 +103,6 @@ struct DeviceSheetFooter<Actions: View>: View {
     }
 }
 
-struct DeviceDetailsView: View {
-    @ObservedObject var model: CenterModel
-    let details: Details
-    @Environment(\.dismiss) private var dismiss
-
-    private var rootModeText: String {
-        switch details.device.root.mode {
-        case "none": return model.text("无", "None")
-        case "adb": return "Shell Root"
-        case "magisk": return model.text("完整 Root", "Full Root")
-        default: return details.device.root.mode
-        }
-    }
-    private var rootHealthText: String {
-        switch details.device.root.health {
-        case "ok": return model.text("已验证", "Verified")
-        case "failed": return model.text("验证失败", "Verification failed")
-        case "unverified": return model.text("尚未验证", "Not verified")
-        default: return details.device.root.health ?? "—"
-        }
-    }
-    private var rootHealthTone: WbStatusTone {
-        switch details.device.root.health {
-        case "ok": return .running
-        case "failed": return .error
-        case "unverified": return .starting
-        default: return .neutral
-        }
-    }
-    private var statusTone: WbStatusTone {
-        switch details.device.status.state {
-        case "running": return .running
-        case "starting", "booting", "stopping": return .starting
-        case "crashed": return .error
-        default: return .stopped
-        }
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            DeviceSheetHeader(title: model.text("设备详情", "Device details"),
-                              subtitle: details.device.name)
-            Form {
-                Section {
-                    HStack(alignment: .center, spacing: WbSpace.md) {
-                        WbDeviceThumbnail(name: "device-detail", width: 52, height: 94)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(details.device.name)
-                                .wbFont(WbType.title)
-                                .foregroundStyle(WbColor.textPrimary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            HStack(spacing: WbSpace.sm) {
-                                WbStatusLabel(text: details.device.statusText(language: model.language), tone: statusTone)
-                                Text(details.device.androidVersion)
-                                    .wbFont(WbType.caption)
-                                    .foregroundStyle(WbColor.textSecondary)
-                            }
-                            Text(details.device.imageLabel + " · " + details.device.profileLabel)
-                                .wbFont(WbType.caption)
-                                .foregroundStyle(WbColor.textTertiary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                        Spacer(minLength: WbSpace.md)
-                        HStack(spacing: WbSpace.sm) {
-                            if details.device.running {
-                                Button(model.text("停止", "Stop"), systemImage: WbIcon.stop) { model.stop(details.device.id) }
-                                    .buttonStyle(.bordered).controlSize(.regular)
-                                    .disabled(model.busy.contains(details.device.id))
-                            } else if details.device.stopped {
-                                Button(model.text("启动设备", "Start device")) { model.start(details.device.id) }
-                                    .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
-                                    .disabled(model.busy.contains(details.device.id))
-                            }
-                        }
-                    }
-                    .padding(.vertical, WbSpace.xs)
-                }
-
-                Section(model.text("设备概览", "Overview")) {
-                    if let holder = model.busyHolder(for: details.device.id) {
-                        LabeledContent(model.text("占用", "Busy")) {
-                            Text(holder).foregroundStyle(WbColor.warning).lineLimit(1)
-                        }
-                    }
-                    LabeledContent(model.text("内存", "Memory"), value: memoryText)
-                    if let bytes = details.disk_usage {
-                        LabeledContent(model.text("磁盘占用", "Disk usage"),
-                                       value: ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file))
-                    }
-                }
-
-                DisclosureGroup(model.text("高级信息", "Advanced information")) {
-                    LabeledContent(model.text("设备 ID", "Device ID")) {
-                        HStack(spacing: WbSpace.xs) {
-                            Text(details.device.id)
-                                .wbFont(WbType.code)
-                                .foregroundStyle(WbColor.textSecondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                                .textSelection(.enabled)
-                            Button {
-                                NSPasteboard.general.clearContents()
-                                NSPasteboard.general.setString(details.device.id, forType: .string)
-                            } label: {
-                                Image(systemName: WbIcon.copy)
-                                    .font(.system(size: 12))
-                                    .frame(width: 22, height: 22)
-                            }
-                            .buttonStyle(.borderless)
-                            .help(model.text("复制设备 ID", "Copy device ID"))
-                            .accessibilityLabel(model.text("复制设备 ID", "Copy device ID"))
-                        }
-                    }
-                    LabeledContent(model.text("版本", "Version"), value: details.device.androidVersion)
-                    LabeledContent(model.text("镜像", "Image"), value: details.device.imageLabel)
-                    LabeledContent(model.text("配置", "Profile"), value: details.device.profileLabel)
-                    LabeledContent(model.text("序列号", "Serial"), value: details.device.runtime?.adb_serial ?? "—")
-                    LabeledContent("SDK") {
-                        Text(details.device.sdk_root)
-                            .wbFont(WbType.code)
-                            .foregroundStyle(WbColor.textSecondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(details.device.sdk_root)
-                            .textSelection(.enabled)
-                    }
-                    if details.device.runtime != nil {
-                        LabeledContent(model.text("运行时长", "Uptime"), value: model.sessionUptime(details.device) ?? "—")
-                        LabeledContent(model.text("上次启动", "Last started"), value: model.sessionStarted(details.device) ?? "—")
-                        LabeledContent(model.text("控制台端口", "Console port"),
-                                       value: details.device.runtime?.console_port.map(String.init) ?? "—")
-                        LabeledContent(model.text("gRPC 端口", "gRPC port"),
-                                       value: details.device.runtime?.grpc_port.map(String.init) ?? "—")
-                        LabeledContent(model.text("进程 ID", "Process ID"),
-                                       value: details.device.runtime?.pid.map(String.init) ?? "—")
-                    } else {
-                        Text(model.text("设备启动后显示运行时长与连接信息。", "Session and connection information appears after startup."))
-                            .foregroundStyle(WbColor.textSecondary)
-                    }
-                    LabeledContent("CPU", value: model.text("\(details.config["hw.cpu.ncore"] ?? "—") 核",
-                                                            "\(details.config["hw.cpu.ncore"] ?? "—") cores"))
-                    LabeledContent(model.text("屏幕", "Screen"),
-                                   value: "\(details.config["hw.lcd.width"] ?? "—") × \(details.config["hw.lcd.height"] ?? "—")")
-                    LabeledContent("DPI", value: details.config["hw.lcd.density"] ?? "—")
-                }
-
-                Section(model.text("Root 状态", "Root status")) {
-                    LabeledContent(model.text("模式", "Mode"), value: rootModeText)
-                    if let magisk = details.device.root.magisk_version, !magisk.isEmpty {
-                        LabeledContent("Magisk", value: magisk)
-                    }
-                    LabeledContent(model.text("验证", "Verification")) {
-                        WbStatusLabel(text: rootHealthText, tone: rootHealthTone)
-                    }
-                    Button(model.text("管理 Root…", "Manage Root…")) {
-                        dismiss()
-                        model.openAdvanced(details.device.id, name: details.device.name, root: true)
-                    }
-                    .buttonStyle(.bordered).controlSize(.regular)
-
-                }
-            }
-            .formStyle(.grouped)
-            .scrollContentBackground(.hidden)
-            .background(WbColor.raised)
-
-            DeviceSheetFooter(note: "") {
-                Button(model.text("关闭", "Close")) { dismiss() }
-                    .buttonStyle(.bordered).controlSize(.regular)
-                    .keyboardShortcut(.cancelAction)
-            }
-        }
-        .frame(width: 620, height: 700)
-        .background(WbColor.raised)
-
-    }
-
-    private var memoryText: String {
-        guard let value = details.config["hw.ramSize"], let megabytes = Int64(value), megabytes > 0 else { return "—" }
-        return ByteCountFormatter.string(fromByteCount: megabytes * 1_048_576, countStyle: .memory)
-    }
-}
-
 struct EditDeviceView: View {
     @ObservedObject var model: CenterModel
     let details: Details
@@ -301,8 +116,6 @@ struct EditDeviceView: View {
     @State private var resolutionPreset: String
     @State private var audio: Bool
     @State private var quickBoot: String
-    @State private var cameraBack: String
-    @State private var cameraFront: String
     @State private var sleepMinutes: String
     @State private var error = ""
     @State private var saving = false
@@ -324,8 +137,6 @@ struct EditDeviceView: View {
         _resolutionPreset = State(initialValue:["720×1280", "1080×1920", "1080×2400", "1280×720", "1920×1080"].contains(resolution) ? resolution : "custom")
         _audio = State(initialValue:details.device.launch.audio ?? true)
         _quickBoot = State(initialValue:details.device.launch.quick_boot.map { $0 ? "on" : "off" } ?? "global")
-        _cameraBack = State(initialValue:details.device.launch.camera_back ?? "default")
-        _cameraFront = State(initialValue:details.device.launch.camera_front ?? "default")
         _sleepMinutes = State(initialValue:details.device.auto_hibernate_minutes.map(String.init) ?? "")
     }
 
@@ -395,7 +206,7 @@ struct EditDeviceView: View {
                 }
                 .disabled(!details.device.stopped || saving)
 
-                Section(model.text("启动与外设", "Startup & peripherals")) {
+                Section(model.text("启动", "Startup")) {
                     LabeledContent(model.text("快速启动", "Quick boot")) {
                         Picker("", selection: $quickBoot) {
                             Text(model.text("跟随全局", "Follow global")).tag("global")
@@ -417,14 +228,17 @@ struct EditDeviceView: View {
                     Text(model.text("单位为分钟；留空跟随全局，0 为关闭。", "Minutes; leave blank for the global setting, or use 0 to turn off."))
                         .wbFont(WbType.caption)
                         .foregroundStyle(WbColor.textSecondary)
-                    LabeledContent(model.text("后置摄像头", "Rear camera")) {
-                        cameraPicker($cameraBack, includesVirtualScene: true, label: model.text("后置摄像头", "Rear camera"))
-                    }
-                    LabeledContent(model.text("前置摄像头", "Front camera")) {
-                        cameraPicker($cameraFront, includesVirtualScene: false, label: model.text("前置摄像头", "Front camera"))
-                    }
                 }
                 .disabled(!details.device.stopped || saving)
+
+                Section(model.text("外设", "Peripherals")) {
+                    LabeledContent(model.text("摄像头", "Cameras")) {
+                        Button(model.text("在设备工具中设置…", "Configure in device tools…")) {
+                            model.openAdvanced(details.device.id, name: details.device.name,
+                                               section: 8, relativeTo: NSApp.keyWindow)
+                        }.disabled(saving)
+                    }
+                }
 
                 Section(model.text("声音与画面", "Audio & display")) {
                     Toggle(model.text("设备声音（下次启动生效）", "Device audio (applies next start)"), isOn: $audio)
@@ -524,22 +338,6 @@ struct EditDeviceView: View {
             .accessibilityLabel(label)
     }
 
-    private func cameraPicker(_ selection: Binding<String>, includesVirtualScene: Bool, label: String) -> some View {
-        Picker("", selection: selection) {
-            Text(model.text("默认", "Default")).tag("default")
-            Text(model.text("禁用", "Disabled")).tag("none")
-            Text(model.text("模拟", "Emulated")).tag("emulated")
-            if includesVirtualScene {
-                Text(model.text("虚拟场景", "Virtual scene")).tag("virtualscene")
-            }
-            Text(model.text("Mac 摄像头 1", "Mac camera 1")).tag("webcam0")
-            Text(model.text("Mac 摄像头 2", "Mac camera 2")).tag("webcam1")
-        }
-        .labelsHidden()
-        .frame(width: 180)
-        .accessibilityLabel(label)
-    }
-
     private func save() {
         let trimmed = name.trimmingCharacters(in:.whitespacesAndNewlines)
         guard !trimmed.isEmpty, let r = Int(ram), (512...65536).contains(r), let c = Int(cores), (1...16).contains(c), let w = Int(width), (240...4096).contains(w), let h = Int(height), (240...4096).contains(h), let dpi = Int(density), (72...1000).contains(dpi) else { error = model.text("请检查名称、内存、CPU、分辨率和 DPI。", "Check the name, memory, CPU, resolution and DPI."); return }
@@ -552,8 +350,6 @@ struct EditDeviceView: View {
         if details.device.stopped {
             let oldQuick = details.device.launch.quick_boot.map { $0 ? "on" : "off" } ?? "global"
             if quickBoot != oldQuick { values["quick_boot"] = quickBoot == "global" ? NSNull() : (quickBoot == "on") as Any }
-            if cameraBack != (details.device.launch.camera_back ?? "default") { values["camera_back"] = cameraBack }
-            if cameraFront != (details.device.launch.camera_front ?? "default") { values["camera_front"] = cameraFront }
             if sleepMinutes != (details.device.auto_hibernate_minutes.map(String.init) ?? "") {
                 if sleepMinutes.isEmpty { values["auto_hibernate_minutes"] = NSNull() }
                 else if let minutes = Int(sleepMinutes), (0...1440).contains(minutes) { values["auto_hibernate_minutes"] = minutes }
@@ -1785,39 +1581,10 @@ private struct CenterQuietState: View {
     }
 }
 
-private struct NoSystemFocusEffect: ViewModifier {
-    @ViewBuilder func body(content: Content) -> some View {
-        if #available(macOS 14.0, *) { content.focusEffectDisabled() }
-        else { content }
-    }
-}
-
-private struct CenterListFocus: NSViewRepresentable {
-    func makeNSView(context: Context) -> Probe { Probe(frame: .zero) }
-    func updateNSView(_ view: Probe, context: Context) { view.suppress() }
-    final class Probe: NSView {
-        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); suppress() }
-        func suppress() {
-            DispatchQueue.main.async { [weak self] in
-                var parent = self?.superview
-                while let view = parent {
-                    if let scroll = view as? NSScrollView {
-                        scroll.identifier = NSUserInterfaceItemIdentifier("jidr-device-list")
-                        scroll.focusRingType = .none
-                        break
-                    }
-                    parent = view.superview
-                }
-            }
-        }
-    }
-}
-
 /// AppKit keeps attributed menu titles, unlike SwiftUI's native Menu bridge.
 struct DeviceMoreButton: NSViewRepresentable {
     @ObservedObject var model: CenterModel
     let device: Device
-    var showApps: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
     func makeNSView(context: Context) -> NSButton {
@@ -1849,10 +1616,7 @@ struct DeviceMoreButton: NSViewRepresentable {
             func add(_ zh: String, _ en: String, _ tag: Int, enabled: Bool = true, destructive: Bool = false) {
                 let item = NSMenuItem(title: model.text(zh, en), action: #selector(performAction(_:)), keyEquivalent: "")
                 item.target = self; item.tag = tag; item.isEnabled = enabled
-                let symbols = [1: "info.circle", 2: "square.grid.2x2", 3: "gearshape", 4: "wrench.and.screwdriver",
-                               5: "clock.arrow.circlepath", 6: "shield", 7: "square.and.arrow.down", 8: "camera",
-                               9: "record.circle", 10: "doc.badge.arrow.up", 12: "arrow.clockwise",
-                               13: "trash"]
+                let symbols = [6: "shield", 12: "arrow.clockwise", 13: "trash"]
                 if let symbol = symbols[tag] {
                     item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
                     item.image?.isTemplate = true
@@ -1867,38 +1631,18 @@ struct DeviceMoreButton: NSViewRepresentable {
                 }
                 menu.addItem(item)
             }
-            add("设备详情", "Device details", 1)
-            if !device.stopped { add("已安装的应用", "Installed apps", 2, enabled: device.running) }
-            add("设备设置", "Device settings", 3, enabled: !model.busy.contains(device.id))
-            add("设备工具", "Device tools", 4)
-            add("管理快照", "Snapshots", 5)
             if !device.stopped && model.fullRoot[device.id] != nil { add("查看 Root 配置", "View root setup", 6) }
-            menu.addItem(.separator())
-            add("安装 APK", "Install APK", 7, enabled: device.running)
             if !device.stopped {
-                add("截图", "Screenshot", 8, enabled: device.running)
-                add(model.recording.contains(device.id) ? "停止录屏" : "录屏", model.recording.contains(device.id) ? "Stop recording" : "Record", 9, enabled: device.running)
-                add("发送文件", "Send file", 10, enabled: device.running)
-                menu.addItem(.separator())
                 add("重启", "Restart", 12, enabled: device.running && !model.busy.contains(device.id))
             }
-            menu.addItem(.separator())
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
             add("删除设备", "Delete device", 13, enabled: device.stopped && !model.busy.contains(device.id), destructive: true)
             return menu
         }
         @objc func performAction(_ item: NSMenuItem) {
             let model = parent.model, device = parent.device
             switch item.tag {
-            case 1: model.presentDeviceSheet(.details, device: device.id)
-            case 2: model.select(device.id); parent.showApps()
-            case 3: model.presentDeviceSheet(.edit, device: device.id)
-            case 4: model.openAdvanced(device.id, name: device.name)
-            case 5: model.select(device.id); model.present(.snapshots)
             case 6: model.rootPresentation = RootPresentation(id: device.id, name: device.name)
-            case 7: model.chooseFile(device: device.id, apk: true)
-            case 8: model.screenshot(device: device.id)
-            case 9: model.toggleRecording(device: device.id)
-            case 10: model.chooseFile(device: device.id, apk: false)
             case 12: model.restart(device.id)
             case 13: model.requestDeletion(device.id)
             default: break
@@ -1970,30 +1714,9 @@ private struct CenterAPKDrop: ViewModifier {
     }
 }
 
-private struct DeviceCardStyle: ViewModifier {
-    var hovered = false
-
-    private var surface: Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor(white: 0.15, alpha: 1) : NSColor(white: 0.985, alpha: 1)
-        })
-    }
-
-    func body(content: Content) -> some View {
-        content
-            .background(surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color.primary.opacity(hovered ? 0.11 : 0.06), lineWidth: 1))
-            .shadow(color: .black.opacity(0.014), radius: 2, y: 1)
-    }
-}
-
 struct CenterView: View {
     @ObservedObject var model: CenterModel
     @State private var appsPresented = false
-    @State private var hoveredDevice: String?
-    @FocusState private var listHasFocus: Bool
     private var centerSurface: Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
@@ -2049,6 +1772,9 @@ struct CenterView: View {
         .environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
         .preferredColorScheme(model.colorScheme)
         return base
+        .onChange(of: model.isEmptyDeviceLibrary) { empty in
+            if empty { model.deviceQuery = "" }
+        }
         .onChange(of:model.paletteOpen) { open in
             if !open, model.sheet == nil, !model.tasksOpen { model.searchFocusRequest += 1 }
         }
@@ -2065,9 +1791,6 @@ struct CenterView: View {
                 case .snapshots:
                     if let device = selectedDevice { SnapshotsView(model:model, device:device) }
                     else { Text("请选择设备") }
-                case .details:
-                    if let details = model.details { DeviceDetailsView(model:model,details:details) }
-                    else { ProgressView(model.text("正在读取设备详情…", "Loading device details…")) }
                 case .edit:
                     if let details = model.details { EditDeviceView(model:model,details:details) }
                     else { ProgressView(model.text("正在读取设备详情…", "Loading device details…")) }
@@ -2112,106 +1835,30 @@ struct CenterView: View {
 
     // MARK: Layout
 
-    @ViewBuilder private var layout: some View {
-        if model.isEmptyDeviceLibrary {
-            emptyDeviceState
-        } else {
-            deviceListCard
-                .frame(maxWidth: 900, maxHeight: .infinity)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                .padding(.horizontal, 24)
-                .padding(.top, WbSpace.md)
+    private var layout: some View {
+        HSplitView {
+            DeviceLibrarySidebar(model: model)
+                .frame(minWidth: 210, idealWidth: 232, maxWidth: 240)
+            Group {
+                if model.isEmptyDeviceLibrary {
+                    emptyDeviceState
+                } else if let device = selectedDevice {
+                    DeviceOverviewView(model: model, device: device) { appsPresented = true }
+                        .id(device.id)
+                } else {
+                    CenterQuietState(icon: WbIcon.deviceEmpty,
+                                     text: model.text("选择一台设备查看详情", "Select a device to see its details"), height: 196)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
-
-    // MARK: Device list
-
-    private var deviceListCard: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: WbSpace.sm) {
-                Text(model.text("我的设备", "My devices"))
-                    .wbFont(WbType.title)
-                    .foregroundStyle(WbColor.textPrimary)
-                Text(model.deviceQuery.isEmpty ? "\(model.devices.count)" : "\(filteredDevices.count) / \(model.devices.count)")
-                    .wbFont(WbType.label)
-                    .foregroundStyle(WbColor.textSecondary)
-                    .padding(.horizontal, 6)
-                    .frame(height: 17)
-                    .background(WbColor.control, in: RoundedRectangle(cornerRadius: WbRadius.xs, style: .continuous))
-                Spacer(minLength: WbSpace.sm)
-            }
-            .padding(.horizontal, WbSpace.lg)
-            .padding(.top, WbSpace.md)
-            .padding(.bottom, WbSpace.sm)
-
-            if let error = model.detailsError, let device = selectedDevice {
-                HStack {
-                    Label("\(device.name): \(error)", systemImage: WbIcon.warning)
-                        .wbFont(WbType.caption).foregroundStyle(WbColor.negative)
-                        .lineLimit(2)
-                    Spacer()
-                    Button(model.text("重新读取", "Retry")) { model.retryDetails() }
-                        .buttonStyle(.bordered)
-                }.padding(.horizontal, WbSpace.lg).padding(.bottom, WbSpace.sm)
-            }
-            if !model.deviceListLoaded {
-                CenterQuietState(icon: WbIcon.deviceEmpty,
-                                 text: model.text("正在加载设备…", "Loading devices…"),
-                                 height: 180, showsProgress: true)
-                    .frame(maxHeight: .infinity)
-            } else if filteredDevices.isEmpty {
-                VStack(spacing: WbSpace.sm) {
-                    CenterQuietState(icon: WbIcon.search,
-                                     text: model.text("没有匹配的设备", "No matching devices"), height: 100)
-                    Button(model.text("清除搜索", "Clear search")) { model.deviceQuery = "" }
-                        .buttonStyle(.bordered)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if model.gridView {
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 270, maximum: 430), spacing: 14)], spacing: 14) {
-                        ForEach(filteredDevices) { device in deviceGridCard(device) }
-                    }.padding(.horizontal, WbSpace.lg).padding(.vertical, WbSpace.sm)
-                }
-                .frame(maxHeight: .infinity, alignment: .top)
-            } else {
-                ScrollViewReader { proxy in
-                ScrollView {
-                  LazyVStack(spacing: 10) {
-                    ForEach(filteredDevices) { device in
-                        deviceListRow(device)
-                            .id(device.id)
-                    }
-                  }
-                  .background(CenterListFocus().frame(width: 0, height: 0))
-                  .padding(.horizontal, WbSpace.lg)
-                  .padding(.vertical, 6)
-                }
-                .focusable()
-                .focused($listHasFocus)
-                .modifier(NoSystemFocusEffect())
-                .onChange(of: listHasFocus) { focused in
-                    model.listHasKeyboardFocus = focused
-                    if !focused { model.keyboardDevice = nil }
-                }
-                .onMoveCommand { direction in
-                    if direction == .down { model.moveKeyboardDevice(by: 1) }
-                    if direction == .up { model.moveKeyboardDevice(by: -1) }
-                }
-                .onSubmit {
-                    if let id = model.keyboardDevice { model.focusOrOpenDeviceWindow(id) }
-                }
-                .frame(maxHeight: .infinity)
-                .onChange(of: model.keyboardDevice) { id in
-                    if let id { proxy.scrollTo(id, anchor: .center) }
-                }
-                }
-            }
-            if let toast = model.toast {
+        .overlay(alignment: .bottomTrailing) {
+            if !model.isEmptyDeviceLibrary, let toast = model.toast {
                 ToastOverlay(toast: toast) { model.dismissToast() }
+                    .frame(maxWidth: 440).padding()
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var emptyDeviceState: some View {
@@ -2256,390 +1903,6 @@ struct CenterView: View {
         .padding(WbSpace.xl)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("empty-device-library")
-    }
-
-    private func deviceListRow(_ device: Device) -> some View {
-        let content = HStack(spacing: 16) {
-            HStack(spacing: 14) {
-                deviceThumbnail(device)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(device.name).wbFont(WbType.body.weighted(.semibold))
-                        .foregroundStyle(.primary).lineLimit(1).truncationMode(.middle)
-                    hardwareSummary(device)
-                    if let app = model.appSearchMatches[device.id] {
-                        Text(model.text("匹配应用：\(app)", "Matching app: \(app)"))
-                            .wbFont(WbType.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(model.text("\(device.name)，\(device.statusText(language: model.language))",
-                                           "\(device.name), \(device.statusText(language: 0))") + ", " + hardwareText(device))
-            .accessibilityHint(model.text("双击打开设备窗口，或使用行内按钮和更多操作菜单。",
-                                          "Double-click to open the device window, or use the row buttons and more actions menu."))
-            .accessibilityAction(named: Text(model.text("打开设备窗口", "Open device window"))) {
-                model.focusOrOpenDeviceWindow(device.id)
-            }
-            deviceStatus(device)
-            .frame(width: 92, alignment: .leading)
-            Text(device.androidVersionShort)
-                .wbFont(WbType.caption).foregroundStyle(.secondary).lineLimit(1)
-                .frame(width: 82, alignment: .leading)
-            rowAction(device)
-                .frame(width: 166, alignment: .trailing)
-            DeviceMoreButton(model: model, device: device) { appsPresented = true }
-                .frame(width: 30, height: 26)
-        }
-        let decorated = content.padding(.horizontal, 14).padding(.vertical, 10)
-        .modifier(DeviceCardStyle(hovered: hoveredDevice == device.id))
-        .onAppear { model.loadCardHardware(device.id) }
-        .overlay {
-            if model.keyboardDevice == device.id {
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 2)
-                    .allowsHitTesting(false)
-            }
-        }
-        .onHover { inside in
-            hoveredDevice = inside ? device.id : (hoveredDevice == device.id ? nil : hoveredDevice)
-        }
-        return decorated
-        .focusable(false)
-        .modifier(NoSystemFocusEffect())
-        .contentShape(Rectangle())
-        .help(device.name + "\n" + deviceMeta(device) + "\n" + model.text("双击打开设备窗口", "Double-click to open the device window"))
-        .simultaneousGesture(TapGesture().onEnded { model.keyboardDevice = nil })
-        .simultaneousGesture(TapGesture(count: 2).onEnded {
-            model.focusOrOpenDeviceWindow(device.id)
-        })
-    }
-
-    private func deviceThumbnail(_ device: Device) -> some View {
-        WbDeviceThumbnail(name: "device-list", width: 36, height: 62)
-            .overlay {
-                if let frame = model.deviceThumbnails[device.id] {
-                    Image(decorative: frame, scale: 1).resizable().scaledToFill()
-                        .frame(width: 26, height: 50).clipped()
-                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                } else if device.stopped {
-                    RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(Color.black.opacity(0.9)).padding(.horizontal, 5).padding(.vertical, 6)
-                }
-            }
-    }
-
-    private func deviceGridCard(_ device: Device) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 14) {
-                deviceThumbnail(device)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(device.name).wbFont(WbType.body.weighted(.semibold)).lineLimit(1).truncationMode(.middle)
-                    Text(device.androidVersionShort)
-                        .wbFont(WbType.caption).foregroundStyle(.secondary).lineLimit(1)
-                    hardwareSummary(device, grid: true)
-                    if let app = model.appSearchMatches[device.id] {
-                        Text(model.text("匹配应用：\(app)", "Matching app: \(app)"))
-                            .wbFont(WbType.caption).foregroundStyle(.secondary).lineLimit(1)
-                    }
-                    deviceStatus(device)
-                }
-                Spacer(minLength: 0)
-            }
-            HStack {
-                rowAction(device)
-                Spacer()
-                DeviceMoreButton(model: model, device: device) { appsPresented = true }
-                    .frame(width: 30, height: 28)
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .modifier(DeviceCardStyle(hovered: hoveredDevice == device.id))
-        .onAppear { model.loadCardHardware(device.id) }
-        .onHover { inside in
-            hoveredDevice = inside ? device.id : (hoveredDevice == device.id ? nil : hoveredDevice)
-        }
-        .focusable(false)
-        .modifier(NoSystemFocusEffect())
-        .simultaneousGesture(TapGesture(count: 2).onEnded { model.focusOrOpenDeviceWindow(device.id) })
-    }
-
-    private func hardwareText(_ device: Device) -> String {
-        (model.cardHardware[device.id] ?? DeviceHardware(config: [:])).summary(language: model.language)
-    }
-
-    private func hardwareSummary(_ device: Device, grid: Bool = false) -> some View {
-        let hardware = model.cardHardware[device.id] ?? DeviceHardware(config: [:])
-        return Text(grid ? hardware.gridSummary(language: model.language) : hardware.summary(language: model.language))
-            .wbFont(WbType.caption).foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private func rowAction(_ device: Device) -> some View {
-        rowActionContent(device).buttonStyle(.bordered).controlSize(.regular)
-    }
-
-    @ViewBuilder private func rowActionContent(_ device: Device) -> some View {
-        let busy = model.busy.contains(device.id)
-        switch device.status.state {
-        case "running", "starting", "booting":
-            Button(model.text("停止", "Stop"), systemImage: "stop") { model.stop(device.id) }
-                .disabled(busy)
-        case "stopping":
-            ProgressView().controlSize(.small).frame(width: 24, height: 24)
-        default:
-            Button(model.text("启动", "Start"), systemImage: "play") { model.start(device.id) }
-                .buttonStyle(.borderedProminent)
-                .disabled(busy || !device.stopped)
-        }
-    }
-
-    private func rowIconButton(_ symbol: String, help: String,
-                               disabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 12.5, weight: .medium))
-                .foregroundStyle(.primary)
-                .frame(width: 24, height: 24)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .disabled(disabled)
-        .help(help)
-        .accessibilityLabel(help)
-    }
-
-    private func statusText(_ text: String, tone: WbStatusTone) -> some View {
-        HStack(spacing: WbSpace.xxs + 2) {
-            CenterStatusDot(tone: tone)
-            Text(text).wbFont(WbType.label).foregroundStyle(tone == .running ? WbColor.positive : WbColor.textSecondary)
-        }
-    }
-
-    private func deviceStatus(_ device: Device) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            if let holder = model.busyHolder(for: device.id) {
-                statusText(holder, tone: .busy)
-            } else {
-                statusText(device.statusText(language: model.language), tone: statusTone(device))
-            }
-            if let progress = model.progress(for: device.id) {
-                Text(progress).wbFont(WbType.caption).foregroundStyle(.secondary).lineLimit(1).help(progress)
-            }
-            if let fraction = model.bootProgressFraction(for: device.id), !device.running {
-                ProgressView(value: min(max(fraction, 0), 1)).progressViewStyle(.linear).frame(height: 3)
-            }
-        }.lineLimit(1)
-    }
-
-    // MARK: Direct device actions
-
-    private var quickActionsCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(model.text("常用操作", "Quick actions"))
-                .font(.system(size: 12, weight: .medium)).foregroundStyle(WbColor.textSecondary)
-            ActionFlowLayout(spacing: 8) {
-                if selectedDevice?.running == true {
-                    quickAction(model.text("安装 APK", "Install APK"), WbIcon.installAPK, enabled: true) {
-                        if let device = selectedDevice { model.chooseFile(device: device.id, apk: true) }
-                    }
-                    quickAction(model.text("截图", "Screenshot"), WbIcon.camera, enabled: true) {
-                        if let device = selectedDevice { model.screenshot(device: device.id) }
-                    }
-                    quickAction(recordingLabel, WbIcon.record, enabled: true) {
-                        if let device = selectedDevice { model.toggleRecording(device: device.id) }
-                    }
-                    quickAction(model.text("发送文件", "Send file"), WbIcon.folder, enabled: true) {
-                        if let device = selectedDevice { model.chooseFile(device: device.id, apk: false) }
-                    }
-                }
-                quickAction(model.text("设备工具", "Device tools"), WbIcon.advancedTools, enabled: selectedDevice != nil) {
-                    if let device = selectedDevice { model.openAdvanced(device.id, name: device.name) }
-                }
-                quickAction(model.text("管理快照", "Snapshots"), WbIcon.quickBoot, enabled: selectedDevice != nil) { model.present(.snapshots) }
-                quickAction(model.text("截图目录", "Screenshots folder"), "photo.on.rectangle", enabled: true) { model.openScreenshotFolder() }
-            }
-            if selectedDevice != nil && selectedDevice?.running != true {
-                Text(model.text("启动后可安装应用、截图、录屏和发送文件。", "Start the device to install apps, capture media and send files."))
-                    .wbFont(WbType.caption)
-                    .foregroundStyle(WbColor.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel(model.text("常用操作", "Quick actions"))
-    }
-
-    private var recordingLabel: String {
-        guard let device = selectedDevice else { return model.text("录屏", "Record") }
-        return model.recording.contains(device.id)
-            ? model.text("停止录屏", "Stop recording")
-            : model.text("录屏", "Record")
-    }
-
-    private func quickAction(_ title: String, _ icon: String, enabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Label(title, systemImage: icon).font(.system(size: 12)).fixedSize() }
-            .buttonStyle(.bordered).controlSize(.regular)
-            .disabled(!enabled)
-    }
-
-    // MARK: Detail card
-
-    private var detailCard: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: WbSpace.sm) {
-                Text(model.text("设备概览", "Device overview"))
-                    .wbFont(WbType.title)
-                    .foregroundStyle(WbColor.textPrimary)
-                Spacer(minLength: WbSpace.sm)
-                if selectedDevice != nil {
-                    Button {
-                        if let device = selectedDevice { model.presentDeviceSheet(.details, device: device.id) }
-                    } label: {
-                        HStack(spacing: 3) {
-                            Text(model.text("详细信息", "More details")).wbFont(WbType.label)
-                            Image(systemName: WbIcon.chevronRight).font(.system(size: 9, weight: .semibold))
-                        }
-                        .foregroundStyle(WbColor.accentText)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(model.details == nil)
-                }
-            }
-            .padding(.horizontal, WbSpace.lg)
-            .padding(.top, WbSpace.md)
-            .padding(.bottom, WbSpace.sm)
-
-            if let device = selectedDevice {
-                VStack(alignment: .leading, spacing: WbSpace.sm + 2) {
-                    HStack(spacing: WbSpace.sm + 2) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(device.name)
-                                .wbFont(WbType.title)
-                                .foregroundStyle(WbColor.textPrimary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            WbStatusLabel(text: device.statusText(language: model.language), tone: statusTone(device))
-                        }
-                        Spacer(minLength: WbSpace.sm)
-                        detailPrimaryAction(device)
-                    }
-                    WbDivider()
-                    if let d = model.details {
-                        detailInfoGrid(d, device)
-                    } else if let error = model.detailsError {
-                        VStack(alignment: .leading, spacing: WbSpace.sm) {
-                            Label(error, systemImage: WbIcon.warning)
-                                .wbFont(WbType.caption).foregroundStyle(WbColor.negative)
-                            Button(model.text("重新读取", "Retry")) { model.retryDetails() }
-                                .buttonStyle(.bordered)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    } else {
-                        CenterQuietState(icon: WbIcon.info,
-                                         text: model.text("正在读取设备详情…", "Loading device details…"),
-                                         height: 76, showsProgress: true)
-                    }
-                    ActionFlowLayout(spacing: 8) {
-                        restartButton(device).fixedSize()
-                        settingsButton(device).fixedSize()
-                        Button(model.text("删除设备", "Delete device"), systemImage: WbIcon.trash, role: .destructive) {
-                            model.requestDeletion(device.id)
-                        }
-                        .buttonStyle(.bordered).controlSize(.regular).fixedSize()
-                        .disabled(!device.stopped || model.busy.contains(device.id))
-                    }
-                    if let holder = model.busyHolder(for: device.id) {
-                        Label(holder, systemImage: WbIcon.warning)
-                            .wbFont(WbType.caption)
-                            .foregroundStyle(WbColor.warning)
-                    }
-                    if let progress = model.progress(for: device.id) {
-                        WbProgressLine(text: progress, value: model.bootProgressFraction(for: device.id))
-                    }
-                    if model.fullRoot[device.id] != nil {
-                        Button(model.text("查看 Root 配置", "View root setup")) {
-                            model.rootPresentation = RootPresentation(id:device.id, name:device.name)
-                        }
-                        .buttonStyle(.bordered).controlSize(.regular)
-                    }
-                }
-                .padding(.horizontal, WbSpace.lg)
-                .padding(.bottom, WbSpace.md)
-            } else {
-                CenterQuietState(icon: WbIcon.deviceEmpty,
-                                 text: model.text("选择一台设备查看详情", "Select a device to see its details"),
-                                 height: 196)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-
-    @ViewBuilder private func detailPrimaryAction(_ device: Device) -> some View {
-        switch device.status.state {
-        case "running":
-            Button(model.text("停止", "Stop"), systemImage: WbIcon.stop) { model.stop(device.id) }
-                .buttonStyle(.bordered).controlSize(.regular)
-                .disabled(model.busy.contains(device.id))
-        case "starting", "booting":
-            Button(model.text("取消启动", "Cancel start")) { model.stop(device.id) }
-                .buttonStyle(.bordered).controlSize(.regular)
-                .disabled(model.busy.contains(device.id))
-        default:
-            Button(model.text("启动设备", "Start device")) { model.start(device.id) }
-                .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
-                .disabled(model.busy.contains(device.id))
-        }
-    }
-
-    private func detailInfoGrid(_ d: Details, _ device: Device) -> some View {
-        let items: [(String, String)] = [
-            (model.text("CPU", "CPU"), model.text("\(d.config["hw.cpu.ncore"] ?? "—") 核", "\(d.config["hw.cpu.ncore"] ?? "—") cores")),
-            (model.text("内存", "Memory"), "\(d.config["hw.ramSize"] ?? "—") MB"),
-            (model.text("屏幕", "Screen"), "\(d.config["hw.lcd.width"] ?? "—") × \(d.config["hw.lcd.height"] ?? "—")"),
-            (model.text("DPI", "DPI"), d.config["hw.lcd.density"] ?? "—"),
-            (model.text("镜像", "Image"), device.imageLabel),
-            (model.text("配置", "Profile"), device.profileLabel),
-            (model.text("磁盘占用", "Disk usage"),
-             d.disk_usage.map { ByteCountFormatter.string(fromByteCount:Int64(clamping:$0),countStyle:.file) } ?? "—"),
-            (model.text("序列号", "Serial"), device.runtime?.adb_serial ?? "—"),
-        ]
-        return LazyVGrid(columns: [GridItem(.flexible(), spacing: WbSpace.md),
-                                   GridItem(.flexible(), spacing: WbSpace.md)],
-                         alignment: .leading, spacing: 7) {
-            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                HStack(alignment: .firstTextBaseline, spacing: WbSpace.sm) {
-                    Text(item.0)
-                        .wbFont(WbType.caption)
-                        .foregroundStyle(WbColor.textTertiary)
-                        .frame(width: 64, alignment: .leading)
-                    Text(item.1)
-                        .wbFont(WbType.label)
-                        .foregroundStyle(WbColor.textSecondary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .help(item.1)
-                }
-            }
-        }
-    }
-
-    private func restartButton(_ device: Device) -> some View {
-        Button(model.text("重启", "Restart"), systemImage: WbIcon.refresh) { model.restart(device.id) }
-            .buttonStyle(.bordered).controlSize(.regular)
-            .disabled(!device.running || model.busy.contains(device.id))
-    }
-
-    private func settingsButton(_ device: Device) -> some View {
-        Button(model.text("设备设置", "Device settings"), systemImage: WbIcon.settings) {
-            model.presentDeviceSheet(.edit, device: device.id)
-        }
-        .buttonStyle(.bordered).controlSize(.regular)
-        .disabled(model.busy.contains(device.id))
     }
 
     // MARK: Apps card

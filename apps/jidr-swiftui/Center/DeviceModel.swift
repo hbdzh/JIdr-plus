@@ -74,6 +74,14 @@ struct DeviceHardware: Equatable {
     let cores: String
     let density: String
 
+    var memoryGB: String {
+        guard let megabytes = Int(memory) else { return "— GB" }
+        let value = String(format: "%.3f", Double(megabytes) / 1024)
+        let trimmed = value.replacingOccurrences(of: "0+$", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\.$", with: "", options: .regularExpression)
+        return "\(trimmed) GB"
+    }
+
     init(config: [String: String]) {
         func value(_ key: String) -> String {
             guard let raw = config[key], let number = Int(raw), number > 0 else { return "—" }
@@ -88,12 +96,12 @@ struct DeviceHardware: Equatable {
 
     func summary(language: Int) -> String {
         let cpu = language == 0 ? "\(cores) cores" : "\(cores) 核"
-        return "\(width) × \(height) · \(memory) MB · \(cpu) · \(density) DPI"
+        return "\(width) × \(height) · \(memoryGB) · \(cpu) · \(density) DPI"
     }
 
     func gridSummary(language: Int) -> String {
         let cpu = language == 0 ? "\(cores) cores" : "\(cores) 核"
-        return "\(width) × \(height) · \(density) DPI\n\(memory) MB · \(cpu)"
+        return "\(width) × \(height) · \(density) DPI\n\(memoryGB) · \(cpu)"
     }
 }
 struct AndroidApp: Identifiable, Decodable {
@@ -118,7 +126,6 @@ enum CenterSheet: String, Identifiable {
     case setupSDK
     case settings
     case snapshots
-    case details
     case edit
     var id: String { rawValue }
 }
@@ -220,7 +227,6 @@ final class CenterModel: ObservableObject {
             setDeviceSelection(nil)
         }
     }
-    @Published var detailsVisible = true
     @Published var settingsCategory = 0
     private(set) var settingsWindow: SettingsWindowController?
     private(set) var taskPanel: TaskPanelController?
@@ -263,6 +269,13 @@ final class CenterModel: ObservableObject {
     @Published private(set) var jobs: [JobInfo] = []
     @Published var jobsError: String?
     private var jobsTimer: Timer?
+    private var microphoneSessions: [String: MicrophoneSession] = [:]
+    func microphoneSession(for id: String) -> MicrophoneSession {
+        if let session = microphoneSessions[id] { return session }
+        let session = MicrophoneSession()
+        microphoneSessions[id] = session
+        return session
+    }
 
     // Transient feedback and overlays.
     @Published var toast: Toast?
@@ -1373,19 +1386,22 @@ final class CenterModel: ObservableObject {
             } catch { self.showError(self.readable(error)) }
         }
     }
-    func openAdvanced(_ id:String, name:String, root:Bool = false) {
-        var owner = NSApp.keyWindow
-        while let parent = owner?.parent { owner = parent }
-        while let parent = owner?.sheetParent { owner = parent }
+    func openAdvanced(_ id:String, name:String, root:Bool = false, section:Int? = nil,
+                      relativeTo requestedOwner:NSWindow? = nil) {
+        var owner = requestedOwner ?? NSApp.keyWindow
+        if requestedOwner == nil {
+            while let parent = owner?.parent { owner = parent }
+            while let parent = owner?.sheetParent { owner = parent }
+        }
         owner = owner ?? centerWindow
         NSApp.activate(ignoringOtherApps: true)
         if let existing = deviceToolPanels[id] {
-            existing.present(relativeTo: owner, root: root)
+            existing.present(relativeTo: owner, root: root, section: section)
         } else {
             let controller = DeviceToolsPanelController(model: self, id: id, name: name, root: root)
             controller.onClose = { [weak self] in self?.deviceToolPanels.removeValue(forKey: id) }
             deviceToolPanels[id] = controller
-            controller.present(relativeTo: owner, root: root)
+            controller.present(relativeTo: owner, root: root, section: section)
         }
     }
     func closeDeviceTools(_ id: String) { deviceToolPanels[id]?.close() }

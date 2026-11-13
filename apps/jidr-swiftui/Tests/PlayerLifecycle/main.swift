@@ -42,10 +42,12 @@ eventually("card loads its device's hardware") { model.cardHardware[id]?.memory 
 eventually("another card loads its own hardware") { model.cardHardware[secondID]?.memory == "4096" }
 require(model.cardHardware[secondID]?.width == "720" && model.cardHardware[id]?.width == "480",
         "device cards do not share another device's configuration")
-require(model.cardHardware[id]?.summary(language: 0) == "480 × 640 · 2048 MB · 2 cores · 320 DPI",
+require(model.cardHardware[id]?.summary(language: 0) == "480 × 640 · 2 GB · 2 cores · 320 DPI",
         "card hardware displays resolution, memory, CPU and DPI")
+require(DeviceHardware(config: ["hw.ramSize": "1536"]).memoryGB == "1.5 GB",
+        "card memory preserves fractional GB")
 let missingHardware = DeviceHardware(config: ["hw.ramSize": "invalid"])
-require(missingHardware.summary(language: 1) == "— × — · — MB · — 核 · — DPI",
+require(missingHardware.summary(language: 1) == "— × — · — GB · — 核 · — DPI",
         "missing or invalid hardware values remain unknown")
 FileManager.default.createFile(atPath: home.appendingPathComponent("hardware-updated").path, contents: Data())
 model.refreshCardHardware(id)

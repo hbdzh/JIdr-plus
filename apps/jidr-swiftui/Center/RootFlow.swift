@@ -206,8 +206,8 @@ final class RootFlowStore: ObservableObject {
         model.findRootJob(device: id) { [weak self] job in
             guard let self else { return }
             guard let job else {
-                self.model.notice = self.model.text("没有找到正在进行的 Root 任务；请稍后在设备详情中回退。",
-                                                    "Couldn't find the running root job; revert from the device details.")
+                self.model.notice = self.model.text("没有找到正在进行的 Root 任务；请稍后在 Root 管理中回退。",
+                                                    "Couldn't find the running root job; revert from Root management.")
                 self.revertAfterStop = false
                 return
             }

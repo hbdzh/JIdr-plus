@@ -20,6 +20,7 @@ cp apps/jidr-swiftui/Resources/en.lproj/Localizable.strings "$app/Contents/Resou
 cp apps/jidr-swiftui/Resources/zh-Hans.lproj/Localizable.strings "$app/Contents/Resources/zh-Hans.lproj/Localizable.strings"
 cp apps/jidr-swiftui/Resources/device-list-generated.png "$app/Contents/Resources/device-list.png"
 cp apps/jidr-swiftui/Resources/device-detail-generated.png "$app/Contents/Resources/device-detail.png"
+cp apps/jidr-swiftui/Resources/device-stopped.png "$app/Contents/Resources/"
 mkdir -p "$app/Contents/Resources/fonts"
 cp apps/jidr-swiftui/Resources/fonts/*.ttf "$app/Contents/Resources/fonts/"
 cp apps/jidr-swiftui/Resources/fonts/OFL-*.txt "$app/Contents/Resources/licenses/"

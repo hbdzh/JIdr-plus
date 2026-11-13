@@ -68,9 +68,10 @@ final class DeviceToolsPanelController: NSWindowController, NSWindowDelegate {
     }
     required init?(coder: NSCoder) { nil }
 
-    func present(relativeTo owner: NSWindow?, root: Bool = false) {
+    func present(relativeTo owner: NSWindow?, root: Bool = false, section: Int? = nil) {
         guard let panel = window else { return }
         if root { selection.section = 4 }
+        if let section, (0...10).contains(section) { selection.section = section }
         let needsPlacement = !panel.isVisible || panel.parent !== owner
         if let old = panel.parent, old !== owner { old.removeChildWindow(panel) }
         if let owner, panel.parent !== owner { owner.addChildWindow(panel, ordered: .above) }

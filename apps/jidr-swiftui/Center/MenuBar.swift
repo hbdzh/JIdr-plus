@@ -47,7 +47,6 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         case restart
         case edit
         case delete
-        case details
         case snapshots
         case tools
         case rootTools
@@ -204,7 +203,6 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         add(t("重启", "Restart"), .restart)
         menu.addItem(.separator())
         add(t("编辑设备…", "Edit Device…"), .edit)
-        add(t("设备详情…", "Device Details…"), .details)
         add(t("管理快照…", "Manage Snapshots…"), .snapshots)
         add(t("设备工具…", "Device Tools…"), .tools)
         add(t("Root 管理…", "Root Management…"), .rootTools)
@@ -244,7 +242,6 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         appearanceItem.submenu = appearance
         menu.addItem(appearanceItem)
         menu.addItem(.separator())
-        menu.addItem(menuItem(t("显示/隐藏设备详情", "Show/Hide Device Details"), #selector(toggleCenterDetails), ""))
         menu.addItem(menuItem(t("搜索设备", "Search Devices"), #selector(focusDeviceSearch), "f"))
         menu.addItem(menuItem(t("显示/隐藏侧边栏", "Show/Hide Sidebar"), #selector(toggleSidebarAction), ""))
         menu.addItem(.separator())
@@ -357,7 +354,6 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         model?.refreshJobs()
     }
     @objc private func openScreenshotFolderAction() { model?.openScreenshotFolder() }
-    @objc private func toggleCenterDetails() { showCenter(); model?.detailsVisible.toggle() }
     @objc private func focusDeviceSearch() { showCenter(); model?.hidePalette(); model?.searchFocusRequest += 1 }
     @objc private func toggleSidebarAction() {
         keyPlayer()?.toggleSidebarFromMenu()
@@ -396,9 +392,6 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         case .delete:
             showCenter()
             model?.runPaletteAction(.deleteDevice(device.id))
-        case .details:
-            showCenter()
-            model?.runPaletteAction(.deviceDetails(device.id))
         case .snapshots:
             showCenter()
             model?.runPaletteAction(.snapshots(device.id))
@@ -456,7 +449,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
             guard let command = DeviceCommand(rawValue: item.tag), let id = item.representedObject as? String,
                   let device = model.devices.first(where: { $0.id == id }) else { return false }
             switch command {
-            case .open, .details, .snapshots: return true
+            case .open, .snapshots: return true
             case .start: return device.stopped
             case .stop: return !device.stopped
             case .restart: return device.running

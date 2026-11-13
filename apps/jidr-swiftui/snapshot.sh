@@ -47,6 +47,7 @@ cp "$root/apps/jidr-swiftui/Resources/en.lproj/Localizable.strings" "$out/en.lpr
 cp "$root/apps/jidr-swiftui/Resources/zh-Hans.lproj/Localizable.strings" "$out/zh-Hans.lproj/"
 cp "$root/apps/jidr-swiftui/Resources/device-list-generated.png" "$out/device-list.png"
 cp "$root/apps/jidr-swiftui/Resources/device-detail-generated.png" "$out/device-detail.png"
+cp "$root/apps/jidr-swiftui/Resources/device-stopped.png" "$out/"
 # The snapshots never touch the user's Jidr data; the fixtures do not look at
 # JIDR_HOME at all, but an isolated home keeps any accidental path usage local.
 home="$(mktemp -d "${TMPDIR:-/tmp}/jidr-snapshot-home.XXXXXX")"
