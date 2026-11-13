@@ -48,7 +48,8 @@ check(!bootingActions.contains(.startDevice("boot")), "a booting device is not s
 check(!bootingActions.contains(.deleteDevice("boot")), "a booting device is not deleted")
 let busyActions = actions(busy)
 check(!busyActions.contains(.stopDevice("busy")), "a held device offers no lifecycle entry")
-check(busyActions.contains(.deviceDetails("busy")), "a held device still opens its details")
+check(busyActions.contains(.advancedTools("busy")), "a held device retains its tools entry")
+check(!all.contains { $0.title.contains("Device details") }, "the palette has no redundant device-details entry")
 
 // Center-wide entries.
 check(all.contains { $0.action == .newDevice && $0.keyboard == "⌘N" }, "new device shows ⌘N")

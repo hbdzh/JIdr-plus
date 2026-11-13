@@ -11,6 +11,8 @@ def device(i,name,state):
 devices=[device(1,"日常测试 · Android 15","running"),device(2,"长名称布局测试：工作应用与游戏兼容性验证设备 Android 15 Google APIs","stopped"),device(3,"异常退出设备","crashed")]
 if os.environ.get("JIDR_UI_ROOT")=="magisk":
  for d in devices: d['root']={"mode":"magisk","health":"ok","magisk_version":"30.7"}
+if os.environ.get("JIDR_UI_ROOT") in ("adb", "adb-writable"):
+ for d in devices: d['root']={"mode":"adb","health":"ok","writable_system":os.environ.get("JIDR_UI_ROOT")=="adb-writable"}
 if state.exists(): devices=json.loads(state.read_text())
 noop_used=False
 for line in sys.stdin:
@@ -36,7 +38,7 @@ for line in sys.stdin:
  elif m=="settings.set": settings.update(p);value=settings
  else:
   values={"center.prefs.get":prefs,"center.paths":{"data":str(home/'data'),"cache":str(home/'cache'),"logs":str(home/'logs'),"tools":{"android_sdk":"/Volumes/External/Android/SDK","jidr_sdk":None}},"center.about":{"version":"0.3.1","repository":"https://github.com/hbdzh/JIdr-plus"},"device.list":devices,"device.details":{"device":d,"config":{"hw.cpu.ncore":"4","hw.ramSize":"4096","hw.lcd.width":"1080","hw.lcd.height":"2400","hw.lcd.density":"420"},"disk_usage":2147483648},"app.list":{"apps":[{"package":"com.example.test","name":"示例应用","icon":None},{"package":"com.example.long","name":"用于检查长名称是否截断的测试应用程序","icon":None}]},"jobs.list":[],"settings.get":settings,"sdk.status":{"tools_sdk":"/Volumes/External/Android/SDK","studio_sdk":"/Volumes/External/Android/SDK","private_sdk":None,"install_sdk":"/Volumes/External/Android/SDK","custom_sdk":None},"profile.list":[{"id":"pixel_7","name":"Phone 6.1 FHD+","ram_mb":4096,"cpus":4,"data_mb":8192,"audio":True}],"image.list":[{"api":35,"tag":"google_apis","abi":"arm64-v8a","installed_in":"/Volumes/External/Android/SDK"}],"cache.list":[],"snapshot.list":{"device_root_mode":"none","snapshots":[{"name":"日常测试保存点","id":"one","quick_boot":False,"restorable":True,"root_mode":"none","created_at":"2026-11-11T01:00:00Z","size_bytes":536870912},{"name":"用于检查长名称与拒绝恢复原因的快照记录","id":"two","quick_boot":False,"restorable":False,"root_mode":"magisk","magisk_version":"30.7","created_at":"2026-11-10T02:00:00Z","size_bytes":1073741824},{"name":"default_boot","id":"quick","quick_boot":True,"restorable":True,"root_mode":None,"size_bytes":1048576}]},"battery.get":{"level":75,"charger":"ac"},"network.get":{"wifi":True,"mobile":True,"profile":"full"},"dev.get":{"show_taps":False,"pointer_location":False,"layout_bounds":False,"animation_scale":1.0},"root.cacert.list":{"certificates":[]},"commands.list":[],"center.quit":None}
-  if m=="commands.list": values[m]={"commands":[{"id":"root.cacert.install"},{"id":"device.props.get"}]}
+  if m=="commands.list": values[m]={"commands":[{"id":name} for name in ("root.cacert.install","device.props.get","root.writable_system","audio.inject","audio.stop")]}
   if m=="root.status": values[m]={"root":d['root'] if d else {"mode":"none"}}
   if m=="device.props.get": values[m]={"props":{}}
   if m=="camera.get": values[m]={"back":d['launch']['camera_back'],"front":d['launch']['camera_front']}

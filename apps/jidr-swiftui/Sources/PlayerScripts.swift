@@ -395,15 +395,11 @@ struct PlayerScriptsView: View {
 
     private var scriptListPane: some View {
         VStack(spacing: WbSpace.zero) {
-            HStack(spacing: WbSpace.sm) {
-                Image(systemName: WbIcon.search)
-                    .foregroundStyle(WbColor.textTertiary)
-                    .font(.system(size: 11, weight: .medium))
-                TextField(t("搜索操作录制", "Search recordings", language), text: $search)
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.small)
-            }
-            .padding(WbSpace.sm)
+            NativeSearchField(text: $search,
+                              placeholder: t("搜索操作录制", "Search recordings", language),
+                              identifier: "recordings-search")
+                .frame(height: 30)
+                .padding(WbSpace.sm)
 
             if filteredScripts.isEmpty {
                 emptyListState

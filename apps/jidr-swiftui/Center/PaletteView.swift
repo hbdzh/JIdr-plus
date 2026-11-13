@@ -19,17 +19,10 @@ struct CommandPaletteView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Image(systemName: "magnifyingglass").font(.system(size: 17)).foregroundStyle(WbColor.textSecondary)
-                PaletteSearchField(text: $model.paletteQuery,
-                                   placeholder: model.text("搜索命令或设备…", "Search commands or devices…"))
-                    .frame(height: 24)
-                if !model.paletteQuery.isEmpty {
-                    Button { model.paletteQuery = "" } label: {
-                        Image(systemName: "xmark.circle.fill").foregroundStyle(WbColor.textSecondary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(model.text("清除搜索", "Clear search"))
-                }
+                NativeSearchField(text: $model.paletteQuery,
+                                  placeholder: model.text("搜索命令或设备…", "Search commands or devices…"),
+                                  identifier: "palette-search")
+                    .frame(height: 30)
                 PanelCloseButton(label: model.text("关闭", "Close")) { model.hidePalette() }
             }
             .padding(.horizontal, 20)
@@ -102,7 +95,6 @@ private struct PaletteRow: View {
         case .restartDevice: return WbIcon.refresh
         case .editDevice: return WbIcon.settings
         case .deleteDevice: return WbIcon.trash
-        case .deviceDetails: return WbIcon.info
         case .snapshots: return WbIcon.camera
         case .advancedTools: return WbIcon.advancedTools
         case .rootTools: return WbIcon.rootTab

@@ -20,7 +20,6 @@ enum PaletteAction: Equatable {
     case restartDevice(String)
     case editDevice(String)
     case deleteDevice(String)
-    case deviceDetails(String)
     case snapshots(String)
     case advancedTools(String)
     /// Opens the advanced-tools window on its Root tab (modules, certificates,
@@ -110,7 +109,6 @@ enum PaletteCatalog {
             if device.canConfigure {
                 add(.action, text("删除 ", "Delete ") + device.name, text("删除设备、应用和快照", "Deletes the device, apps and snapshots"), "", .deleteDevice(device.id))
             }
-            add(.action, text("设备详情 ", "Device details ") + device.name, device.android, "", .deviceDetails(device.id))
             add(.action, text("管理快照 ", "Manage snapshots ") + device.name, text("保存、恢复或删除快照", "Save, restore or delete snapshots"), "", .snapshots(device.id))
             add(.action, text("设备工具 ", "Device tools ") + device.name, text("电池、GPS、网络、传感器", "Battery, GPS, network, sensors"), "", .advancedTools(device.id))
                 add(.action, text("Root 工具 ", "Root tools ") + device.name, text("模块、证书、系统属性、自动授权", "Modules, certificates, build props, auto-grant"), "", .rootTools(device.id))
@@ -136,7 +134,6 @@ enum PaletteCatalog {
         case .restartDevice(let id): return "restart:\(id)"
         case .editDevice(let id): return "edit:\(id)"
         case .deleteDevice(let id): return "delete:\(id)"
-        case .deviceDetails(let id): return "details:\(id)"
         case .snapshots(let id): return "snapshots:\(id)"
         case .advancedTools(let id): return "advanced:\(id)"
         case .rootTools(let id): return "root:\(id)"

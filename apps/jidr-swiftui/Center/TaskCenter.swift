@@ -106,6 +106,8 @@ enum TaskCatalog {
     static func title(for job: JobInfo, deviceName: String?, message: String, text: (String, String) -> String) -> String {
         let base: String
         switch job.kind {
+        case "audio.inject": base = text("麦克风音频注入", "Microphone playback")
+        case "root.writable_system": base = text("设置系统分区写入", "Changing system write access")
         case "image.install", "sdk.install":
             base = message.isEmpty ? text("正在下载镜像", "Downloading") : text("下载镜像", "Downloading image")
         case "device.start":

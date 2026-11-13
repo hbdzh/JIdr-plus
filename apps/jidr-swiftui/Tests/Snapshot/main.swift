@@ -46,7 +46,6 @@ struct SnapshotCase {
     var recording = false
     var deselected = false
     var singleDevice = false
-    var grid = false
 
     var localeIdentifier: String { language == 0 ? "en" : "zh-Hans" }
     var languageName: String { language == 0 ? "en" : "zh" }
@@ -56,8 +55,6 @@ let allCases: [SnapshotCase] = [
     // The five original zh + dark baselines.
     SnapshotCase(name: "center-empty", kind: .center(fixture: "empty"), language: 1, appearance: .dark),
     SnapshotCase(name: "center-populated", kind: .center(fixture: "populated"), language: 1, appearance: .dark),
-    SnapshotCase(name: "center-grid-light", kind: .center(fixture: "populated"), language: 1, appearance: .light, grid: true),
-    SnapshotCase(name: "center-grid-long-task-en", kind: .center(fixture: "long-task"), language: 0, appearance: .dark, width: 800, height: 550, grid: true),
     SnapshotCase(name: "center-load-failure", kind: .center(fixture: "load-failure"), language: 1, appearance: .dark),
     SnapshotCase(name: "center-long-task", kind: .center(fixture: "long-task"), language: 1, appearance: .dark),
     SnapshotCase(name: "player-running", kind: .player, language: 1, appearance: .dark),
@@ -81,6 +78,8 @@ let allCases: [SnapshotCase] = [
     SnapshotCase(name: "tasks-active-en-dark", kind: .auxiliary(page: "tasks-active"), language: 0, appearance: .dark, width: 480, height: 264),
     SnapshotCase(name: "command-search-light", kind: .auxiliary(page: "palette"), language: 1, appearance: .light, width: 600, height: 450),
     SnapshotCase(name: "command-search-en-dark", kind: .auxiliary(page: "palette"), language: 0, appearance: .dark, width: 600, height: 450),
+    SnapshotCase(name: "recordings-search-light", kind: .auxiliary(page: "recordings"), language: 1, appearance: .light, width: 900, height: 620),
+    SnapshotCase(name: "recordings-search-en-dark", kind: .auxiliary(page: "recordings"), language: 0, appearance: .dark, width: 900, height: 620),
     SnapshotCase(name: "center-stopped-light", kind: .auxiliary(page: "center-stopped"), language: 1, appearance: .light, width: 1050, height: 700),
     SnapshotCase(name: "center-stopped-en-minimum", kind: .auxiliary(page: "center-stopped"), language: 0, appearance: .dark, width: 800, height: 550),
     SnapshotCase(name: "settings-defaults-light", kind: .auxiliary(page: "settings-defaults"), language: 1, appearance: .light, width: 700, height: 450),
@@ -91,7 +90,6 @@ let allCases: [SnapshotCase] = [
     SnapshotCase(name: "tools-root-stopped", kind: .auxiliary(page: "root"), language: 1, appearance: .light, width: 716, height: 500),
     SnapshotCase(name: "tools-camera-stopped-en", kind: .auxiliary(page: "camera"), language: 0, appearance: .dark, width: 716, height: 500),
     SnapshotCase(name: "tools-clipboard-en", kind: .auxiliary(page: "clipboard"), language: 0, appearance: .light, width: 716, height: 500),
-    SnapshotCase(name: "device-details-stopped", kind: .auxiliary(page: "details"), language: 1, appearance: .light, width: 620, height: 700),
     SnapshotCase(name: "snapshots-stopped-en", kind: .auxiliary(page: "snapshots"), language: 0, appearance: .dark, width: 600, height: 560),
     SnapshotCase(name: "tools-battery-light", kind: .auxiliary(page: "battery"), language: 1, appearance: .light, width: 716, height: 500),
     SnapshotCase(name: "tools-gps-en-dark", kind: .auxiliary(page: "gps"), language: 0, appearance: .dark, width: 716, height: 500),
@@ -102,9 +100,15 @@ let allCases: [SnapshotCase] = [
     SnapshotCase(name: "tools-logcat-en-dark", kind: .auxiliary(page: "logcat"), language: 0, appearance: .dark, width: 716, height: 500),
     SnapshotCase(name: "tools-root-en-minimum", kind: .auxiliary(page: "root"), language: 0, appearance: .dark, width: 660, height: 460),
     SnapshotCase(name: "tools-root-full-stopped", kind: .auxiliary(page: "root-full"), language: 1, appearance: .light, width: 716, height: 500),
+    SnapshotCase(name: "tools-system-write-en", kind: .auxiliary(page: "root-adb"), language: 0, appearance: .dark, width: 716, height: 620),
+    SnapshotCase(name: "tools-system-writable-light", kind: .auxiliary(page: "root-adb-writable"), language: 1, appearance: .light, width: 716, height: 620),
+    SnapshotCase(name: "tools-microphone-light", kind: .auxiliary(page: "microphone"), language: 1, appearance: .light, width: 716, height: 560),
+    SnapshotCase(name: "tools-microphone-en-dark", kind: .auxiliary(page: "microphone"), language: 0, appearance: .dark, width: 716, height: 560),
     // Light theme (player chrome is intentionally dark-only, so no light player).
     SnapshotCase(name: "center-populated-light", kind: .center(fixture: "populated"), language: 1, appearance: .light),
     SnapshotCase(name: "center-single-wide-light", kind: .center(fixture: "populated"), language: 1, appearance: .light, width: 1050, height: 700, singleDevice: true),
+    SnapshotCase(name: "center-overview-wide-light", kind: .center(fixture: "populated"), language: 1, appearance: .light, width: 1400, height: 980),
+    SnapshotCase(name: "center-overview-wide-en-dark", kind: .center(fixture: "populated"), language: 0, appearance: .dark, width: 1400, height: 980),
     SnapshotCase(name: "center-multiple-wide-light", kind: .center(fixture: "populated"), language: 1, appearance: .light, width: 1400, height: 700),
     SnapshotCase(name: "center-load-failure-light", kind: .center(fixture: "load-failure"), language: 1, appearance: .light),
 ]
@@ -416,18 +420,13 @@ func renderCenter(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
     // Apply the matrix language/appearance only after the async state loaded, so
     // every view re-evaluates with the requested deterministic values.
     model.language = language
-    model.gridView = snapshotCase.grid
     if snapshotCase.singleDevice { model.devices = Array(model.devices.prefix(1)) }
     if snapshotCase.recording, let id = model.selected { model.recording.insert(id) }
     if snapshotCase.deselected { model.setDeviceSelection(nil) }
     model.appearance = snapshotCase.appearance == .light ? 1 : 2
     pump(0.1)
     let canvas = Canvas(width: snapshotCase.width, height: snapshotCase.height, appearance: snapshotCase.appearance)
-    if snapshotCase.grid {
-        canvas.mount(CenterView(model: model).transaction { $0.disablesAnimations = true })
-    } else {
-        canvas.mount(CenterView(model: model))
-    }
+    canvas.mount(CenterView(model: model))
     canvas.settle(0.4)
     let rep = canvas.capture()
     canvas.unmount()
@@ -587,6 +586,8 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
     else { unsetenv("JIDR_UI_TASKS") }
     defer { unsetenv("JIDR_UI_TASKS") }
     if page == "root-full" { setenv("JIDR_UI_ROOT", "magisk", 1) }
+    if page == "root-adb" { setenv("JIDR_UI_ROOT", "adb", 1) }
+    if page == "root-adb-writable" { setenv("JIDR_UI_ROOT", "adb-writable", 1) }
     defer { unsetenv("JIDR_UI_ROOT") }
     let model: CenterModel
     do { model = try CenterModel(center: options.uiFixture, bridge: options.playerBridge) }
@@ -599,7 +600,7 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
         model.refreshJobs()
         require(waitUpTo(5) { model.taskRows.count == 2 }, "task fixture did not load")
     }
-    if ["center-stopped", "device-settings", "root", "camera", "details", "snapshots", "details-error", "root-full"].contains(page) {
+    if ["center-stopped", "device-settings", "root", "camera", "snapshots", "details-error", "root-full", "root-adb", "root-adb-writable"].contains(page) {
         guard let device = model.devices.first(where: { $0.stopped }) else { fail("fixture has no stopped device") }
         model.select(device.id)
         require(waitUpTo(5) { model.details?.device.id == device.id }, "stopped details did not load")
@@ -612,13 +613,16 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
     }
     if page == "settings-defaults" { model.settingsCategory = 1 }
     if page == "settings-advanced" { model.settingsCategory = 3 }
+    if page == "microphone" {
+        model.microphoneSession(for: model.selected!).file = URL(fileURLWithPath: "/tmp/voice-test.wav")
+    }
     let canvas = Canvas(width: snapshotCase.width, height: snapshotCase.height, appearance: snapshotCase.appearance)
     var toolsSelection: DeviceToolsSelection?
     switch page {
     case "settings", "settings-defaults", "settings-advanced": canvas.mount(SettingsView(model: model, onClose: {}))
     case "center-stopped", "search-empty", "details-error": canvas.mount(CenterView(model: model))
-    case "root", "root-full", "camera", "clipboard", "battery", "gps", "network", "calls", "fingerprint", "developer", "logcat":
-        let tab = ["root": 4, "root-full": 4, "camera": 8, "clipboard": 6, "battery": 0, "gps": 1, "network": 2, "calls": 5, "fingerprint": 7, "developer": 9, "logcat": 3][page]!
+    case "root", "root-full", "root-adb", "root-adb-writable", "microphone", "camera", "clipboard", "battery", "gps", "network", "calls", "fingerprint", "developer", "logcat":
+        let tab = ["root": 4, "root-full": 4, "root-adb": 4, "root-adb-writable": 4, "microphone": 10, "camera": 8, "clipboard": 6, "battery": 0, "gps": 1, "network": 2, "calls": 5, "fingerprint": 7, "developer": 9, "logcat": 3][page]!
         let selection = DeviceToolsSelection(section: tab)
         toolsSelection = selection
         let tools = AdvancedToolsView(model: model, id: model.selected!, initialRoot: false, selection: selection)
@@ -637,7 +641,6 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
         } else {
             canvas.mount(tools)
         }
-    case "details": canvas.mount(DeviceDetailsView(model: model, details: model.details!))
     case "snapshots": canvas.mount(SnapshotsView(model: model, device: model.details!.device))
     case "device-settings":
         guard let details = model.details else { fail("editor details missing") }
@@ -645,6 +648,10 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
     case "sdk": canvas.mount(InstallSDKView(model: model))
     case "tasks", "tasks-active": canvas.mount(TaskCenterView(model: model))
     case "palette": canvas.mount(CommandPaletteView(model: model))
+    case "recordings":
+        let transport = PlayerTransport()
+        transport.language = snapshotCase.language
+        canvas.mount(PlayerScriptsView(transport: transport))
     default: fail("unknown auxiliary view: \(page)")
     }
     canvas.settle(0.5)

@@ -45,16 +45,48 @@ app.setActivationPolicy(.accessory)
 let model = try CenterModel(center: CommandLine.arguments[1], bridge: "/usr/bin/false")
 eventually("fixture loads") { model.connection.isOnline && model.details != nil }
 let stoppedDevice = model.devices.first { $0.stopped }!
-let moreButton = DeviceMoreButton(model: model, device: stoppedDevice, showApps: {})
+let moreButton = DeviceMoreButton(model: model, device: stoppedDevice)
 let menuCoordinator = moreButton.makeCoordinator()
 let deleteItem = menuCoordinator.menu().items.first { $0.tag == 13 }!
 for device in model.devices {
-    let menu = DeviceMoreButton(model: model, device: device, showApps: {}).makeCoordinator().menu()
+    let menu = DeviceMoreButton(model: model, device: device).makeCoordinator().menu()
     require(menu.items.filter { !$0.isSeparatorItem }.allSatisfy { $0.image != nil },
             "every available device menu action has a system icon")
-    require(!menu.items.contains { $0.tag == 11 }, "stop is available on the device row, not in the more menu")
+    require(!menu.items.contains { $0.tag == 1 }, "device menus omit the redundant details dialog")
+    require(!menu.items.contains { [2, 3, 4, 5, 7, 8, 9, 10].contains($0.tag) }, "more menu omits actions already available in the overview")
+    require(!menu.items.contains { $0.tag == 11 }, "stop is available in the overview header, not in the more menu")
     if device.running { require(menu.items.contains { $0.tag == 12 && $0.isEnabled }, "running devices retain restart") }
 }
+// Advanced information is collapsed by default and reveals technical fields on demand.
+final class AdvancedInfoTestState: ObservableObject { @Published var expanded = false }
+struct AdvancedInfoTestHost: View {
+    @ObservedObject var state: AdvancedInfoTestState
+    let model: CenterModel
+    let device: Device
+    var body: some View {
+        DeviceAdvancedInformation(model: model, device: device, isExpanded: $state.expanded).padding(24)
+    }
+}
+let infoState = AdvancedInfoTestState()
+let infoDevice = model.devices.first { $0.running }!
+let infoWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 300),
+                          styleMask: [.titled], backing: .buffered, defer: false)
+infoWindow.isReleasedWhenClosed = false
+infoWindow.contentView = NSHostingView(rootView: AdvancedInfoTestHost(state: infoState, model: model, device: infoDevice))
+infoWindow.orderFrontRegardless()
+pump()
+let collapsedHeight = infoWindow.contentView!.fittingSize.height
+infoState.expanded = true
+pump()
+let expandedHeight = infoWindow.contentView!.fittingSize.height
+require(expandedHeight > collapsedHeight + 100,
+        "expanding advanced information reveals its technical rows")
+infoState.expanded = false
+pump()
+require(abs(infoWindow.contentView!.fittingSize.height - collapsedHeight) < 2,
+        "collapsing advanced information restores the compact layout")
+infoWindow.orderOut(nil)
+
 let redTitle = deleteItem.attributedTitle!
 require((redTitle.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? NSColor) == .systemRed,
         "enabled device deletion uses the native red menu text")
@@ -83,37 +115,33 @@ require(window.styleMask.contains(.fullSizeContentView), "content extends into t
 require(window.titlebarAppearsTransparent && window.titlebarSeparatorStyle == .none, "native toolbar blends with content without a separator")
 require(window.titleVisibility == .hidden, "window title does not duplicate the content heading")
 let centerToolbarIDs = window.toolbar!.items.map(\.itemIdentifier.rawValue)
-require(centerToolbarIDs.contains("jidr.new") && centerToolbarIDs.contains("jidr.view") && centerToolbarIDs.contains("jidr.settings"),
-        "toolbar exposes creation, view switching and settings")
-require(!centerToolbarIDs.contains("jidr.refresh"), "manual refresh is absent from the default toolbar")
-let viewSwitch = window.toolbar!.items.first { $0.itemIdentifier.rawValue == "jidr.view" }!.view as! NSSegmentedControl
-viewSwitch.selectedSegment = 0
-NSApp.sendAction(viewSwitch.action!, to: viewSwitch.target, from: viewSwitch)
-pump()
-require(model.gridView, "grid segment switches the device workspace")
-viewSwitch.selectedSegment = 1
-NSApp.sendAction(viewSwitch.action!, to: viewSwitch.target, from: viewSwitch)
-pump()
-require(!model.gridView, "list segment restores the device list")
-let compactSearch = window.toolbar!.items.first { $0.itemIdentifier == CenterToolbarController.searchID } as! NSSearchToolbarItem
-require(compactSearch.preferredWidthForSearchField == 200, "device search uses the intended compact width")
-require(compactSearch.searchField.placeholderString == "Search devices", "search placeholder describes devices")
+require(centerToolbarIDs.contains("jidr.palette") && centerToolbarIDs.contains("jidr.tasks") && centerToolbarIDs.contains("jidr.refresh"),
+        "library toolbar exposes commands, tasks and refresh")
+require(!centerToolbarIDs.contains("jidr.view"), "the device library uses a persistent sidebar")
+let sidebarSearch = descendants(window.contentView!, NSSearchField.self).first { $0.identifier?.rawValue == "device-search" }!
+require(sidebarSearch.placeholderString == "Search devices", "native sidebar search describes devices")
+require(sidebarSearch.isBezeled && sidebarSearch.bezelStyle == .roundedBezel,
+        "sidebar search uses its ordinary native rounded bezel")
+if #available(macOS 26.0, *) {
+    require(descendants(window.contentView!, NSGlassEffectView.self).isEmpty,
+            "the library has no custom liquid-glass search wrapper")
+}
 
-// Clearing the detail-loading target must invalidate in-flight replies; it is
-// independent of the native list, which no longer selects a device on click.
+require(descendants(window.contentView!, NSVisualEffectView.self).contains { $0.material == .sidebar },
+        "library uses the system sidebar material")
+require(descendants(window.contentView!, NSSplitView.self).contains { $0.isVertical && $0.arrangedSubviews.count == 2 },
+        "device sidebar and overview share a resizable native split")
+
+// Native sidebar selection loads the corresponding overview; clearing it
+// must also invalidate in-flight detail and app-list replies.
 let originalID = model.selected!
-eventually("device list is attached") { descendants(window.contentView!, NSScrollView.self).contains { $0.identifier?.rawValue == "jidr-device-list" } }
-model.listHasKeyboardFocus = true
-let deviceDown = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [.numericPad, .function], timestamp: 0,
-                                  windowNumber: window.windowNumber, context: nil, characters: "\u{f701}",
-                                  charactersIgnoringModifiers: "\u{f701}", isARepeat: false, keyCode: 125)!
-require(model.handleShortcutEvent(deviceDown) && model.keyboardDevice == model.filteredDevices.first?.id,
-        "Down focuses the first visible device without changing the detail target")
-require(model.handleShortcutEvent(deviceDown) && model.keyboardDevice == model.filteredDevices[1].id,
-        "Down advances keyboard focus to the next device")
-require(model.selected == originalID, "keyboard focus is independent of the detail-loading target")
-model.keyboardDevice = nil
-model.listHasKeyboardFocus = false
+eventually("device sidebar is attached") { !descendants(window.contentView!, NSTableView.self).isEmpty }
+let libraryTable = descendants(window.contentView!, NSTableView.self).first { $0.accessibilityIdentifier() == "library-devices" }!
+require(libraryTable.style == .sourceList, "device navigation uses native source-list selection")
+libraryTable.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+eventually("sidebar selection loads the corresponding overview") { model.details?.device.id == model.devices[1].id }
+model.select(originalID)
+eventually("original overview is restored") { model.details?.device.id == originalID }
 model.setDeviceSelection(nil)
 require(model.details == nil && model.apps.isEmpty && !model.appsLoading, "deselection clears stale inspector content")
 model.refresh()
@@ -147,6 +175,33 @@ model.deviceQuery = ""
 model.select(originalID)
 eventually("restore after app search") { model.details?.device.id == originalID }
 
+// The overview's app search filters locally without changing device selection.
+eventually("overview apps finish loading") { !model.appsLoading && !model.apps.isEmpty }
+let overviewSearch = descendants(window.contentView!, NSSearchField.self).first { $0.identifier?.rawValue == "overview-app-search" }!
+require(overviewSearch.isEnabled, "running-device overview allows app search")
+window.makeFirstResponder(overviewSearch)
+pump()
+let overviewEditor = overviewSearch.currentEditor() as! NSTextView
+overviewEditor.selectAll(nil)
+overviewEditor.insertText("com.example.test", replacementRange: NSRange(location: NSNotFound, length: 0))
+pump()
+require(model.selected == originalID && model.deviceQuery.isEmpty && model.apps.count == 2,
+        "overview app filtering leaves the selected device and source app list intact")
+model.notice = "Overview search rerender"
+pump()
+require(overviewSearch.stringValue == "com.example.test", "overview search survives unrelated model updates")
+(overviewSearch.cell as! NSSearchFieldCell).cancelButtonCell!.performClick(overviewSearch)
+pump()
+require(overviewSearch.stringValue.isEmpty, "overview app search clears with the native cancel button")
+model.notice = ""
+model.select(stoppedDevice.id)
+eventually("stopped overview is selected") { model.details?.device.id == stoppedDevice.id }
+pump()
+let stoppedAppSearch = descendants(window.contentView!, NSSearchField.self).first { $0.identifier?.rawValue == "overview-app-search" }!
+require(!stoppedAppSearch.isEnabled && model.apps.isEmpty, "stopped devices do not expose stale launchable apps")
+model.select(originalID)
+eventually("running overview is restored") { model.details?.device.id == originalID && !model.appsLoading }
+
 // Failures and unanswered reads leave a recoverable state, never a spinner.
 let testHome = URL(fileURLWithPath: ProcessInfo.processInfo.environment["JIDR_HOME"]!)
 let failedDetails = testHome.appendingPathComponent("fail-details")
@@ -176,11 +231,34 @@ model.select(originalID)
 eventually("new selection loads") { model.details?.device.id == originalID }
 require(model.sheet == nil, "changing selection cancels a failed pending device sheet")
 
-let searchItem = window.toolbar!.items.first { $0.itemIdentifier == CenterToolbarController.searchID } as! NSSearchToolbarItem
-let background = searchItem.searchField
+let background = sidebarSearch
 model.searchFocusRequest += 1
 pump()
 require(window.firstResponder === background.currentEditor(), "device search receives requested focus")
+if #available(macOS 26.0, *) {
+    require(background.focusRingType == .exterior && background.stringValue.isEmpty,
+            "empty focused search uses AppKit's exterior focus ring without waiting for typing")
+    let container = descendants(window.contentView!, NativeSearchContainer.self).first!
+    let editor = background.currentEditor() as! NSTextView
+    let textRect = container.convert(background.searchTextBounds, from: background)
+    let caretScreen = editor.firstRect(forCharacterRange: NSRange(location: 0, length: 0), actualRange: nil)
+    let caretRect = container.convert(window.convertFromScreen(caretScreen), from: nil)
+    require(caretRect.minX >= textRect.minX - 2 && caretRect.minX < textRect.maxX,
+            "the native insertion point stays inside the search text area: \(caretRect), \(textRect)")
+    require(type(of: background) == NSSearchField.self,
+            "focus rendering stays with AppKit's standard search control")
+    editor.insertText("layout regression", replacementRange: NSRange(location: NSNotFound, length: 0))
+    pump()
+    require(model.deviceQuery == "layout regression", "native search typing still updates the device filter")
+    let searchCell = background.cell as! NSSearchFieldCell
+    searchCell.cancelButtonCell!.performClick(background)
+    pump()
+    require(model.deviceQuery.isEmpty && background.stringValue.isEmpty,
+            "the native cancel button clears the field and device filter")
+    model.select(originalID)
+    eventually("restore the selected device after native search regression") { model.details?.device.id == originalID }
+}
+
 
 // Reproduce the audited sequence: settings -> close -> immediately Cmd+K.
 model.present(.settings)
@@ -192,7 +270,7 @@ settings.close()
 model.searchFocusRequest += 1 // A pending background request must lose.
 model.openPalette()
 let panel = model.paletteWindow!.window!
-let palette = descendants(panel.contentView!, PaletteSearchField.Field.self).first!
+let palette = descendants(panel.contentView!, NSSearchField.self).first!
 let editor = palette.currentEditor() as! NSTextView
 // Type the first character before queued hosting/focus callbacks run, as when
 // a person starts typing immediately after Cmd+K. It must not be selected away.
@@ -280,6 +358,50 @@ for section in 0..<10 {
     pump()
     require(tools.window!.frame == initialToolsFrame, "section jumps keep a stable panel frame")
 }
+// Logcat filtering shares the native search surface and preserves its draft.
+tools.selection.section = 3
+pump()
+let logSearch = descendants(tools.window!.contentView!, NSSearchField.self).first { $0.identifier?.rawValue == "logcat-search" }!
+require(logSearch.isBezeled && logSearch.focusRingType == .exterior, "Logcat uses the same native search and exterior focus ring")
+tools.window!.makeFirstResponder(logSearch)
+(logSearch.currentEditor() as! NSTextView).insertText("ActivityManager:I", replacementRange: NSRange(location: NSNotFound, length: 0))
+pump()
+tools.selection.section = 0
+pump()
+tools.selection.section = 3
+pump()
+let restoredLogSearch = descendants(tools.window!.contentView!, NSSearchField.self).first { $0.identifier?.rawValue == "logcat-search" }!
+require(restoredLogSearch.stringValue == "ActivityManager:I", "Logcat filter text survives native view updates and section changes")
+tools.window!.makeFirstResponder(restoredLogSearch)
+(restoredLogSearch.cell as! NSSearchFieldCell).cancelButtonCell!.performClick(restoredLogSearch)
+pump()
+require(restoredLogSearch.stringValue.isEmpty, "Logcat uses the native clear control")
+
+// Recordings search binds to its own view state without a connected device.
+let recordingsTransport = PlayerTransport()
+recordingsTransport.language = 0
+let recordingsWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 620),
+                                styleMask: [.titled, .closable], backing: .buffered, defer: false)
+recordingsWindow.isReleasedWhenClosed = false
+recordingsWindow.contentView = NSHostingView(rootView: PlayerScriptsView(transport: recordingsTransport))
+recordingsWindow.makeKeyAndOrderFront(nil)
+pump()
+let recordingsSearch = descendants(recordingsWindow.contentView!, NSSearchField.self).first { $0.identifier?.rawValue == "recordings-search" }!
+require(recordingsSearch.focusRingType == .exterior && recordingsSearch.isBezeled,
+        "recordings uses the shared native search appearance")
+recordingsWindow.makeFirstResponder(recordingsSearch)
+(recordingsSearch.currentEditor() as! NSTextView).insertText("recording query", replacementRange: NSRange(location: NSNotFound, length: 0))
+pump()
+recordingsTransport.language = 1
+pump()
+require(recordingsSearch.stringValue == "recording query", "recordings query remains bound across parent view updates")
+(recordingsSearch.cell as! NSSearchFieldCell).cancelButtonCell!.performClick(recordingsSearch)
+pump()
+recordingsTransport.language = 0
+pump()
+require(recordingsSearch.stringValue.isEmpty, "clearing recordings search also clears the bound query")
+recordingsWindow.orderOut(nil)
+
 var adjustedToolsFrame = initialToolsFrame
 adjustedToolsFrame.size.width += 70
 adjustedToolsFrame.size.height += 35
@@ -294,6 +416,9 @@ tools.selection.section = 8
 tools.present(relativeTo: window, root: true)
 require(tools.window!.frame == userToolsFrame, "reusing the visible Root panel also preserves size and position")
 require(tools.selection.section == 4, "Root entry switches a reused tools panel to Root")
+tools.present(relativeTo: window, section: 8)
+require(tools.selection.section == 8 && tools.window!.frame == userToolsFrame,
+        "camera settings link selects Cameras in the reused panel without resizing it")
 let nestedToolsSheet = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
 nestedToolsSheet.isReleasedWhenClosed = false
 tools.window!.beginSheet(nestedToolsSheet)
@@ -423,7 +548,7 @@ require(!model.tasksOpen && taskOwner.window?.isVisible == false, "only one ligh
 require(taskOwner.window?.styleMask == model.paletteWindow?.window?.styleMask, "search and tasks share native frame styling")
 require(taskOwner.window?.hasShadow == true && model.paletteWindow?.window?.hasShadow == true, "both panels use one native shadow")
 let reusedPanel = model.paletteWindow!.window!
-let reusedField = descendants(reusedPanel.contentView!, PaletteSearchField.Field.self).first!
+let reusedField = descendants(reusedPanel.contentView!, NSSearchField.self).first!
 require(reusedPanel.firstResponder === reusedField.currentEditor(), "reopening restores search focus")
 
 final class Presenter: CenterWindowPresenting {
@@ -440,6 +565,8 @@ require(menu.targetDevice(for: window) == nil, "the center has no implicit menu 
 for device in model.devices {
     let submenu = deviceMenu.items.first { $0.title == device.name }?.submenu
     require(submenu != nil, "each device has an explicitly named menu")
+    require(!submenu!.items.contains { $0.title.contains("Details") }, "menu bar omits the removed device-details entry")
+    require(submenu!.items.contains { $0.title == "Edit Device…" }, "menu bar retains device settings")
     require(submenu!.items.filter { $0.action != nil }.allSatisfy { ($0.representedObject as? String) == device.id },
             "device menu commands retain their explicit target")
 }
@@ -482,8 +609,8 @@ require(abs(brightPixels(light) - brightPixels(dark)) < 3000, "Light thumbnail i
 window.setContentSize(NSSize(width: 800, height: 550))
 pump()
 let splits = descendants(window.contentView!, NSSplitView.self)
-require(!splits.contains { $0.isVertical && $0.arrangedSubviews.count == 2 }, "minimum window has no fixed detail split")
-require(descendants(window.contentView!, NSScrollView.self).contains { $0.identifier?.rawValue == "jidr-device-list" }, "device list remains visible at minimum size")
+require(splits.contains { $0.isVertical && $0.arrangedSubviews.count == 2 }, "minimum window retains a resizable sidebar and scrolling overview")
+require(!descendants(window.contentView!, NSTableView.self).isEmpty, "native sidebar remains visible at minimum size")
 require(window.contentView!.bounds.width <= 801, "layout does not force the window beyond its minimum width")
 
 // Deletion must be verified against device.list, including a server that lies
@@ -520,11 +647,10 @@ require(model.devices.isEmpty && model.selected == nil && model.details == nil &
         "deleting the last device clears both row and stale inspector content")
 pump()
 require(model.isEmptyDeviceLibrary, "the confirmed empty library enters onboarding")
-require(!descendants(window.contentView!, NSSplitView.self).contains { $0.isVertical && $0.arrangedSubviews.count == 2 },
-        "an empty library has no redundant device/details/app split")
+require(descendants(window.contentView!, NSSplitView.self).contains { $0.isVertical && $0.arrangedSubviews.count == 2 },
+        "an empty library retains the sidebar creation and settings controls")
 let emptyToolbar = window.toolbar!.items.map(\.itemIdentifier.rawValue)
-require(emptyToolbar == ["jidr.new", NSToolbarItem.Identifier.flexibleSpace.rawValue, "jidr.tasks", "jidr.settings"],
-        "empty-library chrome keeps creation, background tasks and settings")
+require(emptyToolbar == centerToolbarIDs, "library toolbar stays stable when the last device is removed")
 require(!background.isEnabled, "a hidden device search cannot take keyboard focus")
 model.searchFocusRequest += 1
 pump()
@@ -535,15 +661,15 @@ require(window.firstResponder !== background.currentEditor() || background.curre
 model.devices = originalDevices
 pump()
 require(!model.isEmptyDeviceLibrary, "adding a device leaves onboarding")
-require(window.toolbar!.items.contains { $0.itemIdentifier == CenterToolbarController.searchID }, "search returns with the device workspace")
-require(descendants(window.contentView!, NSScrollView.self).contains { $0.identifier?.rawValue == "jidr-device-list" },
+require(background.isEnabled, "sidebar search is enabled when devices exist")
+require(!descendants(window.contentView!, NSTableView.self).isEmpty,
         "the device list returns when devices exist")
 model.deviceQuery = "no-matching-device-name"
 pump()
 require(!model.isEmptyDeviceLibrary && background.isEnabled, "zero search results retain usable search and the workspace")
 model.devices = []
 pump()
-require(model.isEmptyDeviceLibrary && window.toolbar!.items.count == 4 && model.deviceQuery.isEmpty,
+require(model.isEmptyDeviceLibrary && window.toolbar!.items.count == centerToolbarIDs.count && model.deviceQuery.isEmpty,
         "the empty-library transition is repeatable and clears filters before a new device is created")
 tools.close()
 window.orderOut(nil)
