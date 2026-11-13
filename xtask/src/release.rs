@@ -348,6 +348,10 @@ fn assemble_swiftui_app(
             "apps/jidr-swiftui/Resources/device-detail-generated.png",
             "device-detail.png",
         ),
+        (
+            "apps/jidr-swiftui/Resources/device-stopped.png",
+            "device-stopped.png",
+        ),
     ] {
         copy(&root.join(from), &resources.join(name))?;
     }
@@ -800,7 +804,7 @@ fn check_swiftui_bundle(app: &Path, version: &str, evidence: &mut Evidence) -> R
     if !icon_bytes.starts_with(b"icns") {
         bail!("Jidr.icns has no `icns` magic");
     }
-    for name in ["device-list.png", "device-detail.png"] {
+    for name in ["device-list.png", "device-detail.png", "device-stopped.png"] {
         let path = resources.join(name);
         require_file(&path, "the center device art")?;
         if std::fs::metadata(&path)?.len() == 0 {
@@ -809,7 +813,7 @@ fn check_swiftui_bundle(app: &Path, version: &str, evidence: &mut Evidence) -> R
     }
     evidence.line(
         "Bundle structure (mounted DMG)",
-        "- PASS `Resources/Jidr.icns` (icns magic), `device-list.png`, `device-detail.png`",
+        "- PASS `Resources/Jidr.icns` (icns magic), `device-list.png`, `device-detail.png`, `device-stopped.png`",
     );
     let fonts = resources.join("fonts");
     let mut ttf = 0;
@@ -1964,6 +1968,7 @@ mod tests {
             "apps/jidr-swiftui/Resources/Jidr.icns".to_owned(),
             "apps/jidr-swiftui/Resources/device-list-generated.png".to_owned(),
             "apps/jidr-swiftui/Resources/device-detail-generated.png".to_owned(),
+            "apps/jidr-swiftui/Resources/device-stopped.png".to_owned(),
             "apps/jidr-swiftui/Resources/en.lproj/Localizable.strings".to_owned(),
             "apps/jidr-swiftui/Resources/zh-Hans.lproj/Localizable.strings".to_owned(),
             "apps/jidr-swiftui/build-release.sh".to_owned(),
@@ -1991,6 +1996,37 @@ mod tests {
         }
         assert_eq!(ttf, 8, "the Workbench fonts must stay bundled");
         assert!(ofl >= 1, "the OFL licence text must stay bundled");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn swiftui_release_bundles_stopped_device_art() {
+        let root = workspace_root();
+        let temp = std::env::temp_dir().join(format!(
+            "jidr-release-art-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let bin = temp.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        for helper in [
+            "jidr",
+            "jidr-center-bridge",
+            "jidr-swiftui-bridge",
+            "center",
+        ] {
+            std::fs::write(bin.join(helper), b"test executable").unwrap();
+        }
+        let app = temp.join("Jidr.app");
+        assemble_swiftui_app(&root, &bin, &bin.join("center"), &app, "0.3.1").unwrap();
+        assert_eq!(
+            std::fs::read(app.join("Contents/Resources/device-stopped.png")).unwrap(),
+            std::fs::read(root.join("apps/jidr-swiftui/Resources/device-stopped.png")).unwrap()
+        );
+        std::fs::remove_dir_all(temp).unwrap();
     }
 
     #[test]
