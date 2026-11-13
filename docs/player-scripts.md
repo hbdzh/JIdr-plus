@@ -1,6 +1,6 @@
 # Player operation recordings (v1)
 
-Status: implementation in progress (player-window MVP). CLI/MCP playback is a
+Status: implemented in the player-window MVP. CLI/MCP playback is a
 later phase and is deliberately not part of this contract.
 
 This is the MuMu-style "operation recording" feature: the player records the

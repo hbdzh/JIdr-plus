@@ -24,6 +24,11 @@ Cursor (`~/.cursor/mcp.json`) takes the same `mcpServers` entry. `jidr uninstall
 
 JIdr Plus has not yet been published to the MCP Registry.
 
+The current source version is 0.4.0. Build the matching local MCP bundle with
+`cargo xtask release --rehearsal`; the presence of a version in `server.json`
+does not mean its release asset or Registry entry has been published. The
+registry checksum remains a placeholder until a real artifact is published.
+
 ## Tools
 
 | Tool | Hints | What it does |

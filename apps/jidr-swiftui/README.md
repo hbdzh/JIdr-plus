@@ -1,14 +1,14 @@
-# Native macOS UI
+# Native macOS UI — 0.4.0
 
 SwiftUI/AppKit is the only desktop UI. `Center/main.swift` owns the device center,
 settings/tool windows and integrated player windows. The Rust bridges in `bridge/`
 connect to the real daemon and emulator; device state stays in the daemon.
 
 An empty device library shows one creation guide, with SDK setup as a secondary
-action. Device search, the inspector, app list and device-only actions appear
+action. Device search, the overview, app list and device-only actions appear
 when devices exist. Background tasks and settings remain accessible in either state.
 
-For a stopped device, the inspector shows a short app hint instead of an empty
+For a stopped device, the overview shows a short app hint instead of an empty
 app browser; capture/install/send controls appear when the device is running.
 Device settings stage quality alongside hardware and audio until Save; Cancel
 writes nothing. A daemon failure leaves quality unchanged, and a local quality
@@ -16,6 +16,27 @@ write failure reports whether device settings have already been saved.
 Advanced tools expose calls/SMS, clipboard, fingerprint, cameras and developer
 options in a native sidebar, with Device-settings-style detail forms. SDK images are grouped by API, with common
 variants before specialized images and explicit 16 KB page-size labels.
+
+The overview groups each action with its content: APK selection and drop-install
+share the apps card, full app management stays available even with fewer than
+seven apps, and snapshot creation/management share the snapshot card. The header
+exposes device settings/tools and a compact screenshot/record/send row; More only
+contains restart, delete and an in-progress Root setup entry. Root verification
+lives in Root tools. Camera sources are edited only in Device tools; the device
+settings sheet links there without discarding its other pending edits.
+
+Root tools expose the existing `root.writable_system` command: enable writes on
+Shell Root devices with API 31+ and an adb-root-capable image, or restore the
+stock read-only system. A confirmation explains the cold boot and overlay removal.
+Stopped devices apply the change on their next start. The displayed flag is the
+daemon's configured write-access setting, not a live filesystem probe.
+
+The Microphone page plays a local WAV into Android's microphone with optional
+looping. It uses `audio.inject` and daemon jobs, not the Mac's live microphone.
+Playback continues when the tools close; the center keeps the session so Stop
+remains available when reopened. Stop cancels the owning job (including while
+the file is loading); CLI/MCP injections can also be stopped from the page.
+The Android app must open its microphone to consume the injected audio.
 
 The Swift source is GPL-3.0-only (`LICENSE-GPL`); Rust bridges are Apache-2.0.
 Fonts in `Resources/fonts` retain their OFL notices. Shared Lucide SVGs and ISC
@@ -73,7 +94,7 @@ bash apps/jidr-swiftui/bench-player.sh --self-test
 Screenshot tests render into hidden, unordered hosting windows and never activate
 the test application. They still need access to a logged-in WindowServer session.
 For local changes, select only the relevant cases with repeatable `--only CASE`;
-`--list` lists names without opening windows. The full 47-case matrix requires
+`--list` lists names without opening windows. The complete screenshot matrix requires
 explicit `--all` and belongs in CI or a broader regression, rather than every
 local style adjustment. Intentional visual changes use `--update` with the same
 case scope. `test-center-ui.sh --interactive` tests actual focus and responder

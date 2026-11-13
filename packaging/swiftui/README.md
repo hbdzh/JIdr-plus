@@ -3,6 +3,8 @@
 `cargo xtask release` is the sole application packaging implementation. It builds
 `Jidr.app`, an arm64 DMG, the MCP bundle and SHA256SUMS under `target/release-artifacts`.
 The source template is `Jidr-Info.plist.in` (bundle identity `ly.jidr.Jidr`).
+Workspace version 0.4.0 supplies the CLI version, application plist version and
+artifact filenames. The template deliberately keeps `@VERSION@` placeholders.
 
 ```bash
 cargo xtask release --dry-run --scan
@@ -23,7 +25,7 @@ Jidr.app/Contents/
   Helpers/jidr-swiftui-bridge     player frame/input bridge (Apache)
   Resources/Jidr.icns
   Resources/en.lproj, zh-Hans.lproj
-  Resources/device-list.png, device-detail.png
+  Resources/device-list.png, device-detail.png, device-stopped.png
   Resources/fonts/               TTFs and OFL notices
   Resources/licenses/            LICENSE-APACHE, LICENSE-GPL, NOTICE
 ```
