@@ -99,3 +99,5 @@ extension Character {
 }
 
 print("Palette tests passed")
+
+check(stoppedActions.contains(.advancedTools("stop")) && stoppedActions.contains(.rootTools("stop")), "offline configuration and Root status are discoverable for stopped devices")

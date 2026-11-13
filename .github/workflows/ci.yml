@@ -98,7 +98,7 @@ jobs:
         # home; no Android SDK or emulator. A regression fails the macOS job.
         run: bash apps/jidr-swiftui/test-player-lifecycle.sh
       - name: Center UI interaction regressions
-        run: bash apps/jidr-swiftui/test-center-ui.sh
+        run: bash apps/jidr-swiftui/test-center-ui.sh --interactive
       - name: Design tokens are in sync with tokens.json
         # generate-tokens.sh --check regenerates from docs/design/tokens.json
         # into the generated Swift files and fails when they differ.
@@ -120,7 +120,7 @@ jobs:
         # between macOS runner images, so this is reported rather than gating
         # until the runner image is pinned; see docs/swiftui-migration.md.
         continue-on-error: true
-        run: bash apps/jidr-swiftui/snapshot.sh --check
+        run: bash apps/jidr-swiftui/snapshot.sh --check --all
       - name: GUI window lifecycle (needs a macOS GUI session; reported, not gating)
         # test-window.sh drives real AppKit windows and needs a logged-in
         # WindowServer session. Hosted runners usually have one, but not

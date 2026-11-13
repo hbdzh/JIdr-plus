@@ -22,6 +22,10 @@ func findScreenView(in view: NSView) -> ScreenView? {
     }
     return nil
 }
+func stopRequests(in home: URL) -> Int {
+    let text = (try? String(contentsOf: home.appendingPathComponent("requests.jsonl"), encoding: .utf8)) ?? ""
+    return text.components(separatedBy: "\n").filter { $0.contains("\"method\": \"device.stop\"") }.count
+}
 
 let application = NSApplication.shared
 application.setActivationPolicy(.accessory)
@@ -30,6 +34,22 @@ try FileManager.default.createDirectory(at: home.appendingPathComponent("data"),
 let model = try CenterModel(center: CommandLine.arguments[1], bridge: "/usr/bin/false")
 eventually("center fixture connects") { model.connection.isOnline && model.deviceListLoaded && model.dataDirectory != nil }
 let id = "00000000-0000-4000-8000-000000000001"
+model.loadCardHardware(id)
+model.loadCardHardware(id)
+let secondID = "00000000-0000-4000-8000-000000000002"
+model.loadCardHardware(secondID)
+eventually("card loads its device's hardware") { model.cardHardware[id]?.memory == "2048" }
+eventually("another card loads its own hardware") { model.cardHardware[secondID]?.memory == "4096" }
+require(model.cardHardware[secondID]?.width == "720" && model.cardHardware[id]?.width == "480",
+        "device cards do not share another device's configuration")
+require(model.cardHardware[id]?.summary(language: 0) == "480 × 640 · 2048 MB · 2 cores · 320 DPI",
+        "card hardware displays resolution, memory, CPU and DPI")
+let missingHardware = DeviceHardware(config: ["hw.ramSize": "invalid"])
+require(missingHardware.summary(language: 1) == "— × — · — MB · — 核 · — DPI",
+        "missing or invalid hardware values remain unknown")
+FileManager.default.createFile(atPath: home.appendingPathComponent("hardware-updated").path, contents: Data())
+model.refreshCardHardware(id)
+eventually("card reloads changed hardware") { model.cardHardware[id]?.memory == "3072" }
 model.openGame(id)
 eventually("first player disconnects") { model.players[id]?.transport.connectionEnded == true }
 let original = model.players[id]!
@@ -38,7 +58,43 @@ eventually("center replaces disconnected player after Reconnect") {
     model.players[id] != nil && model.players[id] !== original
 }
 eventually("replacement bridge exits") { model.players[id]?.transport.connectionEnded == true }
-let replacement = model.players[id]!
+var replacement = model.players[id]!
+require(stopRequests(in: home) == 0, "reconnecting a player does not stop the device")
+model.recording.insert(id)
+replacement.window?.performClose(nil)
+require(model.players[id] === replacement && stopRequests(in: home) == 0,
+        "an active center recording prevents closing and stopping the player")
+model.recording.remove(id)
+model.operation("test.block", id: id)
+eventually("fixture operation is in progress") { FileManager.default.fileExists(atPath: home.appendingPathComponent("block-started").path) }
+replacement.window?.performClose(nil)
+require(!model.hasPlayers, "closing the player removes its window")
+require(stopRequests(in: home) == 0, "stop waits for the in-flight operation")
+FileManager.default.createFile(atPath: home.appendingPathComponent("block-release").path, contents: Data())
+eventually("window close stops the device after the in-flight operation") { stopRequests(in: home) == 1 && !model.busy.contains(id) }
+model.openGame(id)
+eventually("player reopens before an explicit stop") { model.players[id]?.transport.connectionEnded == true }
+model.stop(id)
+eventually("explicit stop sends exactly one request") { stopRequests(in: home) == 2 && !model.busy.contains(id) }
+require(!model.hasPlayers, "explicit stop closes the player")
+FileManager.default.createFile(atPath: home.appendingPathComponent("fixture-stopped").path, contents: Data())
+FileManager.default.createFile(atPath: home.appendingPathComponent("block-start").path, contents: Data())
+model.refresh()
+eventually("fixture device is stopped before startup") { model.devices.first?.stopped == true }
+model.start(id)
+eventually("starting player opens while startup is in progress") {
+    model.players[id]?.window != nil && FileManager.default.fileExists(atPath: home.appendingPathComponent("start-started").path)
+}
+model.players[id]?.window?.performClose(nil)
+require(!model.hasPlayers && stopRequests(in: home) == 2, "closing during startup queues the stop")
+FileManager.default.createFile(atPath: home.appendingPathComponent("start-release").path, contents: Data())
+eventually("startup completion is followed by one stop") { stopRequests(in: home) == 3 && !model.busy.contains(id) }
+try FileManager.default.removeItem(at: home.appendingPathComponent("fixture-stopped"))
+model.refresh()
+eventually("fixture reports the device running") { model.devices.first?.running == true }
+model.openGame(id)
+eventually("player can be opened for remaining lifecycle checks") { model.players[id]?.transport.connectionEnded == true }
+replacement = model.players[id]!
 // Stop periodic refreshes: the remaining cases explicitly inject device states.
 model.beginSafeQuit()
 
@@ -81,6 +137,7 @@ replacement.transport.recordingStateUnknown = false
 replacement.transport.applyLaunchState(.stopped(reason: "idle stop"))
 require(!replacement.transport.recordingStateUnknown, "an idle stop does not invent a recording interruption")
 replacement.window?.performClose(nil)
+eventually("closing a running player requests one stop") { stopRequests(in: home) == 4 && !model.busy.contains(id) }
 require(!model.hasPlayers && model.quitBlockReason == nil, "window and center can close after the interruption")
 model.close()
 

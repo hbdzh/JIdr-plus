@@ -112,9 +112,9 @@ enum PaletteCatalog {
             }
             add(.action, text("设备详情 ", "Device details ") + device.name, device.android, "", .deviceDetails(device.id))
             add(.action, text("管理快照 ", "Manage snapshots ") + device.name, text("保存、恢复或删除快照", "Save, restore or delete snapshots"), "", .snapshots(device.id))
-            if device.isRunning {
-                add(.action, text("高级工具 ", "Advanced tools ") + device.name, text("电池、GPS、网络、传感器", "Battery, GPS, network, sensors"), "", .advancedTools(device.id))
+            add(.action, text("设备工具 ", "Device tools ") + device.name, text("电池、GPS、网络、传感器", "Battery, GPS, network, sensors"), "", .advancedTools(device.id))
                 add(.action, text("Root 工具 ", "Root tools ") + device.name, text("模块、证书、系统属性、自动授权", "Modules, certificates, build props, auto-grant"), "", .rootTools(device.id))
+            if device.isRunning {
                 add(.action, text("安装 APK ", "Install APK ") + device.name, text("选择本机 APK 并安装", "Choose a local APK and install it"), "", .installAPK(device.id))
                 add(.action, text("发送文件 ", "Send file ") + device.name, text("复制文件到设备下载目录", "Copy a file to the device's Download folder"), "", .sendFile(device.id))
                 add(.action, text("截图 ", "Screenshot ") + device.name, text("保存当前设备画面", "Save the current device screen"), "", .screenshot(device.id))

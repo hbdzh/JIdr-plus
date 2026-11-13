@@ -45,6 +45,7 @@ struct SnapshotCase {
     var height = 640
     var recording = false
     var deselected = false
+    var singleDevice = false
 
     var localeIdentifier: String { language == 0 ? "en" : "zh-Hans" }
     var languageName: String { language == 0 ? "en" : "zh" }
@@ -77,8 +78,31 @@ let allCases: [SnapshotCase] = [
     SnapshotCase(name: "tasks-active-en-dark", kind: .auxiliary(page: "tasks-active"), language: 0, appearance: .dark, width: 480, height: 264),
     SnapshotCase(name: "command-search-light", kind: .auxiliary(page: "palette"), language: 1, appearance: .light, width: 600, height: 450),
     SnapshotCase(name: "command-search-en-dark", kind: .auxiliary(page: "palette"), language: 0, appearance: .dark, width: 600, height: 450),
+    SnapshotCase(name: "center-stopped-light", kind: .auxiliary(page: "center-stopped"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "center-stopped-en-minimum", kind: .auxiliary(page: "center-stopped"), language: 0, appearance: .dark, width: 800, height: 550),
+    SnapshotCase(name: "settings-defaults-light", kind: .auxiliary(page: "settings-defaults"), language: 1, appearance: .light, width: 700, height: 450),
+    SnapshotCase(name: "settings-advanced-en-dark", kind: .auxiliary(page: "settings-advanced"), language: 0, appearance: .dark, width: 700, height: 450),
+    SnapshotCase(name: "device-settings-light", kind: .auxiliary(page: "device-settings"), language: 1, appearance: .light, width: 560, height: 620),
+    SnapshotCase(name: "center-search-no-results", kind: .auxiliary(page: "search-empty"), language: 0, appearance: .light, width: 800, height: 550),
+    SnapshotCase(name: "center-details-error", kind: .auxiliary(page: "details-error"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "tools-root-stopped", kind: .auxiliary(page: "root"), language: 1, appearance: .light, width: 716, height: 500),
+    SnapshotCase(name: "tools-camera-stopped-en", kind: .auxiliary(page: "camera"), language: 0, appearance: .dark, width: 716, height: 500),
+    SnapshotCase(name: "tools-clipboard-en", kind: .auxiliary(page: "clipboard"), language: 0, appearance: .light, width: 716, height: 500),
+    SnapshotCase(name: "device-details-stopped", kind: .auxiliary(page: "details"), language: 1, appearance: .light, width: 620, height: 700),
+    SnapshotCase(name: "snapshots-stopped-en", kind: .auxiliary(page: "snapshots"), language: 0, appearance: .dark, width: 600, height: 560),
+    SnapshotCase(name: "tools-battery-light", kind: .auxiliary(page: "battery"), language: 1, appearance: .light, width: 716, height: 500),
+    SnapshotCase(name: "tools-gps-en-dark", kind: .auxiliary(page: "gps"), language: 0, appearance: .dark, width: 716, height: 500),
+    SnapshotCase(name: "tools-network-en-light", kind: .auxiliary(page: "network"), language: 0, appearance: .light, width: 716, height: 500),
+    SnapshotCase(name: "tools-calls-light", kind: .auxiliary(page: "calls"), language: 1, appearance: .light, width: 716, height: 500),
+    SnapshotCase(name: "tools-fingerprint-light", kind: .auxiliary(page: "fingerprint"), language: 1, appearance: .light, width: 716, height: 500),
+    SnapshotCase(name: "tools-developer-en-dark", kind: .auxiliary(page: "developer"), language: 0, appearance: .dark, width: 716, height: 500),
+    SnapshotCase(name: "tools-logcat-en-dark", kind: .auxiliary(page: "logcat"), language: 0, appearance: .dark, width: 716, height: 500),
+    SnapshotCase(name: "tools-root-en-minimum", kind: .auxiliary(page: "root"), language: 0, appearance: .dark, width: 660, height: 460),
+    SnapshotCase(name: "tools-root-full-stopped", kind: .auxiliary(page: "root-full"), language: 1, appearance: .light, width: 716, height: 500),
     // Light theme (player chrome is intentionally dark-only, so no light player).
     SnapshotCase(name: "center-populated-light", kind: .center(fixture: "populated"), language: 1, appearance: .light),
+    SnapshotCase(name: "center-single-wide-light", kind: .center(fixture: "populated"), language: 1, appearance: .light, width: 1050, height: 700, singleDevice: true),
+    SnapshotCase(name: "center-multiple-wide-light", kind: .center(fixture: "populated"), language: 1, appearance: .light, width: 1400, height: 700),
     SnapshotCase(name: "center-load-failure-light", kind: .center(fixture: "load-failure"), language: 1, appearance: .light),
 ]
 
@@ -94,7 +118,9 @@ let playerSize = (width: 480, height: 768)
 struct Options {
     var update = false
     var check = false
-    var only: String?
+    var only: [String] = []
+    var all = false
+    var list = false
     var centerBridge = ""
     var playerBridge = ""
     var uiFixture = ""
@@ -120,15 +146,34 @@ while argumentIndex < arguments.count {
     switch argument {
     case "--update": options.update = true
     case "--check": options.check = true
-    case "--only": options.only = value("--only")
+    case "--only": options.only.append(value("--only"))
+    case "--all": options.all = true
+    case "--list": options.list = true
     case "--center-bridge": options.centerBridge = value("--center-bridge")
     case "--player-bridge": options.playerBridge = value("--player-bridge")
     case "--ui-fixture": options.uiFixture = value("--ui-fixture")
     case "--golden": options.golden = value("--golden")
     case "--fonts": options.fonts = value("--fonts")
-    default: fail("unknown argument \(argument); usage: snapshot --update|--check [--only CASE] --center-bridge PATH --player-bridge PATH --golden DIR [--fonts DIR]")
+    default: fail("unknown argument \(argument); usage: snapshot --update|--check (--only CASE ...|--all) [--list] --center-bridge PATH --player-bridge PATH --golden DIR [--fonts DIR]")
     }
     argumentIndex += 1
+}
+// Choose the scope before creating NSApplication, fixtures or any windows.
+guard !options.all || options.only.isEmpty else { fail("--all and --only cannot be combined") }
+var selected: [SnapshotCase]
+if !options.only.isEmpty {
+    let unknown = options.only.filter { name in !allCases.contains { $0.name == name } }
+    guard unknown.isEmpty else { fail("unknown case(s): \(unknown.joined(separator: ", ")); use --list for known cases") }
+    let requested = Set(options.only)
+    selected = allCases.filter { requested.contains($0.name) }
+} else if options.all || options.list {
+    selected = allCases
+} else {
+    fail("choose --only CASE (repeatable) for a local change, or --all for the full matrix")
+}
+if options.list {
+    selected.forEach { print($0.name) }
+    exit(0)
 }
 guard options.update != options.check else { fail("pass exactly one of --update or --check") }
 guard !options.centerBridge.isEmpty, !options.playerBridge.isEmpty, !options.golden.isEmpty else {
@@ -180,8 +225,14 @@ func registerBundledFonts(explicitPath: String) {
 
 registerBundledFonts(explicitPath: options.fonts)
 
+// Pin overlay scrollers for this process only. The host's scrollbar preference
+// otherwise changes the width of selected rows without any source change.
+var snapshotDefaults = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+snapshotDefaults["AppleShowScrollBars"] = "WhenScrolling"
+UserDefaults.standard.setVolatileDomain(snapshotDefaults, forName: UserDefaults.argumentDomain)
+
 let application = NSApplication.shared
-application.setActivationPolicy(.accessory)
+application.setActivationPolicy(.prohibited)
 application.appearance = NSAppearance(named: .darkAqua)
 NSAnimationContext.beginGrouping()
 NSAnimationContext.current.duration = 0
@@ -230,7 +281,8 @@ final class Canvas {
         window.appearance = appearance.nsAppearance
         window.isReleasedWhenClosed = false
         window.contentView = hosting
-        window.orderFrontRegardless()
+        // Keep the hosting window unordered: cacheDisplay renders the view tree
+        // without putting a surface on the user's desktop or taking focus.
         self.window = window
         self.hosting = hosting
         settle()
@@ -242,6 +294,10 @@ final class Canvas {
         pump(seconds)
         hosting.layoutSubtreeIfNeeded()
         hosting.displayIfNeeded()
+        require(!NSApplication.shared.isActive && NSApplication.shared.activationPolicy() == .prohibited,
+                "snapshot renderer must never activate")
+        require(window?.isVisible == false && window?.isKeyWindow == false && window?.isMainWindow == false,
+                "snapshot canvas must stay hidden and unfocused")
     }
 
     /// Render the mounted view at exactly width×height pixels (1× backing).
@@ -256,6 +312,11 @@ final class Canvas {
         else { fail("cannot allocate a \(width)x\(height) bitmap") }
         hosting.cacheDisplay(in: hosting.bounds, to: rep)
         return rep
+    }
+
+    func inspect(_ check: (NSView, NSWindow) -> Void) {
+        guard let hosting, let window else { fail("canvas is not mounted") }
+        check(hosting, window)
     }
 
     func unmount() {
@@ -352,6 +413,7 @@ func renderCenter(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
     // Apply the matrix language/appearance only after the async state loaded, so
     // every view re-evaluates with the requested deterministic values.
     model.language = language
+    if snapshotCase.singleDevice { model.devices = Array(model.devices.prefix(1)) }
     if snapshotCase.recording, let id = model.selected { model.recording.insert(id) }
     if snapshotCase.deselected { model.setDeviceSelection(nil) }
     model.appearance = snapshotCase.appearance == .light ? 1 : 2
@@ -401,11 +463,123 @@ func renderPlayer(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
     return rep
 }
 
+func nativeDescendants<T: NSView>(_ root: NSView, _ type: T.Type) -> [T] {
+    ((root as? T).map { [$0] } ?? []) + root.subviews.flatMap { nativeDescendants($0, type) }
+}
+
+/// Check actual hosted controls while every window remains unordered. These
+/// regressions are scoped to Device tools, and never drive the user's desktop.
+func validateTools(_ canvas: Canvas, selection: DeviceToolsSelection, page: String) {
+    canvas.inspect { host, window in
+        let tables = nativeDescendants(host, NSTableView.self)
+        require(tables.count == 1 && tables[0] is CompactDeviceToolsTableView && tables[0].style == .sourceList && tables[0].rowHeight == 32 && !tables[0].floatsGroupRows,
+                "device tools must use the native system sidebar with 32-point rows and no floating headers")
+        let original = window.frame
+        let table = tables[0]
+        require(abs((table.enclosingScrollView?.bounds.width ?? 0) - 168) < 1, "sidebar keeps the approved compact width")
+        if let cell = table.view(atColumn: 0, row: table.selectedRow, makeIfNecessary: true) as? NSTableCellView {
+            require(cell.textField?.font?.pointSize == 13, "sidebar labels use normal macOS sidebar typography")
+            guard let row = table.rowView(atRow: table.selectedRow, makeIfNecessary: true) else { fail("system selection row is missing") }
+            require(type(of: row) == NSTableRowView.self, "selection must use AppKit's standard row drawing instead of a custom narrow fill")
+            require(row.bounds.height >= 32, "selected rows must retain the standard thicker hit/highlight area")
+            cell.backgroundStyle = .emphasized
+            require(cell.backgroundStyle == .emphasized && cell.imageView?.cell?.backgroundStyle == .emphasized,
+                    "native emphasis propagates to both the text and icon cells")
+            require(cell.textField?.textColor == NSColor.alternateSelectedControlTextColor,
+                    "active selected text follows the system selection text color")
+            cell.backgroundStyle = .normal
+            require(cell.textField?.textColor == NSColor.labelColor && cell.imageView?.contentTintColor == nil,
+                    "inactive selection uses system label colors without fixed custom tints")
+            require(cell.imageView?.image?.isTemplate == true, "symbols must follow system emphasis, not a fixed palette")
+        } else { fail("selected native sidebar label is missing") }
+        let layout = canvas.capture()
+        if let top = layout.colorAt(x: 3, y: 18)?.usingColorSpace(.sRGB),
+           let bottom = layout.colorAt(x: 3, y: layout.pixelsHigh - 18)?.usingColorSpace(.sRGB) {
+            require(abs(top.redComponent - bottom.redComponent) < 0.01 && abs(top.greenComponent - bottom.greenComponent) < 0.01 && abs(top.blueComponent - bottom.blueComponent) < 0.01,
+                    "the sidebar surface continues through the header and footer")
+        }
+        let detailScrolls = nativeDescendants(host, NSScrollView.self).filter { scroll in
+            guard scroll !== table.enclosingScrollView else { return false }
+            return scroll.convert(scroll.bounds, to: host).minX >= 168
+        }
+        guard let pageScroll = detailScrolls.max(by: { $0.bounds.width < $1.bounds.width }) else {
+            fail("device tools detail page has no scroll viewport")
+        }
+        let pageRect = pageScroll.convert(pageScroll.bounds, to: host)
+        require(abs(pageRect.minX - 169) <= 2 && abs(pageRect.maxX - host.bounds.maxX) <= 2,
+                "detail scrolling spans the entire page; the scroll indicator must stay at its far-right edge")
+        if page == "network" {
+            require(detailScrolls.count == 1, "network settings must not create nested form-area scrollers")
+            let clip = pageScroll.contentView
+            let initialOrigin = clip.bounds.origin
+            require((pageScroll.documentView?.bounds.height ?? 0) > clip.bounds.height,
+                    "the network page must scroll as one long document")
+            clip.scroll(to: NSPoint(x: initialOrigin.x, y: initialOrigin.y + 100))
+            pageScroll.reflectScrolledClipView(clip)
+            canvas.settle(0.05)
+            require(clip.bounds.origin.y > initialOrigin.y && window.frame == original,
+                    "scrolling the page moves its full document without resizing the window")
+            clip.scroll(to: initialOrigin)
+            pageScroll.reflectScrolledClipView(clip)
+        }
+        if page == "battery" {
+            let charge = nativeDescendants(host, NSTextField.self).first { $0.isEditable && $0.stringValue == "75" }
+            require(charge != nil && (charge?.bounds.width ?? 0) >= 100, "battery input must stay readable in the detail form")
+            let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                                      windowNumber: window.windowNumber, context: nil, characters: "\u{f701}",
+                                      charactersIgnoringModifiers: "\u{f701}", isARepeat: false, keyCode: 125)!
+            tables[0].keyDown(with: down)
+            canvas.settle(0.1)
+            require(selection.section == 1, "native sidebar arrow navigation selects GPS")
+            require(window.frame == original, "keyboard navigation keeps the panel frame unchanged")
+            for destination in [2, 5, 6] {
+                table.keyDown(with: down)
+                canvas.settle(0.05)
+                require(selection.section == destination, "arrow navigation skips nonselectable group headings")
+                require(window.frame == original, "cross-group keyboard navigation never resizes the window")
+            }
+        }
+        if page == "camera" {
+            let popups = nativeDescendants(host, NSPopUpButton.self)
+            guard let back = popups.first(where: { $0.accessibilityLabel() == "Back camera" }),
+                  let front = popups.first(where: { $0.accessibilityLabel() == "Front camera" }) else {
+                fail("detail form must expose both camera controls")
+            }
+            let backRect = back.convert(back.bounds, to: host)
+            let frontRect = front.convert(front.bounds, to: host)
+            require(abs(backRect.maxX - frontRect.maxX) < 1 && backRect.width >= 175,
+                    "camera rows must align their controls on the right")
+            require(back.isEnabled && front.isEnabled, "stopped devices must still allow editing camera sources")
+            back.selectItem(withTitle: "Emulated")
+            require(NSApp.sendAction(back.action!, to: back.target, from: back), "native camera popup action is handled")
+            pump(0.05)
+            for section in [4, 8] {
+                selection.section = section
+                canvas.settle(0.1)
+                require(window.frame == original, "changing sidebar selection must never resize the panel: \(window.frame) != \(original) for \(section)")
+            }
+            let restored = nativeDescendants(host, NSPopUpButton.self).first { $0.accessibilityLabel() == "Back camera" }
+            require(restored?.selectedItem?.representedObject as? String == "emulated", "camera draft survives switching to Root and back")
+            if let home = ProcessInfo.processInfo.environment["JIDR_HOME"],
+               let requests = try? String(contentsOfFile: home + "/requests.jsonl", encoding: .utf8) {
+                let writes = requests.split(separator: "\n").contains { line in
+                    guard let request = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any] else { return false }
+                    return request["method"] as? String == "camera.set"
+                }
+                require(!writes, "editing and switching camera drafts must never save them automatically")
+            }
+        }
+        require(!window.isVisible && !NSApp.isActive, "Device tools regressions must remain hidden")
+    }
+}
+
 func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImageRep {
     require(!options.uiFixture.isEmpty, "auxiliary views require --ui-fixture")
     if page == "tasks-active" { setenv("JIDR_UI_TASKS", "1", 1) }
     else { unsetenv("JIDR_UI_TASKS") }
     defer { unsetenv("JIDR_UI_TASKS") }
+    if page == "root-full" { setenv("JIDR_UI_ROOT", "magisk", 1) }
+    defer { unsetenv("JIDR_UI_ROOT") }
     let model: CenterModel
     do { model = try CenterModel(center: options.uiFixture, bridge: options.playerBridge) }
     catch { fail("cannot start UI fixture: \(error)") }
@@ -417,9 +591,49 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
         model.refreshJobs()
         require(waitUpTo(5) { model.taskRows.count == 2 }, "task fixture did not load")
     }
+    if ["center-stopped", "device-settings", "root", "camera", "details", "snapshots", "details-error", "root-full"].contains(page) {
+        guard let device = model.devices.first(where: { $0.stopped }) else { fail("fixture has no stopped device") }
+        model.select(device.id)
+        require(waitUpTo(5) { model.details?.device.id == device.id }, "stopped details did not load")
+    }
+    if page == "search-empty" { model.deviceQuery = "no-matching-device" }
+    if page == "details-error" {
+        model.details = nil
+        model.detailsLoading = false
+        model.detailsError = model.text("读取设备详情超时，请重试。", "Reading device details timed out. Try again.")
+    }
+    if page == "settings-defaults" { model.settingsCategory = 1 }
+    if page == "settings-advanced" { model.settingsCategory = 3 }
     let canvas = Canvas(width: snapshotCase.width, height: snapshotCase.height, appearance: snapshotCase.appearance)
+    var toolsSelection: DeviceToolsSelection?
     switch page {
-    case "settings": canvas.mount(SettingsView(model: model, onClose: {}))
+    case "settings", "settings-defaults", "settings-advanced": canvas.mount(SettingsView(model: model, onClose: {}))
+    case "center-stopped", "search-empty", "details-error": canvas.mount(CenterView(model: model))
+    case "root", "root-full", "camera", "clipboard", "battery", "gps", "network", "calls", "fingerprint", "developer", "logcat":
+        let tab = ["root": 4, "root-full": 4, "camera": 8, "clipboard": 6, "battery": 0, "gps": 1, "network": 2, "calls": 5, "fingerprint": 7, "developer": 9, "logcat": 3][page]!
+        let selection = DeviceToolsSelection(section: tab)
+        toolsSelection = selection
+        let tools = AdvancedToolsView(model: model, id: model.selected!, initialRoot: false, selection: selection)
+        if page == "network" {
+            // Native switches otherwise capture an initial off-to-on animation
+            // while the asynchronous network fixture is being applied.
+            canvas.mount(tools.transaction { $0.animation = nil; $0.disablesAnimations = true })
+            require(waitUpTo(3) {
+                var loaded = false
+                canvas.inspect { host, _ in
+                    let switches = nativeDescendants(host, NSSwitch.self)
+                    loaded = switches.count == 2 && switches.allSatisfy { $0.state == .on }
+                }
+                return loaded
+            }, "network fixture switches did not reach their loaded state")
+        } else {
+            canvas.mount(tools)
+        }
+    case "details": canvas.mount(DeviceDetailsView(model: model, details: model.details!))
+    case "snapshots": canvas.mount(SnapshotsView(model: model, device: model.details!.device))
+    case "device-settings":
+        guard let details = model.details else { fail("editor details missing") }
+        canvas.mount(EditDeviceView(model: model, details: details))
     case "sdk": canvas.mount(InstallSDKView(model: model))
     case "tasks", "tasks-active": canvas.mount(TaskCenterView(model: model))
     case "palette": canvas.mount(CommandPaletteView(model: model))
@@ -427,6 +641,7 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
     }
     canvas.settle(0.5)
     let rep = canvas.capture()
+    if let selection = toolsSelection { validateTools(canvas, selection: selection, page: page) }
     canvas.unmount()
     pump(0.05)
     return rep
@@ -442,13 +657,6 @@ func render(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
 
 // MARK: - Run
 
-var selected = allCases
-if let only = options.only {
-    selected = allCases.filter { $0.name == only }
-    if selected.isEmpty {
-        fail("unknown case \(only); known cases: \(allCases.map(\.name).joined(separator: ", "))")
-    }
-}
 if options.update {
     do {
         try FileManager.default.createDirectory(at: goldenDirectory, withIntermediateDirectories: true)
@@ -515,7 +723,7 @@ for snapshotCase in selected {
 
 if options.check {
     if failures == 0 {
-        print("snapshot check: PASS (\(selected.count)/\(allCases.count) cases)")
+        print("snapshot check: PASS (\(selected.count)/\(selected.count) selected cases; \(allCases.count) available, hidden rendering)")
     } else {
         print("snapshot check: FAIL (\(failures) of \(selected.count) cases)")
         exit(1)

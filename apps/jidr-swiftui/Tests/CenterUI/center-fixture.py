@@ -9,10 +9,18 @@ settings={"default_root_mode":"adb","quick_boot":True,"budget_percent":80,"auto_
 def device(i,name,state):
  return {"id":f"00000000-0000-4000-8000-{i:012d}","name":name,"status":{"state":state},"image":{"api":35,"tag":"google_apis"},"root":{"mode":"none","health":"ok"},"runtime":{"adb_serial":"emulator-5554","pid":12345,"console_port":5554,"grpc_port":8554,"started_at":"2026-11-11T01:00:00Z"} if state=="running" else None,"profile":"pixel_7","sdk_root":"/Volumes/External/Android/SDK","launch":{"audio":True,"quick_boot":True,"camera_back":"none","camera_front":"none"},"auto_hibernate_minutes":30}
 devices=[device(1,"日常测试 · Android 15","running"),device(2,"长名称布局测试：工作应用与游戏兼容性验证设备 Android 15 Google APIs","stopped"),device(3,"异常退出设备","crashed")]
+if os.environ.get("JIDR_UI_ROOT")=="magisk":
+ for d in devices: d['root']={"mode":"magisk","health":"ok","magisk_version":"30.7"}
 if state.exists(): devices=json.loads(state.read_text())
 noop_used=False
 for line in sys.stdin:
  r=json.loads(line);m=r["method"];p=r.get("params",{});d=next((d for d in devices if d["id"]==p.get("device")),None)
+ with (home/'requests.jsonl').open('a') as log: log.write(json.dumps({"method":m,"device":p.get("device")})+'\n')
+ if m=="device.details" and (home/'drop-details').exists(): continue
+ if m=="device.details" and (home/'fail-details').exists():
+  print(json.dumps({"id":r["id"],"type":"error","message":"Synthetic detail read failed"}),flush=True);continue
+ if m=="root.cacert.list" and d and d['status']['state']!='running':
+  print(json.dumps({"id":r["id"],"type":"error","message":d['name']+" is not running; start it first"}),flush=True);continue
  if m=="device.delete":
   if d is None:
    print(json.dumps({"id":r["id"],"type":"error","message":"No such preview device"}),flush=True);continue
@@ -28,6 +36,10 @@ for line in sys.stdin:
  elif m=="settings.set": settings.update(p);value=settings
  else:
   values={"center.prefs.get":prefs,"center.paths":{"data":str(home/'data'),"cache":str(home/'cache'),"logs":str(home/'logs'),"tools":{"android_sdk":"/Volumes/External/Android/SDK","jidr_sdk":None}},"center.about":{"version":"0.3.1","repository":"https://github.com/hbdzh/JIdr-plus"},"device.list":devices,"device.details":{"device":d,"config":{"hw.cpu.ncore":"4","hw.ramSize":"4096","hw.lcd.width":"1080","hw.lcd.height":"2400","hw.lcd.density":"420"},"disk_usage":2147483648},"app.list":{"apps":[{"package":"com.example.test","name":"示例应用","icon":None},{"package":"com.example.long","name":"用于检查长名称是否截断的测试应用程序","icon":None}]},"jobs.list":[],"settings.get":settings,"sdk.status":{"tools_sdk":"/Volumes/External/Android/SDK","studio_sdk":"/Volumes/External/Android/SDK","private_sdk":None,"install_sdk":"/Volumes/External/Android/SDK","custom_sdk":None},"profile.list":[{"id":"pixel_7","name":"Phone 6.1 FHD+","ram_mb":4096,"cpus":4,"data_mb":8192,"audio":True}],"image.list":[{"api":35,"tag":"google_apis","abi":"arm64-v8a","installed_in":"/Volumes/External/Android/SDK"}],"cache.list":[],"snapshot.list":{"device_root_mode":"none","snapshots":[{"name":"日常测试保存点","id":"one","quick_boot":False,"restorable":True,"root_mode":"none","created_at":"2026-11-11T01:00:00Z","size_bytes":536870912},{"name":"用于检查长名称与拒绝恢复原因的快照记录","id":"two","quick_boot":False,"restorable":False,"root_mode":"magisk","magisk_version":"30.7","created_at":"2026-11-10T02:00:00Z","size_bytes":1073741824},{"name":"default_boot","id":"quick","quick_boot":True,"restorable":True,"root_mode":None,"size_bytes":1048576}]},"battery.get":{"level":75,"charger":"ac"},"network.get":{"wifi":True,"mobile":True,"profile":"full"},"dev.get":{"show_taps":False,"pointer_location":False,"layout_bounds":False,"animation_scale":1.0},"root.cacert.list":{"certificates":[]},"commands.list":[],"center.quit":None}
+  if m=="commands.list": values[m]={"commands":[{"id":"root.cacert.install"},{"id":"device.props.get"}]}
+  if m=="root.status": values[m]={"root":d['root'] if d else {"mode":"none"}}
+  if m=="device.props.get": values[m]={"props":{}}
+  if m=="camera.get": values[m]={"back":d['launch']['camera_back'],"front":d['launch']['camera_front']}
   if m not in values and m!="sdk.licenses":
    print(json.dumps({"id":r["id"],"type":"error","message":"UI preview: this operation requires a real device connection."}),flush=True);continue
   value=values.get(m)

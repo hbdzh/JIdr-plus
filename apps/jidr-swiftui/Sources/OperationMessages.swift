@@ -21,6 +21,11 @@ enum OperationMessages {
     }
     static func error(_ value:String, language:Int) -> String {
         guard language != 0 else { return value }
+        let stoppedSuffix = " is not running; start it first"
+        if value.hasSuffix(stoppedSuffix) {
+            let name = String(value.dropLast(stoppedSuffix.count))
+            return "设备“\(name)”未运行，请先启动设备。"
+        }
         let exact = [
             "UI preview: this operation requires a real device connection.":"界面预览无法执行此操作，请连接真实设备。",
             "speed must be between 0 and 64×":"路线速度倍率须大于 0 且不超过 64。",

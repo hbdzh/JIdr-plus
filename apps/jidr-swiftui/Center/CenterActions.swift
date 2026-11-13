@@ -59,9 +59,9 @@ extension CenterModel {
         case .stopDevice(let id): stop(id)
         case .restartDevice(let id): restart(id)
         case .editDevice(let id): presentDeviceSheet(.edit, device: id)
-        case .deleteDevice(let id): selected = id; deleteRequested = true
+        case .deleteDevice(let id): requestDeletion(id)
         case .deviceDetails(let id): presentDeviceSheet(.details, device: id)
-        case .snapshots(let id): selected = id; present(.snapshots)
+        case .snapshots(let id): select(id); present(.snapshots)
         case .advancedTools(let id):
             if let name = devices.first(where: { $0.id == id })?.name { openAdvanced(id, name: name) }
         case .rootTools(let id):

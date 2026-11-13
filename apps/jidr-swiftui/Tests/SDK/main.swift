@@ -30,4 +30,7 @@ precondition(OperationMessages.routeSpeed("nan") == nil && OperationMessages.rou
 precondition(OperationMessages.error("speed must be between 0 and 64×",language:1) == "路线速度倍率须大于 0 且不超过 64。")
 precondition(OperationMessages.error("no such module zip: /tmp/test.zip",language:1) == "找不到模块文件：/tmp/test.zip")
 precondition(OperationMessages.error("no such module zip: /tmp/test.zip",language:0) == "no such module zip: /tmp/test.zip")
+let stoppedDevice = "Test Pixel is not running; start it first"
+precondition(OperationMessages.error(stoppedDevice, language: 1) == "设备“Test Pixel”未运行，请先启动设备。")
+precondition(OperationMessages.error(stoppedDevice, language: 0) == stoppedDevice)
 print("SDK installation plan tests passed")

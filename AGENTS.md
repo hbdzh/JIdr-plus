@@ -82,6 +82,6 @@ cargo xtask e2e-mac                              # release gate on Apple Silicon
 # GUI (SwiftUI) and release rehearsal
 bash apps/jidr-swiftui/build-center.sh # debug app build
 bash apps/jidr-swiftui/test.sh         # Swift logic tests + localization gate
-bash apps/jidr-swiftui/snapshot.sh --check
+bash apps/jidr-swiftui/snapshot.sh --check --only tools-battery-light # hidden, scoped; --all only for full regression
 cargo xtask release --rehearsal                  # SwiftUI app + DMG, ad-hoc, local only
 ```

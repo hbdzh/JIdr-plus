@@ -90,11 +90,12 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 self?.showCenterWindow()
             }
             window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps:true)
-            shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching:.keyDown) { [weak self] event in
+            shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching:[.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
                 // Only the center window's plain keys (", Esc, palette arrows).
                 // Command shortcuts belong to the menu key equivalents, and
                 // player/tool windows keep their own shortcuts.
                 guard let self, let model = self.model, event.window === self.window || event.window == nil else { return event }
+                if event.type != .keyDown { model.keyboardDevice = nil; return event }
                 if event.modifierFlags.contains(.command) { return event }
                 return model.handleShortcutEvent(event) ? nil : event
             }
@@ -135,6 +136,12 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminate(_ sender:NSApplication) -> NSApplication.TerminateReply {
         guard let model else { return .terminateNow }
         guard !shuttingDown else { return .terminateLater }
+        if let reason = model.quitWorkBlockReason {
+            showCenterWindow()
+            model.presentQuitBlocker()
+            model.showError(reason)
+            return .terminateCancel
+        }
         model.closePlayers()
         // Do not block silently: show the task list with the concrete reason
         // (recording, open windows, running jobs, in-flight operations) so the

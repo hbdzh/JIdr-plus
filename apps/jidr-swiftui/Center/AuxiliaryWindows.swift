@@ -5,9 +5,9 @@ import SwiftUI
 
 /// Both lightweight surfaces use the same native frame, border and shadow.
 /// SwiftUI draws content only, avoiding a second outline on top of AppKit's rim.
-final class LightweightPanel: NSPanel {
+class LightweightPanel: NSPanel {
     override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
+    override var canBecomeMain: Bool { false }
     init(size: NSSize) {
         super.init(contentRect: NSRect(origin: .zero, size: size),
                    styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)

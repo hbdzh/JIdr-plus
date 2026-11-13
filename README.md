@@ -45,8 +45,8 @@ cargo xtask release --rehearsal   # 产出 target/release-rehearsal/（含 repor
 ```bash
 cargo xtask ci                                          # Rust：fmt、clippy、测试、许可、skills
 bash apps/jidr-swiftui/test.sh                # Swift 逻辑测试 + 本地化门禁
-bash apps/jidr-swiftui/snapshot.sh --check    # 中英/明暗截图基线
-bash apps/jidr-swiftui/test-center-ui.sh       # 原生窗口、删除等交互回归
+bash apps/jidr-swiftui/snapshot.sh --check --only tools-battery-light # 后台渲染指定页面；全量显式加 --all
+bash apps/jidr-swiftui/test-center-ui.sh --interactive # 会显示窗口，仅在独立测试会话中运行
 bash apps/jidr-swiftui/test-player-lifecycle.sh # 播放器连接与录屏状态回归
 ```
 

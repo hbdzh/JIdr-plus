@@ -4,6 +4,19 @@
 # in fixture mode (environment variable, per process), so no daemon or emulator
 # is needed. Requires Xcode, the workspace Rust toolchain and a GUI session.
 set -euo pipefail
+# Refuse an accidental full matrix before even compiling the renderer.
+snapshot_has_scope=false
+snapshot_has_list=false
+for argument in "$@"; do
+  case "$argument" in
+    --all|--only) snapshot_has_scope=true ;;
+    --list) snapshot_has_list=true ;;
+  esac
+done
+if [[ "$snapshot_has_scope" != true && "$snapshot_has_list" != true ]]; then
+  echo 'Choose --only CASE (repeatable) for a local change, or --all for the full matrix; --list shows cases.' >&2
+  exit 2
+fi
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 source "$root/apps/jidr-swiftui/swift-target.sh"
@@ -22,6 +35,9 @@ swiftc -target "$jidr_swift_target" -module-cache-path "$out/module-cache" \
   "${center_sources[@]}" \
   "$root"/apps/jidr-swiftui/Tests/Snapshot/main.swift \
   -o "$out/jidr-snapshot"
+# These checks only parse CLI arguments / reject unsafe implicit invocations.
+# They exit before creating NSApplication and never render any page.
+python3 "$root/apps/jidr-swiftui/Tests/Snapshot/runner-tests.py" "$out/jidr-snapshot"
 # Bundle.main for a bare executable is the executable's own directory: stage the
 # localized string tables and the generated device art the packaged preview
 # ships, so the EN cases resolve the real translations instead of falling back
