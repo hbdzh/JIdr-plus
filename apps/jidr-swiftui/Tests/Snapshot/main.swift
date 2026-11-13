@@ -46,6 +46,7 @@ struct SnapshotCase {
     var recording = false
     var deselected = false
     var singleDevice = false
+    var grid = false
 
     var localeIdentifier: String { language == 0 ? "en" : "zh-Hans" }
     var languageName: String { language == 0 ? "en" : "zh" }
@@ -55,6 +56,8 @@ let allCases: [SnapshotCase] = [
     // The five original zh + dark baselines.
     SnapshotCase(name: "center-empty", kind: .center(fixture: "empty"), language: 1, appearance: .dark),
     SnapshotCase(name: "center-populated", kind: .center(fixture: "populated"), language: 1, appearance: .dark),
+    SnapshotCase(name: "center-grid-light", kind: .center(fixture: "populated"), language: 1, appearance: .light, grid: true),
+    SnapshotCase(name: "center-grid-long-task-en", kind: .center(fixture: "long-task"), language: 0, appearance: .dark, width: 800, height: 550, grid: true),
     SnapshotCase(name: "center-load-failure", kind: .center(fixture: "load-failure"), language: 1, appearance: .dark),
     SnapshotCase(name: "center-long-task", kind: .center(fixture: "long-task"), language: 1, appearance: .dark),
     SnapshotCase(name: "player-running", kind: .player, language: 1, appearance: .dark),
@@ -413,13 +416,18 @@ func renderCenter(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
     // Apply the matrix language/appearance only after the async state loaded, so
     // every view re-evaluates with the requested deterministic values.
     model.language = language
+    model.gridView = snapshotCase.grid
     if snapshotCase.singleDevice { model.devices = Array(model.devices.prefix(1)) }
     if snapshotCase.recording, let id = model.selected { model.recording.insert(id) }
     if snapshotCase.deselected { model.setDeviceSelection(nil) }
     model.appearance = snapshotCase.appearance == .light ? 1 : 2
     pump(0.1)
     let canvas = Canvas(width: snapshotCase.width, height: snapshotCase.height, appearance: snapshotCase.appearance)
-    canvas.mount(CenterView(model: model))
+    if snapshotCase.grid {
+        canvas.mount(CenterView(model: model).transaction { $0.disablesAnimations = true })
+    } else {
+        canvas.mount(CenterView(model: model))
+    }
     canvas.settle(0.4)
     let rep = canvas.capture()
     canvas.unmount()

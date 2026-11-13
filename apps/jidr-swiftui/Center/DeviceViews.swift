@@ -1989,6 +1989,29 @@ private struct DeviceCardStyle: ViewModifier {
     }
 }
 
+/// Gives the thumbnail the measured height of the adjacent card information.
+private struct DeviceGridHeaderLayout: Layout {
+    private let spacing: CGFloat = 14
+    private let aspect: CGFloat = 36 / 62
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard subviews.count == 2 else { return .zero }
+        let available = proposal.width ?? 300
+        let info = subviews[1].sizeThatFits(ProposedViewSize(width: max(0, available - 80), height: nil))
+        return CGSize(width: min(available, info.width + info.height * aspect + spacing), height: info.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let thumbnailWidth = bounds.height * aspect
+        subviews[0].place(at: bounds.origin, anchor: .topLeading,
+                          proposal: ProposedViewSize(width: thumbnailWidth, height: bounds.height))
+        subviews[1].place(at: CGPoint(x: bounds.minX + thumbnailWidth + spacing, y: bounds.minY),
+                          anchor: .topLeading,
+                          proposal: ProposedViewSize(width: max(0, bounds.width - thumbnailWidth - spacing), height: bounds.height))
+    }
+}
+
 struct CenterView: View {
     @ObservedObject var model: CenterModel
     @State private var appsPresented = false
@@ -2259,13 +2282,13 @@ struct CenterView: View {
     }
 
     private func deviceListRow(_ device: Device) -> some View {
-        let content = HStack(spacing: 16) {
-            HStack(spacing: 14) {
+        let hardware = model.cardHardware[device.id] ?? DeviceHardware(config: [:])
+        let content = HStack(spacing: 6) {
+            HStack(spacing: 10) {
                 deviceThumbnail(device)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(device.name).wbFont(WbType.body.weighted(.semibold))
                         .foregroundStyle(.primary).lineLimit(1).truncationMode(.middle)
-                    hardwareSummary(device)
                     if let app = model.appSearchMatches[device.id] {
                         Text(model.text("匹配应用：\(app)", "Matching app: \(app)"))
                             .wbFont(WbType.caption).foregroundStyle(.secondary).lineLimit(1)
@@ -2275,19 +2298,21 @@ struct CenterView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(model.text("\(device.name)，\(device.statusText(language: model.language))",
-                                           "\(device.name), \(device.statusText(language: 0))") + ", " + hardwareText(device))
+                                           "\(device.name), \(device.statusText(language: 0))") + ", " + device.androidVersionShort + ", " + hardwareText(device))
             .accessibilityHint(model.text("双击打开设备窗口，或使用行内按钮和更多操作菜单。",
                                           "Double-click to open the device window, or use the row buttons and more actions menu."))
             .accessibilityAction(named: Text(model.text("打开设备窗口", "Open device window"))) {
                 model.focusOrOpenDeviceWindow(device.id)
             }
             deviceStatus(device)
-            .frame(width: 92, alignment: .leading)
-            Text(device.androidVersionShort)
-                .wbFont(WbType.caption).foregroundStyle(.secondary).lineLimit(1)
                 .frame(width: 82, alignment: .leading)
+            hardwareColumn(device.androidVersionShort, width: 68)
+            hardwareColumn("\(hardware.width) × \(hardware.height)", width: 90)
+            hardwareColumn(hardware.memoryGB, width: 48)
+            hardwareColumn(model.text("\(hardware.cores) 核", "\(hardware.cores) cores"), width: 52)
+            hardwareColumn("\(hardware.density) DPI", width: 55)
             rowAction(device)
-                .frame(width: 166, alignment: .trailing)
+                .frame(width: 75, alignment: .trailing)
             DeviceMoreButton(model: model, device: device) { appsPresented = true }
                 .frame(width: 30, height: 26)
         }
@@ -2315,36 +2340,49 @@ struct CenterView: View {
         })
     }
 
-    private func deviceThumbnail(_ device: Device) -> some View {
-        WbDeviceThumbnail(name: "device-list", width: 36, height: 62)
+    private func hardwareColumn(_ text: String, width: CGFloat) -> some View {
+        Text(text).wbFont(WbType.caption).foregroundStyle(.secondary)
+            .lineLimit(1).frame(width: width, alignment: .leading)
+    }
+
+    private func deviceThumbnail(_ device: Device, width: CGFloat = 36, height: CGFloat = 62) -> some View {
+        let scale = height / 62
+        return WbDeviceThumbnail(name: "device-list", width: width, height: height)
             .overlay {
                 if let frame = model.deviceThumbnails[device.id] {
                     Image(decorative: frame, scale: 1).resizable().scaledToFill()
-                        .frame(width: 26, height: 50).clipped()
-                        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                        .frame(width: 26 * scale, height: 50 * scale).clipped()
+                        .clipShape(RoundedRectangle(cornerRadius: 4 * scale, style: .continuous))
                 } else if device.stopped {
                     RoundedRectangle(cornerRadius: 4, style: .continuous)
-                        .fill(Color.black.opacity(0.9)).padding(.horizontal, 5).padding(.vertical, 6)
+                        .fill(Color.black.opacity(0.9)).padding(.horizontal, 5 * scale).padding(.vertical, 6 * scale)
                 }
             }
     }
 
     private func deviceGridCard(_ device: Device) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 14) {
-                deviceThumbnail(device)
+        let hardware = model.cardHardware[device.id] ?? DeviceHardware(config: [:])
+        return VStack(alignment: .leading, spacing: 14) {
+            DeviceGridHeaderLayout {
+                GeometryReader { geometry in
+                    deviceThumbnail(device, width: geometry.size.width, height: geometry.size.height)
+                }
                 VStack(alignment: .leading, spacing: 5) {
                     Text(device.name).wbFont(WbType.body.weighted(.semibold)).lineLimit(1).truncationMode(.middle)
+                    deviceStatus(device)
                     Text(device.androidVersionShort)
                         .wbFont(WbType.caption).foregroundStyle(.secondary).lineLimit(1)
-                    hardwareSummary(device, grid: true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("\(hardware.width) × \(hardware.height)·\(hardware.density) DPI")
+                        Text(model.text("\(hardware.cores) 核·\(hardware.memoryGB)",
+                                        "\(hardware.cores) cores·\(hardware.memoryGB)"))
+                    }
+                    .wbFont(WbType.caption).foregroundStyle(.secondary)
                     if let app = model.appSearchMatches[device.id] {
                         Text(model.text("匹配应用：\(app)", "Matching app: \(app)"))
                             .wbFont(WbType.caption).foregroundStyle(.secondary).lineLimit(1)
                     }
-                    deviceStatus(device)
                 }
-                Spacer(minLength: 0)
             }
             HStack {
                 rowAction(device)
@@ -2367,13 +2405,6 @@ struct CenterView: View {
 
     private func hardwareText(_ device: Device) -> String {
         (model.cardHardware[device.id] ?? DeviceHardware(config: [:])).summary(language: model.language)
-    }
-
-    private func hardwareSummary(_ device: Device, grid: Bool = false) -> some View {
-        let hardware = model.cardHardware[device.id] ?? DeviceHardware(config: [:])
-        return Text(grid ? hardware.gridSummary(language: model.language) : hardware.summary(language: model.language))
-            .wbFont(WbType.caption).foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func rowAction(_ device: Device) -> some View {

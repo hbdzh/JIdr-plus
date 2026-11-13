@@ -74,6 +74,14 @@ struct DeviceHardware: Equatable {
     let cores: String
     let density: String
 
+    var memoryGB: String {
+        guard let megabytes = Int(memory) else { return "— GB" }
+        let value = String(format: "%.3f", Double(megabytes) / 1024)
+        let trimmed = value.replacingOccurrences(of: "0+$", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\.$", with: "", options: .regularExpression)
+        return "\(trimmed) GB"
+    }
+
     init(config: [String: String]) {
         func value(_ key: String) -> String {
             guard let raw = config[key], let number = Int(raw), number > 0 else { return "—" }
@@ -88,12 +96,12 @@ struct DeviceHardware: Equatable {
 
     func summary(language: Int) -> String {
         let cpu = language == 0 ? "\(cores) cores" : "\(cores) 核"
-        return "\(width) × \(height) · \(memory) MB · \(cpu) · \(density) DPI"
+        return "\(width) × \(height) · \(memoryGB) · \(cpu) · \(density) DPI"
     }
 
     func gridSummary(language: Int) -> String {
         let cpu = language == 0 ? "\(cores) cores" : "\(cores) 核"
-        return "\(width) × \(height) · \(density) DPI\n\(memory) MB · \(cpu)"
+        return "\(width) × \(height) · \(density) DPI\n\(memoryGB) · \(cpu)"
     }
 }
 struct AndroidApp: Identifiable, Decodable {
