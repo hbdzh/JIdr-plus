@@ -1856,9 +1856,11 @@ struct DeviceMoreButton: NSViewRepresentable {
                 if let symbol = symbols[tag] {
                     item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
                     item.image?.isTemplate = true
+                    #if compiler(>=6.4)
                     if #available(macOS 27.0, *) {
                         item.preferredImageVisibility = .visible
                     }
+                    #endif
                 }
                 if destructive && enabled {
                     item.attributedTitle = NSAttributedString(string: item.title, attributes: [.font: NSFont.menuFont(ofSize: 0), .foregroundColor: NSColor.systemRed])
