@@ -267,16 +267,19 @@ struct SnapshotsView: View {
         .padding(.vertical, WbSpace.sm)
     }
 
-    /// One line of real data: auto-save description, or root tag · size · time.
+    /// Retain size/date for quick boot, with policy guidance separate from metadata.
     @ViewBuilder
     private func metaLine(_ snapshot: SnapshotRow) -> some View {
-        if snapshot.quick_boot {
-            Text(t("每次停止时保存 · 用于快速启动", "Saved on every stop · used for fast start"))
-        } else {
+        VStack(alignment: .leading, spacing: WbSpace.xs) {
+            if snapshot.quick_boot {
+                Text(t("快速启动保存点 · 自动保存和加载遵循设备设置", "Quick-boot save point · auto-save and loading follow device settings"))
+            }
             HStack(spacing: WbSpace.sm) {
-                Text(Snapshots.rootTag(mode: snapshot.root_mode, magisk: snapshot.magisk_version, language: model.language))
+                if !snapshot.quick_boot {
+                    Text(Snapshots.rootTag(mode: snapshot.root_mode, magisk: snapshot.magisk_version, language: model.language))
+                }
                 if let size = snapshot.size_bytes, size > 0 {
-                    Text("·")
+                    if !snapshot.quick_boot { Text("·") }
                     Text(Snapshots.size(size))
                 }
                 let when = Snapshots.when(snapshot.created_at, language: model.language)
@@ -296,7 +299,8 @@ struct SnapshotsView: View {
             Spacer(minLength: WbSpace.md)
             Text(footerNote)
                 .wbFont(WbType.caption).foregroundStyle(WbColor.textTertiary)
-                .lineLimit(1)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
             Button(t("关闭", "Close")) { dismiss() }
                 .buttonStyle(.bordered)
                 .keyboardShortcut(.cancelAction)
@@ -317,7 +321,7 @@ struct SnapshotsView: View {
     private var footerNote: String {
         running
             ? t("恢复快照会覆盖设备当前状态。", "Restoring replaces the device's current state.")
-            : t("启动设备后才能恢复快照。", "Start the device to restore a snapshot.")
+            : t("手动恢复需先启动设备；快速启动遵循设备设置。", "Start the device for manual restore. Quick boot follows device settings.")
     }
 
     private var banner: (String, Bool)? {
@@ -363,7 +367,7 @@ struct SnapshotsView: View {
             return
         }
         guard running else {
-            model.notice = t("启动设备后才能恢复快照。", "Start the device to restore a snapshot.")
+            model.notice = t("手动恢复需先启动设备；快速启动遵循设备设置。", "Start the device for manual restore. Quick boot follows device settings.")
             return
         }
         alertItem = .restore(snapshot)

@@ -8,6 +8,15 @@ An empty device library shows one creation guide, with SDK setup as a secondary
 action. Device search, the inspector, app list and device-only actions appear
 when devices exist. Background tasks and settings remain accessible in either state.
 
+For a stopped device, the inspector shows a short app hint instead of an empty
+app browser; capture/install/send controls appear when the device is running.
+Device settings stage quality alongside hardware and audio until Save; Cancel
+writes nothing. A daemon failure leaves quality unchanged, and a local quality
+write failure reports whether device settings have already been saved.
+Advanced tools expose calls/SMS, clipboard, fingerprint, cameras and developer
+options in a native sidebar, with Device-settings-style detail forms. SDK images are grouped by API, with common
+variants before specialized images and explicit 16 KB page-size labels.
+
 The Swift source is GPL-3.0-only (`LICENSE-GPL`); Rust bridges are Apache-2.0.
 Fonts in `Resources/fonts` retain their OFL notices. Shared Lucide SVGs and ISC
 license text live in `assets/lucide`; native UI icons use SF Symbols.
@@ -53,20 +62,31 @@ separate validation; an ad-hoc build does not establish either.
 
 ```bash
 bash apps/jidr-swiftui/test.sh
-bash apps/jidr-swiftui/test-center-ui.sh
+bash apps/jidr-swiftui/test-center-ui.sh --interactive # visible windows; dedicated test session
 bash apps/jidr-swiftui/test-player-lifecycle.sh
 bash apps/jidr-swiftui/test-window.sh
 bash apps/jidr-swiftui/generate-tokens.sh --check
-bash apps/jidr-swiftui/snapshot.sh --check
+bash apps/jidr-swiftui/snapshot.sh --check --only tools-battery-light
 bash apps/jidr-swiftui/bench-player.sh --self-test
 ```
 
-Window/screenshot tests need a logged-in GUI session. Tests use temporary homes
-and fixture bridges and never change real devices or SDKs. Screenshot baselines
-cover 26 fixed language/appearance/layout scenarios; intentional visual changes
-use `snapshot.sh --update`. Fixture flags are test-only, never normal launch
+Screenshot tests render into hidden, unordered hosting windows and never activate
+the test application. They still need access to a logged-in WindowServer session.
+For local changes, select only the relevant cases with repeatable `--only CASE`;
+`--list` lists names without opening windows. The full 47-case matrix requires
+explicit `--all` and belongs in CI or a broader regression, rather than every
+local style adjustment. Intentional visual changes use `--update` with the same
+case scope. `test-center-ui.sh --interactive` tests actual focus and responder
+handoffs: it opens visible windows and must run in a dedicated session or after
+arranging foreground access with the user; without the flag it refuses to run.
+Tests use temporary homes and fixture bridges and never change real devices or
+SDKs. Fixture flags are test-only, never normal launch
 settings. Interactive mock sessions must set `JIDR_UI_PREVIEW=1` to display their
 limitations, and must reject unsupported device commands rather than claim success.
+
+Offscreen bitmap caching does not composite all native sidebar vibrancy and
+transparent window materials. Their baselines check structure and content;
+selection colors, shadows and material blending also need inspection in the real app.
 
 The native performance harness (`Tests/Bench`) remains available for real-device
 measurements. See `bench-player.sh --help`, `render-live.sh`, ADR-0001 and
@@ -191,3 +211,38 @@ python3 scripts/player-baseline.py --sdk /path/to/clean-test-sdk \
   --compare-input --seconds 20 --taps 60 --input-smoke --animated-input \
   --build-sdk /path/to/installed/build-sdk
 ```
+
+UI state and interaction regressions also cover filtered selection, named deletion
+with a captured target, details failures/timeouts with retry, the complete command
+catalog, stopped-device Root/camera reads, and preference window sizing. Device
+policies separate new-device Root defaults from global runtime policies, validate
+numeric input, and indicate unsaved changes. Device tools are available directly;
+Root configuration lives beside its status, while the Root section in Device
+details remains read-only.
+Route playback uses a generation token so replies from a stopped route cannot
+change the state of a later route. These checks use isolated fixtures; running
+games, real route playback, and live Root changes still require device acceptance.
+
+Device tools uses the reviewed compact integrated layout in a lightweight panel
+attached to the invoking center/player window. Its 168-point sidebar extends
+through the full height, with a small tool/device header and device state below
+the navigation. A native NSTableView retains keyboard and type-to-select behavior,
+with standard 32-point rows and template SF Symbols. AppKit draws selection
+using the system accent and active/inactive colors; no custom pale selection,
+fixed icon palette or forced cell emphasis is applied. Group headings do not float.
+The detail side has one full-width page scroll viewport containing its title,
+description, stopped-device hint and bounded groups of native fields. Only the
+content width is capped; its scrollbar stays at the far-right page edge. Groups
+never introduce a separate form-area scroll viewport. Primary form actions sit
+below the input group; Close stays fixed at the bottom right. Initial size is 716 × 500 with a 660 × 460
+minimum. Tool selection never changes the window frame. Root entry selects Root
+directly, and camera drafts survive switching tools.
+
+Escape travels through the responder chain so input composition and child
+sheets can consume it before the panel closes. Cmd+W closes the panel. Camera
+selectors expose distinct front/back accessibility labels; only edited values
+can be applied, and successful saves update the baseline. Automatic reads do
+not show a mutation-success message. Background regressions verify sidebar width/density, full-height background,
+system selection drawing and emphasis propagation, cross-group arrow-key navigation, field
+alignment, full-width page scrolling, a stable panel frame and camera draft retention. Focus/responder checks remain
+in the explicitly interactive suite.

@@ -11,6 +11,8 @@ struct DeviceCreation {
     var root: String
     var audio: Bool
 
+    var isValid: Bool { (try? parameters()) != nil }
+
     func parameters() throws -> [String:Any] {
         let name = name.trimmingCharacters(in:.whitespacesAndNewlines)
         guard !name.isEmpty, !image.isEmpty, !profile.isEmpty else { throw Validation.invalid("请填写名称并选择镜像及配置。") }

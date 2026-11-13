@@ -35,6 +35,7 @@ struct RootDevToolsView: View {
     @ObservedObject var model: CenterModel
     let id: String
     let running: Bool
+    var embedded = false
 
     @State private var status: RootStatus?
     @State private var capabilities: Set<String> = []
@@ -71,7 +72,6 @@ struct RootDevToolsView: View {
             case installCert(URL)
             case removeCert(String)
             case saveProps([String: String], reset: Bool)
-            case revert
         }
         let id = UUID()
         let kind: Kind
@@ -88,21 +88,49 @@ struct RootDevToolsView: View {
     private var canCerts: Bool { capabilities.contains("root.cacert.install") }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: WbSpace.xl) {
-            statusCard
+        if embedded {
+            sections
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) { sections }
+                    .frame(maxWidth: 430, alignment: .leading).padding(24)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }.background(WbColor.raised)
+        }
+    }
+
+    private var sections: some View {
+        Group {
+            DeviceToolPageGroup {
+                VStack(alignment: .leading, spacing: WbSpace.md) {
+                statusCard
+                WbDivider()
+                if let device { DeviceRootControls(model: model, device: device) }
+                }
+            } header: { if !embedded { Text(t("Root 管理", "Root")) } }
+            .onAppear(perform: load)
+            .onChange(of: running) { value in
+                certsError = ""
+                if value { load() } else { certs = [] }
+            }
+            .alert(item: $pending) { action in confirmAlert(action) }
             if !fullRoot {
-                Label(t("以下功能需要完整 Root（Magisk）。请在设备详情中设置完整 Root。",
-                        "These tools require Full root (Magisk). Set up Full root in the device details."),
+                Label(t("以下功能需要完整 Root（Magisk）。请在上方选择并设置完整 Root。",
+                        "These tools require Full Root (Magisk). Choose and set up Full Root above."),
                       systemImage: WbIcon.rootTab)
                     .wbFont(WbType.body).foregroundStyle(WbColor.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Group {
                 if fullRoot {
-                    modulesBlock
-                    propsBlock
+                    DeviceToolSection {
+                        Text(t("Root 授权", "Root permissions")).wbFont(WbType.label)
+                        autoGrantRow
+                    }
+                    DeviceToolSection { modulesBlock }
+                    DeviceToolSection { propsBlock }
                     if canCerts {
-                        certsBlock
+                        DeviceToolSection { certsBlock }
                     } else if capabilitiesLoaded {
                         Label(t("需要更新 Jidr 后台才支持系统 CA 证书。", "Needs a newer Jidr daemon to manage system CA certificates."),
                               systemImage: WbIcon.lock)
@@ -120,9 +148,6 @@ struct RootDevToolsView: View {
                     .foregroundStyle(WbColor.negative).textSelection(.enabled)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .onAppear(perform: load)
-        .alert(item: $pending) { action in confirmAlert(action) }
     }
 
     // MARK: status
@@ -130,7 +155,7 @@ struct RootDevToolsView: View {
     private var statusCard: some View {
         VStack(alignment: .leading, spacing: WbSpace.sm) {
             HStack(spacing: WbSpace.sm) {
-                Text(t("Root 状态", "Root status")).wbFont(WbType.title)
+                Text(t("Root 状态", "Root status")).wbFont(WbType.label)
                 if playStore, fullRoot {
                     Label(t("Beta · Play 商店镜像", "Beta · Play Store image"), systemImage: WbIcon.warning)
                         .wbFont(WbType.label)
@@ -167,14 +192,7 @@ struct RootDevToolsView: View {
                     Button(t("再次验证", "Verify again")) { verify() }
                         .buttonStyle(.bordered)
                         .disabled(!running || working)
-                    Button(t("回退到无 Root…", "Revert to unrooted…"), role: .destructive) {
-                        pending = PendingRootAction(kind: .revert,
-                                                    title: t("回退到无 Root？", "Revert to unrooted?"),
-                                                    detail: t("将移除 Magisk 并冷启动设备，可能需要一些时间。游戏数据会保留。",
-                                                              "Magisk is removed and the device cold-boots, which can take a while. Your game data is kept."))
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(working)
+
                 }
             }
             if playStore, fullRoot, let notice = status?.play_integrity, !notice.isEmpty {
@@ -184,17 +202,13 @@ struct RootDevToolsView: View {
                     .wbFont(WbType.label)
                     .foregroundStyle(WbColor.warning)
             }
-            if fullRoot {
-                Divider()
-                autoGrantRow
-            }
         }
     }
 
     private var modeLabel: String {
         switch status?.root.mode ?? device?.root.mode {
-        case "magisk": return t("完整 Root", "Full root")
-        case "adb": return "Shell root"
+        case "magisk": return t("完整 Root", "Full Root")
+        case "adb": return "Shell Root"
         default: return t("无 Root", "Not rooted")
         }
     }
@@ -261,8 +275,8 @@ struct RootDevToolsView: View {
 
     private var modulesBlock: some View {
         VStack(alignment: .leading, spacing: WbSpace.sm) {
-            Text(t("Magisk 模块", "Magisk modules")).wbFont(WbType.title)
-            HStack(spacing: WbSpace.sm) {
+            Text(t("Magisk 模块", "Magisk modules")).wbFont(WbType.label)
+            ActionFlowLayout(spacing: 8) {
                 Button(t("安装模块…", "Install module…")) { choose(["zip"]) { pending = .init(kind: .installModule($0), title: t("安装模块？", "Install module?"), detail: t("将安装 \($0.lastPathComponent) 并重启设备。请先保存游戏进度。", "Install \($0.lastPathComponent) and reboot the device. Save your game first.")) } }
                     .buttonStyle(.bordered)
                     .disabled(!running || working)
@@ -287,7 +301,7 @@ struct RootDevToolsView: View {
     private var propsBlock: some View {
         VStack(alignment: .leading, spacing: WbSpace.sm) {
             HStack {
-                Text(t("设备标识（构建属性）", "Build identity")).wbFont(WbType.title)
+                Text(t("设备标识（构建属性）", "Build identity")).wbFont(WbType.label)
                 Spacer()
                 if canProps, !propsEditing {
                     Button(t("编辑…", "Edit…")) {
@@ -320,14 +334,13 @@ struct RootDevToolsView: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: WbSpace.sm) {
-                    ForEach(Self.propFields, id: \.self) { field in
-                        HStack {
-                            Text(propLabel(field)).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).frame(width: 110, alignment: .leading)
-                            TextField(propPlaceholder(field), text: Binding(
+                    DeviceToolForm {
+                        ForEach(Self.propFields, id: \.self) { field in
+                            TextField(propLabel(field), text: Binding(
                                 get: { propsDraft[field] ?? "" },
-                                set: { propsDraft[field] = $0 }))
+                                set: { propsDraft[field] = $0 }), prompt: Text(propPlaceholder(field)))
                                 .textFieldStyle(.roundedBorder)
-                                .frame(maxWidth: 220)
+                                .accessibilityLabel(propLabel(field))
                                 .disabled(propsSaving)
                         }
                     }
@@ -345,7 +358,7 @@ struct RootDevToolsView: View {
                                             detail: t("之后的下一次启动会执行冷启动。请先保存游戏进度。",
                                                       "The next start will be a cold boot. Save your game first."))
                         }
-                        .buttonStyle(.borderedProminent).disabled(propsSaving)
+                        .buttonStyle(.borderedProminent).tint(WbColor.accent).disabled(propsSaving)
                         Button(t("取消", "Cancel")) { propsEditing = false; propsError = "" }
                             .buttonStyle(.bordered)
                             .disabled(propsSaving)
@@ -404,7 +417,7 @@ struct RootDevToolsView: View {
     private var certsBlock: some View {
         VStack(alignment: .leading, spacing: WbSpace.sm) {
             HStack {
-                Text(t("系统 CA 证书", "System CA certificates")).wbFont(WbType.title)
+                Text(t("系统 CA 证书", "System CA certificates")).wbFont(WbType.label)
                 Spacer()
                 Button(t("添加…", "Add…")) { choose(["pem", "crt", "cer", "der"]) { url in
                     pending = .init(kind: .installCert(url),
@@ -493,7 +506,7 @@ struct RootDevToolsView: View {
             capabilitiesLoaded = true
             if case .success(let value) = result {
                 capabilities = Self.commandIDs(value)
-                if canCerts { loadCerts() }
+                if canCerts, running, fullRoot { loadCerts() }
             }
         }
         model.call("device.props.get", ["device": id]) { result in
@@ -520,8 +533,11 @@ struct RootDevToolsView: View {
     }
 
     private func loadCerts() {
-        guard canCerts else { return }
+        guard canCerts, running, fullRoot, !certsBusy else { return }
+        certsBusy = true
         model.call("root.cacert.list", ["device": id]) { result in
+            certsBusy = false
+            guard model.devices.contains(where: { $0.id == id && $0.running }) else { certsError = ""; return }
             switch result {
             case .success(let value):
                 if let list = try? model.decode(value, as: CertList.self) {
@@ -585,8 +601,6 @@ struct RootDevToolsView: View {
             run("root.cacert.install", ["device": id, "path": url.path], restart: true) { loadCerts() }
         case .removeCert(let file):
             run("root.cacert.remove", ["device": id, "cert": file], restart: true) { loadCerts() }
-        case .revert:
-            run("root.set", ["device": id, "mode": "none"]) { statusText = ""; load() }
         case .saveProps(let values, let reset):
             propsSaving = true
             propsError = ""

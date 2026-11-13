@@ -62,6 +62,7 @@ final class PlayerTransport: ObservableObject {
     let mapping = KeyMappingStore()
 
     var onFrame: ((CGImage, Int) -> Void)?
+    private(set) var lastFrame: CGImage?
     var onStatus: ((String) -> Void)?
     var onFrameSize: ((Int, Int) -> Void)?
     /// Optional measurement hooks. Normal app launches leave these nil.
@@ -560,6 +561,7 @@ final class PlayerTransport: ObservableObject {
     }
 
     private func display(_ image: CGImage, width: Int, height: Int, rotation: Int, measurement: PlayerFrameProbeSample?) {
+        lastFrame = image
         stats.recordFrame(width: width, height: height, rotation: rotation,
                           at: ProcessInfo.processInfo.systemUptime)
         if !didReceiveFrame {
@@ -1189,6 +1191,8 @@ final class SidebarState: ObservableObject {
 
 final class GameWindowController: NSObject, NSWindowDelegate {
     var onClose: (() -> Void)?
+    var canClose: (() -> Bool)?
+    var stopDeviceOnClose = true
     var onWarning: ((String) -> Void)?
     let transport = PlayerTransport()
     let chrome = PlayerChromeState()
@@ -1698,7 +1702,7 @@ final class GameWindowController: NSObject, NSWindowDelegate {
             transport.onStatus?(t("请先停止录屏并等待保存完成", "Stop recording and wait for it to finish saving first", transport.language))
             return false
         }
-        return true
+        return canClose?() ?? true
     }
 
     func windowWillClose(_ notification: Notification) {

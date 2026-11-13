@@ -3,7 +3,7 @@
 // window/help), the Dock menu and the small CenterModel helpers those need.
 // Every action goes through the existing CenterModel/palette actions, so the
 // menus cannot drift from the window UI; the Device menu acts on the key
-// window's device (a player window) and falls back to the center's selection.
+// window's device (a player window) or an explicitly named device submenu.
 
 import AppKit
 import Combine
@@ -49,6 +49,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         case delete
         case details
         case snapshots
+        case tools
         case rootTools
         case installAPK
         case sendFile
@@ -173,32 +174,47 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
     /// window's device and the live device list.
     private func rebuildDeviceMenu(_ menu: NSMenu) {
         menu.removeAllItems()
-        let keyDevice = targetDevice()
-        let header = NSMenuItem(title: keyDevice.map { t("当前设备：\($0.name)", "Current device: \($0.name)") }
-                                      ?? t("没有选中的设备", "No device selected"),
-                                action: nil, keyEquivalent: "")
-        header.isEnabled = false
-        menu.addItem(header)
+        if let device = targetDevice() {
+            let header = NSMenuItem(title: t("当前设备：\(device.name)", "Current device: \(device.name)"), action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            addDeviceCommands(to: menu, id: device.id)
+            menu.addItem(.separator())
+        }
+        for device in model?.devices ?? [] {
+            let entry = NSMenuItem(title: device.name, action: nil, keyEquivalent: "")
+            let submenu = NSMenu(title: device.name)
+            addDeviceCommands(to: submenu, id: device.id)
+            entry.submenu = submenu
+            menu.addItem(entry)
+        }
+        if !(model?.devices.isEmpty ?? true) { menu.addItem(.separator()) }
+        menu.addItem(menuItem(t("新建设备…", "New Device…"), #selector(newDeviceAction), "n"))
+    }
+
+    private func addDeviceCommands(to menu: NSMenu, id: String) {
+        func add(_ title: String, _ command: DeviceCommand) {
+            let item = deviceMenuItem(title, command, "")
+            item.representedObject = id
+            menu.addItem(item)
+        }
+        add(t("打开设备窗口", "Open Device Window"), .open)
+        add(t("启动", "Start"), .start)
+        add(t("停止", "Stop"), .stop)
+        add(t("重启", "Restart"), .restart)
         menu.addItem(.separator())
-        menu.addItem(deviceMenuItem(t("打开设备窗口", "Open Device Window"), .open, ""))
-        menu.addItem(deviceMenuItem(t("启动", "Start"), .start, ""))
-        menu.addItem(deviceMenuItem(t("停止", "Stop"), .stop, ""))
-        menu.addItem(deviceMenuItem(t("重启", "Restart"), .restart, ""))
+        add(t("编辑设备…", "Edit Device…"), .edit)
+        add(t("设备详情…", "Device Details…"), .details)
+        add(t("管理快照…", "Manage Snapshots…"), .snapshots)
+        add(t("设备工具…", "Device Tools…"), .tools)
+        add(t("Root 管理…", "Root Management…"), .rootTools)
         menu.addItem(.separator())
-        menu.addItem(deviceMenuItem(t("编辑设备…", "Edit Device…"), .edit, ""))
-        menu.addItem(deviceMenuItem(t("设备详情…", "Device Details…"), .details, ""))
-        menu.addItem(deviceMenuItem(t("管理快照…", "Manage Snapshots…"), .snapshots, ""))
-        menu.addItem(deviceMenuItem(t("Root 工具", "Root Tools"), .rootTools, ""))
+        add(t("安装 APK…", "Install APK…"), .installAPK)
+        add(t("发送文件…", "Send File…"), .sendFile)
+        add(t("截图", "Screenshot"), .screenshot)
+        add(t("录屏", "Record Screen"), .record)
         menu.addItem(.separator())
-        menu.addItem(deviceMenuItem(t("安装 APK…", "Install APK…"), .installAPK, ""))
-        menu.addItem(deviceMenuItem(t("发送文件…", "Send File…"), .sendFile, ""))
-        menu.addItem(deviceMenuItem(t("截图", "Screenshot"), .screenshot, ""))
-        menu.addItem(deviceMenuItem(t("录屏", "Record Screen"), .record, ""))
-        menu.addItem(.separator())
-        menu.addItem(deviceMenuItem(t("删除设备…", "Delete Device…"), .delete, ""))
-        menu.addItem(.separator())
-        let newDevice = menuItem(t("新建设备…", "New Device…"), #selector(newDeviceAction), "n")
-        menu.addItem(newDevice)
+        add(t("删除设备…", "Delete Device…"), .delete)
     }
 
     private func deviceMenuItem(_ title: String, _ command: DeviceCommand, _ key: String) -> NSMenuItem {
@@ -214,6 +230,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         menu.addItem(menuItem(t("命令面板…", "Command Palette…"), #selector(openPaletteAction), "k"))
         menu.addItem(menuItem(t("后台任务…", "Background Tasks…"), #selector(openTasksAction), "j"))
         menu.addItem(menuItem(t("刷新设备", "Refresh Devices"), #selector(refreshDevicesAction), "r"))
+        menu.addItem(menuItem(t("打开截图目录", "Open Screenshots Folder"), #selector(openScreenshotFolderAction)))
         menu.addItem(.separator())
         let appearance = NSMenu(title: t("外观", "Appearance"))
         for (tag, title) in [(0, t("跟随系统", "System")), (1, t("浅色", "Light")), (2, t("深色", "Dark"))] {
@@ -285,8 +302,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
 
     // MARK: - Key window context
 
-    /// The device a menu command applies to: the key player window's device,
-    /// else the center's selected device.
+    /// Only a player window supplies an implicit device target.
     func targetDevice() -> Device? { targetDevice(for: NSApp.keyWindow) }
 
     /// The same rule with an explicit window, so the key-window mapping can be
@@ -296,7 +312,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         if let window, let id = playerDeviceID(for: window) {
             return model.devices.first { $0.id == id }
         }
-        return model.devices.first { $0.id == model.selected }
+        return nil
     }
 
     /// The player window for `window`, when it is one.
@@ -340,6 +356,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         model?.refresh()
         model?.refreshJobs()
     }
+    @objc private func openScreenshotFolderAction() { model?.openScreenshotFolder() }
     @objc private func toggleCenterDetails() { showCenter(); model?.detailsVisible.toggle() }
     @objc private func focusDeviceSearch() { showCenter(); model?.hidePalette(); model?.searchFocusRequest += 1 }
     @objc private func toggleSidebarAction() {
@@ -385,6 +402,8 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         case .snapshots:
             showCenter()
             model?.runPaletteAction(.snapshots(device.id))
+        case .tools:
+            model?.runPaletteAction(.advancedTools(device.id))
         case .rootTools:
             model?.runPaletteAction(.rootTools(device.id))
         case .installAPK:
@@ -399,7 +418,9 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
     }
 
     @objc private func deviceAction(_ sender: NSMenuItem) {
-        guard let command = DeviceCommand(rawValue: sender.tag), let device = targetDevice() else { return }
+        guard let command = DeviceCommand(rawValue: sender.tag),
+              let id = sender.representedObject as? String,
+              let device = model?.devices.first(where: { $0.id == id }) else { return }
         run(command, device: device)
     }
 
@@ -432,14 +453,16 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
             return true
         }
         if item.action == #selector(deviceAction(_:)) {
-            guard let command = DeviceCommand(rawValue: item.tag), let device = targetDevice() else { return false }
+            guard let command = DeviceCommand(rawValue: item.tag), let id = item.representedObject as? String,
+                  let device = model.devices.first(where: { $0.id == id }) else { return false }
             switch command {
             case .open, .details, .snapshots: return true
             case .start: return device.stopped
             case .stop: return !device.stopped
             case .restart: return device.running
             case .edit, .delete: return device.stopped
-            case .rootTools, .installAPK, .sendFile, .screenshot, .record: return device.running
+            case .tools, .rootTools: return true
+            case .installAPK, .sendFile, .screenshot, .record: return device.running
             }
         }
         return true

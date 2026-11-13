@@ -17,17 +17,20 @@ final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
     private let model: CenterModel
     private var subscriptions = Set<AnyCancellable>()
     private let toolbar = NSToolbar(identifier: "jidr.preferences")
+    private var lastCategory: Int?
     private var titles: [String] {
-        [model.text("通用", "General"), model.text("设备默认值", "Device defaults"),
+        [model.text("通用", "General"), model.text("设备策略", "Device policies"),
          model.text("数据与工具", "Data & tools"), model.text("高级", "Advanced"), model.text("关于", "About")]
     }
     private let symbols = ["gearshape", "iphone", "externaldrive", "slider.horizontal.3", "info.circle"]
     init(model: CenterModel) {
         self.model = model
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 360),
-                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                              styleMask: [.titled, .closable],
                               backing: .buffered, defer: false)
-        window.contentMinSize = NSSize(width: 640, height: 340)
+        window.collectionBehavior.insert(.fullScreenNone)
+        window.standardWindowButton(.miniaturizeButton)?.isEnabled = false
+        window.standardWindowButton(.zoomButton)?.isEnabled = false
         window.isReleasedWhenClosed = false
         super.init(window: window)
         toolbar.delegate = self
@@ -45,6 +48,13 @@ final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
     required init?(coder: NSCoder) { nil }
     private func updateChrome() {
         let selected = min(4, max(0, model.settingsCategory))
+        if lastCategory != selected, let window {
+            let heights: [CGFloat] = [360, 460, 500, 400, 340]
+            let oldFrame = window.frame
+            let frame = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: 700, height: heights[selected]))
+            window.setFrame(NSRect(x: oldFrame.minX, y: oldFrame.maxY - frame.height, width: frame.width, height: frame.height), display: true)
+            lastCategory = selected
+        }
         window?.title = titles[selected]
         window?.appearance = model.windowAppearance
         toolbar.selectedItemIdentifier = .init("jidr.preferences.\(selected)")
@@ -79,9 +89,11 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate, NSSearchFieldD
     private let model: CenterModel
     private weak var window: NSWindow?
     let searchField = NSSearchField()
+    private var searchWidthConstraint: NSLayoutConstraint?
     private var subscriptions = Set<AnyCancellable>()
     private var focusRequest = 0
     private let toolbar = NSToolbar(identifier: "jidr.center")
+    private let viewSwitch = NSSegmentedControl(labels: ["", ""], trackingMode: .selectOne, target: nil, action: nil)
     private var showingEmptyLibrary: Bool?
     private var populatedConfiguration: [NSToolbarItem.Identifier]?
 
@@ -90,6 +102,12 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate, NSSearchFieldD
         self.window = window
         model.centerWindow = window
         super.init()
+        viewSwitch.target = self
+        viewSwitch.action = #selector(viewChanged)
+        viewSwitch.setImage(NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: "Grid"), forSegment: 0)
+        viewSwitch.setImage(NSImage(systemSymbolName: "list.bullet", accessibilityDescription: "List"), forSegment: 1)
+        viewSwitch.setToolTip(model.text("网格视图", "Grid view"), forSegment: 0)
+        viewSwitch.setToolTip(model.text("列表视图", "List view"), forSegment: 1)
         searchField.delegate = self
         searchField.sendsSearchStringImmediately = true
         searchField.target = self
@@ -120,7 +138,8 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate, NSSearchFieldD
             }
             showingEmptyLibrary = empty
             if empty, !model.deviceQuery.isEmpty { model.deviceQuery = "" }
-            let identifiers = empty ? emptyItems : (populatedConfiguration ?? populatedItems)
+            let identifiers = (empty ? emptyItems : (populatedConfiguration ?? populatedItems))
+                .filter { $0.rawValue != "jidr.details" }
             if empty, window?.firstResponder === searchField.currentEditor() {
                 window?.makeFirstResponder(nil)
             }
@@ -135,12 +154,20 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate, NSSearchFieldD
         searchField.placeholderString = model.text("搜索设备", "Search devices")
         searchField.setAccessibilityLabel(searchField.placeholderString)
         searchField.isEnabled = backgroundEnabled
+        viewSwitch.selectedSegment = model.gridView ? 0 : 1
+        viewSwitch.isEnabled = backgroundEnabled
         if searchField.stringValue != model.deviceQuery { searchField.stringValue = model.deviceQuery }
         if focusRequest != model.searchFocusRequest {
             focusRequest = model.searchFocusRequest
             if backgroundEnabled { window?.makeFirstResponder(searchField) }
         }
         for item in toolbar.items {
+            if item.itemIdentifier.rawValue == "jidr.view" { continue }
+            if item.itemIdentifier.rawValue == "jidr.new", let button = item.view as? NSButton {
+                button.title = model.text("新建手机", "New phone")
+                button.isEnabled = model.sheet == nil
+                continue
+            }
             guard item.itemIdentifier != Self.searchID else {
                 item.label = model.text("搜索设备", "Search devices")
                 continue
@@ -150,26 +177,50 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate, NSSearchFieldD
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.searchID, .init("jidr.new"), .init("jidr.palette"), .init("jidr.tasks"),
-         .init("jidr.refresh"), .init("jidr.details"), .init("jidr.settings"), .flexibleSpace, .space]
+        [Self.searchID, .init("jidr.new"), .init("jidr.view"), .init("jidr.palette"), .init("jidr.tasks"),
+         .init("jidr.refresh"), .init("jidr.settings"), .flexibleSpace, .space]
     }
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         model.isEmptyDeviceLibrary ? emptyItems : populatedItems
     }
     private var emptyItems: [NSToolbarItem.Identifier] {
-        [.flexibleSpace, .init("jidr.tasks"), .init("jidr.settings")]
+        [.init("jidr.new"), .flexibleSpace, .init("jidr.tasks"), .init("jidr.settings")]
     }
     private var populatedItems: [NSToolbarItem.Identifier] {
-        [.init("jidr.new"), .flexibleSpace, Self.searchID, .init("jidr.palette"),
-         .init("jidr.tasks"), .init("jidr.refresh"), .init("jidr.details")]
+        [.init("jidr.new"), .flexibleSpace, Self.searchID, .init("jidr.view"), .init("jidr.settings")]
     }
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         if identifier == Self.searchID {
             let item = NSSearchToolbarItem(itemIdentifier: identifier)
             item.searchField = searchField
+            item.preferredWidthForSearchField = 200
+            if searchWidthConstraint == nil {
+                let width = searchField.widthAnchor.constraint(equalToConstant: 200)
+                width.isActive = true
+                searchWidthConstraint = width
+            }
             item.label = model.text("搜索设备", "Search devices")
             item.visibilityPriority = .high
+            return item
+        }
+        if identifier.rawValue == "jidr.view" {
+            let item = NSToolbarItem(itemIdentifier: identifier)
+            item.view = viewSwitch
+            item.label = model.text("视图", "View")
+            item.paletteLabel = item.label
+            return item
+        }
+        if identifier.rawValue == "jidr.new" {
+            let item = NSToolbarItem(itemIdentifier: identifier)
+            let button = NSButton(title: model.text("新建手机", "New phone"), target: self, action: #selector(newDevice))
+            button.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
+            button.imagePosition = .imageLeading
+            button.bezelStyle = .rounded
+            button.toolTip = model.text("新建设备", "New device")
+            item.view = button
+            item.label = model.text("新建手机", "New phone")
+            item.paletteLabel = item.label
             return item
         }
         let item = NSToolbarItem(itemIdentifier: identifier)
@@ -189,13 +240,14 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate, NSSearchFieldD
         }
         item.label = title
         item.paletteLabel = title
-        item.toolTip = title
+        item.toolTip = item.itemIdentifier.rawValue == "jidr.palette" ? model.text("搜索命令 ⌘K", "Search commands ⌘K") : title
         item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
         item.target = self
         item.isEnabled = model.sheet == nil
         item.autovalidates = false
     }
     @objc private func searchChanged() { if backgroundEnabled { model.deviceQuery = searchField.stringValue } }
+    @objc private func viewChanged() { model.gridView = viewSwitch.selectedSegment == 0; model.keyboardDevice = nil }
     func controlTextDidChange(_ notification: Notification) { searchChanged() }
     @objc private func newDevice() { model.present(.newDevice) }
     @objc private func palette() { model.togglePalette() }
@@ -217,7 +269,9 @@ struct CenterWindowChrome: NSViewRepresentable {
         required init?(coder: NSCoder) { nil }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
-            if let window, chrome == nil { chrome = CenterToolbarController(model: model, window: window) }
+            if let window, chrome == nil {
+                chrome = CenterToolbarController(model: model, window: window)
+            }
         }
     }
 }

@@ -47,28 +47,54 @@ struct Device: Identifiable, Decodable, Equatable {
         default: return status.state
         }
     }
-    var profileLabel: String { profile.replacingOccurrences(of: "_", with: " ").capitalized }
+    var profileLabel: String { DevicePresentation.profile(profile) }
     var androidVersion: String {
         let known = [28:"9",29:"10",30:"11",31:"12",32:"12L",33:"13",34:"14",35:"15",36:"16"]
         return known[image.api].map { "Android \($0) · API \(image.api)" } ?? "Android API \(image.api)"
     }
+    var androidVersionShort: String {
+        let known = [28:"9",29:"10",30:"11",31:"12",32:"12L",33:"13",34:"14",35:"15",36:"16"]
+        return known[image.api].map { "Android \($0)" } ?? "Android API \(image.api)"
+    }
     /// Image tag as users read it (same mapping as the Slint launcher).
     var imageLabel: String { Self.imageTagLabel(image.tag) }
     static func imageTagLabel(_ tag: String) -> String {
-        switch tag {
-        case "google_apis": return "Google APIs"
-        case "google_apis_playstore", "playstore": return "Play Store"
-        case "default": return "AOSP"
-        case "aosp_atd": return "AOSP ATD"
-        case "google_atd": return "Google ATD"
-        default: return tag.replacingOccurrences(of: "_", with: " ")
-        }
+        DevicePresentation.imageTag(tag)
     }
 }
 struct Details: Decodable {
     let device: Device
     let config: [String:String]
     let disk_usage: UInt64?
+}
+struct DeviceHardware: Equatable {
+    let width: String
+    let height: String
+    let memory: String
+    let cores: String
+    let density: String
+
+    init(config: [String: String]) {
+        func value(_ key: String) -> String {
+            guard let raw = config[key], let number = Int(raw), number > 0 else { return "—" }
+            return String(number)
+        }
+        width = value("hw.lcd.width")
+        height = value("hw.lcd.height")
+        memory = value("hw.ramSize")
+        cores = value("hw.cpu.ncore")
+        density = value("hw.lcd.density")
+    }
+
+    func summary(language: Int) -> String {
+        let cpu = language == 0 ? "\(cores) cores" : "\(cores) 核"
+        return "\(width) × \(height) · \(memory) MB · \(cpu) · \(density) DPI"
+    }
+
+    func gridSummary(language: Int) -> String {
+        let cpu = language == 0 ? "\(cores) cores" : "\(cores) 核"
+        return "\(width) × \(height) · \(density) DPI\n\(memory) MB · \(cpu)"
+    }
 }
 struct AndroidApp: Identifiable, Decodable {
     var id: String { package }
@@ -117,12 +143,30 @@ private final class ReadBuffer {
     var data = Data()
 }
 
+struct DeviceDeletionTarget: Equatable {
+    let id: String
+    let name: String
+}
+
 final class CenterModel: ObservableObject {
     @Published var devices: [Device] = []
     @Published var deviceListLoaded = false
+    @Published var gridView = false
     var isEmptyDeviceLibrary: Bool { deviceListLoaded && devices.isEmpty }
     @Published var selected: String?
+    @Published private(set) var deviceThumbnails: [String: CGImage] = [:]
+    @Published private(set) var cardHardware: [String: DeviceHardware] = [:]
+    private var cardHardwareQueue: [String] = []
+    private var cardHardwareInFlight: String?
+    private var cardHardwareGeneration: [String: Int] = [:]
+    /// Visible list focus used only for keyboard navigation, never as a menu target.
+    @Published var keyboardDevice: String?
+    var listHasKeyboardFocus = false
     @Published var details: Details?
+    @Published var detailsLoading = false
+    @Published var detailsError: String?
+    var detailsReadTimeout: TimeInterval = 8
+    private var readDeadlines: [Int: DispatchWorkItem] = [:]
     @Published var apps: [AndroidApp] = []
     @Published var appsLoading = false
     @Published var appsError: String?
@@ -130,13 +174,52 @@ final class CenterModel: ObservableObject {
     private let appListLoader = AppListLoader<AppList>()
     @Published var notice = ""
     @Published var busy = Set<String>()
+    private var pendingWindowStops = Set<String>()
+    private var stoppingDevices = Set<String>()
     @Published var recording = Set<String>()
     @Published private var requestProgress: [Int:String] = [:]
     @Published private var bootProgress: [String:Double] = [:]
     @Published var language = 1
     @Published var appearance = 0
     weak var centerWindow: NSWindow?
-    @Published var deviceQuery = ""
+    @Published var deviceQuery = "" {
+        didSet {
+            if oldValue != deviceQuery { searchDeviceApps(); reconcileSearchSelection() }
+        }
+    }
+    @Published private(set) var appSearchMatches: [String: String] = [:]
+    private var appSearchGeneration = 0
+    private var appSearchWork: DispatchWorkItem?
+    var filteredDevices: [Device] {
+        devices.filter { deviceQuery.isEmpty || $0.name.localizedCaseInsensitiveContains(deviceQuery) || appSearchMatches[$0.id] != nil }
+    }
+    private func searchDeviceApps() {
+        appSearchGeneration += 1
+        let generation = appSearchGeneration
+        let query = deviceQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        appSearchWork?.cancel()
+        appSearchMatches = [:]
+        guard !query.isEmpty else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.appSearchGeneration == generation else { return }
+            for device in self.devices where device.running {
+                self.call("app.list", ["device": device.id]) { [weak self] result in
+                    guard let self, self.appSearchGeneration == generation,
+                          self.devices.contains(where: { $0.id == device.id && $0.running }),
+                          let value = try? result.get(), let apps = try? self.decode(value, as: AppList.self),
+                          let match = apps.apps.first(where: { $0.name.localizedCaseInsensitiveContains(query) || $0.package.localizedCaseInsensitiveContains(query) }) else { return }
+                    self.appSearchMatches[device.id] = match.name
+                }
+            }
+        }
+        appSearchWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+    private func reconcileSearchSelection() {
+        if let id = selected, !filteredDevices.contains(where: { $0.id == id }) {
+            setDeviceSelection(nil)
+        }
+    }
     @Published var detailsVisible = true
     @Published var settingsCategory = 0
     private(set) var settingsWindow: SettingsWindowController?
@@ -189,7 +272,23 @@ final class CenterModel: ObservableObject {
     @Published private(set) var quitReason: String?
     @Published var sheet: CenterSheet?
     @Published var searchFocusRequest = 0
-    @Published var deleteRequested = false
+    @Published var deleteTarget: DeviceDeletionTarget?
+    var deleteRequested: Bool {
+        get { deleteTarget != nil }
+        set { if !newValue { deleteTarget = nil } }
+    }
+    func requestDeletion(_ id: String) {
+        guard let device = devices.first(where: { $0.id == id }), device.stopped, !busy.contains(id) else { return }
+        deleteTarget = DeviceDeletionTarget(id: id, name: device.name)
+    }
+    func confirmDeletion(_ target: DeviceDeletionTarget) {
+        deleteTarget = nil
+        guard let device = devices.first(where: { $0.id == target.id }), device.stopped, !busy.contains(target.id) else {
+            showError(text("设备状态已变化，请重新确认删除目标。", "The device state changed. Review the deletion target again."))
+            return
+        }
+        operation("device.delete", id: target.id)
+    }
     @Published var reinstallPrompt: ReinstallPrompt?
     @Published var paletteQuery = "" { didSet { if paletteSelection != 0 { paletteSelection = 0 } } }
     @Published var paletteSelection = 0
@@ -219,7 +318,7 @@ final class CenterModel: ObservableObject {
     private var detailGeneration = 0
     private var selectionCleared = false
     private(set) var players: [String:GameWindowController] = [:]
-    private var advancedWindows: [String:AdvancedToolsWindowController] = [:]
+    private var deviceToolPanels: [String:DeviceToolsPanelController] = [:]
     private var openingPlayers = Set<String>()
     /// Last launch state handed to a player window, so device refreshes do not
     /// reapply it (reapplying `.running` would reset the window's status).
@@ -269,6 +368,7 @@ final class CenterModel: ObservableObject {
     /// Requests the state the center needs from a fresh bridge: preferences,
     /// paths, devices and jobs (also used after a reconnect).
     private func bootstrapBridge() {
+        for id in Array(cardHardware.keys) { refreshCardHardware(id) }
         call("center.prefs.get") { [weak self] result in
             if case .success(let value) = result, let prefs = value as? [String:Any] {
                 self?.language = prefs["language"] as? Int ?? 1
@@ -307,6 +407,8 @@ final class CenterModel: ObservableObject {
     private func failPendingRequests() {
         resetRefreshTracking()
         let pending = Array(callbacks.values)
+        for work in readDeadlines.values { work.cancel() }
+        readDeadlines.removeAll()
         callbacks.removeAll(); progressCallbacks.removeAll(); mutations.removeAll()
         requestDevices.removeAll(); requestProgress.removeAll(); requestMethods.removeAll(); bootProgress.removeAll()
         for done in pending { done(.failure(connectionEndedError())) }
@@ -370,7 +472,7 @@ final class CenterModel: ObservableObject {
         onlineSince = Date()
         health.recordSuccess()
         startHeartbeat()
-        if wasReconnecting { showToast(text("已重新连接到后台服务。", "Reconnected to the background service.")) }
+        if wasReconnecting { notice = ""; showToast(text("已重新连接到后台服务。", "Reconnected to the background service.")) }
     }
 
     /// Manual retry from the disconnected banner; starts a fresh backoff run.
@@ -422,9 +524,8 @@ final class CenterModel: ObservableObject {
         }
     }
 
-    /// The palette shows eight rows (Slint shows eight): keyboard selection
-    /// only moves through the rows the user can see.
-    var paletteVisibleCount: Int { min(8, paletteFiltered.count) }
+    /// The viewport scrolls; every matching entry is keyboard-accessible.
+    var paletteResultCount: Int { paletteFiltered.count }
 
     var connectionLabel: String {
         switch connection {
@@ -450,8 +551,20 @@ final class CenterModel: ObservableObject {
         if let device = params["device"] as? String { requestDevices[id] = device }
         let readOnly = ["device.list", "device.details", "app.list", "app.inspect", "image.list", "profile.list", "snapshot.list", "sdk.status", "settings.get", "cache.list", "center.about", "center.paths", "center.prefs.get", "center.quit", "battery.get", "gps.get", "network.get", "network.proxy.get", "sensor.get", "logcat.dump", "root.cacert.list", "device.props.get", "dev.get", "clipboard.get", "jobs.list", "jobs.get", "daemon.status"]
         if !readOnly.contains(method) { mutations.insert(id) }
+        if method == "device.details" {
+            let timeout = DispatchWorkItem { [weak self] in
+                guard let self, let completion = self.callbacks.removeValue(forKey: id) else { return }
+                self.readDeadlines.removeValue(forKey: id)
+                self.progressCallbacks.removeValue(forKey: id)
+                self.requestMethods.removeValue(forKey: id)
+                self.requestDevices.removeValue(forKey: id)
+                completion(.failure(CenterMessageError(message: self.text("读取设备详情超时，请重试。", "Loading device details timed out. Try again."))))
+            }
+            readDeadlines[id] = timeout
+            DispatchQueue.main.asyncAfter(deadline: .now() + detailsReadTimeout, execute: timeout)
+        }
         do { try input.fileHandleForWriting.write(contentsOf:data + Data([10])) }
-        catch { callbacks.removeValue(forKey:id); progressCallbacks.removeValue(forKey:id); mutations.remove(id); requestDevices.removeValue(forKey:id); done(.failure(error)) }
+        catch { readDeadlines.removeValue(forKey: id)?.cancel(); requestMethods.removeValue(forKey: id); callbacks.removeValue(forKey:id); progressCallbacks.removeValue(forKey:id); mutations.remove(id); requestDevices.removeValue(forKey:id); done(.failure(error)) }
     }
     /// Split NDJSON and parse each event on the serial parse queue. Only the
     /// resulting dictionaries are handed to the main thread, keeping line
@@ -474,6 +587,9 @@ final class CenterModel: ObservableObject {
             var immediateRefresh = false
             if let event = event["event"] as? [String:Any], let topic = event["topic"] as? String,
                let data = event["data"] as? [String:Any], let device = data["device"] as? String {
+                if topic == "device.updated", cardHardware[device] != nil || cardHardwareInFlight == device || cardHardwareQueue.contains(device) {
+                    refreshCardHardware(device)
+                }
                 if topic == "device.boot", let progress = data["progress"] as? Double {
                     // Boot progress is a cheap, high-frequency signal: update it
                     // immediately but never trigger a full list refresh for it.
@@ -504,6 +620,7 @@ final class CenterModel: ObservableObject {
         requestProgress.removeValue(forKey:id)
         progressCallbacks.removeValue(forKey:id)
         requestDevices.removeValue(forKey:id)
+        readDeadlines.removeValue(forKey: id)?.cancel()
         requestMethods.removeValue(forKey:id)
         mutations.remove(id)
         guard let completion = callbacks.removeValue(forKey:id) else { return }
@@ -653,8 +770,8 @@ final class CenterModel: ObservableObject {
     func presentDeviceSheet(_ sheet: CenterSheet, device: String) {
         hidePalette()
         if selected != device || details?.device.id != device {
-            pendingSheetAfterDetails = sheet
             select(device)
+            pendingSheetAfterDetails = sheet
         } else { present(sheet) }
     }
 
@@ -666,6 +783,20 @@ final class CenterModel: ObservableObject {
         // A sheet owns its keyboard while it is up (its own Esc/Return before
         // the center's globals); do not steal keys across windows.
         guard sheet == nil else { return false }
+        if !paletteOpen, !tasksOpen, (listHasKeyboardFocus || Self.isDeviceListFocused(event.window)) {
+            if event.keyCode == 48 { keyboardDevice = nil }
+            if event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty {
+                let ids = filteredDevices.map(\.id)
+                if event.keyCode == 125 || event.keyCode == 126, !ids.isEmpty {
+                    moveKeyboardDevice(by: event.keyCode == 125 ? 1 : -1)
+                    return true
+                }
+                if (event.keyCode == 36 || event.keyCode == 76), let id = keyboardDevice, ids.contains(id) {
+                    focusOrOpenDeviceWindow(id)
+                    return true
+                }
+            }
+        }
         let input = ShortcutInput(
             key: Self.keyName(for: event),
             command: event.modifierFlags.contains(.command),
@@ -692,17 +823,34 @@ final class CenterModel: ObservableObject {
             guard paletteOpen || tasksOpen else { return false }
             closeOverlay()
         case .paletteUp:
-            paletteSelection = PaletteCatalog.move(selection: paletteSelection, by: -1, count: paletteVisibleCount)
+            paletteSelection = PaletteCatalog.move(selection: paletteSelection, by: -1, count: paletteResultCount)
         case .paletteDown:
-            paletteSelection = PaletteCatalog.move(selection: paletteSelection, by: 1, count: paletteVisibleCount)
+            paletteSelection = PaletteCatalog.move(selection: paletteSelection, by: 1, count: paletteResultCount)
         case .paletteConfirm:
-            let entries = Array(paletteFiltered.prefix(paletteVisibleCount))
+            let entries = paletteFiltered
             guard paletteSelection >= 0, paletteSelection < entries.count else { return false }
             let entry = entries[paletteSelection]
             closeOverlay()
             runPaletteAction(entry.action)
         }
         return true
+    }
+
+    func moveKeyboardDevice(by delta: Int) {
+        let ids = filteredDevices.map(\.id)
+        guard !ids.isEmpty else { return }
+        let current = keyboardDevice.flatMap { ids.firstIndex(of: $0) }
+        let index = current.map { max(0, min(ids.count - 1, $0 + delta)) } ?? (delta > 0 ? 0 : ids.count - 1)
+        keyboardDevice = ids[index]
+    }
+
+    private static func isDeviceListFocused(_ window: NSWindow?) -> Bool {
+        var view = window?.firstResponder as? NSView
+        while let current = view {
+            if current.identifier?.rawValue == "jidr-device-list" { return true }
+            view = current.superview
+        }
+        return false
     }
 
     private static func keyName(for event: NSEvent) -> String {
@@ -727,6 +875,11 @@ final class CenterModel: ObservableObject {
     var quitBlockReason: String? {
         if hasActiveRecording || !recording.isEmpty { return text("请先停止录屏并等待保存完成。", "Stop recording and wait for it to be saved first.") }
         if hasPlayers { return self.text("请先关闭游戏窗口。", "Close the game window first.") }
+        return quitWorkBlockReason
+    }
+
+    var quitWorkBlockReason: String? {
+        if hasActiveRecording || !recording.isEmpty { return text("请先停止录屏并等待保存完成。", "Stop recording and wait for it to be saved first.") }
         let active = activeJobs.count
         if active > 0 {
             return self.text("还有 \(active) 个后台任务正在运行。取消它们或等待完成后再退出。", "\(active) background task(s) are still running. Cancel them or wait for them to finish before quitting.")
@@ -929,23 +1082,64 @@ final class CenterModel: ObservableObject {
         if refreshPending { refreshPending = false; refresh() }
     }
     private func applyDeviceList(_ list: [Device]) {
+        let ids = Set(list.map(\.id))
+        if cardHardware.keys.contains(where: { !ids.contains($0) }) {
+            cardHardware = cardHardware.filter { ids.contains($0.key) }
+        }
+        cardHardwareQueue.removeAll { !ids.contains($0) }
         let previousID = selected
         let previousState = devices.first(where: { $0.id == previousID })?.status.state
-        if devices != list { devices = list }
+        if devices != list {
+            devices = list
+            if !deviceQuery.isEmpty { searchDeviceApps() }
+        }
         if !deviceListLoaded { deviceListLoaded = true }
         for device in list where device.running || device.stopped { bootProgress.removeValue(forKey: device.id) }
         if !list.contains(where: { $0.id == selected }), selected != nil || !selectionCleared {
-            if let next = list.first?.id { select(next) }
+            if let next = filteredDevices.first?.id { select(next) }
             else {
                 let deliberatelyCleared = selectionCleared
                 setDeviceSelection(nil)
                 selectionCleared = deliberatelyCleared
             }
         } else if let id = selected,
-                  details == nil || previousState != list.first(where: { $0.id == id })?.status.state {
+                  (details == nil && detailsError == nil && !detailsLoading) || previousState != list.first(where: { $0.id == id })?.status.state {
             load(id)
         }
+        reconcileSearchSelection()
         syncPlayerLaunchStates()
+    }
+
+    func loadCardHardware(_ id: String) {
+        guard cardHardware[id] == nil, cardHardwareInFlight != id,
+              !cardHardwareQueue.contains(id) else { return }
+        cardHardwareQueue.append(id)
+        loadNextCardHardware()
+    }
+
+    func refreshCardHardware(_ id: String) {
+        cardHardware[id] = nil
+        cardHardwareGeneration[id, default: 0] += 1
+        if !cardHardwareQueue.contains(id) { cardHardwareQueue.append(id) }
+        loadNextCardHardware()
+    }
+
+    private func loadNextCardHardware() {
+        guard cardHardwareInFlight == nil, !cardHardwareQueue.isEmpty else { return }
+        let id = cardHardwareQueue.removeFirst()
+        let generation = cardHardwareGeneration[id, default: 0]
+        cardHardwareInFlight = id
+        call("device.details", ["device": id]) { [weak self] result in
+            guard let self else { return }
+            self.cardHardwareInFlight = nil
+            if self.cardHardwareGeneration[id, default: 0] == generation,
+               self.devices.contains(where: { $0.id == id }),
+               case .success(let value) = result,
+               let details = try? self.decode(value, as: Details.self), details.device.id == id {
+                self.cardHardware[id] = DeviceHardware(config: details.config)
+            }
+            self.loadNextCardHardware()
+        }
     }
 
     /// A successful command reply alone does not prove deletion. Read back the
@@ -987,24 +1181,34 @@ final class CenterModel: ObservableObject {
             detailGeneration += 1
             appListLoader.cancel()
             pendingSheetAfterDetails = nil
-            selected = nil; details = nil; apps = []
+            selected = nil; details = nil; detailsLoading = false; detailsError = nil; apps = []
             appsLoading = false; appsError = nil; appsNote = nil
             return
         }
         if selected != id { select(id) }
     }
-    func select(_ id:String) { selectionCleared = false; selected = id; details = nil; apps = []; appsNote = nil; load(id) }
+    func select(_ id:String) {
+        pendingSheetAfterDetails = nil
+        if !filteredDevices.contains(where: { $0.id == id }) { deviceQuery = "" }
+        selectionCleared = false; selected = id; details = nil; apps = []; appsNote = nil; load(id)
+    }
+    func retryDetails() { if let id = selected { load(id) } }
     func load(_ id:String) {
         detailGeneration += 1; let generation = detailGeneration
+        detailsLoading = true; detailsError = nil
         call("device.details", ["device":id]) { [weak self] result in
             guard let self, self.selected == id, self.detailGeneration == generation else { return }
+            self.detailsLoading = false
             do {
                 self.details = try self.decode(result.get(), as:Details.self)
                 if let pending = self.pendingSheetAfterDetails, self.details?.device.id == id {
                     self.pendingSheetAfterDetails = nil
                     self.sheet = pending
                 }
-            } catch { self.notice = error.localizedDescription }
+            } catch {
+                self.details = nil
+                self.detailsError = self.readable(error)
+            }
         }
         appListLoader.cancel()
         appsError = nil
@@ -1040,22 +1244,25 @@ final class CenterModel: ObservableObject {
     }
     func operation(_ method:String, id:String, params:[String:Any] = [:], then: (() -> Void)? = nil) {
         guard !busy.contains(id) else { return }
+        if method == "device.stop" { stoppingDevices.insert(id) }
         busy.insert(id); var args = params; args["device"] = id
         call(method,args,onProgress:{ [weak self] _, job, _ in
             if let job { self?.ownJobs.insert(job) }
         }) { [weak self] result in
             guard let self else { return }
+            if method == "device.stop" { self.stoppingDevices.remove(id) }
             if method == "device.delete", case .success = result {
                 self.verifyDeletion(id, then: then)
                 return
             }
             self.busy.remove(id)
+            let stopPending = self.pendingWindowStops.contains(id)
             switch result {
             case .success:
                 self.showToast(self.text("操作完成", "Completed"))
                 self.refresh(); self.refreshJobs()
                 if self.selected == id { self.load(id) }
-                then?()
+                if !stopPending { then?() }
             case .failure(let error):
                 let message = error.localizedDescription
                 if method == "file.install", message.contains("INSTALL_FAILED_INSUFFICIENT_STORAGE") {
@@ -1065,6 +1272,7 @@ final class CenterModel: ObservableObject {
                 } else { self.showError(self.readable(error)) }
                 self.refresh(); self.refreshJobs()
             }
+            self.drainWindowStop(id)
         }
     }
     static func isSignatureMismatch(_ message: String) -> Bool {
@@ -1098,6 +1306,7 @@ final class CenterModel: ObservableObject {
             }
             self.refresh(); self.refreshJobs()
             if self.selected == id { self.load(id) }
+            self.drainWindowStop(id)
         }
     }
     /// Opens (or reveals) the device window. A device that is still starting
@@ -1105,12 +1314,15 @@ final class CenterModel: ObservableObject {
     /// the window's Start button wired back to `start(_:)` (parity with the
     /// Slint device tab, which keeps the screen visible in every state).
     func openGame(_ id:String, launch: PlayerLaunchState? = nil) {
+        guard !pendingWindowStops.contains(id), !stoppingDevices.contains(id) else { return }
         if let existing = players[id], let window = existing.window {
             if GameReconnectPolicy.permits(disconnected:existing.transport.connectionEnded,
                                            editing:existing.transport.mapping.editing,
                                            recording:existing.transport.recording != .idle,
                                            recordingUnknown:existing.transport.recordingStateUnknown) {
+                existing.stopDeviceOnClose = false
                 window.performClose(nil)
+                if players[id] != nil { existing.stopDeviceOnClose = true }
                 guard players[id] == nil else { return }
             } else {
                 window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps:true); return
@@ -1120,6 +1332,7 @@ final class CenterModel: ObservableObject {
         call("device.details", ["device":id]) { [weak self] result in
             guard let self else { return }
             self.openingPlayers.remove(id)
+            guard !self.pendingWindowStops.contains(id), !self.stoppingDevices.contains(id) else { return }
             do {
                 let details = try self.decode(result.get(), as:Details.self)
                 guard let width = Int(details.config["hw.lcd.width"] ?? ""),
@@ -1139,10 +1352,18 @@ final class CenterModel: ObservableObject {
                 player.transport.onReconnect = { [weak self] in self?.openGame(id) }
                 player.transport.onAdvanced = { [weak self] in self?.openAdvanced(id, name:details.device.name) }
                 player.onWarning = { [weak self] message in self?.showError(message) }
-                player.onClose = { [weak self] in
+                player.canClose = { [weak self] in
+                    guard let self, self.recording.contains(id) else { return true }
+                    self.showError(self.text("请先停止录屏并等待保存完成。", "Stop recording and wait for it to be saved first."))
+                    return false
+                }
+                player.onClose = { [weak self, weak player] in
+                    if let frame = player?.transport.lastFrame { self?.rememberThumbnail(frame, device: id) }
+                    let shouldStop = player?.stopDeviceOnClose == true
                     self?.players.removeValue(forKey: id)
                     self?.appliedLaunch.removeValue(forKey: id)
                     self?.onPlayersChanged?()
+                    if shouldStop { self?.stopAfterWindowClose(id) }
                 }
                 self.players[id] = player
                 player.open(device:id,width:width,height:height,executable:self.bridgeExecutable,displayName:details.device.name,quality:quality,dataDirectory:dataDirectory,
@@ -1153,15 +1374,21 @@ final class CenterModel: ObservableObject {
         }
     }
     func openAdvanced(_ id:String, name:String, root:Bool = false) {
-        if let existing = advancedWindows[id], let window = existing.window {
-            window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps:true); return
+        var owner = NSApp.keyWindow
+        while let parent = owner?.parent { owner = parent }
+        while let parent = owner?.sheetParent { owner = parent }
+        owner = owner ?? centerWindow
+        NSApp.activate(ignoringOtherApps: true)
+        if let existing = deviceToolPanels[id] {
+            existing.present(relativeTo: owner, root: root)
+        } else {
+            let controller = DeviceToolsPanelController(model: self, id: id, name: name, root: root)
+            controller.onClose = { [weak self] in self?.deviceToolPanels.removeValue(forKey: id) }
+            deviceToolPanels[id] = controller
+            controller.present(relativeTo: owner, root: root)
         }
-        let controller = AdvancedToolsWindowController(model:self, id:id, name:name, root:root)
-        controller.onClose = { [weak self] in self?.advancedWindows.removeValue(forKey:id) }
-        advancedWindows[id] = controller
-        controller.showWindow(nil); controller.window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps:true)
     }
+    func closeDeviceTools(_ id: String) { deviceToolPanels[id]?.close() }
     func reconnectAfterRestart(_ id:String) {
         guard let player = players[id], GameReconnectPolicy.permits(disconnected:player.transport.connectionEnded,
                 editing:player.transport.mapping.editing,recording:player.transport.recording != .idle,
@@ -1169,20 +1396,53 @@ final class CenterModel: ObservableObject {
         openGame(id)
     }
     func isPlayerOpen(_ id:String) -> Bool { players[id] != nil }
+    func rememberThumbnail(_ frame: CGImage, device id: String) {
+        let scale = min(128.0 / CGFloat(frame.width), 224.0 / CGFloat(frame.height), 1)
+        let width = max(1, Int(CGFloat(frame.width) * scale))
+        let height = max(1, Int(CGFloat(frame.height) * scale))
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+        context.interpolationQuality = .high
+        context.draw(frame, in: CGRect(x: 0, y: 0, width: width, height: height))
+        if let thumbnail = context.makeImage() { deviceThumbnails[id] = thumbnail }
+    }
     var hasPlayers: Bool { !players.isEmpty }
     var hasActiveRecording: Bool { players.values.contains { $0.transport.recording != .idle } }
-    func closePlayers() { for player in Array(players.values) { player.window?.performClose(nil) } }
+    func closePlayers() {
+        for (id, player) in Array(players) {
+            player.stopDeviceOnClose = false
+            player.window?.performClose(nil)
+            if players[id] === player { player.stopDeviceOnClose = true }
+        }
+    }
     func closePlayerForStop(_ id:String) -> Bool {
         if recording.contains(id) || players[id]?.transport.recording != .idle && players[id] != nil {
             showError(text("请先停止录屏并等待保存完成。", "Stop recording and wait for it to be saved first.")); return false
         }
-        players[id]?.window?.performClose(nil)
+        let player = players[id]
+        player?.stopDeviceOnClose = false
+        player?.window?.performClose(nil)
+        if players[id] != nil { player?.stopDeviceOnClose = true }
         if players[id] != nil { showError(text("请先关闭游戏窗口。", "Close the game window first.")); return false }
         return true
     }
     func stop(_ id:String) {
+        guard !busy.contains(id) else { return }
         guard closePlayerForStop(id) else { return }
         operation("device.stop",id:id)
+    }
+    private func stopAfterWindowClose(_ id: String) {
+        if busy.contains(id) {
+            pendingWindowStops.insert(id)
+        } else {
+            operation("device.stop", id: id)
+        }
+    }
+    @discardableResult private func drainWindowStop(_ id: String) -> Bool {
+        guard pendingWindowStops.remove(id) != nil else { return false }
+        operation("device.stop", id: id)
+        return true
     }
     func start(_ id:String, coldBoot:Bool = false) {
         guard let device = devices.first(where: { $0.id == id }) else { return }
@@ -1207,10 +1467,11 @@ final class CenterModel: ObservableObject {
         }) { [weak self] result in
             guard let self else { return }
             self.busy.remove(id)
+            let stopPending = self.pendingWindowStops.contains(id)
             switch result {
             case .success:
                 self.applyLaunchState(.running, to: id)
-                self.showToast(self.text("设备已启动。", "Device started."))
+                if !stopPending { self.showToast(self.text("设备已启动。", "Device started.")) }
             case .failure(let error):
                 let reason = self.readable(error)
                 self.applyLaunchState(.stopped(reason: reason), to: id)
@@ -1218,6 +1479,7 @@ final class CenterModel: ObservableObject {
             }
             self.refresh(); self.refreshJobs()
             if self.selected == id { self.load(id) }
+            self.drainWindowStop(id)
         }
     }
     func restart(_ id:String) {
@@ -1282,10 +1544,14 @@ final class CenterModel: ObservableObject {
         }
     }
     func close() {
+        for controller in Array(deviceToolPanels.values) { controller.close() }
+        deviceToolPanels.removeAll()
         paletteWindow?.close(); paletteWindow = nil
         taskPanel?.close(); taskPanel = nil
         settingsWindow?.close(); settingsWindow = nil
         stopping = true
+        for work in readDeadlines.values { work.cancel() }
+        readDeadlines.removeAll()
         stopHeartbeat()
         jobsTimer?.invalidate(); jobsTimer = nil
         toastDismissWork?.cancel(); toastDismissWork = nil

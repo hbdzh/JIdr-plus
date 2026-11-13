@@ -14,7 +14,7 @@ struct CommandPaletteView: View {
     private func paletteRowLabel(_ entry: PaletteEntry) -> String {
         entry.subtitle.isEmpty ? entry.title : entry.title + "，" + entry.subtitle
     }
-    private var visible: [PaletteEntry] { Array(entries.prefix(model.paletteVisibleCount)) }
+    private var visible: [PaletteEntry] { entries }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -44,10 +44,10 @@ struct CommandPaletteView: View {
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        VStack(alignment: .leading, spacing: 2) {
+                        LazyVStack(alignment: .leading, spacing: 2) {
                             ForEach(Array(visible.enumerated()), id: \.element.id) { index, entry in
                                 if index == 0 || visible[index - 1].kind != entry.kind {
-                                    Text(entry.kind == .device ? model.text("设备", "Devices") : model.text("操作", "Actions"))
+                                    Text(entry.kind == .device ? model.text("设备", "Devices") : entry.kind == .setting ? model.text("设置", "Settings") : model.text("操作", "Actions"))
                                         .font(.system(size: 11, weight: .medium)).foregroundStyle(WbColor.textSecondary)
                                         .padding(.horizontal, 12).padding(.top, index == 0 ? 4 : 10).padding(.bottom, 4)
                                 }
@@ -81,6 +81,9 @@ struct CommandPaletteView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .modifier(LightweightPanelSurface())
+        .onChange(of: entries.count) { count in
+            model.paletteSelection = min(model.paletteSelection, max(0, count - 1))
+        }
         .tint(WbColor.accent)
         .preferredColorScheme(model.colorScheme)
         .environment(\.locale, Locale(identifier: model.language == 0 ? "en" : "zh-Hans"))
