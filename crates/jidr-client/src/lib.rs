@@ -278,10 +278,23 @@ impl Client {
         params: Value,
         on_progress: impl Fn(&Job),
     ) -> JidrResult<Value> {
+        self.run_with_started(method, params, |_| {}, on_progress)
+            .await
+    }
+
+    /// Like `run`, but reports the job ID as soon as the daemon accepts it.
+    pub async fn run_with_started(
+        &self,
+        method: &str,
+        params: Value,
+        on_started: impl Fn(Uuid),
+        on_progress: impl Fn(&Job),
+    ) -> JidrResult<Value> {
         let v = self.call(method, params).await?;
         let Some(job) = pending_job(&v) else {
             return Ok(v);
         };
+        on_started(job);
         let mut last = None;
         loop {
             let j = self.wait_job(job, Some(Duration::from_secs(1))).await?;
@@ -357,13 +370,13 @@ async fn read_loop(
             Ok(0) | Err(_) => break,
             Ok(_) => {}
         }
-        let Ok(v) = serde_json::from_str::<Value>(&line) else {
+        let Ok(mut v) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
         if v.get("method").and_then(Value::as_str) == Some(EVENT_METHOD) {
             if let Some(ev) = v
-                .get("params")
-                .and_then(|p| serde_json::from_value::<Event>(p.clone()).ok())
+                .get_mut("params")
+                .and_then(|p| serde_json::from_value::<Event>(p.take()).ok())
             {
                 let _ = events.send(ev);
             }
@@ -469,6 +482,69 @@ pub fn error_from_rpc(e: &RpcError) -> JidrError {
 mod tests {
     use super::{Pending, PendingRequest, bundled_jidr, reap_child};
     use std::path::Path;
+
+    #[tokio::test]
+    async fn event_decoding_preserves_order_payloads_and_response_routing() {
+        use tokio::io::{AsyncWriteExt, BufReader};
+
+        let (client, mut peer) = tokio::net::UnixStream::pair().unwrap();
+        let (reader, _writer) = client.into_split();
+        let pending: Pending = Default::default();
+        let (response, result) = tokio::sync::oneshot::channel();
+        let (unanswered, abandoned) = tokio::sync::oneshot::channel();
+        pending.lock().unwrap().insert(7, response);
+        pending.lock().unwrap().insert(8, unanswered);
+        let (events, mut receiver) = tokio::sync::broadcast::channel(16);
+        let reading = tokio::spawn(super::read_loop(
+            BufReader::new(reader),
+            pending.clone(),
+            events,
+        ));
+        let payload = serde_json::json!({
+            "z": [{ "text": "设备 العربية 🙂\n".repeat(4096), "n": u64::MAX }],
+            "a": null,
+        });
+        let messages = [
+            "invalid JSON\n".to_string(),
+            "{\"method\":\"event\",\"params\":{\"topic\":\"missing-data\"}}\n".into(),
+            "{\"method\":\"event\",\"params\":null}\n".into(),
+            format!(
+                "{}\n",
+                serde_json::json!({
+                    "jsonrpc": "2.0", "method": "event",
+                    "params": { "topic": "first", "data": payload, "extra": true },
+                })
+            ),
+            "{\"jsonrpc\":\"2.0\",\"id\":7,\"result\":{\"ok\":true}}\n".into(),
+            "{\"method\":\"event\",\"params\":{\"topic\":\"second\",\"data\":null}}\n".into(),
+            "{\"method\":\"event\",\"params\":42}\n".into(),
+            "{\"method\":\"event\",\"params\":{\"topic\":\"third\",\"data\":[1,false]}}\n".into(),
+        ];
+        for message in messages {
+            peer.write_all(message.as_bytes()).await.unwrap();
+        }
+        drop(peer);
+        tokio::time::timeout(std::time::Duration::from_secs(2), reading)
+            .await
+            .unwrap()
+            .unwrap();
+        let first = receiver.try_recv().unwrap();
+        assert_eq!(first.topic, "first");
+        assert_eq!(first.data, payload);
+        let second = receiver.try_recv().unwrap();
+        assert_eq!(second.topic, "second");
+        assert!(second.data.is_null());
+        let third = receiver.try_recv().unwrap();
+        assert_eq!(third.topic, "third");
+        assert_eq!(third.data, serde_json::json!([1, false]));
+        assert!(receiver.try_recv().is_err());
+        assert_eq!(
+            result.await.unwrap().result,
+            Some(serde_json::json!({ "ok": true }))
+        );
+        assert!(abandoned.await.is_err(), "EOF still wakes pending requests");
+        assert!(pending.lock().unwrap().is_empty());
+    }
 
     fn touch(p: &Path) {
         std::fs::create_dir_all(p.parent().unwrap()).unwrap();

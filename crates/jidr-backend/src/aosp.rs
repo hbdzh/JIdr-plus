@@ -25,6 +25,8 @@ use crate::{
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(90);
 /// How long a graceful shutdown (which saves the quick-boot snapshot) may take.
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(120);
+/// A connected but unresponsive gRPC server must not block shutdown forever.
+const SHUTDOWN_REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Exit status of an emulator we spawned: `None` while running.
 pub type ExitWatch = watch::Receiver<Option<Option<i32>>>;
@@ -132,6 +134,7 @@ impl AospBackend {
             .try_clone()
             .ctx(ErrorCode::Sdk, "duplicating log handle")?;
         let args = Self::args(spec, opts, ports);
+        cancel.check()?;
         tracing::info!(avd = %spec.avd, ?ports, "starting emulator: {}", args.join(" "));
         let mut child = Command::new(&spec.emulator)
             .args(&args)
@@ -168,6 +171,10 @@ impl AospBackend {
             .await;
         if result.is_err() {
             kill(pid).await;
+            // Do not report a cancelled boot as stopped until its child has
+            // exited; otherwise a new start can race the old emulator's AVD lock.
+            let mut exit = rx.clone();
+            let _ = timeout(Duration::from_secs(5), exit.wait_for(Option::is_some)).await;
             self.exits
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -377,19 +384,14 @@ impl Backend for AospBackend {
     }
 
     async fn stop(&self, instance: &InstanceInfo) -> JidrResult<()> {
-        let graceful = match grpc::connect(instance).await {
-            Ok((mut c, _)) => c
-                .set_vm_state(VmRunState {
-                    state: RunState::Shutdown as i32,
-                })
-                .await
-                .is_ok(),
-            Err(_) => false,
-        };
-        if !(graceful && self.wait_exit(instance, SHUTDOWN_TIMEOUT).await) {
+        let request = request_shutdown(instance, SHUTDOWN_REQUEST_TIMEOUT).await;
+        // On timeout the command may have been accepted: allow the full
+        // snapshot window before considering a forced stop.
+        let should_wait = shutdown_may_have_started(&request);
+        if !(should_wait && self.wait_exit(instance, SHUTDOWN_TIMEOUT).await) {
             tracing::warn!(
                 pid = instance.pid,
-                graceful,
+                should_wait,
                 "emulator did not shut down; killing"
             );
             kill(instance.pid).await;
@@ -413,13 +415,15 @@ impl Backend for AospBackend {
     }
 
     async fn stop_for_quit(&self, instance: &InstanceInfo) -> JidrResult<()> {
-        let (mut controller, _) = grpc::connect(instance).await?;
-        controller
-            .set_vm_state(VmRunState {
-                state: RunState::Shutdown as i32,
-            })
-            .await
-            .map_err(|e| grpc::status_error("Shutdown", e))?;
+        match request_shutdown(instance, SHUTDOWN_REQUEST_TIMEOUT).await {
+            Ok(result) => result?,
+            // The emulator may have begun stopping despite a lost reply. Keep
+            // waiting without force so we do not misclassify it as running.
+            Err(_) => tracing::warn!(
+                pid = instance.pid,
+                "shutdown reply timed out; waiting for graceful exit"
+            ),
+        }
         if !self.wait_exit(instance, SHUTDOWN_TIMEOUT).await {
             return Err(JidrError::unexpected(format!(
                 "emulator process {} did not exit gracefully",
@@ -568,6 +572,33 @@ pub async fn process_alive(pid: u32) -> bool {
         .unwrap_or(true)
 }
 
+/// Bound both the gRPC connection and response. An accepted connection is not
+/// evidence that an unresponsive emulator will ever answer Shutdown.
+async fn request_shutdown(
+    instance: &InstanceInfo,
+    within: Duration,
+) -> Result<JidrResult<()>, tokio::time::error::Elapsed> {
+    timeout(within, async {
+        let (mut controller, _) = grpc::connect(instance).await?;
+        controller
+            .set_vm_state(VmRunState {
+                state: RunState::Shutdown as i32,
+            })
+            .await
+            .map_err(|e| grpc::status_error("Shutdown", e))?;
+        Ok(())
+    })
+    .await
+}
+
+/// A timeout does not prove the emulator ignored the command: it may already
+/// be writing a snapshot even though its gRPC reply was lost.
+fn shutdown_may_have_started(
+    response: &Result<JidrResult<()>, tokio::time::error::Elapsed>,
+) -> bool {
+    !matches!(response, Ok(Err(_)))
+}
+
 /// SIGKILL to `pid`'s children, then `pid`.
 async fn kill_tree(pid: u32) {
     for p in jidr_sdk::host::process_tree(pid).into_iter().rev() {
@@ -652,6 +683,43 @@ mod tests {
                 .wait_exit(&instance, Duration::from_millis(40))
                 .await
         );
+    }
+
+    #[tokio::test]
+    async fn shutdown_request_times_out_when_peer_never_responds() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let peer = tokio::spawn(async move {
+            let (_stream, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        let instance = InstanceInfo {
+            avd: "test".into(),
+            pid: std::process::id(),
+            console_port: 5554,
+            adb_port: 5555,
+            grpc_port: port,
+            adb_serial: "emulator-5554".into(),
+            grpc_token: "test".into(),
+            started_at: Utc::now(),
+            log_path: None,
+        };
+        let result = timeout(
+            Duration::from_secs(2),
+            request_shutdown(&instance, Duration::from_millis(100)),
+        )
+        .await;
+        let response = result.unwrap();
+        assert!(response.is_err(), "unresponsive gRPC request must time out");
+        assert!(
+            shutdown_may_have_started(&response),
+            "a lost reply must retain the full snapshot grace period"
+        );
+        assert!(!shutdown_may_have_started(&Ok(Err(JidrError::sdk(
+            "unreachable"
+        )))));
+        assert!(shutdown_may_have_started(&Ok(Ok(()))));
+        peer.abort();
     }
 
     #[tokio::test]

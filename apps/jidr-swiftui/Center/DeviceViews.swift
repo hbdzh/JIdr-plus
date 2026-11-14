@@ -1717,12 +1717,7 @@ private struct CenterAPKDrop: ViewModifier {
 struct CenterView: View {
     @ObservedObject var model: CenterModel
     @State private var appsPresented = false
-    private var centerSurface: Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-                ? NSColor.windowBackgroundColor : NSColor(srgbRed: 245/255, green: 245/255, blue: 247/255, alpha: 1)
-        })
-    }
+    private var centerSurface: Color { Color(nsColor: .underPageBackgroundColor) }
 
     var selectedDevice: Device? { model.devices.first(where: {$0.id == model.selected}) }
     private var filteredDevices: [Device] {
@@ -1763,11 +1758,9 @@ struct CenterView: View {
                         .padding(.bottom, WbSpace.sm)
                     }
                 }
-                .background(centerSurface)
             }
         }
         .frame(minWidth:800,minHeight:550)
-        .background { Rectangle().fill(.ultraThinMaterial).ignoresSafeArea(.container, edges: .top) }
         .background(CenterWindowChrome(model: model).frame(width: 0, height: 0))
         .environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
         .preferredColorScheme(model.colorScheme)
@@ -1836,12 +1829,22 @@ struct CenterView: View {
     // MARK: Layout
 
     private var layout: some View {
-        HSplitView {
+        navigationLayout
+    }
+
+    private var navigationLayout: some View {
+        NavigationSplitView(columnVisibility: Binding(
+            get: { model.sidebarVisible ? .all : .detailOnly },
+            set: { model.sidebarVisible = $0 != .detailOnly }
+        )) {
             DeviceLibrarySidebar(model: model)
-                .frame(minWidth: 210, idealWidth: 232, maxWidth: 240)
+                .navigationSplitViewColumnWidth(min: 250, ideal: 270, max: 300)
+        } detail: {
             Group {
                 if model.isEmptyDeviceLibrary {
                     emptyDeviceState
+                } else if model.showingAllDevices {
+                    AllDevicesView(model: model)
                 } else if let device = selectedDevice {
                     DeviceOverviewView(model: model, device: device) { appsPresented = true }
                         .id(device.id)
@@ -1852,6 +1855,10 @@ struct CenterView: View {
                 }
             }
             .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
+            // The native detail column extends beneath the glass sidebar.
+            // Keep its solid surface out of that leading safe-area inset so
+            // the system glass can sample the backdrop instead of a gray fill.
+            .background(centerSurface, ignoresSafeAreaEdges: [.top, .bottom, .trailing])
         }
         .overlay(alignment: .bottomTrailing) {
             if !model.isEmptyDeviceLibrary, let toast = model.toast {

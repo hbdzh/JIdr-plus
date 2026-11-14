@@ -68,6 +68,22 @@ fn line(v: &impl serde::Serialize) -> String {
     })
 }
 
+/// Borrow event data directly; retain the existing notification field order.
+fn event_line(event: &rpc::Event) -> String {
+    #[derive(serde::Serialize)]
+    struct EventNotification<'a> {
+        jsonrpc: &'static str,
+        method: &'static str,
+        params: &'a rpc::Event,
+    }
+
+    line(&EventNotification {
+        jsonrpc: "2.0",
+        method: rpc::EVENT_METHOD,
+        params: event,
+    })
+}
+
 pub(crate) async fn handle_connection(daemon: Arc<Daemon>, stream: UnixStream) {
     let (r, mut w) = stream.into_split();
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
@@ -421,16 +437,11 @@ impl Daemon {
             loop {
                 match rx.recv().await {
                     Ok(ev) => {
-                        if topics.is_empty()
-                            || topics.iter().any(|t| ev.topic.starts_with(t.as_str()))
+                        if (topics.is_empty()
+                            || topics.iter().any(|t| ev.topic.starts_with(t.as_str())))
+                            && tx.send(event_line(&ev)).is_err()
                         {
-                            let n = Notification::new(
-                                rpc::EVENT_METHOD,
-                                serde_json::to_value(&ev).unwrap_or(Value::Null),
-                            );
-                            if tx.send(line(&n)).is_err() {
-                                break;
-                            }
+                            break;
                         }
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
@@ -493,4 +504,30 @@ pub struct LogcatFollowParams {
     /// logcat filter specs.
     #[serde(default)]
     pub filter: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn borrowed_event_encoding_preserves_notification_bytes() {
+        for data in [
+            Value::Null,
+            json!([true, false, -7, u64::MAX, 0.125, "设备\n🙂"]),
+            json!({ "z": { "nested": [1, null, "العربية"] }, "a": "x".repeat(65536) }),
+        ] {
+            let event = rpc::Event {
+                topic: "device.test".into(),
+                data,
+            };
+            let original =
+                Notification::new(rpc::EVENT_METHOD, serde_json::to_value(&event).unwrap());
+            assert_eq!(event_line(&event), line(&original));
+            assert_eq!(
+                serde_json::from_str::<Notification>(&event_line(&event)).unwrap(),
+                original
+            );
+        }
+    }
 }

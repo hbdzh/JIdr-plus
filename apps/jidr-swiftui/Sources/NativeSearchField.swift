@@ -49,9 +49,16 @@ struct NativeSearchField: NSViewRepresentable {
 
 final class NativeSearchContainer: NSView {
     let field = NSSearchField()
-    override init(frame frameRect: NSRect) {
+    override init(frame frameRect: NSRect = .zero) {
         super.init(frame: frameRect)
         if #available(macOS 14.0, *) { clipsToBounds = false }
+        if #available(macOS 26.0, *) {
+            // Keep AppKit's rounded search geometry and focus mask while letting
+            // the system glass underneath provide the translucent bezel.
+            field.cell = GlassSearchCell()
+            field.isEditable = true
+            field.isSelectable = true
+        }
         field.sendsSearchStringImmediately = true
         field.controlSize = .large
         field.font = .systemFont(ofSize: 13)
@@ -59,14 +66,41 @@ final class NativeSearchContainer: NSView {
         field.isBezeled = true
         field.bezelStyle = .roundedBezel
         field.focusRingType = .exterior
-        field.drawsBackground = true
+        field.drawsBackground = !Self.supportsGlass
         field.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(field)
-        NSLayoutConstraint.activate([
-            field.leadingAnchor.constraint(equalTo: leadingAnchor),
-            field.trailingAnchor.constraint(equalTo: trailingAnchor),
-            field.centerYAnchor.constraint(equalTo: centerYAnchor)
-        ])
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView()
+            glass.cornerRadius = 15
+            glass.contentView = field
+            glass.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(glass)
+            NSLayoutConstraint.activate([
+                glass.leadingAnchor.constraint(equalTo: leadingAnchor),
+                glass.trailingAnchor.constraint(equalTo: trailingAnchor),
+                glass.topAnchor.constraint(equalTo: topAnchor),
+                glass.bottomAnchor.constraint(equalTo: bottomAnchor)
+            ])
+        } else {
+            addSubview(field)
+            NSLayoutConstraint.activate([
+                field.leadingAnchor.constraint(equalTo: leadingAnchor),
+                field.trailingAnchor.constraint(equalTo: trailingAnchor),
+                field.centerYAnchor.constraint(equalTo: centerYAnchor)
+            ])
+        }
     }
     required init?(coder: NSCoder) { nil }
+
+    private static var supportsGlass: Bool {
+        if #available(macOS 26.0, *) { return true }
+        return false
+    }
+}
+
+/// AppKit still draws the search contents and focus ring; only its opaque bezel
+/// is omitted, so the native glass view can show through.
+private final class GlassSearchCell: NSSearchFieldCell {
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView) {
+        super.drawInterior(withFrame: cellFrame, in: controlView)
+    }
 }

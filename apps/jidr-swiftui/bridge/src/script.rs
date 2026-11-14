@@ -167,6 +167,7 @@ pub struct ScriptManager {
     device: String,
     display: DisplayInfo,
     recorder: Option<Recorder>,
+    pending_record_count: Option<(Instant, usize)>,
     playback: Option<Playback>,
 }
 
@@ -180,6 +181,7 @@ impl ScriptManager {
                 height: display_height,
             },
             recorder: None,
+            pending_record_count: None,
             playback: None,
         }
     }
@@ -221,10 +223,17 @@ impl ScriptManager {
         }
         if let Err(error) = recorder.record(event, now) {
             self.recorder = None;
+            self.pending_record_count = None;
             notify(json!({
                 "op":"record", "state":"failed",
                 "code": error_code(&error), "message": error.message,
             }));
+        } else {
+            let count = recorder.event_count();
+            let deadline = self
+                .pending_record_count
+                .map_or(now + Duration::from_millis(150), |(at, _)| at);
+            self.pending_record_count = Some((deadline, count));
         }
     }
 
@@ -282,14 +291,25 @@ impl ScriptManager {
     /// The next playback deadline for the input worker, or `None` when no
     /// script is playing. An idle (or paused) bridge arms no timer at all.
     pub fn next_tick(&self) -> Option<Instant> {
-        self.playback
+        let playback = self
+            .playback
             .as_ref()
             .filter(|playback| !playback.is_paused())
-            .map(|_| Instant::now() + Duration::from_millis(5))
+            .map(|_| Instant::now() + Duration::from_millis(5));
+        match (playback, self.pending_record_count.map(|(at, _)| at)) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (Some(at), None) | (None, Some(at)) => Some(at),
+            (None, None) => None,
+        }
     }
 
-    /// Advances playback by one tick. Due events are returned for injection.
+    /// Flush coalesced recording counts and advance playback.
     pub fn tick(&mut self, now: Instant) -> ScriptOutcome {
+        if self.pending_record_count.is_some_and(|(at, _)| at <= now)
+            && let Some((_, count)) = self.pending_record_count.take()
+        {
+            notify(json!({"op":"record", "state":"progress", "event_count":count}));
+        }
         let Some(playback) = self.playback.as_mut() else {
             return ScriptOutcome::default();
         };
@@ -311,7 +331,8 @@ impl ScriptManager {
             return ScriptOutcome::default();
         }
         self.recorder = Some(Recorder::new(now));
-        notify(json!({"op":"record","state":"recording"}));
+        self.pending_record_count = None;
+        notify(json!({"op":"record","state":"recording", "event_count":0}));
         ScriptOutcome::default()
     }
 
@@ -338,6 +359,7 @@ impl ScriptManager {
     }
 
     fn stop_recording(&mut self, name: &str, now: Instant) -> ScriptOutcome {
+        self.pending_record_count = None;
         let Some(recorder) = self.recorder.take() else {
             notify_error(NOT_RECORDING_CODE, "No operation recording is running");
             return ScriptOutcome::default();
@@ -371,6 +393,7 @@ impl ScriptManager {
     }
 
     fn cancel_recording(&mut self) -> ScriptOutcome {
+        self.pending_record_count = None;
         if self.recorder.take().is_none() {
             notify_error(NOT_RECORDING_CODE, "No operation recording is running");
             return ScriptOutcome::default();
@@ -930,6 +953,65 @@ mod tests {
         let temp = tempfile::tempdir().expect("temp dir");
         let manager = ScriptManager::new(temp.path().to_path_buf(), "dev".to_owned(), 576, 1280);
         (temp, manager)
+    }
+
+    #[test]
+    fn recording_can_be_saved_listed_and_played_with_requested_options() {
+        let (_temp, mut manager) = recording_manager();
+        let start = Instant::now();
+        manager.handle_command(&Command::ScriptRecordStart, start);
+        manager.record_user_command(
+            &Command::Key {
+                key: "ENTER".to_owned(),
+                down: true,
+            },
+            start,
+        );
+        manager.record_user_command(
+            &Command::Key {
+                key: "ENTER".to_owned(),
+                down: false,
+            },
+            start + Duration::from_millis(20),
+        );
+        assert_eq!(
+            manager.pending_record_count.map(|(_, count)| count),
+            Some(2)
+        );
+        assert!(manager.next_tick().is_some());
+        manager.tick(start + Duration::from_millis(200));
+        assert!(manager.pending_record_count.is_none());
+        manager.handle_command(
+            &Command::ScriptRecordStop {
+                name: "Recording".to_owned(),
+            },
+            start + Duration::from_millis(210),
+        );
+        let scripts = manager.store.list().expect("saved recording can be listed");
+        assert_eq!(scripts.len(), 1);
+        assert_eq!(scripts[0].event_count, 2);
+        let options =
+            json!({"mode":"count", "count":2, "duration_ms":0, "interval_ms":300, "speed":2.0});
+        manager.handle_command(
+            &Command::ScriptPlayStart {
+                id: scripts[0].id.to_string(),
+                options: Some(options),
+            },
+            start + Duration::from_secs(1),
+        );
+        let playback = manager
+            .playback
+            .as_ref()
+            .expect("saved recording starts playback");
+        assert_eq!(playback.options.count, 2);
+        assert_eq!(playback.options.interval_ms, 300);
+        assert_eq!(playback.options.speed, 2.0);
+        assert_eq!(manager.tick(start + Duration::from_secs(1)).events.len(), 1);
+        assert!(
+            manager
+                .handle_command(&Command::ScriptPlayStop, start + Duration::from_secs(1))
+                .release
+        );
     }
 
     #[test]

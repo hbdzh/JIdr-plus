@@ -6,6 +6,26 @@ device and explicit panel size; latency probes require show-taps to be enabled. 
 are written with `--json-out PATH`. Compare like-for-like device, scene, screen refresh
 rate, window size and quality. These measurements do not prove game/audio compatibility.
 
+## Rust control-path allocations (2026-11-14)
+
+The daemon counts active jobs without cloning their results, and clones only
+matching jobs for filtered lists. Event forwarding serializes borrowed data;
+the Rust client consumes the parsed event payload instead of deep-cloning it.
+Valid UTF-8 ADB output takes ownership of the existing byte buffer, retaining
+the previous lossy replacement behavior for invalid UTF-8. Budget estimates
+skip reading guest RAM only when a positive recorded peak already determines
+the result. Device persistence serializes borrowed fields instead of cloning
+the registry; disk writes and replacement still finish before success returns.
+
+The targeted offline suite (`cargo nextest run -p jidr-adb -p jidr-client
+-p jidr-daemon`) covers notification byte equality, event order and malformed
+messages, UTF-8/buffer ownership, mixed job states, budget fallbacks, and saved
+registry byte equality across all device statuses and populated optional fields.
+These changes retain the existing queues, deadlines, frame/input scheduling,
+rotation detection, connection lifetimes, budget policy and persistence timing.
+They remove control-path work; no foreground FPS, whole-app memory saving or
+real-device acceptance is claimed from these checks.
+
 ## Shared frame payload comparison (2026-11-12)
 
 The bridge now keeps immutable RGBA pixels alive with `Arc<Vec<u8>>`. A sole stdout

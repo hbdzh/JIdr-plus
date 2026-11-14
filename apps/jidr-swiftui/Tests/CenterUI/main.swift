@@ -117,20 +117,29 @@ require(window.titleVisibility == .hidden, "window title does not duplicate the 
 let centerToolbarIDs = window.toolbar!.items.map(\.itemIdentifier.rawValue)
 require(centerToolbarIDs.contains("jidr.palette") && centerToolbarIDs.contains("jidr.tasks") && centerToolbarIDs.contains("jidr.refresh"),
         "library toolbar exposes commands, tasks and refresh")
-require(!centerToolbarIDs.contains("jidr.view"), "the device library uses a persistent sidebar")
+require(centerToolbarIDs.first == "jidr.sidebar", "the native toolbar starts with the sidebar toggle")
+let sidebarToggle = window.toolbar!.items.first { $0.itemIdentifier.rawValue == "jidr.sidebar" }!
+require((sidebarToggle.view as? NSButton)?.isBordered == false, "sidebar toggle uses a borderless native button")
+require(NSApp.sendAction(sidebarToggle.action!, to: sidebarToggle.target, from: sidebarToggle), "sidebar toggle is actionable")
+pump()
+require(!model.sidebarVisible && descendants(window.contentView!, NSSearchField.self)
+    .filter { $0.identifier?.rawValue == "device-search" }.allSatisfy { $0.isHiddenOrHasHiddenAncestor || $0.visibleRect.isEmpty },
+        "the sidebar can be collapsed")
+require(NSApp.sendAction(sidebarToggle.action!, to: sidebarToggle.target, from: sidebarToggle), "sidebar can be reopened")
+pump()
+require(model.sidebarVisible, "the sidebar is visible after reopening")
 let sidebarSearch = descendants(window.contentView!, NSSearchField.self).first { $0.identifier?.rawValue == "device-search" }!
 require(sidebarSearch.placeholderString == "Search devices", "native sidebar search describes devices")
 require(sidebarSearch.isBezeled && sidebarSearch.bezelStyle == .roundedBezel,
-        "sidebar search uses its ordinary native rounded bezel")
+        "sidebar search preserves the native rounded search geometry")
 if #available(macOS 26.0, *) {
-    require(descendants(window.contentView!, NSGlassEffectView.self).isEmpty,
-            "the library has no custom liquid-glass search wrapper")
+    require(!sidebarSearch.drawsBackground && descendants(window.contentView!, NSGlassEffectView.self)
+        .contains { descendants($0, NSSearchField.self).contains { $0 === sidebarSearch } },
+            "sidebar search exposes the native translucent glass background")
 }
 
-require(descendants(window.contentView!, NSVisualEffectView.self).contains { $0.material == .sidebar },
-        "library uses the system sidebar material")
 require(descendants(window.contentView!, NSSplitView.self).contains { $0.isVertical && $0.arrangedSubviews.count == 2 },
-        "device sidebar and overview share a resizable native split")
+        "device sidebar and overview use the system navigation split")
 
 // Native sidebar selection loads the corresponding overview; clearing it
 // must also invalidate in-flight detail and app-list replies.
@@ -138,8 +147,15 @@ let originalID = model.selected!
 eventually("device sidebar is attached") { !descendants(window.contentView!, NSTableView.self).isEmpty }
 let libraryTable = descendants(window.contentView!, NSTableView.self).first { $0.accessibilityIdentifier() == "library-devices" }!
 require(libraryTable.style == .sourceList, "device navigation uses native source-list selection")
-libraryTable.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
-eventually("sidebar selection loads the corresponding overview") { model.details?.device.id == model.devices[1].id }
+require(!libraryTable.delegate!.tableView!(libraryTable, shouldSelectRow: 1), "the device section heading is not selectable")
+libraryTable.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+eventually("all-devices entry opens the library") { model.showingAllDevices && model.selected == nil }
+model.refresh()
+var allDevicesCheckpoint = false
+model.call("device.list") { _ in allDevicesCheckpoint = true }
+eventually("refresh preserves the library selection") { allDevicesCheckpoint && model.showingAllDevices && model.selected == nil }
+libraryTable.selectRowIndexes(IndexSet(integer: 3), byExtendingSelection: false)
+eventually("sidebar selection loads the corresponding overview") { !model.showingAllDevices && model.details?.device.id == model.devices[1].id }
 model.select(originalID)
 eventually("original overview is restored") { model.details?.device.id == originalID }
 model.setDeviceSelection(nil)

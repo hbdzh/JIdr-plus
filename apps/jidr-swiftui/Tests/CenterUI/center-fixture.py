@@ -23,6 +23,14 @@ for line in sys.stdin:
   print(json.dumps({"id":r["id"],"type":"error","message":"Synthetic detail read failed"}),flush=True);continue
  if m=="root.cacert.list" and d and d['status']['state']!='running':
   print(json.dumps({"id":r["id"],"type":"error","message":d['name']+" is not running; start it first"}),flush=True);continue
+ if m=="app.list" and os.environ.get("JIDR_UI_MANY_CONTENT")=="1":
+  apps=[{"package":f"com.example.app{i}","name":f"示例应用 {i}","icon":None} for i in range(1,17)]
+  print(json.dumps({"id":r["id"],"type":"result","result":{"apps":apps}}),flush=True);continue
+ if m=="snapshot.list" and os.environ.get("JIDR_UI_MANY_CONTENT")=="1":
+  snapshots=[{"name":f"测试快照 {i}","id":f"snap{i}","quick_boot":False,"restorable":True,"root_mode":"none","created_at":"2026-11-11T01:00:00Z","size_bytes":1048576} for i in range(1,9)]
+  print(json.dumps({"id":r["id"],"type":"result","result":{"device_root_mode":"none","snapshots":snapshots}}),flush=True);continue
+ if m=="snapshot.list" and os.environ.get("JIDR_UI_EMPTY_SNAPSHOTS")=="1":
+  print(json.dumps({"id":r["id"],"type":"result","result":{"device_root_mode":"none","snapshots":[]}}),flush=True);continue
  if m=="device.delete":
   if d is None:
    print(json.dumps({"id":r["id"],"type":"error","message":"No such preview device"}),flush=True);continue

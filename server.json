@@ -8,12 +8,12 @@
     "url": "https://github.com/hbdzh/JIdr-plus",
     "source": "github"
   },
-  "version": "0.4.0",
+  "version": "0.5.0",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/hbdzh/JIdr-plus/releases/download/v0.4.0/jidr-mcp-0.4.0-darwin-arm64.mcpb",
-      "fileSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "identifier": "https://github.com/hbdzh/JIdr-plus/releases/download/v0.5.0/jidr-mcp-0.5.0-darwin-arm64.mcpb",
+      "fileSha256": "316e44831c02a1124ae008ffe4d0113fc9298365533680593b6acd52d681080a",
       "transport": {
         "type": "stdio"
       }

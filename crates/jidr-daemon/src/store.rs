@@ -2,8 +2,90 @@
 
 use std::path::{Path, PathBuf};
 
-use jidr_core::{Device, ErrorCode, JidrError, JidrResult, ResultExt};
+use chrono::{DateTime, Utc};
+use jidr_core::{
+    Device, DeviceStatus, ErrorCode, ImageRef, JidrError, JidrResult, LaunchPrefs, ResultExt,
+    RootState,
+};
+use serde::{Serialize, Serializer};
 use uuid::Uuid;
+
+/// Same fields/order as Device, with runtime state removed, borrowing payloads.
+#[derive(Serialize)]
+struct PersistedDevice<'a> {
+    id: Uuid,
+    name: &'a str,
+    avd: &'a str,
+    profile: &'a str,
+    image: &'a ImageRef,
+    sdk_root: &'a Path,
+    root: &'a RootState,
+    agent_owned: bool,
+    created_at: &'a DateTime<Utc>,
+    launch: &'a LaunchPrefs,
+    status: &'a DeviceStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    footprint_mb: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auto_hibernate_minutes: Option<u32>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    base: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pool_base: Option<Uuid>,
+}
+
+impl<'a> From<&'a Device> for PersistedDevice<'a> {
+    fn from(device: &'a Device) -> Self {
+        // Exhaustive so adding a Device field requires reviewing persistence.
+        let Device {
+            id,
+            name,
+            avd,
+            profile,
+            image,
+            sdk_root,
+            root,
+            agent_owned,
+            created_at,
+            launch,
+            status,
+            runtime: _,
+            footprint_mb,
+            auto_hibernate_minutes,
+            base,
+            pool_base,
+        } = device;
+        Self {
+            id: *id,
+            name,
+            avd,
+            profile,
+            image,
+            sdk_root,
+            root,
+            agent_owned: *agent_owned,
+            created_at,
+            launch,
+            status: if status.is_active() {
+                &DeviceStatus::Stopped
+            } else {
+                status
+            },
+            footprint_mb: *footprint_mb,
+            auto_hibernate_minutes: *auto_hibernate_minutes,
+            base: *base,
+            pool_base: *pool_base,
+        }
+    }
+}
+
+struct PersistedDevices<'a>(&'a [Device]);
+
+impl Serialize for PersistedDevices<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_seq(self.0.iter().map(PersistedDevice::from))
+    }
+}
 
 #[derive(Debug)]
 pub struct DeviceStore {
@@ -38,20 +120,8 @@ impl DeviceStore {
                 .ctx(ErrorCode::Unexpected, format!("creating {}", dir.display()))?;
         }
         // Runtime fields are not persisted: a restart re-adopts running devices.
-        let persisted: Vec<Device> = self
-            .devices
-            .iter()
-            .cloned()
-            .map(|mut d| {
-                d.runtime = None;
-                if d.status.is_active() {
-                    d.status = jidr_core::DeviceStatus::Stopped;
-                }
-                d
-            })
-            .collect();
-        let json =
-            serde_json::to_vec_pretty(&persisted).ctx(ErrorCode::Unexpected, "encoding devices")?;
+        let json = serde_json::to_vec_pretty(&PersistedDevices(&self.devices))
+            .ctx(ErrorCode::Unexpected, "encoding devices")?;
         let tmp = self.path.with_extension("json.tmp");
         std::fs::write(&tmp, json)
             .ctx(ErrorCode::Unexpected, format!("writing {}", tmp.display()))?;
@@ -164,7 +234,7 @@ impl DeviceStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jidr_core::{DeviceRuntime, DeviceStatus, ImageRef};
+    use jidr_core::{DeviceRuntime, RootHealth, RootMode};
 
     fn device(name: &str) -> Device {
         Device {
@@ -189,6 +259,95 @@ mod tests {
             base: false,
             pool_base: None,
         }
+    }
+
+    #[test]
+    fn borrowed_persistence_matches_previous_bytes_and_preserves_live_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut populated = device("设备 العربية 🙂\n");
+        populated.root = RootState {
+            mode: RootMode::Magisk,
+            writable_system: true,
+            magisk_version: Some("30.0".into()),
+            patched_ramdisk_path: Some("/tmp/设备/ramdisk.img".into()),
+            verified_at: Some(Utc::now()),
+            health: RootHealth::Ok,
+            auto_grant_all: true,
+        };
+        populated.agent_owned = true;
+        populated.launch = LaunchPrefs {
+            ramdisk: Some("/tmp/设备/ramdisk.img".into()),
+            extra_args: vec!["-verbose".into(), "argument\nwith quotes \"".repeat(4096)],
+            gpu: Some("host".into()),
+            force_cold_boot: true,
+            quick_boot: Some(false),
+            camera_back: Some("webcam0".into()),
+            camera_front: Some("none".into()),
+            audio: Some(false),
+            resume_snapshot: Some("saved".into()),
+        };
+        populated.footprint_mb = Some(7800);
+        populated.auto_hibernate_minutes = Some(0);
+        populated.base = true;
+        populated.pool_base = Some(Uuid::new_v4());
+        let runtime = DeviceRuntime {
+            pid: 123,
+            console_port: 5554,
+            adb_serial: "emulator-5554".into(),
+            grpc_port: 8554,
+            started_at: Utc::now(),
+        };
+        let mut devices = Vec::new();
+        for template in [device("default"), populated] {
+            for status in [
+                DeviceStatus::Stopped,
+                DeviceStatus::Starting,
+                DeviceStatus::Booting,
+                DeviceStatus::Running,
+                DeviceStatus::Stopping,
+                DeviceStatus::Hibernated,
+                DeviceStatus::Crashed {
+                    reason: "失去连接\n\"error\"".into(),
+                    log: Some("/tmp/设备/emulator.log".into()),
+                },
+            ] {
+                for runtime in [None, Some(runtime.clone())] {
+                    let mut d = template.clone();
+                    d.status = status.clone();
+                    d.runtime = runtime;
+                    devices.push(d);
+                }
+            }
+        }
+
+        let path = dir.path().join("devices.json");
+        let mut store = DeviceStore {
+            path: path.clone(),
+            devices: devices.clone(),
+        };
+        // Keep the original cloning path as the byte-for-byte reference.
+        let previous: Vec<Device> = devices
+            .iter()
+            .cloned()
+            .map(|mut d| {
+                d.runtime = None;
+                if d.status.is_active() {
+                    d.status = DeviceStatus::Stopped;
+                }
+                d
+            })
+            .collect();
+        store.save().unwrap();
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            serde_json::to_vec_pretty(&previous).unwrap()
+        );
+        assert_eq!(store.devices, devices, "live state must not be modified");
+        assert_eq!(DeviceStore::load(&path).unwrap().devices, previous);
+        assert!(!path.with_extension("json.tmp").exists());
+        store.devices.clear();
+        store.save().unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"[]");
     }
 
     #[test]

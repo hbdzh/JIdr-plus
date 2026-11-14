@@ -241,6 +241,11 @@ impl State {
     }
 
     pub fn expected_mb(&self, d: &Device) -> u64 {
+        // A valid measured peak wins regardless of configured guest RAM.
+        // Avoid reading config.ini when its value cannot affect the result.
+        if let Some(mb) = d.footprint_mb.filter(|mb| *mb > 0) {
+            return u64::from(mb);
+        }
         crate::budget::expected_mb(self.ram_mb(d), d.footprint_mb)
     }
 
@@ -302,6 +307,7 @@ impl State {
         force: bool,
         cancel: &Cancel,
     ) -> JidrResult<Device> {
+        cancel.check()?;
         let d = self.with_store(|s| s.get(id).cloned())?;
         if d.base {
             return Err(JidrError::usage(format!(

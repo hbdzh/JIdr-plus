@@ -13,6 +13,12 @@ use tokio::process::{Child, Command};
 /// Default timeout for one adb invocation.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Reuse valid UTF-8 output without copying, preserving lossy decoding on error.
+fn output_text(bytes: Vec<u8>) -> String {
+    String::from_utf8(bytes)
+        .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned())
+}
+
 #[derive(Debug, Clone)]
 pub struct Adb {
     bin: PathBuf,
@@ -120,8 +126,8 @@ impl Adb {
             .map_err(|e| JidrError::unexpected(format!("adb {}: {e}", args.join(" "))))?;
         Ok(Output {
             status: out.status.code(),
-            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+            stdout: output_text(out.stdout),
+            stderr: output_text(out.stderr),
         })
     }
 
@@ -411,6 +417,25 @@ pub fn parse_install_failure(text: &str) -> Option<InstallFailure> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn output_decoding_matches_lossy_utf8_and_reuses_valid_storage() {
+        let valid = "ADB 输出 العربية 🙂\0\r\n".repeat(4096).into_bytes();
+        let pointer = valid.as_ptr();
+        let expected = String::from_utf8_lossy(&valid).into_owned();
+        let decoded = output_text(valid);
+        assert_eq!(decoded, expected);
+        assert_eq!(decoded.as_ptr(), pointer, "valid output keeps its buffer");
+
+        for bytes in [
+            Vec::new(),
+            (0..=255).collect(),
+            b"before\xf0\x9fafter\xff\xc0\xaf\xed\xa0\x80\r\n".to_vec(),
+        ] {
+            let expected = String::from_utf8_lossy(&bytes).into_owned();
+            assert_eq!(output_text(bytes), expected);
+        }
+    }
 
     #[test]
     fn parses_device_list() {

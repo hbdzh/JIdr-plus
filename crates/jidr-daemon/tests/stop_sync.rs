@@ -96,3 +96,39 @@ async fn stop_goes_ahead_when_the_guest_sync_fails() {
     assert!(h.backend.running().is_empty());
     h.stop().await;
 }
+
+#[tokio::test]
+async fn accepted_stop_finishes_after_client_disconnects() {
+    let h = Harness::start().await;
+    let mut admin = h.client().await;
+    admin
+        .ok(
+            "device.create",
+            json!({ "name": "Detached", "image": "35" }),
+        )
+        .await;
+    admin
+        .run("device.start", json!({ "device": "Detached" }))
+        .await;
+    let started = h.tmp.path().join("sync-started");
+    let release = h.tmp.path().join("sync-release");
+    replace_adb(
+        &h,
+        &format!(
+            "#!/bin/sh\ntouch '{started}'\nwhile [ ! -e '{release}' ]; do sleep 0.02; done\necho ok\n",
+            started = started.display(),
+            release = release.display(),
+        ),
+    );
+    let mut client = h.client().await;
+    client.send_raw(&json!({"jsonrpc":"2.0", "id":99, "method":"device.stop", "params":{"device":"Detached"}}).to_string()).await;
+    wait_for("stop enters guest sync", || started.exists()).await;
+    drop(client);
+    std::fs::write(&release, b"").unwrap();
+    wait_for("the detached stop", || h.backend.running().is_empty()).await;
+    let details = admin
+        .ok("device.details", json!({"device":"Detached"}))
+        .await;
+    assert_eq!(details["device"]["status"]["state"], "stopped");
+    h.stop().await;
+}

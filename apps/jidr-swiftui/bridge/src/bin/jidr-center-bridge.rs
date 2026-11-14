@@ -496,7 +496,12 @@ async fn main() -> Result<()> {
                 }
                 return;
             }
-            let result = client.run(&request.method, request.params, |job| {
+            let report_start = request.method == "device.start";
+            let result = client.run_with_started(&request.method, request.params, |job| {
+                if report_start {
+                    send(json!({"id":id,"type":"progress","job":job,"message":"","progress":null}));
+                }
+            }, |job| {
                 send(json!({"id":id,"type":"progress","job":job.id,"message":job.message,"progress":job.progress}));
             }).await;
             match result {
