@@ -142,13 +142,18 @@ impl JobManager {
     pub fn list(&self, include_finished: bool) -> Vec<Job> {
         lock(&self.entries)
             .iter()
-            .map(|(_, e)| e.job.borrow().clone())
-            .filter(|j| include_finished || !j.state.is_terminal())
+            .filter_map(|(_, e)| {
+                let job = e.job.borrow();
+                (include_finished || !job.state.is_terminal()).then(|| job.clone())
+            })
             .collect()
     }
 
     pub fn active(&self) -> usize {
-        self.list(false).len()
+        lock(&self.entries)
+            .iter()
+            .filter(|(_, e)| !e.job.borrow().state.is_terminal())
+            .count()
     }
 
     pub fn cancel(&self, id: Uuid) -> JidrResult<Job> {
@@ -277,6 +282,47 @@ pub async fn run_job(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn filtered_lists_and_counts_preserve_mixed_job_order_and_results() {
+        let m = JobManager::new();
+        let (succeeded, _) = m.create("done", None);
+        let (running, _) = m.create("running", None);
+        let (failed, _) = m.create("failed", None);
+        let (cancelled, _) = m.create("cancelled", None);
+        let (pending, _) = m.create("pending", None);
+        let result = json!({ "nested": [{ "text": "设备🙂".repeat(4096) }] });
+        m.finish(succeeded, Ok(result.clone()));
+        m.finish(failed, Err(JidrError::sdk("disk full")));
+        m.finish(cancelled, Err(jidr_core::cancel::cancelled()));
+        m.with(pending, |e| {
+            e.job.send_modify(|j| j.state = JobState::Pending)
+        })
+        .unwrap();
+
+        let all = m.list(true);
+        assert_eq!(
+            all.iter().map(|j| j.id).collect::<Vec<_>>(),
+            [succeeded, running, failed, cancelled, pending]
+        );
+        assert_eq!(all[0].result, Some(result));
+        assert_eq!(
+            m.list(false),
+            all.into_iter()
+                .filter(|j| !j.state.is_terminal())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(m.active(), 2);
+        // Cancelling requests cancellation; it does not finish the job.
+        m.cancel(running).unwrap();
+        assert_eq!(m.active(), 2);
+        m.finish(running, Err(jidr_core::cancel::cancelled()));
+        assert_eq!(m.active(), 1);
+        m.finish(pending, Ok(Value::Null));
+        assert_eq!(m.active(), 0);
+        assert!(m.list(false).is_empty());
+        assert_eq!(m.list(true).len(), 5);
+    }
 
     #[tokio::test]
     async fn lifecycle_and_wait() {

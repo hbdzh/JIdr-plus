@@ -6,6 +6,48 @@ mod common;
 use common::Harness;
 use serde_json::json;
 
+#[tokio::test]
+async fn measured_estimate_and_config_fallback_remain_identical() {
+    let h = Harness::start_with_memory(16384).await;
+    let mut c = h.client().await;
+    let created = c
+        .ok(
+            "device.create",
+            json!({ "name": "Estimate", "image": "35" }),
+        )
+        .await;
+    let mut device: jidr_core::Device = serde_json::from_value(created).unwrap();
+    let config = h
+        .paths
+        .avd_home()
+        .join(format!("{}.avd/config.ini", device.avd));
+    for ram in [1024, 2048, 8192] {
+        std::fs::write(&config, format!("hw.ramSize={ram}\n")).unwrap();
+        for peak in [None, Some(0), Some(1), Some(7800), Some(u32::MAX)] {
+            device.footprint_mb = peak;
+            assert_eq!(
+                h.daemon.state().expected_mb(&device),
+                jidr_daemon::budget::expected_mb(ram, peak)
+            );
+        }
+    }
+    // Missing/invalid config retains the profile fallback, with no new cache.
+    for config_text in ["", "hw.ramSize=invalid\n"] {
+        std::fs::write(&config, config_text).unwrap();
+        device.footprint_mb = None;
+        assert_eq!(h.daemon.state().expected_mb(&device), 6144);
+        device.footprint_mb = Some(0);
+        assert_eq!(h.daemon.state().expected_mb(&device), 6144);
+        device.footprint_mb = Some(7800);
+        assert_eq!(h.daemon.state().expected_mb(&device), 7800);
+    }
+    std::fs::remove_file(config).unwrap();
+    assert_eq!(h.daemon.state().expected_mb(&device), 7800);
+    device.footprint_mb = None;
+    assert_eq!(h.daemon.state().expected_mb(&device), 6144);
+    h.stop().await;
+}
+
 /// 16 GB at 75%: a 12 GB budget, three lean devices (4 GB each).
 #[tokio::test]
 async fn budget_fits_refuses_and_force_overrides() {
