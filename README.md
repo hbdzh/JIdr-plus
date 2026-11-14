@@ -12,33 +12,29 @@
   <a href="https://github.com/hbdzh/JIdr-plus/issues">反馈问题</a>
 </p>
 
-JIdr Plus 基于开源项目 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr) 开发，使用 SwiftUI 和 AppKit 构建设备中心与模拟器窗口。
+## 项目简介
 
-### 管理设备
+JIdr Plus 基于开源项目 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr) 开发，使用 SwiftUI 和 AppKit 构建设备中心与模拟器窗口。你可以在 Mac 上创建 Android 虚拟设备，运行应用和游戏，也可以通过命令行或 MCP 管理设备。
 
-在设备中心创建、启动和管理 Android 虚拟设备，调整 CPU、内存和分辨率。应用、快照和设备设置都可以在这里找到。
+## 主要功能
 
-### 用键盘和鼠标操作
+- **设备管理**：创建、启动和停止虚拟设备，调整处理器、内存、分辨率等配置。
+- **应用与快照**：安装 APK、管理已安装应用，以及创建和恢复快照。
+- **模拟器窗口**：使用键盘和鼠标操作设备，设置键位映射、截图、录屏或传输文件。
+- **操作录制**：录制并回放点击、按键和文本操作，设置回放次数、间隔和速度，导入或导出录制文件。
+- **设备工具**：调整 GPS、网络、摄像头和电量，查看 Logcat，使用音频文件模拟麦克风输入。
+- **Root 管理**：配置和验证 Root，管理模块、证书及系统分区写入设置。
+- **开发工具**：通过 CLI 和 MCP 控制设备，使用外部 Android SDK 或配置 JIdr 的 SDK 安装位置。
 
-在独立窗口中运行应用，设置键位映射，截图、录屏或向设备发送文件。
+## 安装和编译
 
-### 录制与回放
-
-记录点击、按键和文本操作，设置回放次数、间隔和速度。录制文件可以导入和导出。
-
-### 设备工具
-
-设置 GPS、网络和摄像头，查看 Logcat，管理 Root。也可以使用音频文件模拟麦克风输入。
-
-## 安装
+### 下载安装
 
 需要 Apple Silicon Mac。系统要求和安装包见 [GitHub Releases](https://github.com/hbdzh/JIdr-plus/releases/latest)。
 
-打开下载的 DMG，将 JIdr 拖入“应用程序”文件夹。首次启动后，在设备中心配置 Android SDK 和系统镜像。
+打开下载的 DMG，将 JIdr 拖入“应用程序”文件夹。首次启动后，在设备中心配置 Android SDK 和系统镜像。安装包未经 Apple 公证，首次打开时 macOS 可能提示无法验证开发者。
 
-安装包未经 Apple 公证，首次打开时 macOS 可能提示无法验证开发者。
-
-## 从源码构建
+### 从源码编译
 
 需要 [Rust](https://rustup.rs/)、Xcode 和 `protoc`。
 
@@ -49,12 +45,8 @@ cargo build --release -p jidr
 bash apps/jidr-swiftui/build-center.sh
 ```
 
-构建与测试说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+构建与测试说明见 [CONTRIBUTING.md](CONTRIBUTING.md)。其他文档：[设备中心](docs/device-center.md) · [命令行](docs/cli.md) · [MCP](docs/mcp.md) · [Root](docs/root.md) · [控制协议](docs/control-protocol.md)。
 
-## 文档
+## 致谢和许可
 
-[设备中心](docs/device-center.md) · [命令行](docs/cli.md) · [MCP](docs/mcp.md) · [Root](docs/root.md) · [控制协议](docs/control-protocol.md)
-
-## 许可
-
-Swift/AppKit 界面采用 [GPL 许可](apps/jidr-swiftui/LICENSE-GPL)；Rust 桥、CLI 和后台采用 [Apache 许可](LICENSE-APACHE)。第三方组件许可见 [NOTICE](NOTICE)。
+感谢 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr) 及其贡献者。Swift/AppKit 界面采用 [GPL 许可](apps/jidr-swiftui/LICENSE-GPL)；Rust 桥、CLI 和后台采用 [Apache 许可](LICENSE-APACHE)。第三方组件许可见 [NOTICE](NOTICE)。
