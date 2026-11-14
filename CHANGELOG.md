@@ -32,7 +32,7 @@
 - Update scoped UI fixtures, screenshot baselines, localization checks and device-tool operation tests.
 - Set workspace and release metadata to 0.4.0. Local build/install outputs stay outside version control.
 
-This entry describes the JIdr Plus source tree, not an upstream Jidr release or a published binary release. Signing/notarization and real-emulator acceptance of the new system-write and microphone UI flows remain separate checks.
+The [0.4.0 release](https://github.com/hbdzh/JIdr-plus/releases/tag/v0.4.0) was rebuilt later from the merged 0.4.0 source; it is not an upstream Jidr release or the original binary. Developer ID signing, notarization, and real-emulator acceptance of the system-write and microphone UI flows remain unverified.
 
 ## [0.3.1](https://github.com/AbdurahmanAlmehdi/jidr/compare/v0.3.0...v0.3.1) (2026-11-03)
 
