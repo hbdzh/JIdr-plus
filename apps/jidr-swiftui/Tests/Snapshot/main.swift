@@ -46,6 +46,7 @@ struct SnapshotCase {
     var recording = false
     var deselected = false
     var singleDevice = false
+    var scriptState: String? = nil
 
     var localeIdentifier: String { language == 0 ? "en" : "zh-Hans" }
     var languageName: String { language == 0 ? "en" : "zh" }
@@ -58,6 +59,12 @@ let allCases: [SnapshotCase] = [
     SnapshotCase(name: "center-load-failure", kind: .center(fixture: "load-failure"), language: 1, appearance: .dark),
     SnapshotCase(name: "center-long-task", kind: .center(fixture: "long-task"), language: 1, appearance: .dark),
     SnapshotCase(name: "player-running", kind: .player, language: 1, appearance: .dark),
+    SnapshotCase(name: "player-running-light", kind: .player, language: 1, appearance: .light),
+    SnapshotCase(name: "player-keymap-light", kind: .player, language: 1, appearance: .light, scriptState: "keymap"),
+    SnapshotCase(name: "script-recording-light", kind: .player, language: 1, appearance: .light, scriptState: "recording"),
+    SnapshotCase(name: "script-playing-light", kind: .player, language: 1, appearance: .light, scriptState: "playing"),
+    SnapshotCase(name: "script-management-light", kind: .auxiliary(page: "script-management"), language: 1, appearance: .light, width: 740, height: 480),
+    SnapshotCase(name: "script-options-light", kind: .auxiliary(page: "script-options"), language: 1, appearance: .light, width: 300, height: 240),
     // English mode.
     SnapshotCase(name: "center-empty-en", kind: .center(fixture: "empty"), language: 0, appearance: .dark),
     SnapshotCase(name: "center-empty-light", kind: .center(fixture: "empty"), language: 1, appearance: .light, width: 1050, height: 700),
@@ -81,6 +88,13 @@ let allCases: [SnapshotCase] = [
     SnapshotCase(name: "recordings-search-light", kind: .auxiliary(page: "recordings"), language: 1, appearance: .light, width: 900, height: 620),
     SnapshotCase(name: "recordings-search-en-dark", kind: .auxiliary(page: "recordings"), language: 0, appearance: .dark, width: 900, height: 620),
     SnapshotCase(name: "center-stopped-light", kind: .auxiliary(page: "center-stopped"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "center-stopped-empty-light", kind: .auxiliary(page: "center-stopped-empty"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "center-many-content-light", kind: .auxiliary(page: "center-many-content"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "center-many-content-wide-light", kind: .auxiliary(page: "center-many-content"), language: 1, appearance: .light, width: 1400, height: 980),
+    SnapshotCase(name: "center-stopped-empty-wide-light", kind: .auxiliary(page: "center-stopped-empty"), language: 1, appearance: .light, width: 1400, height: 980),
+    SnapshotCase(name: "all-devices-list-light", kind: .auxiliary(page: "all-devices-list"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "all-devices-grid-dark", kind: .auxiliary(page: "all-devices-grid"), language: 0, appearance: .dark, width: 1050, height: 700),
+    SnapshotCase(name: "device-preview-states-light", kind: .auxiliary(page: "device-preview-states"), language: 1, appearance: .light, width: 138, height: 110),
     SnapshotCase(name: "center-stopped-en-minimum", kind: .auxiliary(page: "center-stopped"), language: 0, appearance: .dark, width: 800, height: 550),
     SnapshotCase(name: "settings-defaults-light", kind: .auxiliary(page: "settings-defaults"), language: 1, appearance: .light, width: 700, height: 450),
     SnapshotCase(name: "settings-advanced-en-dark", kind: .auxiliary(page: "settings-advanced"), language: 0, appearance: .dark, width: 700, height: 450),
@@ -104,7 +118,7 @@ let allCases: [SnapshotCase] = [
     SnapshotCase(name: "tools-system-writable-light", kind: .auxiliary(page: "root-adb-writable"), language: 1, appearance: .light, width: 716, height: 620),
     SnapshotCase(name: "tools-microphone-light", kind: .auxiliary(page: "microphone"), language: 1, appearance: .light, width: 716, height: 560),
     SnapshotCase(name: "tools-microphone-en-dark", kind: .auxiliary(page: "microphone"), language: 0, appearance: .dark, width: 716, height: 560),
-    // Light theme (player chrome is intentionally dark-only, so no light player).
+    // Light theme.
     SnapshotCase(name: "center-populated-light", kind: .center(fixture: "populated"), language: 1, appearance: .light),
     SnapshotCase(name: "center-single-wide-light", kind: .center(fixture: "populated"), language: 1, appearance: .light, width: 1050, height: 700, singleDevice: true),
     SnapshotCase(name: "center-overview-wide-light", kind: .center(fixture: "populated"), language: 1, appearance: .light, width: 1400, height: 980),
@@ -440,7 +454,11 @@ func renderPlayer(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
     let transport = PlayerTransport()
     transport.language = snapshotCase.language
     let canvas = Canvas(width: playerSize.width, height: playerSize.height, appearance: snapshotCase.appearance)
-    canvas.mount(ContentView(transport: transport, mapping: transport.mapping, sidebar: SidebarState()))
+    canvas.mount(ContentView(transport: transport, mapping: transport.mapping, sidebar: SidebarState())
+        .background(PlayerChromeMaterial()))
+    // Shared material, transparent hosting surfaces and live appearance changes
+    // are checked on the real window in Tests/PlayerLifecycle. These hidden
+    // snapshots cover the native fallback; WindowServer blur needs screen review.
     // ContentView.onAppear installs transport.onStatus; wait for it so the
     // transient connecting notice can later be cleared deterministically.
     pump(0.2)
@@ -454,17 +472,44 @@ func renderPlayer(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
     }
     require(waitUpTo(8, until: { transport.linkState.isRunning && transport.frameWidth > 0 }),
             "player fixture: the frame stream never reached the running state")
+    if snapshotCase.scriptState == "keymap" {
+        let home = ProcessInfo.processInfo.environment["JIDR_HOME"] ?? NSTemporaryDirectory()
+        transport.mapping.load(path: URL(fileURLWithPath: home).appendingPathComponent("fixture-keymap.json").path)
+        require(transport.mapping.begin(), "key mapping fixture begins editing")
+    }
     // The fixture sends three identical frames; wait for the stream to settle so
     // the capture never sees a partially updated canvas.
     pump(0.4)
+    if snapshotCase.scriptState == "recording" {
+        transport.applyScriptNotification(["op": "record", "state": "recording", "event_count": 16])
+    } else if snapshotCase.scriptState == "playing" {
+        transport.applyScriptNotification(["op": "play", "state": "playing", "loop": 2, "count": 3, "name": "日常登录"])
+    }
     // The connecting status is a transient notice bubble (six-second timer). It
     // is not part of the running-window state, so clear it deterministically
     // instead of racing the timer.
     transport.onStatus?("")
     pump(0.2)
     canvas.settle(0.2)
-    transport.stop()
     let rep = canvas.capture()
+    if snapshotCase.scriptState == "recording" {
+        require(transport.scriptRecordedEvents == 16, "recorded event count reaches the player")
+        transport.scriptRecordStop(name: "Fixture recording")
+        require(transport.scriptRecordFinishing, "saving is pending until the bridge responds")
+        transport.applyScriptNotification(["op": "record", "state": "saved", "script": [
+            "id": "fixture", "name": "Fixture recording", "duration_ms": 1000,
+            "event_count": 16, "created_at": "2026-11-13T14:35:00Z"
+        ]])
+        require(!transport.scriptRecordFinishing && transport.scriptRecording == .idle,
+                "saved notification closes recording controls")
+        require(transport.scripts.contains(where: { $0.id == "fixture" }), "saved recording appears in the list")
+    } else if snapshotCase.scriptState == "playing" {
+        require(transport.scriptPlayback == .playing && transport.scriptPlaybackLoop == 2,
+                "playback status and loop reach the player")
+        transport.applyScriptNotification(["op": "play", "state": "finished"])
+        require(transport.scriptPlayback == .idle, "completed playback removes controls")
+    }
+    transport.stop()
     canvas.unmount()
     pump(0.05)
     return rep
@@ -481,6 +526,31 @@ func validateTools(_ canvas: Canvas, selection: DeviceToolsSelection, page: Stri
         let tables = nativeDescendants(host, NSTableView.self)
         require(tables.count == 1 && tables[0] is CompactDeviceToolsTableView && tables[0].style == .sourceList && tables[0].rowHeight == 32 && !tables[0].floatsGroupRows,
                 "device tools must use the native system sidebar with 32-point rows and no floating headers")
+        guard let split = nativeDescendants(host, NSSplitView.self).first(where: { $0.delegate is NSSplitViewController }),
+              let splitController = split.delegate as? NSSplitViewController,
+              splitController.splitViewItems.contains(where: { $0.behavior == .sidebar }) else {
+            fail("device tools must use the system navigation sidebar")
+        }
+        if #available(macOS 26.0, *) {
+            var ancestor = tables[0].superview
+            var hasSystemGlass = false
+            while let view = ancestor {
+                if view is NSGlassEffectView { hasSystemGlass = true; break }
+                ancestor = view.superview
+            }
+            require(hasSystemGlass, "system glass surrounds the device tools sidebar")
+            guard let detail = splitController.splitViewItems.last?.viewController.view,
+                  let bitmap = detail.bitmapImageRepForCachingDisplay(in: detail.bounds) else {
+                fail("device tools detail background cannot be inspected")
+            }
+            require(detail.safeAreaInsets.left > 0, "detail extends beneath the system sidebar")
+            detail.cacheDisplay(in: detail.bounds, to: bitmap)
+            let x = Int(detail.safeAreaInsets.left * 0.5 * CGFloat(bitmap.pixelsWide) / detail.bounds.width)
+            guard let underSidebar = bitmap.colorAt(x: x, y: bitmap.pixelsHigh / 2) else {
+                fail("device tools sidebar background sample is missing")
+            }
+            require(underSidebar.alphaComponent < 0.01, "detail background does not cover system sidebar glass")
+        }
         let original = window.frame
         let table = tables[0]
         require(abs((table.enclosingScrollView?.bounds.width ?? 0) - 168) < 1, "sidebar keeps the approved compact width")
@@ -507,13 +577,13 @@ func validateTools(_ canvas: Canvas, selection: DeviceToolsSelection, page: Stri
         }
         let detailScrolls = nativeDescendants(host, NSScrollView.self).filter { scroll in
             guard scroll !== table.enclosingScrollView else { return false }
-            return scroll.convert(scroll.bounds, to: host).minX >= 168
+            return scroll.convert(scroll.bounds, to: host).minX + scroll.safeAreaInsets.left >= 167
         }
         guard let pageScroll = detailScrolls.max(by: { $0.bounds.width < $1.bounds.width }) else {
             fail("device tools detail page has no scroll viewport")
         }
         let pageRect = pageScroll.convert(pageScroll.bounds, to: host)
-        require(abs(pageRect.minX - 169) <= 2 && abs(pageRect.maxX - host.bounds.maxX) <= 2,
+        require(abs(pageRect.minX + pageScroll.safeAreaInsets.left - 168) <= 2 && abs(pageRect.maxX - host.bounds.maxX) <= 2,
                 "detail scrolling spans the entire page; the scroll indicator must stay at its far-right edge")
         if page == "network" {
             require(detailScrolls.count == 1, "network settings must not create nested form-area scrollers")
@@ -582,6 +652,10 @@ func validateTools(_ canvas: Canvas, selection: DeviceToolsSelection, page: Stri
 
 func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImageRep {
     require(!options.uiFixture.isEmpty, "auxiliary views require --ui-fixture")
+    if page == "center-many-content" { setenv("JIDR_UI_MANY_CONTENT", "1", 1) }
+    defer { unsetenv("JIDR_UI_MANY_CONTENT") }
+    if page == "center-stopped-empty" { setenv("JIDR_UI_EMPTY_SNAPSHOTS", "1", 1) }
+    defer { unsetenv("JIDR_UI_EMPTY_SNAPSHOTS") }
     if page == "tasks-active" { setenv("JIDR_UI_TASKS", "1", 1) }
     else { unsetenv("JIDR_UI_TASKS") }
     defer { unsetenv("JIDR_UI_TASKS") }
@@ -600,10 +674,17 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
         model.refreshJobs()
         require(waitUpTo(5) { model.taskRows.count == 2 }, "task fixture did not load")
     }
-    if ["center-stopped", "device-settings", "root", "camera", "snapshots", "details-error", "root-full", "root-adb", "root-adb-writable"].contains(page) {
+    if ["center-stopped", "center-stopped-empty", "device-settings", "root", "camera", "snapshots", "details-error", "root-full", "root-adb", "root-adb-writable"].contains(page) {
         guard let device = model.devices.first(where: { $0.stopped }) else { fail("fixture has no stopped device") }
         model.select(device.id)
         require(waitUpTo(5) { model.details?.device.id == device.id }, "stopped details did not load")
+    }
+    if page == "all-devices-list" || page == "all-devices-grid" {
+        model.showAllDevices()
+        model.gridView = page == "all-devices-grid"
+    }
+    if page == "center-many-content" {
+        require(waitUpTo(5) { model.apps.count == 16 && !model.appsLoading }, "many-app fixture did not load")
     }
     if page == "search-empty" { model.deviceQuery = "no-matching-device" }
     if page == "details-error" {
@@ -620,7 +701,7 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
     var toolsSelection: DeviceToolsSelection?
     switch page {
     case "settings", "settings-defaults", "settings-advanced": canvas.mount(SettingsView(model: model, onClose: {}))
-    case "center-stopped", "search-empty", "details-error": canvas.mount(CenterView(model: model))
+    case "center-stopped", "center-stopped-empty", "center-many-content", "search-empty", "details-error", "all-devices-list", "all-devices-grid": canvas.mount(CenterView(model: model))
     case "root", "root-full", "root-adb", "root-adb-writable", "microphone", "camera", "clipboard", "battery", "gps", "network", "calls", "fingerprint", "developer", "logcat":
         let tab = ["root": 4, "root-full": 4, "root-adb": 4, "root-adb-writable": 4, "microphone": 10, "camera": 8, "clipboard": 6, "battery": 0, "gps": 1, "network": 2, "calls": 5, "fingerprint": 7, "developer": 9, "logcat": 3][page]!
         let selection = DeviceToolsSelection(section: tab)
@@ -648,6 +729,25 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
     case "sdk": canvas.mount(InstallSDKView(model: model))
     case "tasks", "tasks-active": canvas.mount(TaskCenterView(model: model))
     case "palette": canvas.mount(CommandPaletteView(model: model))
+    case "device-preview-states":
+        guard let running = model.devices.first(where: { $0.running }),
+              let stopped = model.devices.first(where: { $0.stopped }),
+              let context = CGContext(data: nil, width: 32, height: 64, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            fail("thumbnail fixture cannot be created")
+        }
+        context.setFillColor(NSColor.green.cgColor)
+        context.fill(CGRect(x: 0, y: 0, width: 32, height: 64))
+        guard let image = context.makeImage() else { fail("thumbnail fixture has no image") }
+        model.rememberThumbnail(image, device: running.id)
+        model.rememberThumbnail(image, device: stopped.id)
+        canvas.mount(HStack(spacing: 10) {
+            DevicePreview(model: model, device: running, width: 64, height: 110)
+            DevicePreview(model: model, device: stopped, width: 64, height: 110)
+        })
+    case "script-options":
+        canvas.mount(PlaybackOptionsPopover(language: snapshotCase.language, mode: .constant("count"), count: .constant(3), seconds: .constant(60), interval: .constant(500), speed: .constant(1))
+            .frame(maxWidth: .infinity, maxHeight: .infinity).background(WbColor.overlay))
     case "recordings":
         let transport = PlayerTransport()
         transport.language = snapshotCase.language
@@ -655,18 +755,161 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
     default: fail("unknown auxiliary view: \(page)")
     }
     canvas.settle(0.5)
+    if page == "center-many-content" {
+        canvas.inspect { host, _ in
+            guard let appsScroll = nativeDescendants(host, NSScrollView.self).first(where: {
+                abs($0.bounds.height - 171) < 2 && ($0.documentView?.bounds.height ?? 0) > $0.contentView.bounds.height
+            }) else { fail("the 16-app overview needs a bounded, scrollable app list") }
+            let clip = appsScroll.contentView
+            let original = clip.bounds.origin
+            let bottom = max(0, (appsScroll.documentView?.bounds.height ?? 0) - clip.bounds.height)
+            clip.scroll(to: NSPoint(x: original.x, y: bottom))
+            appsScroll.reflectScrolledClipView(clip)
+            canvas.settle(0.1)
+            require(abs(clip.bounds.origin.y - original.y) > 1, "the app list scrolls to reveal additional apps")
+            clip.scroll(to: original)
+            appsScroll.reflectScrolledClipView(clip)
+            canvas.settle(0.1)
+        }
+    }
+    if page == "all-devices-list" || page == "all-devices-grid" {
+        canvas.inspect { host, _ in
+            guard let table = nativeDescendants(host, NSTableView.self).first(where: { $0.accessibilityIdentifier() == "library-devices" }) else {
+                fail("native device sidebar is missing")
+            }
+            guard let split = nativeDescendants(host, NSSplitView.self).first(where: { $0.delegate is NSSplitViewController }),
+                  let splitController = split.delegate as? NSSplitViewController,
+                  let sidebarItem = splitController.splitViewItems.first(where: { $0.behavior == .sidebar }) else {
+                fail("navigation split must expose a native sidebar item")
+            }
+            if #available(macOS 26.0, *) {
+                var ancestor = table.superview
+                var hasSystemGlass = false
+                while let view = ancestor {
+                    if view is NSGlassEffectView { hasSystemGlass = true; break }
+                    ancestor = view.superview
+                }
+                require(hasSystemGlass, "system sidebar glass surrounds the device list")
+                guard let detail = splitController.splitViewItems.last?.viewController.view,
+                      let bitmap = detail.bitmapImageRepForCachingDisplay(in: detail.bounds) else {
+                    fail("native detail background cannot be inspected")
+                }
+                // Inspect the detail alone: a screenshot of the whole window
+                // includes the glass fallback and cannot reveal a solid fill
+                // underneath it. macOS extends this column into the sidebar.
+                require(detail.safeAreaInsets.left > 0, "native detail extends beneath the sidebar")
+                detail.cacheDisplay(in: detail.bounds, to: bitmap)
+                let underSidebarX = Int(detail.safeAreaInsets.left * 0.5 * CGFloat(bitmap.pixelsWide) / detail.bounds.width)
+                let middleY = bitmap.pixelsHigh / 2
+                guard let underSidebar = bitmap.colorAt(x: underSidebarX, y: middleY),
+                      let mainSurface = bitmap.colorAt(x: bitmap.pixelsWide - 5, y: middleY) else {
+                    fail("native detail background samples are missing")
+                }
+                require(underSidebar.alphaComponent < 0.01,
+                        "detail surface must not paint an opaque background beneath the system glass sidebar")
+                require(mainSurface.alphaComponent > 0.99,
+                        "detail surface remains solid outside the sidebar")
+            }
+            let previousCenterWindow = model.centerWindow
+            let toolbarWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 550),
+                                         styleMask: [.titled, .closable], backing: .buffered, defer: false)
+            let toolbarController = CenterToolbarController(model: model, window: toolbarWindow)
+            defer { model.centerWindow = previousCenterWindow }
+            guard let toolbar = toolbarWindow.toolbar,
+                  let toggle = toolbarController.toolbar(toolbar, itemForItemIdentifier: .init("jidr.sidebar"), willBeInsertedIntoToolbar: true),
+                  let toggleAction = toggle.action else { fail("sidebar toolbar action is missing") }
+            require(toolbarController.toolbarDefaultItemIdentifiers(toolbar).filter { $0.rawValue == "jidr.sidebar" }.count == 1,
+                    "toolbar has one sidebar toggle")
+            toolbarWindow.toolbar = NSToolbar(identifier: "jidr.fixture.replacement")
+            pump(0.1)
+            require(toolbarWindow.toolbar === toolbar, "system toolbar replacement preserves the Jidr toolbar")
+            require(NSApp.sendAction(toggleAction, to: toggle.target, from: toggle), "sidebar toolbar action responds")
+            pump(0.3)
+            require(!model.sidebarVisible && sidebarItem.isCollapsed, "toolbar collapses the system sidebar")
+            require(NSApp.sendAction(toggleAction, to: toggle.target, from: toggle), "sidebar toolbar action responds again")
+            pump(0.3)
+            require(model.sidebarVisible && !sidebarItem.isCollapsed, "toolbar expands the system sidebar")
+            guard let search = nativeDescendants(host, NSSearchField.self).first(where: { $0.identifier?.rawValue == "device-search" }) else {
+                fail("device search is missing")
+            }
+            search.stringValue = "no-such-device-fixture"
+            search.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: search))
+            require(model.deviceQuery == "no-such-device-fixture" && model.filteredDevices.isEmpty,
+                    "sidebar search updates the device filter")
+            search.stringValue = ""
+            search.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: search))
+            pump(0.2)
+            require(model.deviceQuery.isEmpty && !model.filteredDevices.isEmpty, "clearing search restores devices")
+            require(table.numberOfRows == model.filteredDevices.count + 2 && table.selectedRow == 0,
+                    "all-devices entry is selected and the device rows remain available")
+            require(model.showingAllDevices && model.selected == nil, "all-devices view has no selected device")
+            table.selectRowIndexes(IndexSet(integer: 2), byExtendingSelection: false)
+            require(!model.showingAllDevices && model.selected == model.filteredDevices.first?.id,
+                    "selecting a device opens its overview")
+            table.selectRowIndexes(IndexSet(integer: 0), byExtendingSelection: false)
+            require(model.showingAllDevices && model.selected == nil, "all-devices entry can be selected again")
+            model.refresh()
+            var completed = false
+            model.call("device.list") { _ in completed = true }
+            require(waitUpTo(5) { completed }, "device refresh did not complete")
+            require(model.showingAllDevices && model.selected == nil, "refresh preserves the all-devices view")
+        }
+        // Restore the initial layout after testing the system collapse animation.
+        canvas.unmount()
+        canvas.mount(CenterView(model: model))
+        canvas.settle(0.3)
+    }
     let rep = canvas.capture()
+    if page == "device-preview-states" {
+        guard let running = rep.colorAt(x: 32, y: 55)?.usingColorSpace(.sRGB),
+              let stopped = rep.colorAt(x: 106, y: 55)?.usingColorSpace(.sRGB) else { fail("cannot inspect thumbnail pixels") }
+        require(running.greenComponent > 0.8 && running.redComponent < 0.2, "running device shows the existing screen thumbnail")
+        require(stopped.redComponent < 0.2 && stopped.greenComponent < 0.2 && stopped.blueComponent < 0.2,
+                "stopped device remains black even if a stale thumbnail exists")
+    }
     if let selection = toolsSelection { validateTools(canvas, selection: selection, page: page) }
     canvas.unmount()
     pump(0.05)
     return rep
 }
 
+func renderScriptManagementWindow(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
+    let transport = PlayerTransport()
+    transport.language = snapshotCase.language
+    let controller = PlayerScriptsWindowController(transport: transport)
+    guard let window = controller.window, let root = window.contentView?.superview else { fail("recordings window has no native frame") }
+    require(window.toolbarStyle == .unifiedCompact, "recordings toolbar uses compact native controls")
+    let toolbarItems = window.toolbar?.items.map { $0.itemIdentifier.rawValue } ?? []
+    guard let createIndex = toolbarItems.firstIndex(of: "jidr.recordings.new"),
+          let importIndex = toolbarItems.firstIndex(of: "jidr.recordings.import") else {
+        fail("recordings toolbar must contain New and Import")
+    }
+    require(importIndex == createIndex + 2 && toolbarItems[createIndex + 1] == NSToolbarItem.Identifier.space.rawValue,
+            "native toolbar spacing keeps New and Import as separate controls")
+    window.appearance = snapshotCase.appearance.nsAppearance
+    transport.applyScriptNotification(["op": "list", "scripts": [
+        ["id": "1", "name": "日常登录", "duration_ms": 18000, "event_count": 16, "created_at": "2026-11-13T14:35:00Z"],
+        ["id": "2", "name": "游戏日常任务", "duration_ms": 156000, "event_count": 84, "created_at": "2026-11-12T20:18:00Z"],
+        ["id": "3", "name": "领取每日奖励", "duration_ms": 42000, "event_count": 25, "created_at": "2026-11-10T12:00:00Z"]
+    ]])
+    root.layoutSubtreeIfNeeded()
+    pump(0.4)
+    root.layoutSubtreeIfNeeded()
+    guard let bitmap = root.bitmapImageRepForCachingDisplay(in: root.bounds) else { fail("cannot capture recordings window") }
+    root.cacheDisplay(in: root.bounds, to: bitmap)
+    require(!window.isVisible && !NSApp.isActive, "recordings preview remains hidden")
+    window.contentView = nil
+    window.close()
+    return bitmap
+}
+
 func render(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
     switch snapshotCase.kind {
     case .center: return renderCenter(snapshotCase)
     case .player: return renderPlayer(snapshotCase)
-    case .auxiliary(let page): return renderAuxiliary(snapshotCase, page: page)
+    case .auxiliary(let page):
+        if page == "script-management" { return renderScriptManagementWindow(snapshotCase) }
+        return renderAuxiliary(snapshotCase, page: page)
     }
 }
 

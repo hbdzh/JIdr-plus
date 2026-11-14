@@ -159,6 +159,8 @@ final class CenterModel: ObservableObject {
     @Published var devices: [Device] = []
     @Published var deviceListLoaded = false
     @Published var gridView = false
+    @Published var sidebarVisible = true
+    @Published private(set) var showingAllDevices = false
     var isEmptyDeviceLibrary: Bool { deviceListLoaded && devices.isEmpty }
     @Published var selected: String?
     @Published private(set) var deviceThumbnails: [String: CGImage] = [:]
@@ -183,6 +185,9 @@ final class CenterModel: ObservableObject {
     @Published var busy = Set<String>()
     private var pendingWindowStops = Set<String>()
     private var stoppingDevices = Set<String>()
+    private var startingDevices = Set<String>()
+    private var startJobs: [String: String] = [:]
+    private var startCancelRequested = Set<String>()
     @Published var recording = Set<String>()
     @Published private var requestProgress: [Int:String] = [:]
     @Published private var bootProgress: [String:Double] = [:]
@@ -891,6 +896,30 @@ final class CenterModel: ObservableObject {
         return quitWorkBlockReason
     }
 
+    /// A stop already acknowledged by the daemon continues even if this
+    /// client disconnects. Never leave other work or running devices behind.
+    var canQuitWhileStopping: Bool {
+        let methods = mutations.compactMap { requestMethods[$0] }
+        return Self.canLeaveStopsRunning(
+            stopping: stoppingDevices,
+            deviceStates: Dictionary(uniqueKeysWithValues: devices.map { ($0.id, $0.status.state) }),
+            mutationMethods: methods,
+            mutationCount: mutations.count,
+            hasOtherWork: hasActiveRecording || !recording.isEmpty || hasPlayers || hasActiveJobs || !pendingWindowStops.isEmpty
+        )
+    }
+
+    static func canLeaveStopsRunning(stopping: Set<String>, deviceStates: [String: String],
+                                     mutationMethods: [String], mutationCount: Int, hasOtherWork: Bool) -> Bool {
+        guard !hasOtherWork, deviceStates.values.contains("stopping"), mutationCount == stopping.count,
+              mutationMethods.count == mutationCount,
+              mutationMethods.allSatisfy({ $0 == "device.stop" }),
+              stopping.allSatisfy({ deviceStates[$0] == "stopping" }) else { return false }
+        return deviceStates.values.allSatisfy { state in
+            ["stopped", "crashed", "hibernated", "stopping"].contains(state)
+        }
+    }
+
     var quitWorkBlockReason: String? {
         if hasActiveRecording || !recording.isEmpty { return text("请先停止录屏并等待保存完成。", "Stop recording and wait for it to be saved first.") }
         let active = activeJobs.count
@@ -1055,6 +1084,9 @@ final class CenterModel: ObservableObject {
     /// Raw boot fraction for the player window (nil before the first event).
     func bootProgressFraction(for device: String) -> Double? { bootProgress[device] }
     func progress(for device:String) -> String? {
+        if stoppingDevices.contains(device) {
+            return text("正在安全停止设备，保存状态可能需要几分钟。", "Stopping safely; saving state may take a few minutes.")
+        }
         if let value = bootProgress[device], devices.first(where: { $0.id == device })?.running != true {
             return text("正在启动 \(Int(value * 100))%", "Starting \(Int(value * 100))%")
         }
@@ -1188,6 +1220,10 @@ final class CenterModel: ObservableObject {
             }
         }
     }
+    func showAllDevices() {
+        setDeviceSelection(nil)
+        showingAllDevices = true
+    }
     func setDeviceSelection(_ id: String?) {
         guard let id else {
             selectionCleared = true
@@ -1201,6 +1237,7 @@ final class CenterModel: ObservableObject {
         if selected != id { select(id) }
     }
     func select(_ id:String) {
+        showingAllDevices = false
         pendingSheetAfterDetails = nil
         if !filteredDevices.contains(where: { $0.id == id }) { deviceQuery = "" }
         selectionCleared = false; selected = id; details = nil; apps = []; appsNote = nil; load(id)
@@ -1361,6 +1398,9 @@ final class CenterModel: ObservableObject {
                 let launchState = launch ?? self.playerLaunchState(for: details.device)
                 self.appliedLaunch[id] = launchState
                 let player = GameWindowController()
+                player.chrome.scriptAction = { [weak self] action, completion in
+                    self?.performScriptAction(action, completion: completion)
+                }
                 player.transport.language = self.language
                 player.transport.onReconnect = { [weak self] in self?.openGame(id) }
                 player.transport.onAdvanced = { [weak self] in self?.openAdvanced(id, name:details.device.name) }
@@ -1386,6 +1426,66 @@ final class CenterModel: ObservableObject {
             } catch { self.showError(self.readable(error)) }
         }
     }
+    /// A recording list can target any running device, including one whose
+    /// player window is not open yet. Wait for its existing bridge to connect.
+    private func performScriptAction(_ action: PlayerScriptAction, completion: @escaping (Bool) -> Void) {
+        let running = devices.filter { $0.running }
+        guard !running.isEmpty else {
+            showError(text("请先启动设备。", "Start a device first."))
+            completion(false)
+            return
+        }
+        let target: Device
+        if running.count == 1 {
+            target = running[0]
+        } else {
+            let alert = NSAlert()
+            alert.messageText = text("选择目标设备", "Choose a device")
+            alert.informativeText = text("选择要录制或回放操作的设备。", "Choose the device for recording or playback.")
+            let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 260, height: 26))
+            picker.addItems(withTitles: running.map(\.name))
+            alert.accessoryView = picker
+            alert.addButton(withTitle: text("继续", "Continue"))
+            alert.addButton(withTitle: text("取消", "Cancel"))
+            guard alert.runModal() == .alertFirstButtonReturn else { completion(false); return }
+            target = running[picker.indexOfSelectedItem]
+        }
+        if players[target.id] == nil || players[target.id]?.transport.connectionEnded == true {
+            openGame(target.id)
+        }
+        func waitForPlayer(_ remaining: Int) {
+            guard let device = self.devices.first(where: { $0.id == target.id }), device.running else {
+                self.showError(self.text("设备已停止。", "The device has stopped.")); completion(false); return
+            }
+            if let player = self.players[target.id], player.transport.linkState.isRunning {
+                let transport = player.transport
+                guard transport.scriptRecording == .idle && transport.scriptPlayback == .idle else {
+                    self.showError(self.text("目标设备正在录制或回放。", "The selected device is already recording or playing."))
+                    completion(false); return
+                }
+                switch action {
+                case .record: transport.scriptRecordStart()
+                case .play(let script, let options):
+                    guard PlayerScriptPrompts.confirmCompatibility(script, transport: transport) else { completion(false); return }
+                    transport.scriptPlayStart(id: script.id, options: options)
+                }
+                if let window = player.window {
+                    if window.isMiniaturized { window.deminiaturize(nil) }
+                    window.makeKeyAndOrderFront(nil)
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+                completion(true)
+                return
+            }
+            guard remaining > 0 else {
+                self.showError(self.text("无法连接目标设备。", "Could not connect to the selected device."))
+                completion(false); return
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { waitForPlayer(remaining - 1) }
+        }
+        waitForPlayer(150)
+    }
+
     func openAdvanced(_ id:String, name:String, root:Bool = false, section:Int? = nil,
                       relativeTo requestedOwner:NSWindow? = nil) {
         var owner = requestedOwner ?? NSApp.keyWindow
@@ -1451,8 +1551,16 @@ final class CenterModel: ObservableObject {
     private func stopAfterWindowClose(_ id: String) {
         if busy.contains(id) {
             pendingWindowStops.insert(id)
+            cancelStartingDeviceIfPossible(id)
         } else {
             operation("device.stop", id: id)
+        }
+    }
+    private func cancelStartingDeviceIfPossible(_ id: String) {
+        guard startingDevices.contains(id), pendingWindowStops.contains(id),
+              let job = startJobs[id], startCancelRequested.insert(id).inserted else { return }
+        call("jobs.cancel", ["job": job]) { [weak self] result in
+            if case .failure(let error) = result { self?.showError(self?.readable(error) ?? error.localizedDescription) }
         }
     }
     @discardableResult private func drainWindowStop(_ id: String) -> Bool {
@@ -1465,6 +1573,7 @@ final class CenterModel: ObservableObject {
         guard !busy.contains(id) else { return }
         if device.running { openGame(id); return }
         busy.insert(id)
+        startingDevices.insert(id)
         let booting = PlayerLaunchState.booting(progress: bootProgressFraction(for: id),
                                                 message: self.text("正在启动设备…", "Starting the device…"))
         if players[id] != nil {
@@ -1476,13 +1585,20 @@ final class CenterModel: ObservableObject {
         if coldBoot { params["cold_boot"] = true }
         call("device.start", params, onProgress: { [weak self] message, job, fraction in
             guard let self else { return }
-            if let job { self.ownJobs.insert(job) }
+            if let job {
+                self.ownJobs.insert(job)
+                self.startJobs[id] = job
+                self.cancelStartingDeviceIfPossible(id)
+            }
             let text = message.isEmpty ? self.text("正在启动设备…", "Starting the device…")
                                        : OperationMessages.progress(message, language: self.language)
             self.applyLaunchState(.booting(progress: fraction, message: text), to: id)
         }) { [weak self] result in
             guard let self else { return }
             self.busy.remove(id)
+            self.startingDevices.remove(id)
+            self.startJobs.removeValue(forKey: id)
+            self.startCancelRequested.remove(id)
             let stopPending = self.pendingWindowStops.contains(id)
             switch result {
             case .success:
@@ -1491,7 +1607,7 @@ final class CenterModel: ObservableObject {
             case .failure(let error):
                 let reason = self.readable(error)
                 self.applyLaunchState(.stopped(reason: reason), to: id)
-                self.showError(reason)
+                if !(stopPending && error.localizedDescription == "cancelled") { self.showError(reason) }
             }
             self.refresh(); self.refreshJobs()
             if self.selected == id { self.load(id) }

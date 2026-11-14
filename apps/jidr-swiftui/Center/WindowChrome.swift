@@ -88,6 +88,7 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate {
     private weak var window: NSWindow?
     private var subscriptions = Set<AnyCancellable>()
     private let toolbar = NSToolbar(identifier: "jidr.library")
+    private var toolbarObserver: NSKeyValueObservation?
 
     init(model: CenterModel, window: NSWindow) {
         self.model = model
@@ -107,14 +108,24 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate {
             DispatchQueue.main.async { self?.update() }
         }.store(in: &subscriptions)
         update()
+        // NavigationSplitView may install its own toolbar after attaching to
+        // the window. Keep the existing native actions and sidebar toggle.
+        toolbarObserver = window.observe(\.toolbar, options: [.new]) { [weak self] observed, _ in
+            guard let self, observed.toolbar !== self.toolbar else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let window = self.window, window.toolbar !== self.toolbar else { return }
+                window.toolbar = self.toolbar
+            }
+        }
     }
     private func update() {
         window?.appearance = model.windowAppearance
         window?.title = model.text("Jidr 设备中心", "Jidr Device Center")
+        if let window, window.toolbar !== toolbar { window.toolbar = toolbar }
         for item in toolbar.items { configure(item) }
     }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [.flexibleSpace, .init("jidr.palette"), .init("jidr.tasks"), .init("jidr.refresh")]
+        [.init("jidr.sidebar"), .flexibleSpace, .init("jidr.palette"), .init("jidr.tasks"), .init("jidr.refresh")]
     }
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarAllowedItemIdentifiers(toolbar)
@@ -122,6 +133,12 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate {
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         let item = NSToolbarItem(itemIdentifier: id)
+        if id.rawValue == "jidr.sidebar" {
+            let button = NSButton(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
+            button.isBordered = false
+            button.imagePosition = .imageOnly
+            item.view = button
+        }
         configure(item)
         return item
     }
@@ -129,6 +146,9 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate {
         let title: String
         let symbol: String
         switch item.itemIdentifier.rawValue {
+        case "jidr.sidebar":
+            title = model.sidebarVisible ? model.text("隐藏侧边栏", "Hide sidebar") : model.text("显示侧边栏", "Show sidebar")
+            symbol = "sidebar.leading"; item.action = #selector(toggleSidebar)
         case "jidr.palette":
             title = model.text("命令面板", "Command palette"); symbol = WbIcon.command; item.action = #selector(palette)
         case "jidr.tasks":
@@ -138,9 +158,20 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate {
         default: return
         }
         item.label = title; item.toolTip = title
-        item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+        item.image = item.itemIdentifier.rawValue == "jidr.sidebar"
+            ? image?.withSymbolConfiguration(.init(pointSize: 16, weight: .regular)) : image
         item.target = self; item.autovalidates = false; item.isEnabled = model.sheet == nil
+        if let button = item.view as? NSButton {
+            button.image = item.image
+            button.target = self
+            button.action = item.action
+            button.isEnabled = item.isEnabled
+            button.toolTip = title
+            button.setAccessibilityLabel(title)
+        }
     }
+    @objc private func toggleSidebar() { model.sidebarVisible.toggle() }
     @objc private func palette() { model.togglePalette() }
     @objc private func tasks() { model.openTasks() }
     @objc private func refresh() { model.refresh(); model.refreshJobs() }

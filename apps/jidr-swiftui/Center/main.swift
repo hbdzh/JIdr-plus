@@ -136,6 +136,12 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminate(_ sender:NSApplication) -> NSApplication.TerminateReply {
         guard let model else { return .terminateNow }
         guard !shuttingDown else { return .terminateLater }
+        if model.canQuitWhileStopping {
+            // The daemon has acknowledged every stop and owns it independently
+            // of this client. Let the UI close while those stops finish.
+            model.beginSafeQuit()
+            return .terminateNow
+        }
         if let reason = model.quitWorkBlockReason {
             showCenterWindow()
             model.presentQuitBlocker()
@@ -170,9 +176,12 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             NSApp.reply(toApplicationShouldTerminate:false)
         }
         quitWatchdog = watchdog
-        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: watchdog)
+        // Each running emulator may need a guest sync, a bounded shutdown
+        // request and up to two minutes to finish writing its snapshot.
+        let timeout = 30.0 + 160.0 * Double(model.devices.filter(\.running).count)
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: watchdog)
         model.call("center.quit") { [weak self] result in
-            guard let self else { return }
+            guard let self, self.shuttingDown else { return }
             self.quitWatchdog?.cancel(); self.quitWatchdog = nil
             self.shuttingDown = false
             switch result {

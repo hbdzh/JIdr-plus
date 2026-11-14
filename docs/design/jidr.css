@@ -210,7 +210,7 @@
   --jidr-window-titlebar-height: 44px;
   --jidr-window-sidebar-width: 248px;
   --jidr-window-inspector-width: 300px;
-  --jidr-window-device-toolbar-width: 48px;
+  --jidr-window-device-toolbar-width: 40px;
   --jidr-window-device-widget-panel-width: 320px;
   --jidr-window-device-min-screen-height: 360px;
 }
@@ -1535,7 +1535,7 @@ svg.ic.fill{fill:currentColor;stroke:none}
 .dv{display:flex;flex:1;min-height:0}
 .dv-stagecol{flex:1;min-width:0;display:flex;flex-direction:column}
 .dv-stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:var(--jidr-color-surface-sunken);position:relative;overflow:hidden}
-.frame .vtool{width:48px;padding:10px 0;gap:2px}
+.frame .vtool{width:40px;padding:10px 0;gap:2px}
 .frame .vtool .ib{width:32px;height:32px}
 .frame .vtool .grow{flex:1}
 .frame .wpanel{width:320px}

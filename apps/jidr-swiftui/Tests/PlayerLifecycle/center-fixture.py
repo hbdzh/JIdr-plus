@@ -5,6 +5,7 @@ import copy
 import os
 from pathlib import Path
 import sys
+import threading
 import time
 
 home = Path(os.environ["JIDR_HOME"])
@@ -24,6 +25,7 @@ responses = {
     "device.details": {"device": device, "config": {"hw.lcd.width": "480", "hw.lcd.height": "640", "hw.ramSize": "2048", "hw.cpu.ncore": "2", "hw.lcd.density": "320"}, "disk_usage": 0},
     "app.list": {"apps": []},
 }
+start_request = None
 for line in sys.stdin:
     request = json.loads(line)
     device["status"]["state"] = "stopped" if (home / "fixture-stopped").exists() else "running"
@@ -36,8 +38,17 @@ for line in sys.stdin:
             time.sleep(0.01)
     if request["method"] == "device.start" and (home / "block-start").exists():
         (home / "start-started").touch()
-        while not (home / "start-release").exists():
-            time.sleep(0.01)
+        start_request = request["id"]
+        def report_start(request_id):
+            while not (home / "start-release").exists():
+                time.sleep(0.01)
+            print(json.dumps({"id": request_id, "type": "progress", "job": "boot-job", "message": "", "progress": None}), flush=True)
+        threading.Thread(target=report_start, args=(start_request,), daemon=True).start()
+        continue
+    if request["method"] == "jobs.cancel" and request.get("params", {}).get("job") == "boot-job":
+        print(json.dumps({"id": request["id"], "type": "result", "result": {}}), flush=True)
+        print(json.dumps({"id": start_request, "type": "error", "message": "cancelled"}), flush=True)
+        continue
     result = responses.get(request["method"], {})
     if request["method"] == "device.details" and request.get("params", {}).get("device") == second_device["id"]:
         result = {"device": second_device, "config": {"hw.lcd.width": "720", "hw.lcd.height": "1280", "hw.ramSize": "4096", "hw.cpu.ncore": "4", "hw.lcd.density": "420"}, "disk_usage": 0}

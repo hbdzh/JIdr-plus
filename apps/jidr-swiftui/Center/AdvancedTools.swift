@@ -105,7 +105,7 @@ struct AdvancedToolsView: View {
         wifi = w; mobile = m; networkLoaded = true
     } }
     var body: some View {
-        HStack(spacing: 0) {
+        NavigationSplitView {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(t("设备工具", "Device tools")).font(.system(size: 15, weight: .medium))
@@ -116,16 +116,11 @@ struct AdvancedToolsView: View {
                 }
                 .padding(.horizontal, 18).padding(.top, 18).padding(.bottom, 10)
                 navigation
-                HStack(spacing: 6) {
-                    Circle().fill(running ? WbColor.positive : WbColor.textTertiary).frame(width: 5, height: 5)
-                    Text(model.devices.first(where: { $0.id == id })?.statusText(language: model.language) ?? "—")
-                        .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary).lineLimit(1)
-                }
-                .padding(.horizontal, 18).padding(.top, 8).padding(.bottom, 14)
             }
-            .frame(width: 168).frame(maxHeight: .infinity)
-            .background(WbColor.control)
-            Divider()
+            .frame(maxHeight: .infinity)
+            .ignoresSafeArea(.container, edges: .top)
+            .navigationSplitViewColumnWidth(min: 168, ideal: 168, max: 168)
+        } detail: {
             VStack(alignment: .leading, spacing: 0) {
                 toolPage
                 HStack(alignment: .center, spacing: 10) {
@@ -142,11 +137,12 @@ struct AdvancedToolsView: View {
                 .padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 14)
             }
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
-            .background(WbColor.raised)
+            .background(WbColor.raised, ignoresSafeAreaEdges: [.top, .bottom, .trailing])
+            .ignoresSafeArea(.container, edges: .top)
         }
-        .modifier(LightweightPanelSurface())
+        .modifier(DeviceToolsSidebarToolbar())
+        .ignoresSafeArea(.container, edges: .top)
         .preferredColorScheme(model.colorScheme)
-        .background(WbColor.raised)
         .controlSize(.regular)
         .textFieldStyle(.roundedBorder)
         .environment(\.locale,Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
@@ -234,7 +230,6 @@ struct AdvancedToolsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-        .background(WbColor.raised)
         .toggleStyle(.switch)
         .labeledContentStyle(DeviceToolFieldStyle())
         .id(selection.section)
@@ -804,5 +799,12 @@ struct LocationMapView: NSViewRepresentable {
             coordinator.pin?.coordinate = coordinate
             map.setRegion(MKCoordinateRegion(center:coordinate,latitudinalMeters:10000,longitudinalMeters:10000),animated:false)
         }
+    }
+}
+
+/// This utility window always exposes its navigation sidebar.
+private struct DeviceToolsSidebarToolbar: ViewModifier {
+    func body(content: Content) -> some View {
+        content.toolbar(.hidden)
     }
 }

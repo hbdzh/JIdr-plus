@@ -21,6 +21,10 @@ swiftc -module-cache-path "$out/module-cache" \
   apps/jidr-swiftui/Tests/WindowState/main.swift -o "$out/window-state-tests"
 "$out/window-state-tests"
 swiftc -module-cache-path "$out/module-cache" \
+  apps/jidr-swiftui/Sources/DeviceOverviewPrimaryAction.swift \
+  apps/jidr-swiftui/Tests/DeviceOverview/main.swift -o "$out/device-overview-action-tests"
+"$out/device-overview-action-tests"
+swiftc -module-cache-path "$out/module-cache" \
   apps/jidr-swiftui/Sources/DeviceCreation.swift \
   apps/jidr-swiftui/Tests/Creation/main.swift -o "$out/device-creation-tests"
 "$out/device-creation-tests"

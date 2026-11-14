@@ -223,6 +223,18 @@ enum PlayerScriptPrompts {
         return name
     }
 
+    static func confirmCompatibility(_ script: PlayerScriptSummary, transport: PlayerTransport) -> Bool {
+        guard let display = script.display, display.width > 0, display.height > 0,
+              transport.frameWidth > 0, transport.frameHeight > 0,
+              display.width != transport.frameWidth || display.height != transport.frameHeight else { return true }
+        let alert = NSAlert()
+        alert.messageText = t("设备分辨率不同", "Device resolution differs", transport.language)
+        alert.informativeText = String(format: t("录制时为 %d×%d，当前设备为 %d×%d。坐标会按当前画面换算。", "Recorded at %d×%d; this device is %d×%d. Coordinates are mapped to the current display.", transport.language), display.width, display.height, transport.frameWidth, transport.frameHeight)
+        alert.addButton(withTitle: t("回放", "Play", transport.language))
+        alert.addButton(withTitle: t("取消", "Cancel", transport.language))
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
     static func confirmDelete(name: String, language: Int) -> Bool {
         let alert = NSAlert()
         alert.messageText = t("删除操作录制？", "Delete operation recording?", language)
@@ -242,12 +254,12 @@ enum PlayerScriptPrompts {
 final class PlayerScriptsCoordinator: ObservableObject {
     private var controller: PlayerScriptsWindowController?
 
-    func present(transport: PlayerTransport) {
+    func present(transport: PlayerTransport, perform: ((PlayerScriptAction, @escaping (Bool) -> Void) -> Void)? = nil) {
         if let controller {
             controller.show()
             return
         }
-        let controller = PlayerScriptsWindowController(transport: transport)
+        let controller = PlayerScriptsWindowController(transport: transport, perform: perform)
         self.controller = controller
         controller.show()
     }
@@ -258,515 +270,238 @@ final class PlayerScriptsCoordinator: ObservableObject {
     }
 }
 
-final class PlayerScriptsWindowController: NSWindowController, NSWindowDelegate {
-    private let transport: PlayerTransport
-    private var languageCancellable: AnyCancellable?
+enum PlayerScriptAction {
+    case record
+    case play(PlayerScriptSummary, PlaybackOptions)
+}
 
-    init(transport: PlayerTransport) {
+/// A native toolbar keeps the window focused on the list of saved recordings.
+final class PlayerScriptsWindowController: NSWindowController, NSWindowDelegate, NSToolbarDelegate {
+    private let transport: PlayerTransport
+    private let perform: ((PlayerScriptAction, @escaping (Bool) -> Void) -> Void)?
+    private var languageCancellable: AnyCancellable?
+    private let toolbar = NSToolbar(identifier: "jidr.recordings")
+
+    init(transport: PlayerTransport, perform: ((PlayerScriptAction, @escaping (Bool) -> Void) -> Void)? = nil) {
         self.transport = transport
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 680, height: 560),
+        self.perform = perform
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 740, height: 480),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
         window.title = t("操作录制", "Operation recordings", transport.language)
-        window.minSize = NSSize(width: 640, height: 460)
+        window.minSize = NSSize(width: 540, height: 340)
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
-        window.contentView = NSHostingView(rootView: PlayerScriptsView(transport: transport))
+        window.styleMask.insert(.fullSizeContentView)
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.isOpaque = false
+        window.backgroundColor = .clear
         super.init(window: window)
         window.delegate = self
+        let background = NSVisualEffectView()
+        background.material = .underWindowBackground
+        background.blendingMode = .behindWindow
+        background.state = .followsWindowActiveState
+        let hosting = NSHostingView(rootView: PlayerScriptsView(transport: transport, perform: { [weak self] action in
+            self?.performAction(action)
+        }))
+        window.contentView = background
+        hosting.translatesAutoresizingMaskIntoConstraints = false
+        background.addSubview(hosting)
+        NSLayoutConstraint.activate([NSLayoutConstraint.Attribute.leading, .trailing, .top, .bottom].map {
+            NSLayoutConstraint(item: hosting, attribute: $0, relatedBy: .equal,
+                               toItem: window.contentLayoutGuide, attribute: $0,
+                               multiplier: 1, constant: 0)
+        })
+        toolbar.delegate = self
+        toolbar.displayMode = .iconAndLabel
+        window.toolbar = toolbar
+        window.toolbarStyle = .unifiedCompact
         window.center()
         languageCancellable = transport.$language.sink { [weak self] language in
             self?.window?.title = t("操作录制", "Operation recordings", language)
+            self?.toolbar.items.forEach { item in
+                switch item.itemIdentifier.rawValue {
+                case "jidr.recordings.new": item.label = t("新建录制", "New recording", language)
+                case "jidr.recordings.import": item.label = t("导入", "Import", language)
+                default: return
+                }
+                item.paletteLabel = item.label
+            }
         }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
     func show() {
+        transport.scriptList()
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { [.flexibleSpace, .init("jidr.recordings.new"), .space, .init("jidr.recordings.import")] }
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { toolbarAllowedItemIdentifiers(toolbar) }
+    func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
+                 willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
+        let item = NSToolbarItem(itemIdentifier: id)
+        item.target = self
+        switch id.rawValue {
+        case "jidr.recordings.new":
+            item.label = t("新建录制", "New recording", transport.language)
+            item.image = NSImage(systemSymbolName: "plus", accessibilityDescription: item.label)
+            item.action = #selector(startRecording)
+        case "jidr.recordings.import":
+            item.label = t("导入", "Import", transport.language)
+            item.image = NSImage(systemSymbolName: "square.and.arrow.down", accessibilityDescription: item.label)
+            item.action = #selector(importScript)
+        default: return nil
+        }
+        item.paletteLabel = item.label
+        return item
+    }
+    @objc private func startRecording() { performAction(.record) }
+    @objc private func importScript() {
+        guard transport.linkState.isRunning else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        transport.scriptImport(path: url.path)
+    }
+    private func performAction(_ action: PlayerScriptAction) {
+        let completed: (Bool) -> Void = { [weak self] success in
+            if success { self?.window?.orderOut(nil) }
+        }
+        if let perform { perform(action, completed); return }
+        guard transport.linkState.isRunning else {
+            let alert = NSAlert()
+            alert.messageText = t("请先启动设备", "Start a device first", transport.language)
+            alert.runModal()
+            return
+        }
+        switch action {
+        case .record: transport.scriptRecordStart()
+        case .play(let script, let options):
+            guard PlayerScriptPrompts.confirmCompatibility(script, transport: transport) else { completed(false); return }
+            transport.scriptPlayStart(id: script.id, options: options)
+        }
+        completed(true)
+    }
 }
-
-// MARK: - Script window view
 
 struct PlayerScriptsView: View {
     @ObservedObject var transport: PlayerTransport
-
-    @State private var selection: String?
+    var perform: ((PlayerScriptAction) -> Void)? = nil
     @State private var search = ""
-    @State private var playbackMode: PlaybackMode = .count
-    @State private var playbackCount = 1
-    @State private var playbackSeconds = 60
-    @State private var playbackIntervalMilliseconds = 0
-    @State private var playbackSpeed: Double = 1
-
+    @State private var selection: String?
+    @State private var optionsFor: String?
+    @AppStorage("jidr.script.playback.mode") private var playbackMode = PlaybackMode.count.rawValue
+    @AppStorage("jidr.script.playback.count") private var playbackCount = 1
+    @AppStorage("jidr.script.playback.seconds") private var playbackSeconds = 60
+    @AppStorage("jidr.script.playback.interval") private var playbackInterval = 0
+    @AppStorage("jidr.script.playback.speed") private var playbackSpeed = 1.0
     private var language: Int { transport.language }
-
     private var filteredScripts: [PlayerScriptSummary] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return transport.scripts }
-        return transport.scripts.filter {
-            $0.name.lowercased().contains(query) || $0.id.lowercased().contains(query)
-        }
+        return query.isEmpty ? transport.scripts : transport.scripts.filter { $0.name.lowercased().contains(query) }
     }
-
-    private var selectedScript: PlayerScriptSummary? {
-        guard let selection else { return nil }
-        return transport.scripts.first { $0.id == selection }
+    private var options: PlaybackOptions {
+        let mode = PlaybackMode(rawValue: playbackMode) ?? .count
+        var result = PlaybackOptions()
+        result.mode = mode
+        result.count = mode == .count ? min(max(1, playbackCount), 1000) : 0
+        result.duration_ms = mode == .duration ? min(max(1, playbackSeconds), 86400) * 1000 : 0
+        result.interval_ms = min(max(0, playbackInterval), 86400000)
+        result.speed = playbackSpeed
+        return result
     }
-
-    private var recordingBusy: Bool { transport.scriptRecording != .idle }
-    private var playbackBusy: Bool { transport.scriptPlayback != .idle }
-    /// Script commands are handled by the player bridge: without a live stream
-    /// the window still shows the last list, but bridge actions stay disabled.
-    private var bridgeAvailable: Bool { transport.linkState.isRunning }
-    private var canStartRecording: Bool { !playbackBusy && transport.linkState.isRunning }
-    private var canStartPlayback: Bool {
-        selectedScript != nil && !recordingBusy && !playbackBusy && transport.linkState.isRunning
-    }
-
     var body: some View {
-        VStack(spacing: WbSpace.zero) {
-            header
-            Divider().overlay(WbColor.borderSubtle)
+        VStack(spacing: 0) {
             if let error = transport.scriptError {
-                errorBanner(error)
+                HStack {
+                    Label(error, systemImage: WbIcon.warning).foregroundStyle(WbColor.negative)
+                    Spacer()
+                    Button(t("关闭", "Dismiss", language)) { transport.clearScriptError() }
+                }.padding(12)
             }
-            HSplitView {
-                scriptListPane
-                    .frame(minWidth: 250, idealWidth: 280, maxHeight: .infinity)
-                detailPane
-                    .frame(minWidth: 320, maxHeight: .infinity)
-            }
-        }
-        .background(WbColor.surface)
-        .onAppear {
-            transport.scriptList()
-            if selection == nil { selection = transport.scripts.first?.id }
-        }
-        .onChange(of: transport.scripts) { scripts in
-            if let selection, scripts.contains(where: { $0.id == selection }) { return }
-            self.selection = scripts.first?.id
-        }
-    }
-
-    // MARK: Header
-
-    private var header: some View {
-        HStack(spacing: WbSpace.md) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(t("操作录制", "Operation recordings", language))
-                    .wbFont(WbType.headline)
-                Text(t("录制玩家的触摸与按键，稍后按原样回放。",
-                       "Record the player's touches and keys, then replay them.", language))
-                    .wbFont(WbType.caption)
-                    .foregroundStyle(WbColor.textSecondary)
-            }
-            Spacer()
-            Button(t("刷新", "Refresh", language)) { transport.scriptList() }
-                .disabled(!bridgeAvailable)
-                .help(t("刷新操作录制列表（⌘R）", "Refresh the recording list (⌘R)", language))
-            Button(t("导入…", "Import…", language)) { importScript() }
-                .disabled(!bridgeAvailable)
-                .help(t("从 JSON 文件导入操作录制", "Import an operation recording from JSON", language))
-        }
-        .padding(.horizontal, WbSpace.lg)
-        .padding(.vertical, WbSpace.md)
-        .background(WbColor.chrome)
-    }
-
-    private func errorBanner(_ message: String) -> some View {
-        HStack(spacing: WbSpace.sm) {
-            Image(systemName: WbIcon.warning)
-                .foregroundStyle(WbColor.negative)
-            Text(message)
-                .wbFont(WbType.caption)
-                .foregroundStyle(WbColor.negative)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            Button(t("关闭", "Dismiss", language)) { transport.clearScriptError() }
-                .controlSize(.small)
-        }
-        .padding(.horizontal, WbSpace.lg)
-        .padding(.vertical, WbSpace.sm)
-    }
-
-    // MARK: List
-
-    private var scriptListPane: some View {
-        VStack(spacing: WbSpace.zero) {
-            NativeSearchField(text: $search,
-                              placeholder: t("搜索操作录制", "Search recordings", language),
-                              identifier: "recordings-search")
+            NativeSearchField(text: $search, placeholder: t("搜索录制", "Search recordings", language), identifier: "recordings-search")
                 .frame(height: 30)
-                .padding(WbSpace.sm)
-
+                .padding(12)
             if filteredScripts.isEmpty {
-                emptyListState
+                VStack(spacing: 8) {
+                    Spacer()
+                    Image(systemName: "list.bullet.rectangle").font(.system(size: 22)).foregroundStyle(.secondary)
+                    Text(transport.scripts.isEmpty ? t("暂无操作录制", "No recordings yet", language) : t("没有匹配的录制", "No matching recordings", language))
+                    if transport.scripts.isEmpty {
+                        Text(t("点击“新建录制”开始。", "Choose New recording to get started.", language)).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List(selection: $selection) {
                     ForEach(filteredScripts) { script in
-                        scriptRow(script)
-                            .tag(script.id)
+                        row(script).tag(script.id)
                     }
-                }
-                .listStyle(.inset)
-                .scrollContentBackground(.hidden)
+                }.listStyle(.inset).scrollContentBackground(.hidden)
             }
-        }
-        .background(WbColor.raised)
-    }
-
-    private var emptyListState: some View {
-        VStack(spacing: WbSpace.sm) {
-            Spacer()
-            Image(systemName: "list.bullet.rectangle")
-                .font(.system(size: WbIconSize.iconLg))
-                .foregroundStyle(WbColor.textTertiary)
-            Text(transport.scripts.isEmpty
-                 ? t("暂无操作录制", "No operation recordings yet", language)
-                 : t("没有匹配的录制", "No matching recordings", language))
-                .wbFont(WbType.body)
-                .foregroundStyle(WbColor.textSecondary)
-            if transport.scripts.isEmpty {
-                Text(t("在右侧点击“开始录制”，然后操作设备。",
-                       "Click “Start recording” on the right, then use the device.", language))
-                    .wbFont(WbType.caption)
-                    .foregroundStyle(WbColor.textTertiary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 220)
-            }
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func scriptRow(_ script: PlayerScriptSummary) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(script.name)
-                .wbFont(WbType.body.weighted(.medium))
-                .lineLimit(1)
-            HStack(spacing: WbSpace.xs) {
-                Text(PlayerScriptFormat.duration(script.duration_ms))
-                    .wbFont(WbType.code)
-                    .foregroundStyle(WbColor.textSecondary)
-                Text("·")
-                    .foregroundStyle(WbColor.textTertiary)
-                Text(String(format: t("%d 个事件", "%d events", language), script.event_count))
-                    .wbFont(WbType.caption)
-                    .foregroundStyle(WbColor.textSecondary)
-            }
-            HStack(spacing: WbSpace.xs) {
-                Text(PlayerScriptFormat.resolution(script.display, language: language))
-                    .wbFont(WbType.caption)
-                Text("·")
-                Text(PlayerScriptFormat.createdAt(script.created_at))
-                    .wbFont(WbType.caption)
-            }
-            .foregroundStyle(WbColor.textTertiary)
-        }
-        .padding(.vertical, 2)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(script.name)
-        .accessibilityValue(PlayerScriptFormat.duration(script.duration_ms))
-    }
-
-    // MARK: Detail
-
-    private var detailPane: some View {
-        Form {
-            Section {
-                recordingRows
-            } header: {
-                Text(t("录制", "Recording", language))
-                    .wbFont(WbType.title)
-            }
-            Section {
-                playbackRows
-            } header: {
-                Text(t("回放设置", "Playback settings", language))
-                    .wbFont(WbType.title)
-            }
-            if let script = selectedScript {
-                Section {
-                    scriptRows(script)
-                } header: {
-                    Text(script.name)
-                        .wbFont(WbType.title)
-                        .lineLimit(1)
-                }
-            } else {
-                Section {
-                    emptyDetailRows
-                } header: {
-                    Text(t("脚本详情", "Script details", language))
-                        .wbFont(WbType.title)
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    @ViewBuilder private var recordingRows: some View {
-        HStack(spacing: WbSpace.sm) {
-            Image(systemName: "record.circle")
-                .foregroundStyle(recordingBusy ? WbColor.negative : WbColor.textSecondary)
-            Text(PlayerScriptText.recordingState(transport.scriptRecording, language: language))
-                .wbFont(WbType.body.weighted(.medium))
-            if transport.scriptRecording == .recording {
-                TimelineView(.periodic(from: Date(), by: 1)) { _ in
-                    Text(PlayerScriptFormat.elapsed(elapsedRecording))
-                        .wbFont(WbType.code)
-                        .foregroundStyle(WbColor.textSecondary)
-                }
-            }
-            Spacer()
-        }
-        HStack(spacing: WbSpace.sm) {
-            switch transport.scriptRecording {
-            case .idle:
-                Button(t("开始录制", "Start recording", language)) { transport.scriptRecordStart() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canStartRecording)
-            case .recording:
-                Button(t("暂停", "Pause", language)) { transport.scriptRecordPause() }
-                Button(t("停止并保存…", "Stop and save…", language)) { stopRecording() }
-                Button(t("放弃", "Discard", language)) { transport.scriptRecordCancel() }
-            case .paused:
-                Button(t("继续", "Resume", language)) { transport.scriptRecordResume() }
-                Button(t("停止并保存…", "Stop and save…", language)) { stopRecording() }
-                Button(t("放弃", "Discard", language)) { transport.scriptRecordCancel() }
-            }
-            Spacer()
-        }
-        Text(t("录制触摸、按键、文本和工具栏按键；旋转不会录制。",
-               "Touches, keys, text and toolbar keys are recorded; rotation is not.", language))
-            .wbFont(WbType.caption)
-            .foregroundStyle(WbColor.textTertiary)
-        if playbackBusy {
-            Text(t("回放期间无法录制。", "Recording is unavailable during playback.", language))
-                .wbFont(WbType.caption)
-                .foregroundStyle(WbColor.textSecondary)
-        }
-    }
-
-    @ViewBuilder private var playbackRows: some View {
-        HStack(spacing: WbSpace.sm) {
-            Text(t("模式", "Mode", language))
-                .foregroundStyle(WbColor.textSecondary)
-            Spacer()
-            Picker("", selection: $playbackMode) {
-                ForEach(PlaybackMode.allCases, id: \.self) { mode in
-                    Text(PlayerScriptText.mode(mode, language: language)).tag(mode)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(width: 130)
-        }
-        if playbackMode == .count {
-            HStack(spacing: WbSpace.sm) {
-                Text(t("次数", "Loops", language))
-                    .foregroundStyle(WbColor.textSecondary)
+            Divider()
+            HStack {
+                Text(String(format: t("共 %d 条录制", "%d recordings", language), filteredScripts.count))
+                    .font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Stepper(value: $playbackCount, in: 1...1000) {
-                    Text(String(format: "%d", playbackCount))
-                        .wbFont(WbType.caption)
-                        .monospacedDigit()
-                }
-                .labelsHidden()
-                Text(String(format: t("%d 次", "%d loops", language), playbackCount))
-                    .wbFont(WbType.caption)
-                    .foregroundStyle(WbColor.textSecondary)
-            }
+            }.padding(.horizontal, 14).padding(.vertical, 9)
         }
-        if playbackMode == .duration {
-            HStack(spacing: WbSpace.sm) {
-                Text(t("时长", "Duration", language))
-                    .foregroundStyle(WbColor.textSecondary)
-                Spacer()
-                Stepper(value: $playbackSeconds, in: 1...86400) {
-                    Text(String(format: "%d", playbackSeconds))
-                        .wbFont(WbType.caption)
-                        .monospacedDigit()
-                }
-                .labelsHidden()
-                Text(String(format: t("%d 秒", "%d s", language), playbackSeconds))
-                    .wbFont(WbType.caption)
-                    .foregroundStyle(WbColor.textSecondary)
-            }
-        }
-        HStack(spacing: WbSpace.sm) {
-            Text(t("循环间隔", "Loop interval", language))
-                .foregroundStyle(WbColor.textSecondary)
-            Spacer()
-            TextField("", value: $playbackIntervalMilliseconds, format: .number)
-                .textFieldStyle(.roundedBorder)
-                .frame(width: 72)
-                .multilineTextAlignment(.trailing)
-            Text(t("毫秒", "ms", language))
-                .wbFont(WbType.caption)
-                .foregroundStyle(WbColor.textSecondary)
-        }
-        HStack(spacing: WbSpace.sm) {
-            Text(t("倍速", "Speed", language))
-                .foregroundStyle(WbColor.textSecondary)
-            Spacer()
-            Picker("", selection: $playbackSpeed) {
-                ForEach([0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0], id: \.self) { speed in
-                    Text(String(format: "%.2g×", speed)).tag(speed)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .frame(width: 90)
-        }
-        HStack(spacing: WbSpace.sm) {
-            switch transport.scriptPlayback {
-            case .idle:
-                Button(t("回放", "Play", language)) { startPlayback() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canStartPlayback)
-            case .playing:
-                Button(t("暂停", "Pause", language)) { transport.scriptPlayPause() }
-                Button(t("停止", "Stop", language)) { transport.scriptPlayStop() }
-            case .paused:
-                Button(t("继续", "Resume", language)) { transport.scriptPlayResume() }
-                Button(t("停止", "Stop", language)) { transport.scriptPlayStop() }
-            }
-            Spacer()
-            if playbackBusy {
-                Text(PlayerScriptText.loop(loop: transport.scriptPlaybackLoop,
-                                           total: transport.scriptPlaybackTotal,
-                                           mode: transport.scriptPlaybackMode,
-                                           language: language))
-                    .wbFont(WbType.caption)
-                    .foregroundStyle(WbColor.textSecondary)
-            }
-        }
-        if let name = transport.scriptPlaybackName, playbackBusy {
-            Text(String(format: t("正在回放：%@", "Playing: %@", language), name))
-                .wbFont(WbType.caption)
-                .foregroundStyle(WbColor.textTertiary)
-                .lineLimit(1)
-        }
-        if recordingBusy {
-            Text(t("录制期间无法回放。", "Playback is unavailable while recording.", language))
-                .wbFont(WbType.caption)
-                .foregroundStyle(WbColor.textSecondary)
+        .onAppear { transport.scriptList() }
+        .onReceive(NotificationCenter.default.publisher(for: .playerScriptsChanged)) { _ in
+            if transport.linkState.isRunning { transport.scriptList() }
         }
     }
-
-    @ViewBuilder private func scriptRows(_ script: PlayerScriptSummary) -> some View {
-        HStack(spacing: WbSpace.lg) {
-            Label(PlayerScriptFormat.duration(script.duration_ms), systemImage: "clock")
-                .foregroundStyle(WbColor.textSecondary)
-            Label(String(format: t("%d 个事件", "%d events", language), script.event_count),
-                  systemImage: "list.number")
-                .foregroundStyle(WbColor.textSecondary)
-            Label(PlayerScriptFormat.resolution(script.display, language: language),
-                  systemImage: "rectangle.on.rectangle")
-                .foregroundStyle(WbColor.textSecondary)
-            Spacer()
-            Text(PlayerScriptFormat.createdAt(script.created_at))
-                .foregroundStyle(WbColor.textTertiary)
+    private func row(_ script: PlayerScriptSummary) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "cursorarrow.motionlines").foregroundStyle(.secondary).frame(width: 20)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(script.name).fontWeight(.medium).lineLimit(1)
+                Text(PlayerScriptFormat.createdAt(script.created_at)).font(.caption).foregroundStyle(.secondary)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            Text(PlayerScriptFormat.duration(script.duration_ms)).monospacedDigit().frame(width: 54, alignment: .trailing)
+            Text(String(format: t("%d 个事件", "%d events", language), script.event_count))
+                .font(.caption).foregroundStyle(.secondary).frame(width: 80, alignment: .trailing)
+            Button { perform?(.play(script, options)) } label: { Image(systemName: "play.fill") }
+                .buttonStyle(.borderless).help(t("回放", "Play", language))
+                .accessibilityLabel(t("回放", "Play", language) + " " + script.name)
+            Button { optionsFor = script.id } label: { Image(systemName: "slider.horizontal.3") }
+                .buttonStyle(.borderless).help(t("回放设置", "Playback settings", language))
+                .accessibilityLabel(t("回放设置", "Playback settings", language) + " " + script.name)
+                .popover(isPresented: Binding(get: { optionsFor == script.id }, set: { if !$0 { optionsFor = nil } })) {
+                    PlaybackOptionsPopover(language: language, mode: $playbackMode, count: $playbackCount,
+                                           seconds: $playbackSeconds, interval: $playbackInterval, speed: $playbackSpeed)
+                }
+            Menu {
+                Button(t("重命名…", "Rename…", language)) { rename(script) }
+                Button(t("导出…", "Export…", language)) { exportScript(script) }
+                Divider()
+                Button(t("删除", "Delete", language), role: .destructive) { delete(script) }
+            } label: { Image(systemName: "ellipsis") }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .help(t("更多操作", "More actions", language))
         }
-        .wbFont(WbType.caption)
-        if let warning = compatibilityWarning(script) {
-            Label(warning, systemImage: WbIcon.warning)
-                .wbFont(WbType.caption)
-                .foregroundStyle(WbColor.warning)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        HStack(spacing: WbSpace.sm) {
+        .padding(.vertical, 5)
+        .contextMenu {
+            Button(t("回放", "Play", language)) { perform?(.play(script, options)) }
             Button(t("重命名…", "Rename…", language)) { rename(script) }
-                .disabled(!bridgeAvailable)
             Button(t("导出…", "Export…", language)) { exportScript(script) }
-                .disabled(!bridgeAvailable)
-            Spacer()
+            Divider()
             Button(t("删除", "Delete", language), role: .destructive) { delete(script) }
-                .disabled(!bridgeAvailable)
         }
     }
-
-    @ViewBuilder private var emptyDetailRows: some View {
-        Text(transport.scripts.isEmpty
-             ? t("没有任何操作录制", "No operation recordings", language)
-             : t("选择一个操作录制", "Select an operation recording", language))
-            .wbFont(WbType.body)
-        Text(transport.scripts.isEmpty
-             ? t("点击上方的“开始录制”，然后操作设备来创建第一份录制。",
-                 "Click “Start recording” above and use the device to create the first recording.", language)
-             : t("选择后可以回放、重命名、导出或删除。",
-                 "Then replay, rename, export or delete it.", language))
-            .wbFont(WbType.caption)
-            .foregroundStyle(WbColor.textSecondary)
-    }
-
-    private func compatibilityWarning(_ script: PlayerScriptSummary) -> String? {
-        guard let display = script.display, display.width > 0, display.height > 0,
-              transport.frameWidth > 0, transport.frameHeight > 0 else { return nil }
-        guard display.width != transport.frameWidth || display.height != transport.frameHeight else {
-            return nil
-        }
-        return String(format: t("该录制是在 %d×%d 分辨率下录制的；当前画面为 %d×%d。坐标仍会按当前画面换算。",
-                                "This recording was captured at %d×%d; the current screen is %d×%d. Coordinates are still mapped to the current screen.",
-                                language),
-                      display.width, display.height, transport.frameWidth, transport.frameHeight)
-    }
-
-    // MARK: Actions
-
-    private var elapsedRecording: TimeInterval {
-        guard let started = transport.scriptRecordingStartedAt else { return 0 }
-        return Date().timeIntervalSince(started)
-    }
-
-    private func recordingOptions() -> PlaybackOptions {
-        var options = PlaybackOptions()
-        options.mode = playbackMode
-        switch playbackMode {
-        case .count:
-            options.count = max(1, playbackCount)
-            options.duration_ms = 0
-        case .duration:
-            options.count = 0
-            options.duration_ms = max(1, playbackSeconds) * 1000
-        case .infinite:
-            options.count = 0
-            options.duration_ms = 0
-        }
-        options.interval_ms = min(max(0, playbackIntervalMilliseconds), 24 * 60 * 60 * 1000)
-        options.speed = playbackSpeed
-        return options
-    }
-
-    private func startPlayback() {
-        guard let script = selectedScript else { return }
-        transport.scriptPlayStart(id: script.id, options: recordingOptions())
-    }
-
-    private func stopRecording() {
-        guard let name = PlayerScriptPrompts.askName(
-            defaultValue: PlayerScriptFormat.suggestedRecordingName(language: language),
-            language: language) else {
-            transport.scriptRecordCancel()
-            return
-        }
-        transport.scriptRecordStop(name: name)
-    }
-
     private func rename(_ script: PlayerScriptSummary) {
         guard let name = PlayerScriptPrompts.askRename(current: script.name, language: language) else { return }
         transport.scriptRename(id: script.id, name: name)
     }
-
     private func delete(_ script: PlayerScriptSummary) {
         guard PlayerScriptPrompts.confirmDelete(name: script.name, language: language) else { return }
         transport.scriptDelete(id: script.id)
     }
-
     private func exportScript(_ script: PlayerScriptSummary) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
@@ -775,12 +510,68 @@ struct PlayerScriptsView: View {
         transport.scriptExport(id: script.id, path: url.path)
     }
 
-    private func importScript() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.json]
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        transport.scriptImport(path: url.path)
+}
+
+struct PlaybackOptionsPopover: View {
+    let language: Int
+    @Binding var mode: String
+    @Binding var count: Int
+    @Binding var seconds: Int
+    @Binding var interval: Int
+    @Binding var speed: Double
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(t("回放设置", "Playback settings", language)).font(.headline)
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
+                GridRow {
+                    Text(t("模式", "Mode", language)).foregroundStyle(.secondary)
+                    Picker("", selection: $mode) {
+                        ForEach(PlaybackMode.allCases, id: \.self) { item in
+                            Text(PlayerScriptText.mode(item, language: language)).tag(item.rawValue)
+                        }
+                    }.labelsHidden().accessibilityLabel(t("模式", "Mode", language)).frame(width: 145, alignment: .trailing)
+                }
+                if mode == PlaybackMode.count.rawValue {
+                    GridRow {
+                        Text(t("次数", "Loops", language)).foregroundStyle(.secondary)
+                        Stepper(value: $count, in: 1...1000) {
+                            Text("\(count)").monospacedDigit().frame(maxWidth: .infinity, alignment: .trailing)
+                        }.accessibilityLabel(t("次数", "Loops", language)).frame(width: 145)
+                    }
+                } else if mode == PlaybackMode.duration.rawValue {
+                    GridRow {
+                        Text(t("时长", "Duration", language)).foregroundStyle(.secondary)
+                        Stepper(value: $seconds, in: 1...86400) {
+                            Text(String(format: t("%d 秒", "%d s", language), seconds)).monospacedDigit()
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        }.accessibilityLabel(t("时长", "Duration", language)).frame(width: 145)
+                    }
+                }
+                GridRow {
+                    Text(t("循环间隔", "Loop interval", language)).foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        TextField("", value: $interval, format: .number).textFieldStyle(.roundedBorder)
+                            .accessibilityLabel(t("循环间隔（毫秒）", "Loop interval (milliseconds)", language))
+                            .multilineTextAlignment(.trailing)
+                        Text(t("毫秒", "ms", language)).foregroundStyle(.secondary)
+                    }.frame(width: 145)
+                }
+                GridRow {
+                    Text(t("倍速", "Speed", language)).foregroundStyle(.secondary)
+                    Picker("", selection: $speed) {
+                        ForEach([0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0], id: \.self) { value in
+                            Text(String(format: "%.2g×", value)).tag(value)
+                        }
+                    }.labelsHidden().accessibilityLabel(t("倍速", "Speed", language)).frame(width: 145, alignment: .trailing)
+                }
+            }
+            .font(.system(size: 13))
+        }
+        .padding(18).frame(width: 310)
+        .modifier(PlayerGlassSurface())
     }
+}
+
+extension Notification.Name {
+    static let playerScriptsChanged = Notification.Name("jidr.playerScriptsChanged")
 }

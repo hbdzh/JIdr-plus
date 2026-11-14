@@ -55,6 +55,7 @@ eventually("card reloads changed hardware") { model.cardHardware[id]?.memory == 
 model.openGame(id)
 eventually("first player disconnects") { model.players[id]?.transport.connectionEnded == true }
 let original = model.players[id]!
+require(original.window?.appearance == nil, "player window inherits the system appearance")
 original.transport.reconnect()
 eventually("center replaces disconnected player after Reconnect") {
     model.players[id] != nil && model.players[id] !== original
@@ -88,9 +89,17 @@ eventually("starting player opens while startup is in progress") {
     model.players[id]?.window != nil && FileManager.default.fileExists(atPath: home.appendingPathComponent("start-started").path)
 }
 model.players[id]?.window?.performClose(nil)
-require(!model.hasPlayers && stopRequests(in: home) == 2, "closing during startup queues the stop")
+require(!model.hasPlayers && stopRequests(in: home) == 2, "closing during startup waits for the job ID")
 FileManager.default.createFile(atPath: home.appendingPathComponent("start-release").path, contents: Data())
-eventually("startup completion is followed by one stop") { stopRequests(in: home) == 3 && !model.busy.contains(id) }
+eventually("closing during startup cancels the boot and stops the device") {
+    let requests = (try? String(contentsOf: home.appendingPathComponent("requests.jsonl"), encoding: .utf8)) ?? ""
+    return requests.contains("\"method\": \"jobs.cancel\"") && stopRequests(in: home) == 3 && !model.busy.contains(id)
+}
+if ProcessInfo.processInfo.environment["JIDR_PLAYER_START_CANCEL_ONLY"] == "1" {
+    model.close()
+    print("Player startup cancellation regression passed")
+    exit(0)
+}
 try FileManager.default.removeItem(at: home.appendingPathComponent("fixture-stopped"))
 model.refresh()
 eventually("fixture reports the device running") { model.devices.first?.running == true }
@@ -184,6 +193,51 @@ preview.transport.onMeasuredFramePresented = { [weak transport = preview.transpo
 }
 preview.transport.onFrameDrawn = { actualDraws += 1 }
 preview.open(device: id, width: 480, height: 640, executable: CommandLine.arguments[3], dataDirectory: home.appendingPathComponent("data").path)
+
+// Native backdrop pixels depend on the desktop and WindowServer. Verify the
+// shared effect plus clear hosting surfaces here; review real blur on screen.
+let inheritedAppearance = application.appearance
+defer { application.appearance = inheritedAppearance }
+guard let chromeWindow = preview.window,
+      let material = chromeWindow.contentView as? PlayerWindowBackgroundView,
+      let hosting = material.subviews.first else {
+    preconditionFailure("player has no shared native chrome backdrop")
+}
+require(chromeWindow.appearance == nil, "player inherits appearance instead of pinning a theme")
+require(chromeWindow.titlebarAppearsTransparent && chromeWindow.titlebarSeparatorStyle == .none,
+        "native titlebar exposes the shared material without an extra tint or separator")
+require(chromeWindow.styleMask.contains(.fullSizeContentView),
+        "shared material extends underneath the native titlebar")
+require(!chromeWindow.isOpaque && chromeWindow.backgroundColor.alphaComponent == 0,
+        "window has no opaque fill behind its native material")
+require(material.material == .sidebar && material.blendingMode == .behindWindow,
+        "titlebar and rail share the native behind-window sidebar material")
+require(material.state == .followsWindowActiveState,
+        "the system controls active and inactive material appearance")
+require(!material.isOpaque && material.layer?.backgroundColor == nil,
+        "native material is not covered by a custom opaque layer")
+for appearance: NSAppearance.Name in [.aqua, .darkAqua, .aqua] {
+    application.appearance = NSAppearance(named: appearance)
+    RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+    material.layoutSubtreeIfNeeded()
+    require(material.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == appearance
+            && hosting.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == appearance,
+            "existing material and controls follow inherited appearance changes")
+    guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
+                                       pixelsWide: Int(hosting.bounds.width),
+                                       pixelsHigh: Int(hosting.bounds.height),
+                                       bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                       isPlanar: false, colorSpaceName: .deviceRGB,
+                                       bytesPerRow: 0, bitsPerPixel: 0) else {
+        preconditionFailure("cannot render the player hosting surfaces")
+    }
+    hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+    let rail = bitmap.colorAt(x: bitmap.pixelsWide - 4, y: bitmap.pixelsHigh / 2)!
+    require(rail.alphaComponent < 0.01,
+            "rail reveals the shared material without an opaque SwiftUI fill in \(appearance.rawValue): \(rail)")
+}
+application.appearance = inheritedAppearance
+
 eventually("real fixture produces a first frame and enables tools") { preview.transport.linkState.isRunning && preview.transport.frameWidth > 0 }
 eventually("measurement counts actual ScreenView draws and matched samples") { matchingSamples > 0 && actualDraws > 0 }
 
@@ -197,6 +251,18 @@ guard let playerContent = preview.window?.contentView,
     preconditionFailure("player window has no ScreenView for the layout regression")
 }
 let expectedSidebarWidth = WbLayout.windowDeviceToolbarWidth
+let titleAccessories = chromeWindow.titlebarAccessoryViewControllers
+let sidebarTitleButton = titleAccessories.compactMap { $0.view as? NSButton }.first { $0.accessibilityLabel()?.localizedCaseInsensitiveContains("sidebar") == true }
+let compactActions = titleAccessories.first { !($0.view is NSButton) }
+require(titleAccessories.count == 2 && sidebarTitleButton != nil && compactActions != nil,
+        "titlebar retains the sidebar and compact action controls")
+if let sidebarTitleButton, let compactActions {
+    let sidebarCenter = sidebarTitleButton.convert(sidebarTitleButton.bounds, to: nil).midX
+    let actionsCenter = compactActions.view.convert(compactActions.view.bounds, to: nil).midX
+    require(abs(sidebarCenter - (chromeWindow.frame.width - expectedSidebarWidth / 2)) < 3,
+            "titlebar sidebar control aligns with the device rail")
+    require(actionsCenter < sidebarCenter - 30, "compact actions sit to the left of the sidebar control")
+}
 require(abs(screenView.frame.height - playerContentSize.height) < 1.5,
         "screen area uses the full content height (no Logcat strip)")
 require(abs(screenView.frame.width - (playerContentSize.width - expectedSidebarWidth)) < 1.5,
@@ -204,6 +270,16 @@ require(abs(screenView.frame.width - (playerContentSize.width - expectedSidebarW
 require(abs(screenView.frame.width / screenView.frame.height
             - CGFloat(preview.transport.frameWidth) / CGFloat(preview.transport.frameHeight)) < 0.01,
         "screen area aspect matches the device frame (no letterbox)")
+// The floating controls never change the device view or window geometry.
+let windowFrameBeforeScript = chromeWindow.frame
+let screenFrameBeforeScript = screenView.frame
+for (operation, state) in [("record", "recording"), ("record", "stopped"), ("play", "playing"), ("play", "stopped")] {
+    preview.transport.applyScriptNotification(["op": operation, "state": state, "event_count": 1])
+    RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+    require(chromeWindow.frame == windowFrameBeforeScript, "script controls never resize the player window")
+    require(screenView.frame == screenFrameBeforeScript, "script controls never resize the Android screen")
+}
+
 require(preview.transport.mapping.begin(), "local key mapping loads without a daemon in preview")
 preview.transport.mapping.cancel()
 var previewNotices: [String] = []

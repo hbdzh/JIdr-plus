@@ -113,7 +113,7 @@ Rules:
 ### Notifications (stderr, `JIDR_SCRIPT:` + JSON)
 
 ```text
-{"op":"record","state":"recording"|"paused"|"saved"|"stopped"|"failed","name":..., "message":..., "script":{summary}}
+{"op":"record","state":"recording"|"paused"|"progress"|"saved"|"stopped"|"failed","event_count":..., "name":..., "message":..., "script":{summary}}
 {"op":"list","scripts":[{summary...}]}
 {"op":"play","state":"playing"|"paused"|"finished"|"stopped"|"failed","loop":1,"count":3,"name":...,"message":...}
 {"op":"error","code":"script.busy","message":"..."}
@@ -134,8 +134,15 @@ times are divided by `speed`; loop intervals are real time. The engine emits
 
 - Player side rail gains "操作录制"; it opens a non-modal script window so the
   player remains usable while recording.
-- Script window: list, record/pause/resume/stop, playback settings, play/pause/
-  stop, rename, delete, import/export, resolution warning.
-- Player HUD while recording/playing: elapsed time, loop count, pause/stop.
+- Script window: a compact list with a native New recording toolbar action,
+  direct playback, an on-demand playback-settings popover, and rename, delete,
+  import/export. Playback settings are retained on this Mac.
+- Running devices are offered as recording/playback targets. A player window is
+  opened if needed, and recording stops directly to a default-named file.
+- Floating player controls over the top of the Android screen show elapsed
+  time and event count during recording, and the current loop during playback,
+  with pause and stop controls. The window and device view keep their size;
+  the controls occupy a small part of the screen while visible. Recording
+  counts are coalesced by the bridge.
 - Closing the player window stops everything naturally (bridge exits).
 - All strings bilingual via the existing player localisation helper.

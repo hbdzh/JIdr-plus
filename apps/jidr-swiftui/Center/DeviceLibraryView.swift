@@ -11,14 +11,6 @@ struct DeviceLibrarySidebar: View {
         VStack(spacing: 12) {
             LibrarySearchField(model: model)
                 .frame(height: 30).padding(.horizontal, 12).padding(.top, 12)
-            HStack {
-                Text(model.text("设备", "Devices")).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
-                Spacer()
-                Button { model.present(.newDevice) } label: { Image(systemName: "plus") }
-                    .buttonStyle(.borderless)
-                    .help(model.text("新建设备", "New device"))
-                    .accessibilityLabel(model.text("新建设备", "New device"))
-            }.padding(.horizontal, 18)
             NativeDeviceLibraryList(model: model)
             .overlay {
                 if !model.deviceListLoaded {
@@ -41,31 +33,20 @@ struct DeviceLibrarySidebar: View {
             .padding(.horizontal, 18).padding(.bottom, 18)
         }
         .frame(maxHeight: .infinity)
-        .background { LibrarySidebarMaterial().ignoresSafeArea(.container, edges: .top) }
     }
-}
-
-private struct LibrarySidebarMaterial: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .sidebar
-        view.blendingMode = .behindWindow
-        view.state = .followsWindowActiveState
-        return view
-    }
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {}
 }
 
 /// The device search keeps its existing focus/overlay policy on the shared control.
 struct LibrarySearchField: View {
     @ObservedObject var model: CenterModel
     private var enabled: Bool {
-        !model.isEmptyDeviceLibrary && !model.paletteOpen && model.sheet == nil && !model.tasksOpen
+        model.sidebarVisible && !model.isEmptyDeviceLibrary && !model.paletteOpen && model.sheet == nil && !model.tasksOpen
     }
     var body: some View {
         NativeSearchField(text: $model.deviceQuery,
                           placeholder: model.text("搜索设备", "Search devices"),
-                          identifier: "device-search", focusRequest: model.searchFocusRequest,
+                          identifier: "device-search",
+                          focusRequest: model.searchFocusRequest,
                           canFocus: { enabled })
             .disabled(!enabled)
     }
@@ -118,12 +99,12 @@ struct DeviceOverviewView: View {
                     }
                     if geometry.size.width >= 920 {
                         HStack(alignment: .top, spacing: 20) {
-                            mainColumn.frame(maxWidth: .infinity)
                             informationColumn.frame(width: min(360, geometry.size.width * 0.32))
+                            mainColumn.frame(maxWidth: .infinity)
                         }
                     } else {
-                        mainColumn
                         informationColumn
+                        mainColumn
                     }
                 }
                 .padding(geometry.size.width >= 860 ? 32 : 24)
@@ -147,18 +128,8 @@ struct DeviceOverviewView: View {
 
     private var header: some View {
         HStack(alignment: .top, spacing: 20) {
-            ZStack {
-                if device.stopped, let image = WbImageCache.image(named: "device-stopped") {
-                    Image(nsImage: image).resizable().interpolation(.high).scaledToFit()
-                } else {
-                    RoundedRectangle(cornerRadius: 16).fill(Color.primary.opacity(0.9))
-                    RoundedRectangle(cornerRadius: 11).fill(Color(nsColor: .controlBackgroundColor)).padding(5)
-                    if let frame = model.deviceThumbnails[device.id] {
-                        Image(decorative: frame, scale: 1).resizable().scaledToFill()
-                            .frame(width: 62, height: 108).clipShape(RoundedRectangle(cornerRadius: 11))
-                    }
-                }
-            }.frame(width: 80, height: 136).accessibilityHidden(true)
+            DevicePreview(model: model, device: device, width: 64, height: 110)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 10) {
                 Text(device.name).font(.system(size: 30, weight: .bold)).lineLimit(2).textSelection(.enabled)
                 ActionFlowLayout(spacing: 8) {
@@ -202,18 +173,19 @@ struct DeviceOverviewView: View {
             .background(color.opacity(0.1), in: Capsule())
     }
     @ViewBuilder private var primaryAction: some View {
-        if device.running {
-            Button(t("打开", "Open"), systemImage: "play") { model.focusOrOpenDeviceWindow(device.id) }
-                .buttonStyle(.borderedProminent).controlSize(.large).tint(WbColor.accent)
+        switch DeviceOverviewPrimaryAction(state: device.status.state) {
+        case .stop:
             Button(t("停止", "Stop"), systemImage: "stop") { model.stop(device.id) }
-                .buttonStyle(.bordered).controlSize(.large).disabled(model.busy.contains(device.id))
-        } else if device.stopped {
+                .buttonStyle(.borderedProminent).controlSize(.large).tint(WbColor.accent)
+                .disabled(model.busy.contains(device.id))
+        case .start:
             Button(t("启动", "Start"), systemImage: "play") { model.start(device.id) }
-                .buttonStyle(.borderedProminent).controlSize(.large).tint(WbColor.accent).disabled(model.busy.contains(device.id))
-        } else if ["starting", "booting"].contains(device.status.state) {
+                .buttonStyle(.borderedProminent).controlSize(.large).tint(WbColor.accent)
+                .disabled(model.busy.contains(device.id))
+        case .cancelStart:
             Button(t("取消启动", "Cancel start")) { model.stop(device.id) }
                 .buttonStyle(.bordered).controlSize(.large).disabled(model.busy.contains(device.id))
-        } else {
+        case .progress:
             ProgressView().controlSize(.small)
         }
     }
@@ -221,20 +193,15 @@ struct DeviceOverviewView: View {
     private var mainColumn: some View {
         VStack(spacing: 20) {
             installedAppsCard
-            OverviewInfoCard(title: "") { snapshotsSection }
+            OverviewInfoCard(title: "", compact: !snapshotsLoading && snapshotsError == nil && namedSnapshots.isEmpty) { snapshotsSection }
+                .accessibilityIdentifier("overview-snapshots")
         }
     }
     private var informationColumn: some View {
-        VStack(spacing: 20) {
-            deviceInformationCard
-            OverviewInfoCard(title: "") {
-                DeviceAdvancedInformation(model: model, device: device, isExpanded: $advancedExpanded)
-                if advancedExpanded { sessionSection }
-            }
-        }
+        deviceInformationCard
     }
     private var installedAppsCard: some View {
-        OverviewInfoCard(title: "") {
+        OverviewInfoCard(title: "", compact: !device.running || (!model.appsLoading && model.appsError == nil && filteredApps.isEmpty)) {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 12) {
                     appsHeading
@@ -259,43 +226,54 @@ struct DeviceOverviewView: View {
                            ? t("尚未安装可启动的应用。", "No launchable apps installed yet.")
                            : t("没有匹配的应用。", "No matching apps."))
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 20)], spacing: 0) {
-                    ForEach(filteredApps.prefix(6)) { app in
-                        VStack(spacing: 0) {
-                            HStack(spacing: 10) {
-                                WbAppIcon(symbol: WbIcon.appEmpty, imagePath: app.icon, size: 36)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(app.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                                    Text(app.package).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
-                                }.frame(maxWidth: .infinity, alignment: .leading)
-                                Button { model.launch(app, device: device.id) } label: { Image(systemName: "play") }
-                                    .buttonStyle(.bordered).disabled(!canOperate)
-                                    .help(t("启动", "Launch") + " " + app.name)
-                                    .accessibilityLabel(t("启动", "Launch") + " " + app.name)
-                            }.padding(.vertical, 12)
-                            Divider()
-                        }
+                Group {
+                    if filteredApps.count > 6 {
+                        ScrollView(.vertical) { appsGrid }
+                            .frame(height: 171)
+                    } else {
+                        appsGrid
                     }
                 }
+
             }
             if device.running, let note = model.appsNote {
                 Text(note).font(.caption).foregroundStyle(.secondary)
             }
-            HStack(alignment: .center, spacing: 12) {
-                Label(device.running
-                      ? t("拖入 APK 即可安装", "Drop an APK to install")
-                      : t("启动设备后可安装 APK", "Start the device to install an APK"), systemImage: "shippingbox")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-                Button(t("管理应用", "Manage apps"), action: showApps)
-                    .buttonStyle(.borderless).disabled(!device.running)
-                    .accessibilityIdentifier("overview-manage-apps")
+            if device.running {
+                HStack(alignment: .center, spacing: 12) {
+                    Label(t("拖入 APK 即可安装", "Drop an APK to install"), systemImage: "shippingbox")
+                        .font(.system(size: 12)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button(t("管理应用", "Manage apps"), action: showApps)
+                        .buttonStyle(.borderless)
+                        .accessibilityIdentifier("overview-manage-apps")
+                }
             }
         }
         .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(apkTargeted ? WbColor.accent : .clear, lineWidth: 2) }
         .onDrop(of: [UTType.fileURL.identifier], isTargeted: $apkTargeted, perform: receiveAPK)
         .accessibilityIdentifier("overview-installed-apps")
+    }
+    private var appsGrid: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 20)], spacing: 0) {
+            ForEach(filteredApps) { app in
+                VStack(spacing: 0) {
+                    HStack(spacing: 10) {
+                        WbAppIcon(symbol: WbIcon.appEmpty, imagePath: app.icon, size: 36)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(app.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
+                            Text(app.package).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                        }.frame(maxWidth: .infinity, alignment: .leading)
+                        Button { model.launch(app, device: device.id) } label: { Image(systemName: "play") }
+                            .buttonStyle(.bordered).disabled(!canOperate)
+                            .help(t("启动", "Launch") + " " + app.name)
+                            .accessibilityLabel(t("启动", "Launch") + " " + app.name)
+                    }.padding(.vertical, 10)
+                    Divider()
+                }
+            }
+        }
     }
     private var appsHeading: some View {
         HStack(spacing: 8) {
@@ -307,7 +285,7 @@ struct DeviceOverviewView: View {
     }
     private var appSearch: some View {
         NativeSearchField(text: $appQuery, placeholder: t("搜索应用", "Search apps"), identifier: "overview-app-search")
-            .frame(height: 28).disabled(!device.running || model.appsLoading)
+            .frame(height: 30).disabled(!device.running || model.appsLoading)
     }
     private var installButton: some View {
         Button(t("安装 APK", "Install APK"), systemImage: "square.and.arrow.down") {
@@ -370,13 +348,18 @@ struct DeviceOverviewView: View {
                     infoRow(t("验证", "Verified"), verificationText)
                 }.padding(.top, 12)
             } label: { Text(t("系统与 Root", "System & Root")).font(.system(size: 12, weight: .semibold)) }
+            Divider()
+            DeviceAdvancedInformation(model: model, device: device, isExpanded: $advancedExpanded)
+            if advancedExpanded { sessionSection }
         }
+        .accessibilityIdentifier("overview-device-information")
     }
     private func emptyState(_ symbol: String, _ text: String) -> some View {
-        VStack(spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 24)).foregroundStyle(.tertiary)
-            Text(text).font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center)
-        }.frame(maxWidth: .infinity, minHeight: 110)
+        HStack(spacing: 10) {
+            Image(systemName: symbol).font(.system(size: 16)).foregroundStyle(.tertiary)
+            Text(text).font(.system(size: 12)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 2)
     }
     private var verificationText: String {
         switch device.root.health {
@@ -397,7 +380,7 @@ struct DeviceOverviewView: View {
     }
 
     private var snapshotsSection: some View {
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: namedSnapshots.isEmpty ? 10 : 14) {
             HStack(spacing: 12) {
                 Text(t("快照", "Snapshots")).font(.system(size: 13, weight: .semibold))
                 if !snapshotsLoading && snapshotsError == nil {
@@ -419,17 +402,26 @@ struct DeviceOverviewView: View {
             } else if namedSnapshots.isEmpty {
                 emptyState("square.3.layers.3d", t("暂无快照。设备运行时可保存快照，以便恢复。", "No snapshots yet. Save one while the device is running to restore it later."))
             } else {
-                ForEach(namedSnapshots.prefix(3)) { snapshot in
-                    HStack {
-                        Image(systemName: "clock.arrow.circlepath").foregroundStyle(.secondary)
-                        Text(snapshot.name).lineLimit(1)
-                        Spacer()
-                        Text(Snapshots.when(snapshot.created_at, language: model.language)).foregroundStyle(.secondary)
-                        Text(Snapshots.size(snapshot.size_bytes)).foregroundStyle(.secondary)
-                    }
+                if namedSnapshots.count > 4 {
+                    ScrollView(.vertical) { snapshotRows }.frame(height: 100)
+                } else {
+                    snapshotRows
                 }
             }
         }.font(.system(size: 13)).padding(.vertical, 2)
+    }
+    private var snapshotRows: some View {
+        VStack(spacing: 10) {
+            ForEach(namedSnapshots) { snapshot in
+                HStack {
+                    Image(systemName: "clock.arrow.circlepath").foregroundStyle(.secondary)
+                    Text(snapshot.name).lineLimit(1)
+                    Spacer()
+                    Text(Snapshots.when(snapshot.created_at, language: model.language)).foregroundStyle(.secondary)
+                    Text(Snapshots.size(snapshot.size_bytes)).foregroundStyle(.secondary)
+                }
+            }
+        }
     }
     private var sessionSection: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -457,13 +449,14 @@ struct DeviceOverviewView: View {
 
 private struct OverviewInfoCard<Content: View>: View {
     let title: String
+    var compact = false
     @ViewBuilder var content: () -> Content
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: compact ? 10 : 14) {
             if !title.isEmpty { Text(title).font(.system(size: 13, weight: .semibold)).padding(.bottom, 4) }
             content()
         }
-        .padding(16)
+        .padding(compact ? 12 : 16)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
         .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(WbColor.borderSubtle, lineWidth: 1) }
@@ -521,36 +514,124 @@ struct NativeDeviceLibraryList: NSViewRepresentable {
                 devices = model.filteredDevices; language = model.language
                 table.reloadData()
             }
-            let selected = devices.firstIndex { $0.id == model.selected }
+            let selected = model.showingAllDevices ? 0 : devices.firstIndex { $0.id == model.selected }.map { $0 + 2 }
             if let selected, table.selectedRow != selected {
                 table.selectRowIndexes(IndexSet(integer: selected), byExtendingSelection: false)
                 if table.visibleRect.height > 0 { table.scrollRowToVisible(selected) }
             } else if selected == nil { table.deselectAll(nil) }
             table.setAccessibilityLabel(model.text("设备", "Devices"))
         }
-        func numberOfRows(in tableView: NSTableView) -> Int { devices.count }
+        func numberOfRows(in tableView: NSTableView) -> Int { devices.count + 2 }
         func tableView(_ tableView: NSTableView, typeSelectStringFor tableColumn: NSTableColumn?, row: Int) -> String? {
-            devices[row].name
+            if row == 0 { return model.text("全部设备", "All devices") }
+            return row == 1 ? nil : devices[row - 2].name
         }
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+            if row == 0 {
+                let cell = (tableView.makeView(withIdentifier: .init("library-all"), owner: nil) as? LibraryAllDevicesCell) ?? LibraryAllDevicesCell()
+                cell.configure(title: model.text("全部设备", "All devices"))
+                return cell
+            }
+            if row == 1 {
+                let cell = (tableView.makeView(withIdentifier: .init("library-heading"), owner: nil) as? LibraryDeviceHeadingCell) ?? LibraryDeviceHeadingCell()
+                cell.configure(title: model.text("设备", "Devices"), addTitle: model.text("新建设备", "New device"), target: self)
+                return cell
+            }
             let cell = (tableView.makeView(withIdentifier: .init("library-device"), owner: nil) as? LibraryDeviceCell) ?? LibraryDeviceCell()
-            cell.configure(devices[row], language: language)
+            cell.configure(devices[row - 2], language: language)
             return cell
         }
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { NSTableRowView() }
+        func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { row == 0 ? 36 : row == 1 ? 48 : 54 }
+        func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { row != 1 }
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard !updating, let table = notification.object as? NSTableView else { return }
-            guard devices.indices.contains(table.selectedRow) else {
+            if table.selectedRow == 0 {
+                model.showAllDevices()
+                return
+            }
+            let index = table.selectedRow - 2
+            guard devices.indices.contains(index) else {
                 model.setDeviceSelection(nil)
                 return
             }
-            let id = devices[table.selectedRow].id
+            let id = devices[index].id
             if id != model.selected { model.select(id) }
         }
         @objc func openDevice(_ table: NSTableView) {
-            guard devices.indices.contains(table.clickedRow) else { return }
-            model.focusOrOpenDeviceWindow(devices[table.clickedRow].id)
+            let index = table.clickedRow - 2
+            guard devices.indices.contains(index) else { return }
+            model.focusOrOpenDeviceWindow(devices[index].id)
         }
+        @objc func addDevice() { model.present(.newDevice) }
+    }
+}
+
+private final class LibraryDeviceHeadingCell: NSTableCellView {
+    private let heading = NSTextField(labelWithString: "")
+    private let add = NSButton()
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        identifier = .init("library-heading")
+        let divider = NSBox()
+        divider.boxType = .separator
+        heading.font = .systemFont(ofSize: 12, weight: .semibold)
+        heading.textColor = .secondaryLabelColor
+        add.isBordered = false
+        add.image = NSImage(systemSymbolName: "plus", accessibilityDescription: nil)
+        add.action = #selector(NativeDeviceLibraryList.Coordinator.addDevice)
+        for view in [divider, heading, add] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(view)
+        }
+        NSLayoutConstraint.activate([
+            divider.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            divider.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            divider.topAnchor.constraint(equalTo: topAnchor, constant: 6),
+            heading.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            heading.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
+            add.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            add.centerYAnchor.constraint(equalTo: heading.centerYAnchor),
+            add.widthAnchor.constraint(equalToConstant: 24),
+            add.heightAnchor.constraint(equalToConstant: 24)
+        ])
+    }
+    required init?(coder: NSCoder) { nil }
+    func configure(title: String, addTitle: String, target: AnyObject) {
+        heading.stringValue = title
+        add.target = target
+        add.toolTip = addTitle
+        add.setAccessibilityLabel(addTitle)
+    }
+}
+
+private final class LibraryAllDevicesCell: NSTableCellView {
+    private let icon = NSImageView()
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        identifier = .init("library-all")
+        let label = NSTextField(labelWithString: "")
+        label.font = .systemFont(ofSize: 13, weight: .semibold)
+        icon.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: nil)
+        icon.translatesAutoresizingMaskIntoConstraints = false
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(icon); addSubview(label); textField = label
+        NSLayoutConstraint.activate([
+            icon.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
+            icon.centerYAnchor.constraint(equalTo: centerYAnchor),
+            icon.widthAnchor.constraint(equalToConstant: 16), icon.heightAnchor.constraint(equalToConstant: 16),
+            label.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+        setAccessibilityIdentifier("library-all-devices")
+    }
+    required init?(coder: NSCoder) { nil }
+    override var backgroundStyle: NSView.BackgroundStyle { didSet { updateColors() } }
+    func configure(title: String) { textField?.stringValue = title; updateColors() }
+    private func updateColors() {
+        let color: NSColor = backgroundStyle == .emphasized ? .alternateSelectedControlTextColor : .labelColor
+        textField?.textColor = color
+        icon.contentTintColor = color
     }
 }
 

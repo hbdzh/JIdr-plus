@@ -4,34 +4,56 @@ import SwiftUI
 
 // MARK: - Player chrome
 //
-// The player window is always native dark chrome (GameWindow sets `darkAqua`),
-// and the approved design specifies the dark token values for it, so resolve
-// them explicitly. Colours still come from the generated token layer (D41);
-// no raw hex or system colour is used here.
+// One continuous native backdrop covers the titlebar and the rail. Keeping the
+// hosting view transparent avoids stacking two independently tinted materials.
+final class PlayerWindowBackgroundView: NSVisualEffectView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configure()
+    }
 
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configure()
+    }
+
+    private func configure() {
+        material = .sidebar
+        blendingMode = .behindWindow
+        state = .followsWindowActiveState
+        setAccessibilityIdentifier("player-chrome-material")
+    }
+}
+
+/// Fullscreen's revealed rail blends the device content beneath it. Normal
+/// windows expose the single AppKit backdrop owned by GameWindowController.
+struct PlayerChromeMaterial: NSViewRepresentable {
+    var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
+
+    func makeNSView(context: Context) -> PlayerWindowBackgroundView {
+        let view = PlayerWindowBackgroundView()
+        view.blendingMode = blendingMode
+        return view
+    }
+
+    func updateNSView(_ view: PlayerWindowBackgroundView, context: Context) {
+        view.blendingMode = blendingMode
+    }
+}
+
+// Token colours remain dynamic so symbols and separators follow the appearance.
 private enum PlayerChromePalette {
-    /// Window ground and the titlebar seam.
-    static let ground = JidrColor.surfaceChrome.dark
-    /// The device toolbar: one step darker than the chrome ground.
-    static let sidebar = JidrColor.surfaceBase.dark
-    static let hairline = JidrColor.borderSubtle.dark
-    /// The titlebar seam is one step stronger than the in-sidebar rules so the
-    /// native titlebar visibly separates from the dark content.
-    static let seam = JidrColor.borderDefault.dark
-    static let icon = JidrColor.textSecondary.dark
-    static let text = JidrColor.textSecondary.dark
-    static let textDim = JidrColor.textTertiary.dark
-    static let negative = JidrColor.negative.dark
-    static let accent = JidrColor.accentFill.dark
-    /// Active toolbar glyphs: the accent-text token is the accent colour meant
-    /// for icons/text on dark surfaces (the fill token is for filled controls).
-    static let accentIcon = JidrColor.accentText.dark
+    static let hairline = Color(nsColor: .separatorColor)
+    static let icon = JidrColor.textSecondary.color
+    static let negative = JidrColor.negative.color
+    static let accent = JidrColor.accentFill.color
+    static let accentIcon = JidrColor.accentText.color
 }
 
 private enum PlayerChromeMetrics {
-    /// 48 pt toolbar (WbLayout.windowDeviceToolbarWidth), 28 x 28 icon targets.
-    static let toolButton: CGFloat = 28
-    static let toolGlyph: CGFloat = 13
+    /// 40 pt toolbar (WbLayout.windowDeviceToolbarWidth), compact icon targets.
+    static let toolButton: CGFloat = 28 * 1.05
+    static let toolGlyph: CGFloat = 13 * 1.05
     static let toolSpacing: CGFloat = 3
     static let groupSeparatorWidth: CGFloat = 26
     static let hairline: CGFloat = 1
@@ -73,6 +95,17 @@ final class PlayerChromeState: ObservableObject {
     @Published var reveal = false
     @Published var overlay = false
     @Published var pixelPerfect = false
+    @Published var pinned = false
+
+    let scripts = PlayerScriptsCoordinator()
+    var togglePinAction: (() -> Void)?
+
+    func beginMapping(transport: PlayerTransport) {
+        let mapping = transport.mapping
+        if !mapping.editing && !mapping.begin() {
+            transport.onStatus?(mapping.error ?? t("键位方案尚未加载", "The key mapping has not loaded", transport.language))
+        }
+    }
 
     var pixelPerfectAction: (() -> Void)?
     var fitAction: (() -> Void)?
@@ -81,6 +114,7 @@ final class PlayerChromeState: ObservableObject {
     var toggleRecordingAction: (() -> Void)?
     var chooseAPKAction: (() -> Void)?
     var chooseFileAction: (() -> Void)?
+    var scriptAction: ((PlayerScriptAction, @escaping (Bool) -> Void) -> Void)?
 
     private var revealHideWork: DispatchWorkItem?
 
@@ -114,7 +148,6 @@ struct ContentView: View {
     @ObservedObject var mapping: KeyMappingStore
     @ObservedObject var sidebar: SidebarState
     @ObservedObject var chrome: PlayerChromeState
-    @StateObject private var scripts = PlayerScriptsCoordinator()
     @State private var notice: String?
     @State private var noticeGeneration = 0
 
@@ -164,22 +197,13 @@ struct ContentView: View {
             }
         }
         .tint(PlayerChromePalette.accent)
-        .background(PlayerChromePalette.ground)
-        .overlay(alignment: .top) {
-            if !chrome.fullscreen {
-                Rectangle()
-                    .fill(PlayerChromePalette.seam)
-                    .frame(height: PlayerChromeMetrics.hairline)
-                    .allowsHitTesting(false)
-            }
-        }
         .environment(\.locale, Locale(identifier: language == 0 ? "en" : "zh-Hans"))
         .onAppear(perform: installHandlers)
         .onChange(of: transport.linkState) { state in
-            if !state.isRunning { scripts.close() }
+            if !state.isRunning { chrome.scripts.close() }
         }
         .onDisappear {
-            scripts.close()
+            chrome.scripts.close()
         }
         .alert(t("重新安装应用？", "Reinstall the app?", language),
                isPresented: Binding(get: { transport.reinstallPrompt != nil },
@@ -220,7 +244,14 @@ struct ContentView: View {
                 debugOverlay
             }
             recordingPill
-            scriptHUD
+        }
+        .overlay(alignment: .top) {
+            if scriptHUDActive {
+                scriptHUD
+                    .frame(maxWidth: 420)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 8)
+            }
         }
         .overlay(alignment: .topLeading) {
             if ProcessInfo.processInfo.environment["JIDR_UI_PREVIEW"] == "1" {
@@ -300,7 +331,7 @@ struct ContentView: View {
                 }
                 .wbFont(WbType.caption)
                 .padding(WbSpace.sm)
-                .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.md))
+                .modifier(PlayerGlassSurface(cornerRadius: WbRadius.md))
                 .padding(.horizontal, WbSpace.sm)
                 .padding(.top, 44)
                 Spacer()
@@ -353,7 +384,7 @@ struct ContentView: View {
                 .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.md))
                 .padding(WbSpace.sm)
         }
-        .padding(.bottom, scriptHUDActive ? 34 : 0)
+        .padding(.bottom, 0)
         .allowsHitTesting(false)
     }
 
@@ -373,6 +404,7 @@ struct ContentView: View {
                 Spacer()
             }
             .padding(WbSpace.md)
+            .padding(.top, scriptHUDActive ? PlayerScriptControlMetrics.height + 8 : 0)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         }
     }
@@ -397,31 +429,20 @@ struct ContentView: View {
         transport.scriptRecording != .idle || transport.scriptPlayback != .idle
     }
 
-    @ViewBuilder private var scriptHUD: some View {
-        if scriptHUDActive {
-            VStack {
-                Spacer()
-                HStack(spacing: WbSpace.sm) {
-                    Image(systemName: transport.scriptRecording != .idle ? "record.circle" : WbIcon.play)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(transport.scriptRecording != .idle
-                                         ? PlayerChromePalette.negative
-                                         : PlayerChromePalette.accentIcon)
-                    scriptHUDText
-                    scriptHUDActions
-                }
-                .padding(.horizontal, WbSpace.md)
-                .padding(.vertical, WbSpace.xs)
-                .background(WbColor.overlay, in: Capsule())
-                .overlay(
-                    Capsule().strokeBorder(PlayerChromePalette.hairline,
-                                           lineWidth: PlayerChromeMetrics.hairline)
-                )
-            }
-            .padding(.bottom, WbSpace.sm)
-            .padding(.horizontal, WbSpace.lg)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+    private var scriptHUD: some View {
+        HStack(spacing: WbSpace.sm) {
+            Image(systemName: transport.scriptRecording != .idle ? "record.circle" : WbIcon.play)
+                .foregroundStyle(transport.scriptRecording != .idle ? PlayerChromePalette.negative : PlayerChromePalette.accentIcon)
+            scriptHUDText
+            Spacer(minLength: 4)
+            scriptHUDActions
         }
+        .font(.system(size: 12, weight: .medium))
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .modifier(PlayerGlassSurface(cornerRadius: 10))
+        .padding(.horizontal, 6).padding(.vertical, 4)
+        .frame(height: PlayerScriptControlMetrics.height)
+        .accessibilityIdentifier("player-script-controls")
     }
 
     @ViewBuilder private var scriptHUDText: some View {
@@ -429,12 +450,15 @@ struct ContentView: View {
             if transport.scriptRecording == .recording {
                 TimelineView(.periodic(from: Date(), by: 1)) { _ in
                     Text(PlayerScriptText.recordingState(transport.scriptRecording, language: language)
-                         + " · " + PlayerScriptFormat.elapsed(elapsedScriptRecording))
+                         + " · " + PlayerScriptFormat.elapsed(elapsedScriptRecording)
+                         + " · " + String(format: t("%d 个事件", "%d events", language), transport.scriptRecordedEvents))
                         .wbFont(WbType.label.weighted(.medium))
                         .monospacedDigit()
                 }
             } else {
-                Text(PlayerScriptText.recordingState(transport.scriptRecording, language: language))
+                Text(PlayerScriptText.recordingState(transport.scriptRecording, language: language)
+                     + " · " + PlayerScriptFormat.elapsed(elapsedScriptRecording)
+                     + " · " + String(format: t("%d 个事件", "%d events", language), transport.scriptRecordedEvents))
                     .wbFont(WbType.label.weighted(.medium))
             }
         } else {
@@ -452,15 +476,16 @@ struct ContentView: View {
         if transport.scriptRecording != .idle {
             if transport.scriptRecording == .paused {
                 Button(t("继续", "Resume", language)) { transport.scriptRecordResume() }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.borderless).disabled(transport.scriptRecordFinishing)
                     .help(t("继续录制", "Resume recording", language))
             } else {
                 Button(t("暂停", "Pause", language)) { transport.scriptRecordPause() }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.borderless).disabled(transport.scriptRecordFinishing)
                     .help(t("暂停录制", "Pause recording", language))
             }
-            Button(t("停止", "Stop", language)) { stopRecordingFromHUD() }
-                .buttonStyle(.borderless)
+            Button(transport.scriptRecordFinishing ? t("保存中…", "Saving…", language) : t("停止", "Stop", language)) { stopRecordingFromHUD() }
+                .buttonStyle(.borderedProminent).controlSize(.small).tint(PlayerChromePalette.negative)
+                .disabled(transport.scriptRecordFinishing)
                 .help(t("停止并保存录制", "Stop and save the recording", language))
         } else {
             if transport.scriptPlayback == .paused {
@@ -473,7 +498,7 @@ struct ContentView: View {
                     .help(t("暂停回放", "Pause playback", language))
             }
             Button(t("停止", "Stop", language)) { transport.scriptPlayStop() }
-                .buttonStyle(.borderless)
+                .buttonStyle(.bordered).controlSize(.small)
                 .help(t("停止回放", "Stop playback", language))
         }
     }
@@ -484,13 +509,7 @@ struct ContentView: View {
     }
 
     private func stopRecordingFromHUD() {
-        guard let name = PlayerScriptPrompts.askName(
-            defaultValue: PlayerScriptFormat.suggestedRecordingName(language: language),
-            language: language) else {
-            transport.scriptRecordCancel()
-            return
-        }
-        transport.scriptRecordStop(name: name)
+        transport.scriptRecordStop(name: PlayerScriptFormat.suggestedRecordingName(language: language))
     }
 
     private var debugOverlay: some View {
@@ -508,7 +527,7 @@ struct ContentView: View {
             .padding(WbSpace.sm)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.bottom, scriptHUDActive ? 34 : 0)
+        .padding(.bottom, 0)
         .allowsHitTesting(false)
     }
 
@@ -551,11 +570,6 @@ struct ContentView: View {
                 }
                 sidebarSeparator
                 sidebarGroup {
-                    tool("键位映射", WbIcon.keyboard, enabled: inputEnabled, active: mapping.editing) {
-                        if !mapping.editing {
-                            if !mapping.begin() { transport.onStatus?(mapping.error ?? t("键位方案尚未加载", "The key mapping has not loaded", language)) }
-                        }
-                    }
                     tool(transport.recording == .idle || transport.recording == .starting ? "开始录屏" : "停止录屏",
                          transport.recording == .idle || transport.recording == .starting ? WbIcon.record : WbIcon.recordStop,
                          enabled: linkState.isRunning,
@@ -564,20 +578,40 @@ struct ContentView: View {
                     tool("截图", WbIcon.camera, enabled: linkState.isRunning) { chrome.chooseScreenshotAction?() }
                     tool("安装 APK", WbIcon.installAPK, enabled: linkState.isRunning) { chrome.chooseAPKAction?() }
                     tool("发送文件", WbIcon.folder, enabled: linkState.isRunning) { chrome.chooseFileAction?() }
-                    tool(t("操作录制", "Operation recordings", language), "list.bullet.rectangle",
-                         enabled: linkState.isRunning,
-                         active: transport.scriptRecording != .idle || transport.scriptPlayback != .idle,
-                         activeTint: transport.scriptRecording != .idle ? PlayerChromePalette.negative : nil) {
-                        scripts.present(transport: transport)
-                    }
                 }
                 sidebarSeparator
-                sidebarGroup {
-                    tool(t("调试浮层", "Debug overlay", language), WbIcon.performance,
-                         enabled: linkState.isRunning, active: chrome.overlay) { chrome.overlay.toggle() }
-                    tool("画面原始像素大小", WbIcon.pixelPerfect,
-                         enabled: linkState.isRunning, active: chrome.pixelPerfect) { chrome.pixelPerfectAction?() }
+                Menu {
+                    Button {
+                        chrome.togglePinAction?()
+                    } label: {
+                        Label(chrome.pinned ? t("取消窗口置顶", "Unpin window", language) : t("窗口置顶", "Pin window", language),
+                              systemImage: chrome.pinned ? WbIcon.pinned : WbIcon.pin)
+                    }
+                    Divider()
+                    Button {
+                        chrome.overlay.toggle()
+                    } label: {
+                        Label(t("调试浮层", "Debug overlay", language), systemImage: chrome.overlay ? "checkmark" : WbIcon.performance)
+                    }
+                    .disabled(!linkState.isRunning)
+                    Button {
+                        chrome.pixelPerfectAction?()
+                    } label: {
+                        Label(t("画面原始像素大小", "Original pixel size", language), systemImage: chrome.pixelPerfect ? "checkmark" : WbIcon.pixelPerfect)
+                    }
+                    .disabled(!linkState.isRunning)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: PlayerChromeMetrics.toolGlyph, weight: .medium))
+                        .foregroundStyle(PlayerChromePalette.icon)
+                        .frame(width: PlayerChromeMetrics.toolButton, height: PlayerChromeMetrics.toolButton)
                 }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .tint(PlayerChromePalette.icon)
+                .fixedSize()
+                .help(t("更多", "More", language))
+                .accessibilityLabel(t("更多设备工具", "More device tools", language))
             }
             .padding(.top, WbSpace.sm + 2)
             .padding(.bottom, WbSpace.sm)
@@ -585,7 +619,12 @@ struct ContentView: View {
         }
         .scrollIndicators(.automatic)
         .frame(width: sidebarWidth)
-        .background(PlayerChromePalette.sidebar)
+        .background {
+            if chrome.fullscreen {
+                PlayerChromeMaterial(blendingMode: .withinWindow)
+                    .allowsHitTesting(false)
+            }
+        }
         .overlay(alignment: .leading) {
             Rectangle()
                 .fill(PlayerChromePalette.hairline)
@@ -624,7 +663,7 @@ struct ContentView: View {
                 }
             }
             .padding(WbSpace.sm)
-            .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.md))
+            .modifier(PlayerGlassSurface(cornerRadius: WbRadius.md))
             Spacer()
         }
         .padding(WbSpace.sm)
@@ -648,3 +687,30 @@ struct ContentView: View {
 }
 
 private let sidebarWidth = WbLayout.windowDeviceToolbarWidth
+
+/// Player actions remain available independently of sidebar visibility.
+struct PlayerTitlebarActions: View {
+    @ObservedObject var transport: PlayerTransport
+    @ObservedObject var mapping: KeyMappingStore
+    @ObservedObject var chrome: PlayerChromeState
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button { chrome.beginMapping(transport: transport) } label: {
+                Image(systemName: WbIcon.keyboard).frame(width: 36, height: 28)
+            }
+            .disabled(!transport.linkState.isRunning || transport.scriptPlayback != .idle)
+            .help(t("键位映射", "Key mapping", transport.language))
+            .accessibilityLabel(t("键位映射", "Key mapping", transport.language))
+            Button { chrome.scripts.present(transport: transport, perform: chrome.scriptAction) } label: {
+                Image(systemName: "hand.tap").frame(width: 36, height: 28)
+            }
+            .disabled(!transport.linkState.isRunning)
+            .help(t("操作录制", "Operation recordings", transport.language))
+            .accessibilityLabel(t("操作录制", "Operation recordings", transport.language))
+        }
+        .buttonStyle(.plain)
+        .font(.system(size: 13, weight: .medium))
+        .foregroundStyle(.secondary)
+    }
+}

@@ -6,7 +6,13 @@ cd "$root"
 source "$root/apps/jidr-swiftui/swift-target.sh"
 out="$root/target/swiftui-tests"
 mkdir -p "$out/module-cache"
+center_sources=()
+for file in "$root"/apps/jidr-swiftui/Center/*.swift; do
+  [[ "$(basename "$file")" == main.swift ]] && continue
+  center_sources+=("$file")
+done
 swiftc -target "$jidr_swift_target" -module-cache-path "$out/module-cache" \
   apps/jidr-swiftui/Sources/*.swift \
+  "${center_sources[@]}" \
   apps/jidr-swiftui/Tests/Window/main.swift -o "$out/window-lifecycle-tests"
 "$out/window-lifecycle-tests"

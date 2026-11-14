@@ -54,6 +54,8 @@ final class PlayerTransport: ObservableObject {
     @Published private(set) var scriptPlaybackName: String?
     @Published private(set) var scriptPlaybackMode: PlaybackMode = .count
     @Published private(set) var scriptRecordingStartedAt: Date?
+    @Published private(set) var scriptRecordedEvents = 0
+    @Published private(set) var scriptRecordFinishing = false
     @Published private(set) var scriptError: String?
     var scriptPlaybackActive: Bool { scriptPlayback != .idle }
 
@@ -225,7 +227,8 @@ final class PlayerTransport: ObservableObject {
         diagnostics = nil
         connectionEnded = true
         linkState = PlayerExitClassifier.classify(diagnostic: lastDiagnostic)
-        onStatus?("")
+        let scriptInterrupted = scriptRecording != .idle || scriptPlayback != .idle
+        onStatus?(scriptInterrupted ? t("连接中断，操作录制或回放已停止。", "Connection lost; recording or playback stopped.", language) : "")
         markRecordingInterrupted()
         resetScriptSession()
         reconnectPromptIfEditing()
@@ -238,6 +241,8 @@ final class PlayerTransport: ObservableObject {
         scriptRecording = .idle
         scriptPlayback = .idle
         scriptRecordingStartedAt = nil
+        scriptRecordedEvents = 0
+        scriptRecordFinishing = false
         scriptPlaybackMode = .count
         scriptPlaybackLoop = 0
         scriptPlaybackTotal = 0
@@ -441,6 +446,7 @@ final class PlayerTransport: ObservableObject {
     // MARK: Operation recording commands (docs/player-scripts.md)
 
     func scriptRecordStart() {
+        scriptRecordedEvents = 0
         clearScriptError()
         send(["type": "script_record_start"])
     }
@@ -450,8 +456,10 @@ final class PlayerTransport: ObservableObject {
     func scriptRecordResume() { send(["type": "script_record_resume"]) }
 
     func scriptRecordStop(name: String) {
+        guard !scriptRecordFinishing else { return }
         let value = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !value.isEmpty, value.count <= 80 else { return }
+        scriptRecordFinishing = true
         send(["type": "script_record_stop", "name": value])
     }
 
@@ -741,10 +749,11 @@ final class PlayerTransport: ObservableObject {
     }
 
     /// Applies one `JIDR_SCRIPT:` notification from the bridge on the main queue.
-    private func applyScriptNotification(_ value: [String: Any]) {
+    func applyScriptNotification(_ value: [String: Any]) {
         let op = value["op"] as? String ?? ""
         switch op {
         case "record":
+            if let count = value["event_count"] as? Int { scriptRecordedEvents = max(0, count) }
             let state = value["state"] as? String ?? ""
             switch state {
             case "recording":
@@ -754,20 +763,26 @@ final class PlayerTransport: ObservableObject {
             case "paused":
                 scriptRecording = .paused
             case "saved":
+                scriptRecordFinishing = false
                 scriptRecording = .idle
                 scriptRecordingStartedAt = nil
                 upsertScriptSummary(value["script"])
+                NotificationCenter.default.post(name: .playerScriptsChanged, object: nil)
+                onStatus?(t("录制已保存", "Recording saved", language))
                 scriptList()
             case "stopped":
+                scriptRecordFinishing = false
                 scriptRecording = .idle
                 scriptRecordingStartedAt = nil
                 scriptList()
             case "failed":
+                scriptRecordFinishing = false
                 scriptRecording = .idle
                 scriptRecordingStartedAt = nil
                 scriptError = PlayerScriptText.error(code: value["code"] as? String,
                                                     message: value["message"] as? String,
                                                     language: language)
+                onStatus?(scriptError ?? "")
             default:
                 break
             }
@@ -794,19 +809,25 @@ final class PlayerTransport: ObservableObject {
             case "finished", "stopped":
                 scriptPlayback = .idle
                 scriptPlaybackLoop = 0
+                onStatus?((value["state"] as? String) == "finished"
+                          ? t("回放已完成", "Playback finished", language)
+                          : t("回放已停止", "Playback stopped", language))
             case "failed":
                 scriptPlayback = .idle
                 scriptPlaybackLoop = 0
                 scriptError = PlayerScriptText.error(code: value["code"] as? String,
                                                     message: value["message"] as? String,
                                                     language: language)
+                onStatus?(scriptError ?? "")
             default:
                 break
             }
         case "error":
+            scriptRecordFinishing = false
             scriptError = PlayerScriptText.error(code: value["code"] as? String,
                                                 message: value["message"] as? String,
                                                 language: language)
+            onStatus?(scriptError ?? "")
         default:
             break
         }
@@ -907,6 +928,11 @@ final class ScreenView: NSView, NSTextInputClient {
         return NSRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
     }
     override func draw(_ dirtyRect: NSRect) {
+        // AppKit can request drawing outside a view's bounds. Keep the video
+        // background from painting over the shared titlebar or side rail.
+        NSGraphicsContext.saveGraphicsState()
+        bounds.clip()
+        defer { NSGraphicsContext.restoreGraphicsState() }
         NSColor.black.setFill()
         dirtyRect.fill()
         if let image {
@@ -1183,7 +1209,8 @@ struct PlayerView: NSViewRepresentable {
     }
 }
 
-private let sidebarWidth: CGFloat = 48
+private let sidebarWidth: CGFloat = WbLayout.windowDeviceToolbarWidth
+private let playerTitlebarHeight: CGFloat = sidebarWidth
 
 final class SidebarState: ObservableObject {
     @Published var visible = true
@@ -1203,7 +1230,7 @@ final class GameWindowController: NSObject, NSWindowDelegate {
     private(set) var displayTitle = ""
     private let sidebar = SidebarState()
     private var sidebarButton: NSButton?
-    private var pinButton: NSButton?
+    private weak var titleLabel: NSTextField?
     private var stateStore: GameWindowStateStore?
     private var visibilityObservers: [NSObjectProtocol] = []
     /// Raw occlusion state observed while the window was known to be on screen.
@@ -1214,6 +1241,8 @@ final class GameWindowController: NSObject, NSWindowDelegate {
     var window: NSWindow?
     private var aspect: CGFloat = 720.0 / 1280.0
     private var side: CGFloat = sidebarWidth
+    private(set) var titlebarInset: CGFloat = 0
+    private var contentTopConstraint: NSLayoutConstraint?
     private var didReceiveSize = false
     private var frameWidth = 0
     private var frameHeight = 0
@@ -1225,22 +1254,31 @@ final class GameWindowController: NSObject, NSWindowDelegate {
 
     private func fitWindow() {
         guard let window else { return }
-        let current = window.contentLayoutRect.size
+        let current = NSSize(width: window.contentLayoutRect.width, height: window.contentLayoutRect.height - titlebarInset)
         let visible = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
         let maxHeight = max(200, visible.height - (window.frame.height - current.height) - 24)
         let maxWidth = max(200, visible.width - 24)
         let height = min(current.height, maxHeight, (maxWidth - side) / aspect)
-        window.setContentSize(NSSize(width: height * aspect + side, height: height))
+        setPlayerContentSize(NSSize(width: height * aspect + side, height: height))
         let frame = window.frame
         let x = min(max(frame.minX, visible.minX), visible.maxX - frame.width)
         let y = min(max(frame.minY, visible.minY), visible.maxY - frame.height)
         window.setFrameOrigin(NSPoint(x: x, y: y))
     }
 
+    /// contentLayoutRect excludes the titlebar even with fullSizeContentView.
+    private func setPlayerContentSize(_ size: NSSize) {
+        guard let window else { return }
+        var frame = window.frame
+        frame.size = NSSize(width: size.width,
+                            height: size.height + titlebarInset + window.frame.height - window.contentLayoutRect.height)
+        window.setFrame(frame, display: true)
+    }
+
     func windowWillResize(_ sender: NSWindow, to frameSize: NSSize) -> NSSize {
         guard !sender.styleMask.contains(.fullScreen) else { return frameSize }
-        let decorations = sender.frame.height - sender.contentLayoutRect.height
-        let old = sender.contentLayoutRect.size
+        let decorations = sender.frame.height - sender.contentLayoutRect.height + titlebarInset
+        let old = NSSize(width: sender.contentLayoutRect.width, height: sender.contentLayoutRect.height - titlebarInset)
         let proposedHeight = max(180, frameSize.height - decorations)
         let widthHeight = max(180, (frameSize.width - side) / aspect)
         let height = abs(proposedHeight - old.height) >= abs(widthHeight - old.height) ? proposedHeight : widthHeight
@@ -1254,17 +1292,15 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         fitWindow()
     }
 
-    /// The player keeps the native titlebar and traffic lights; its two
-    /// accessory buttons pick up the dark chrome tokens so they sit in the
-    /// same visual system as the device toolbar.
+    /// The native titlebar accessory symbols follow the effective appearance.
     private func styleTitlebarButton(_ button: NSButton, symbol: String, label: String,
-                                     tint: Color = JidrColor.textSecondary.dark) {
+                                     tint: NSColor = .secondaryLabelColor) {
         let configuration = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
         button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
             .withSymbolConfiguration(configuration)
         button.imagePosition = .imageOnly
         button.isBordered = false
-        button.contentTintColor = NSColor(tint)
+        button.contentTintColor = tint
         button.toolTip = label
         button.setAccessibilityLabel(label)
     }
@@ -1282,7 +1318,7 @@ final class GameWindowController: NSObject, NSWindowDelegate {
     private func addSidebarButton(to window: NSWindow) {
         let accessory = NSTitlebarAccessoryViewController()
         accessory.layoutAttribute = .right
-        let button = NSButton(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
+        let button = NSButton(frame: NSRect(x: 0, y: 0, width: sidebarWidth, height: 28))
         button.bezelStyle = .inline
         button.isBordered = false
         button.imagePosition = .imageOnly
@@ -1295,38 +1331,19 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         updateSidebarButton()
     }
 
-    @objc private func togglePin() {
+    private func togglePin() {
         guard let window else { return }
         window.level = window.level == .floating ? .normal : .floating
-        updatePinButton()
+        chrome.pinned = window.level == .floating
     }
 
-    private func updatePinButton() {
-        let pinned = window?.level == .floating
-        let label = pinned
-            ? t("取消窗口置顶", "Unpin window", transport.language)
-            : t("窗口置顶", "Pin window", transport.language)
-        guard let pinButton else { return }
-        styleTitlebarButton(pinButton,
-                            symbol: pinned ? WbIcon.pinned : WbIcon.pin,
-                            label: label,
-                            tint: pinned ? JidrColor.accentText.dark : JidrColor.textSecondary.dark)
-    }
-
-    private func addPinButton(to window: NSWindow) {
+    private func addCompactActions(to window: NSWindow) {
         let accessory = NSTitlebarAccessoryViewController()
         accessory.layoutAttribute = .right
-        let button = NSButton(frame: NSRect(x: 0, y: 0, width: 28, height: 28))
-        button.bezelStyle = .inline
-        button.isBordered = false
-        button.imagePosition = .imageOnly
-        button.target = self
-        button.action = #selector(togglePin)
-        button.setAccessibilityRole(.button)
-        accessory.view = button
-        pinButton = button
+        let view = NSHostingView(rootView: PlayerTitlebarActions(transport: transport, mapping: transport.mapping, chrome: chrome))
+        view.frame = NSRect(x: 0, y: 0, width: 72, height: 28)
+        accessory.view = view
         window.addTitlebarAccessoryViewController(accessory)
-        updatePinButton()
     }
 
     private func saveState() {
@@ -1393,24 +1410,56 @@ final class GameWindowController: NSObject, NSWindowDelegate {
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.title = "\(displayName ?? device) — Jidr"
+        window.titleVisibility = .hidden
         window.delegate = self
-        window.appearance = NSAppearance(named: .darkAqua)
-        // Chrome only: dark ground and a design-drawn hairline under the native
-        // titlebar (ContentView draws it) instead of the system separator.
-        window.backgroundColor = NSColor(JidrColor.surfaceChrome.dark)
+        // Both chrome regions expose one behind-window native material. The
+        // video remains opaque; the titlebar and hosting view add no solid fill.
+        window.backgroundColor = .clear
+        window.isOpaque = false
+        window.styleMask.insert(.fullSizeContentView)
+        window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
-        window.contentView = NSHostingView(rootView: ContentView(transport: transport, mapping: transport.mapping, sidebar: sidebar, chrome: chrome))
+        window.toolbar = NSToolbar(identifier: "jidr.player.titlebar")
+        window.toolbarStyle = .unifiedCompact
+        let background = PlayerWindowBackgroundView()
+        let hosting = NSHostingView(rootView: ContentView(transport: transport, mapping: transport.mapping, sidebar: sidebar, chrome: chrome))
+        window.contentView = background
+        hosting.translatesAutoresizingMaskIntoConstraints = false
+        background.addSubview(hosting)
+        let title = NSTextField(labelWithString: window.title)
+        title.identifier = NSUserInterfaceItemIdentifier("jidr.player.title")
+        title.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        title.textColor = .labelColor
+        title.lineBreakMode = .byTruncatingTail
+        title.maximumNumberOfLines = 1
+        title.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        title.translatesAutoresizingMaskIntoConstraints = false
+        background.addSubview(title)
+        titleLabel = title
+        NSLayoutConstraint.activate([
+            title.leadingAnchor.constraint(equalTo: background.leadingAnchor, constant: 78),
+            title.trailingAnchor.constraint(equalTo: background.trailingAnchor, constant: -(sidebarWidth + 80)),
+            title.centerYAnchor.constraint(equalTo: background.topAnchor, constant: playerTitlebarHeight / 2)
+        ])
+        titlebarInset = max(0, playerTitlebarHeight - (window.frame.height - window.contentLayoutRect.height))
+        let constraints = [NSLayoutConstraint.Attribute.leading, .trailing, .top, .bottom].map {
+            NSLayoutConstraint(item: hosting, attribute: $0, relatedBy: .equal,
+                               toItem: window.contentLayoutGuide, attribute: $0,
+                               multiplier: 1, constant: $0 == .top ? titlebarInset : 0)
+        }
+        contentTopConstraint = constraints[2]
+        NSLayoutConstraint.activate(constraints)
         addSidebarButton(to: window)
         self.window = window
         window.level = (saved?.onTop ?? legacy?.onTop ?? false) ? .floating : .normal
-        addPinButton(to: window)
+        chrome.pinned = window.level == .floating
+        addCompactActions(to: window)
         updateSidebarButton()
         observeFullscreen(window)
         observeDisplayVisibility(window)
         installKeyMonitor()
         languageCancellable = transport.$language.sink { [weak self] _ in
             self?.updateSidebarButton()
-            self?.updatePinButton()
         }
         wireChrome()
         transport.onPixelPerfect = { [weak self] in self?.applyPixelPerfectSize() }
@@ -1437,7 +1486,9 @@ final class GameWindowController: NSObject, NSWindowDelegate {
             // frame into that display's visible area (multi-display + Retina:
             // everything here is AppKit points, never pixels).
             window.setFrame(frame, display: false)
-            if saved.landscape != (aspect > 1) { fitWindow() }
+            // Old saved frames may use another sidebar or titlebar size.
+            // Refit every restored frame so the video fills its viewport.
+            fitWindow()
         } else {
             fitWindow()
             window.center()
@@ -1506,6 +1557,7 @@ final class GameWindowController: NSObject, NSWindowDelegate {
     // MARK: Chrome state
 
     private func wireChrome() {
+        chrome.togglePinAction = { [weak self] in self?.togglePin() }
         chrome.pixelPerfectAction = { [weak self] in self?.applyPixelPerfectSize() }
         chrome.fitAction = { [weak self] in self?.fitScreen() }
         chrome.toggleSidebarAction = { [weak self] in self?.toggleSidebar() }
@@ -1524,13 +1576,14 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         guard let window, frameWidth > 0, frameHeight > 0, let screen = window.screen else { return }
         let scale = window.backingScaleFactor
         let size = NSSize(width: CGFloat(frameWidth) / scale + side, height: CGFloat(frameHeight) / scale)
-        let full = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+        let full = NSSize(width: size.width,
+                          height: size.height + titlebarInset + window.frame.height - window.contentLayoutRect.height)
         guard !window.styleMask.contains(.fullScreen),
               full.width <= screen.visibleFrame.width, full.height <= screen.visibleFrame.height else {
             transport.onStatus?(t("原始像素大小超出当前屏幕", "The original size does not fit this display", transport.language))
             return
         }
-        window.setContentSize(size)
+        setPlayerContentSize(size)
         let frame = window.frame, visible = screen.visibleFrame
         window.setFrameOrigin(NSPoint(x: min(max(frame.minX, visible.minX), visible.maxX - frame.width),
                                       y: min(max(frame.minY, visible.minY), visible.maxY - frame.height)))
@@ -1595,11 +1648,15 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         let center = NotificationCenter.default
         fullscreenObservers.append(center.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { [weak self] _ in
             self?.chrome.fullscreen = true
+            self?.titleLabel?.isHidden = true
+            self?.contentTopConstraint?.constant = 0
             self?.chrome.reveal = false
         })
         fullscreenObservers.append(center.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { [weak self] _ in
             guard let self else { return }
             self.chrome.fullscreen = false
+            self.titleLabel?.isHidden = false
+            self.contentTopConstraint?.constant = self.titlebarInset
             self.chrome.reveal = false
             self.side = self.sidebar.visible ? sidebarWidth : 0
             self.fitWindow()

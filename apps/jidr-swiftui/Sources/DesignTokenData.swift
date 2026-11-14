@@ -286,7 +286,7 @@ enum JidrLayout {
     static let windowTitlebarHeight: CGFloat = 44
     static let windowSidebarWidth: CGFloat = 248
     static let windowInspectorWidth: CGFloat = 300
-    static let windowDeviceToolbarWidth: CGFloat = 48
+    static let windowDeviceToolbarWidth: CGFloat = 40
     static let windowDeviceWidgetPanelWidth: CGFloat = 320
     static let windowDeviceMinScreenHeight: CGFloat = 360
 }

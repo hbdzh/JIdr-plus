@@ -123,3 +123,43 @@ real behaviour instead of inventing features:
 - `cargo xtask ci` — 605 tests passed, 1 skipped; licence and skills checks pass.
 - Product-view renders against the fixture bridges are in `target/impl-shots/` (untracked) and were
   reviewed page by page; the screenshots above come from them.
+
+## Player titlebar and toolbar appearance
+
+The player follows the system light or dark appearance. Its titlebar and right
+rail expose one continuous `NSVisualEffectView` using the native `.sidebar`
+material, `.behindWindow` blending and `.followsWindowActiveState`. The window
+background and hosting surfaces are transparent, so neither region receives an
+independent material tint or opaque fill. The system handles inactive windows
+and accessibility settings such as Reduce Transparency; the backdrop can vary
+with the desktop behind each part of the window.
+
+The player hosting view is constrained to `contentLayoutGuide` below the native
+titlebar; fitting and pixel-perfect sizing use that layout area's dimensions.
+The video view clips drawing to its own bounds. Fullscreen's revealed rail uses
+an in-window material over the device content.
+
+Player lifecycle regressions check the shared native effect, transparent rail,
+live light → dark → light transitions, activation policy and screen geometry.
+Hidden snapshots cover native fallback rendering, not WindowServer's desktop
+blur; the latter requires on-screen review.
+
+## Device library and compact overview
+
+The centre uses `NavigationSplitView` and its system-provided Liquid Glass
+sidebar on macOS 26 and later. Do not add the legacy `.sidebar`
+`NSVisualEffectView` inside it; Apple documents that this obscures the native
+glass ([WWDC25: Build an AppKit app with the new design](https://developer.apple.com/videos/play/wwdc2025/310/)).
+The detail column extends underneath the sidebar. Its solid background respects
+the leading safe-area inset, leaving that region transparent so the glass can
+sample the backdrop. A shape-style background's default safe-area expansion
+would otherwise paint solid gray beneath the glass. The scoped light/dark
+All devices snapshots inspect the detail column's alpha separately from the
+glass; desktop refraction still requires on-screen verification. Appearance,
+activation and accessibility adaptations remain under system control.
+
+The centre sidebar includes an All devices entry with list and grid views;
+selecting a device opens its overview. The apps and snapshots sections size to
+their content and use bounded scrolling for longer collections. Device previews
+show a black screen when stopped and reuse an available player frame while
+running; a running device with no available frame keeps the black placeholder.
