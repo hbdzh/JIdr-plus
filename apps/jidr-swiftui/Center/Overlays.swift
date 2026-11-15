@@ -57,12 +57,12 @@ struct TaskCenterView: View {
             HStack(spacing: 10) {
                 Image(systemName: WbIcon.tasks).foregroundStyle(WbColor.textSecondary)
                 Text(model.text("后台任务", "Background tasks")).font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(WbColor.textPrimary)
                 Spacer()
                 if !rows.isEmpty {
                     Button { model.refreshJobs() } label: { Image(systemName: WbIcon.refresh) }
                         .buttonStyle(.borderless).accessibilityLabel(model.text("刷新任务", "Refresh tasks"))
                 }
-                PanelCloseButton(label: model.text("关闭", "Close")) { model.taskPanelDidClose() }
             }.padding(.horizontal, 18).frame(height: 50)
             Divider()
             if let reason = model.quitReason {
@@ -144,6 +144,7 @@ private struct TaskRowView: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: WbSpace.xs) {
                 Text(row.title).wbFont(WbType.body.weighted(.semibold)).lineLimit(1).truncationMode(.middle)
+                    .foregroundStyle(WbColor.textPrimary)
                 if let progress = row.progress {
                     ProgressView(value: min(max(progress, 0), 1)).tint(tint).controlSize(.small)
                 } else if row.tone == .running || row.tone == .queued {

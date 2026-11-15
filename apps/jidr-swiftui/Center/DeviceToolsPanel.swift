@@ -8,7 +8,12 @@ import SwiftUI
 final class DeviceToolsNativePanel: LightweightPanel {
     init() {
         super.init(size: NSSize(width: 716, height: 500))
-        styleMask.insert(.resizable)
+        // Device tools is a movable utility window, unlike the borderless
+        // transient panels that also inherit LightweightPanel.
+        styleMask = [.titled, .fullSizeContentView, .resizable]
+        isOpaque = true
+        backgroundColor = NSColor(WbColor.raised)
+        isMovableByWindowBackground = true
         // AppKit rebuilds the frame controls when the style mask changes.
         for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             standardWindowButton(kind)?.isHidden = true
@@ -97,7 +102,10 @@ final class DeviceToolsPanelController: NSWindowController, NSWindowDelegate {
         let list = panel.contentView.flatMap { sidebar(in: $0) }
         panel.initialFirstResponder = list
         panel.makeKeyAndOrderFront(nil)
-        if !(panel.firstResponder is NSTextView), let list { panel.makeFirstResponder(list) }
+        // SwiftUI can automatically focus the first form field while the panel
+        // is being presented. Start new presentations on the navigation list,
+        // but preserve an editor the user is already using in a visible panel.
+        if let list, needsPlacement || !(panel.firstResponder is NSTextView) { panel.makeFirstResponder(list) }
     }
     private func updateChrome() {
         window?.appearance = model.windowAppearance

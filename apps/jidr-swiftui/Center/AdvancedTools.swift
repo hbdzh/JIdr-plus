@@ -22,6 +22,8 @@ struct AdvancedToolsView: View {
     @State private var mobile = false
     @State private var networkLoaded = false
     @State private var profile = "full"
+    @State private var packetLoss = "0"
+    @State private var packetLossStatus = ""
     @State private var proxyHost = ""
     @State private var proxyPort = ""
     @State private var sensor = "acceleration"
@@ -104,6 +106,24 @@ struct AdvancedToolsView: View {
         guard let d = value as? [String:Any], let w = d["wifi"] as? Bool, let m = d["mobile"] as? Bool else { message = t("网络状态格式无效。", "Invalid network response."); return }
         wifi = w; mobile = m; networkLoaded = true
     } }
+    private func readPacketLoss() {
+        packetLossStatus = ""
+        call("network.shaping.get") { value in showPacketLoss(value) }
+    }
+    private func showPacketLoss(_ value: Any) {
+        guard let result = value as? [String: Any], let interfaces = result["interfaces"] as? [[String: Any]] else {
+            packetLossStatus = ""
+            message = t("丢包状态格式无效。", "Invalid packet loss response.")
+            return
+        }
+        if let loss = result["loss_pct"] as? Double { packetLoss = String(format: "%g", loss) }
+        packetLossStatus = interfaces.isEmpty
+            ? t("没有活动的默认网络接口。", "No active default network interfaces.")
+            : interfaces.compactMap { item in
+                guard let name = item["name"] as? String, let loss = item["loss_pct"] as? Double else { return nil }
+                return "\(name): \(String(format: "%g", loss))%"
+            }.joined(separator: " · ")
+    }
     var body: some View {
         NavigationSplitView {
             VStack(alignment: .leading, spacing: 0) {
@@ -423,6 +443,28 @@ struct AdvancedToolsView: View {
                     Button(t("应用网络速度", "Apply speed")) { call("network.set",["profile":profile]) }
                 }
             } header: { Text(t("网络连接", "Connectivity")).id("device-tool-2") }
+            DeviceToolPageGroup(t("网络丢包", "Packet loss")) {
+                Group {
+                    toolField(t("丢包率（%）", "Packet loss (%)"), placeholder: "0–100", text: $packetLoss, width: 110, alignment: .trailing)
+                    Text(t("模拟设备出站丢包，需要 Shell Root 或完整 Root。会替换接口现有队列规则，冷启动后清除。", "Drops outgoing packets; requires Shell or Full Root. Replaces existing interface queue rules and clears on cold boot."))
+                        .font(.caption).foregroundStyle(.secondary)
+                    if !packetLossStatus.isEmpty { Text(packetLossStatus).font(.caption).foregroundStyle(.secondary) }
+                }
+                DeviceToolActions {
+                    Button(t("读取丢包", "Read loss")) { readPacketLoss() }
+                    Button(t("应用丢包", "Apply loss")) {
+                        guard let loss = PacketLoss.parse(packetLoss) else {
+                            message = t("请输入 0–100 的丢包率。", "Enter a packet loss percentage from 0 to 100."); return
+                        }
+                        packetLossStatus = ""
+                        call("network.shaping.set", ["loss_pct": loss]) { value in showPacketLoss(value) }
+                    }
+                    Button(t("清除丢包", "Clear loss")) {
+                        packetLossStatus = ""
+                        call("network.shaping.set", ["loss_pct": 0]) { value in showPacketLoss(value) }
+                    }
+                }.disabled(!running || working)
+            }
             DeviceToolPageGroup(t("设备 HTTP 代理", "Device HTTP proxy")) {
                 Group {
                     toolField(t("代理主机", "Proxy host"), placeholder: "127.0.0.1", text: $proxyHost)

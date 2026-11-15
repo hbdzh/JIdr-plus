@@ -169,7 +169,7 @@ struct ContentView: View {
     }
     /// Ordinary player input is ignored by the bridge during playback, so the
     /// sidebar disables those entries until the script stops.
-    private var inputEnabled: Bool { linkState.isRunning && transport.scriptPlayback == .idle }
+    private var inputEnabled: Bool { linkState.isRunning && !transport.stoppingDevice && transport.scriptPlayback == .idle }
 
     var body: some View {
         ZStack(alignment: .trailing) {
@@ -224,7 +224,7 @@ struct ContentView: View {
             PlayerView(transport: transport)
                 .accessibilityLabel(t("设备画面", "Device screen", language))
                 .accessibilityHint(t("用侧边栏按钮发送按键、截图或录屏。", "Use the sidebar buttons to send keys, take screenshots or record.", language))
-            if !linkState.isRunning {
+            if transport.stoppingDevice || !linkState.isRunning {
                 stateCard
             }
             if chrome.pixelPerfect {
@@ -265,7 +265,13 @@ struct ContentView: View {
 
     private var stateCard: some View {
         VStack(spacing: WbSpace.md) {
-            switch linkState {
+            if transport.stoppingDevice {
+                ProgressView().controlSize(.small)
+                Text(t("正在停止设备…", "Stopping the device…", language)).wbFont(WbType.body)
+                Text(t("正在等待模拟器退出，保存快速启动状态可能需要一些时间。",
+                       "Waiting for the emulator to exit. Saving quick-boot state may take some time.", language))
+                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).multilineTextAlignment(.center)
+            } else { switch linkState {
             case .running:
                 EmptyView()
             case .connecting:
@@ -307,7 +313,7 @@ struct ContentView: View {
                 if !canReconnect {
                     Text(reconnectBlocker).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
                 }
-            }
+            } }
         }
         .padding(WbSpace.lg)
         .frame(maxWidth: WbLayout.windowDeviceWidgetPanelWidth)

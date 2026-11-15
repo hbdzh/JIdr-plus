@@ -16,7 +16,7 @@ func t(_ chinese: String, _ english: String, _ language: Int) -> String {
 enum PlayerLinkState: Equatable {
     case connecting
     /// The device center opened the window before the device was running and
-    /// reports the start progress (`device.start` job progress).
+    /// reports the same device boot progress shown in the device center.
     case booting(progress: Double?, message: String)
     case running
     /// The bridge/daemon reports the device as not running (stopped/crashed).

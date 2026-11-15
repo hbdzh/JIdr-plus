@@ -36,10 +36,21 @@ for line in sys.stdin:
         (home / "block-started").touch()
         while not (home / "block-release").exists():
             time.sleep(0.01)
+    if request["method"] == "device.stop" and (home / "block-stop").exists():
+        (home / "stop-started").touch()
+        while not (home / "stop-release").exists():
+            time.sleep(0.01)
+    if request["method"] == "device.stop" and (home / "fail-stop").exists():
+        print(json.dumps({"id": request["id"], "type": "error", "message": "fixture stop failed"}), flush=True)
+        continue
     if request["method"] == "device.start" and (home / "block-start").exists():
         (home / "start-started").touch()
         start_request = request["id"]
         def report_start(request_id):
+            while not (home / "boot-progress").exists():
+                time.sleep(0.01)
+            print(json.dumps({"type": "device_event", "event": {"topic": "device.boot", "data": {"device": device["id"], "progress": 0.3}}}), flush=True)
+            print(json.dumps({"id": request_id, "type": "progress", "job": "boot-job", "message": "", "progress": 0.01}), flush=True)
             while not (home / "start-release").exists():
                 time.sleep(0.01)
             print(json.dumps({"id": request_id, "type": "progress", "job": "boot-job", "message": "", "progress": None}), flush=True)

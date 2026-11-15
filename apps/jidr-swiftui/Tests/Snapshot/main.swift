@@ -94,7 +94,8 @@ let allCases: [SnapshotCase] = [
     SnapshotCase(name: "center-stopped-empty-wide-light", kind: .auxiliary(page: "center-stopped-empty"), language: 1, appearance: .light, width: 1400, height: 980),
     SnapshotCase(name: "all-devices-list-light", kind: .auxiliary(page: "all-devices-list"), language: 1, appearance: .light, width: 1050, height: 700),
     SnapshotCase(name: "all-devices-grid-dark", kind: .auxiliary(page: "all-devices-grid"), language: 0, appearance: .dark, width: 1050, height: 700),
-    SnapshotCase(name: "device-preview-states-light", kind: .auxiliary(page: "device-preview-states"), language: 1, appearance: .light, width: 138, height: 110),
+    SnapshotCase(name: "device-preview-states-light", kind: .auxiliary(page: "device-preview-states"), language: 1, appearance: .light, width: 286, height: 110),
+    SnapshotCase(name: "device-preview-states-dark", kind: .auxiliary(page: "device-preview-states"), language: 0, appearance: .dark, width: 286, height: 110),
     SnapshotCase(name: "center-stopped-en-minimum", kind: .auxiliary(page: "center-stopped"), language: 0, appearance: .dark, width: 800, height: 550),
     SnapshotCase(name: "settings-defaults-light", kind: .auxiliary(page: "settings-defaults"), language: 1, appearance: .light, width: 700, height: 450),
     SnapshotCase(name: "settings-advanced-en-dark", kind: .auxiliary(page: "settings-advanced"), language: 0, appearance: .dark, width: 700, height: 450),
@@ -744,6 +745,8 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
         canvas.mount(HStack(spacing: 10) {
             DevicePreview(model: model, device: running, width: 64, height: 110)
             DevicePreview(model: model, device: stopped, width: 64, height: 110)
+            DeviceArtwork(state: .running, frame: nil, width: 64, height: 110)
+            DeviceArtwork(state: .starting, frame: nil, width: 64, height: 110)
         })
     case "script-options":
         canvas.mount(PlaybackOptionsPopover(language: snapshotCase.language, mode: .constant("count"), count: .constant(3), seconds: .constant(60), interval: .constant(500), speed: .constant(1))
@@ -832,6 +835,9 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
             guard let search = nativeDescendants(host, NSSearchField.self).first(where: { $0.identifier?.rawValue == "device-search" }) else {
                 fail("device search is missing")
             }
+            guard let listScroll = table.enclosingScrollView else { fail("device list scroll view is missing") }
+            require(listScroll.bounds.width <= search.bounds.width + 1,
+                    "device selection stays inset within the sidebar search width")
             search.stringValue = "no-such-device-fixture"
             search.delegate?.controlTextDidChange?(Notification(name: NSControl.textDidChangeNotification, object: search))
             require(model.deviceQuery == "no-such-device-fixture" && model.filteredDevices.isEmpty,
@@ -842,6 +848,12 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
             require(model.deviceQuery.isEmpty && !model.filteredDevices.isEmpty, "clearing search restores devices")
             require(table.numberOfRows == model.filteredDevices.count + 2 && table.selectedRow == 0,
                     "all-devices entry is selected and the device rows remain available")
+            require(!(table.delegate?.tableView?(table, shouldSelectRow: 1) ?? true), "device heading is not selectable")
+            guard let headingCell = table.view(atColumn: 0, row: 1, makeIfNecessary: true),
+                  let addButton = nativeDescendants(headingCell, NSButton.self).first else { fail("device heading add button is missing") }
+            addButton.performClick(nil)
+            require(model.sheet == .newDevice && table.selectedRow == 0, "heading add button opens device creation without changing selection")
+            model.sheet = nil
             require(model.showingAllDevices && model.selected == nil, "all-devices view has no selected device")
             table.selectRowIndexes(IndexSet(integer: 2), byExtendingSelection: false)
             require(!model.showingAllDevices && model.selected == model.filteredDevices.first?.id,
@@ -865,7 +877,14 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
               let stopped = rep.colorAt(x: 106, y: 55)?.usingColorSpace(.sRGB) else { fail("cannot inspect thumbnail pixels") }
         require(running.greenComponent > 0.8 && running.redComponent < 0.2, "running device shows the existing screen thumbnail")
         require(stopped.redComponent < 0.2 && stopped.greenComponent < 0.2 && stopped.blueComponent < 0.2,
-                "stopped device remains black even if a stale thumbnail exists")
+                "stopped device uses its dark screen even if a stale thumbnail exists")
+        guard let placeholder = rep.colorAt(x: 180, y: 55)?.usingColorSpace(.sRGB) else { fail("cannot inspect running placeholder") }
+        require(placeholder.blueComponent > stopped.blueComponent,
+                "running device without a frame uses the neutral placeholder")
+        require(DeviceArtworkState(deviceState: "booting") == .starting &&
+                DeviceArtworkState(deviceState: "running") == .running &&
+                DeviceArtworkState(deviceState: "hibernated") == .stopped,
+                "device states select the corresponding artwork")
     }
     if let selection = toolsSelection { validateTools(canvas, selection: selection, page: page) }
     canvas.unmount()
@@ -888,9 +907,9 @@ func renderScriptManagementWindow(_ snapshotCase: SnapshotCase) -> NSBitmapImage
             "native toolbar spacing keeps New and Import as separate controls")
     window.appearance = snapshotCase.appearance.nsAppearance
     transport.applyScriptNotification(["op": "list", "scripts": [
-        ["id": "1", "name": "日常登录", "duration_ms": 18000, "event_count": 16, "created_at": "2026-11-13T14:35:00Z"],
-        ["id": "2", "name": "游戏日常任务", "duration_ms": 156000, "event_count": 84, "created_at": "2026-11-12T20:18:00Z"],
-        ["id": "3", "name": "领取每日奖励", "duration_ms": 42000, "event_count": 25, "created_at": "2026-11-10T12:00:00Z"]
+        ["id": "1", "name": "日常登录", "duration_ms": 18000, "event_count": 16, "action_count": 4, "created_at": "2026-11-13T14:35:00Z"],
+        ["id": "2", "name": "游戏日常任务", "duration_ms": 156000, "event_count": 84, "action_count": 12, "created_at": "2026-11-12T20:18:00Z"],
+        ["id": "3", "name": "领取每日奖励", "duration_ms": 42000, "event_count": 25, "action_count": 5, "created_at": "2026-11-10T12:00:00Z"]
     ]])
     root.layoutSubtreeIfNeeded()
     pump(0.4)

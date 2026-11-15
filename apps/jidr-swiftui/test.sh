@@ -5,6 +5,14 @@ cd "$root"
 out="$root/target/swiftui-tests"
 mkdir -p "$out/module-cache"
 swiftc -module-cache-path "$out/module-cache" \
+  apps/jidr-swiftui/Sources/PacketLoss.swift \
+  apps/jidr-swiftui/Tests/PacketLoss/main.swift -o "$out/packet-loss-tests"
+"$out/packet-loss-tests"
+swiftc -module-cache-path "$out/module-cache" \
+  apps/jidr-swiftui/Sources/DeviceBudget.swift \
+  apps/jidr-swiftui/Tests/DeviceBudget/main.swift -o "$out/device-budget-tests"
+"$out/device-budget-tests"
+swiftc -module-cache-path "$out/module-cache" \
   apps/jidr-swiftui/Sources/FrameDecoder.swift \
   apps/jidr-swiftui/Tests/main.swift -o "$out/frame-decoder-tests"
 "$out/frame-decoder-tests"

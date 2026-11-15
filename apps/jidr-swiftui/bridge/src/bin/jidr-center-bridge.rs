@@ -75,6 +75,10 @@ fn error_reply(id: u64, error: &anyhow::Error) -> Value {
     }
 }
 
+fn daemon_error_reply(id: u64, error: &jidr_core::JidrError) -> Value {
+    json!({"id":id,"type":"error","code":error.code.as_str(),"message":error.message,"data":error.data})
+}
+
 /// Reads `gui-prefs.json`. A missing file is the defaults (an empty object);
 /// malformed JSON or a non-object root is reported so the file is never
 /// overwritten with a lossy rewrite.
@@ -506,7 +510,7 @@ async fn main() -> Result<()> {
             }).await;
             match result {
                 Ok(value) => send(json!({"id":id,"type":"result","result":value})),
-                Err(error) => send(json!({"id":id,"type":"error","message":error.message})),
+                Err(error) => send(daemon_error_reply(id, &error)),
             }
         });
     }
@@ -548,6 +552,16 @@ async fn follow_logcat(paths: &JidrPaths, device: &str, filters: Vec<String>) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn daemon_error_keeps_code_and_budget_details() {
+        let error = jidr_core::JidrError::resource_exhausted("full")
+            .with_data(json!({"needed_mb": 4096, "used_mb": 8192, "budget_mb": 12288}));
+        let reply = daemon_error_reply(7, &error);
+        assert_eq!(reply["code"], "resource_exhausted");
+        assert_eq!(reply["data"]["needed_mb"], 4096);
+        assert_eq!(reply["message"], "full");
+    }
 
     /// Old Slint/pre-M2 `gui-prefs.json` is still a JSON object with these
     /// fields; a missing file means defaults and a corrupt file is reported

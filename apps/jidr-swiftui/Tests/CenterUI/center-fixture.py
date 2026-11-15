@@ -15,6 +15,7 @@ if os.environ.get("JIDR_UI_ROOT") in ("adb", "adb-writable"):
  for d in devices: d['root']={"mode":"adb","health":"ok","writable_system":os.environ.get("JIDR_UI_ROOT")=="adb-writable"}
 if state.exists(): devices=json.loads(state.read_text())
 noop_used=False
+packet_loss=0.0
 for line in sys.stdin:
  r=json.loads(line);m=r["method"];p=r.get("params",{});d=next((d for d in devices if d["id"]==p.get("device")),None)
  with (home/'requests.jsonl').open('a') as log: log.write(json.dumps({"method":m,"device":p.get("device")})+'\n')
@@ -44,9 +45,15 @@ for line in sys.stdin:
  elif m=="center.prefs.set":
   prefs.update(p);(home/'data/gui-prefs.json').write_text(json.dumps(prefs));value=prefs
  elif m=="settings.set": settings.update(p);value=settings
+ elif m in ("network.shaping.get", "network.shaping.set"):
+  if m=="network.shaping.set": packet_loss=float(p["loss_pct"])
+  value={"loss_pct":packet_loss,"interfaces":[{"name":"wlan0","qdisc":"netem" if packet_loss else "noqueue","loss_pct":packet_loss}]}
  else:
   values={"center.prefs.get":prefs,"center.paths":{"data":str(home/'data'),"cache":str(home/'cache'),"logs":str(home/'logs'),"tools":{"android_sdk":"/Volumes/External/Android/SDK","jidr_sdk":None}},"center.about":{"version":"0.3.1","repository":"https://github.com/hbdzh/JIdr-plus"},"device.list":devices,"device.details":{"device":d,"config":{"hw.cpu.ncore":"4","hw.ramSize":"4096","hw.lcd.width":"1080","hw.lcd.height":"2400","hw.lcd.density":"420"},"disk_usage":2147483648},"app.list":{"apps":[{"package":"com.example.test","name":"示例应用","icon":None},{"package":"com.example.long","name":"用于检查长名称是否截断的测试应用程序","icon":None}]},"jobs.list":[],"settings.get":settings,"sdk.status":{"tools_sdk":"/Volumes/External/Android/SDK","studio_sdk":"/Volumes/External/Android/SDK","private_sdk":None,"install_sdk":"/Volumes/External/Android/SDK","custom_sdk":None},"profile.list":[{"id":"pixel_7","name":"Phone 6.1 FHD+","ram_mb":4096,"cpus":4,"data_mb":8192,"audio":True}],"image.list":[{"api":35,"tag":"google_apis","abi":"arm64-v8a","installed_in":"/Volumes/External/Android/SDK"}],"cache.list":[],"snapshot.list":{"device_root_mode":"none","snapshots":[{"name":"日常测试保存点","id":"one","quick_boot":False,"restorable":True,"root_mode":"none","created_at":"2026-11-11T01:00:00Z","size_bytes":536870912},{"name":"用于检查长名称与拒绝恢复原因的快照记录","id":"two","quick_boot":False,"restorable":False,"root_mode":"magisk","magisk_version":"30.7","created_at":"2026-11-10T02:00:00Z","size_bytes":1073741824},{"name":"default_boot","id":"quick","quick_boot":True,"restorable":True,"root_mode":None,"size_bytes":1048576}]},"battery.get":{"level":75,"charger":"ac"},"network.get":{"wifi":True,"mobile":True,"profile":"full"},"dev.get":{"show_taps":False,"pointer_location":False,"layout_bounds":False,"animation_scale":1.0},"root.cacert.list":{"certificates":[]},"commands.list":[],"center.quit":None}
   if m=="commands.list": values[m]={"commands":[{"id":name} for name in ("root.cacert.install","device.props.get","root.writable_system","audio.inject","audio.stop")]}
+  if m=="host.budget":
+   active=[d for d in devices if d['status']['state']=='running']
+   values[m]={"total_mb":32768,"available_mb":16000,"budget_percent":80,"budget_mb":26214,"used_mb":len(active)*6144,"devices":[{"id":item['id'],"name":item['name'],"expected_mb":6144,"measured_mb":5900} for item in active]}
   if m=="root.status": values[m]={"root":d['root'] if d else {"mode":"none"}}
   if m=="device.props.get": values[m]={"props":{}}
   if m=="camera.get": values[m]={"back":d['launch']['camera_back'],"front":d['launch']['camera_front']}

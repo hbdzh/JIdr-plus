@@ -27,6 +27,9 @@ enum OperationMessages {
             return "设备“\(name)”未运行，请先启动设备。"
         }
         let exact = [
+            "this needs root: set the device's root mode to adb (Shell root) or magisk (Full root)":"此功能需要 Root，请将设备设为 Shell Root 或完整 Root。",
+            "on-device helper: this image's kernel has no netem (CONFIG_NET_SCH_NETEM)":"此系统镜像的内核不支持网络丢包模拟。",
+            "on-device helper: no interface has a default route (is Wi-Fi or mobile data on?)":"没有可用的默认网络接口，请检查 Wi-Fi 或移动数据。",
             "UI preview: this operation requires a real device connection.":"界面预览无法执行此操作，请连接真实设备。",
             "speed must be between 0 and 64×":"路线速度倍率须大于 0 且不超过 64。",
             "no track, route or way points in the file":"文件中没有有效的路线或坐标点。",
@@ -34,7 +37,9 @@ enum OperationMessages {
             "give either cert or all":"请选择要移除的证书。",
             "The existing configuration must be a JSON object.":"现有配置必须是 JSON 对象。",
             "The existing mcpServers value must be a JSON object.":"现有的 mcpServers 必须是 JSON 对象。",
-            "Claude's configuration directory does not exist.":"未找到 Claude 的配置目录。",
+            "Codex CLI was not found. Install Codex or add its CLI to PATH.":"未找到 Codex 命令行工具。请安装 Codex 或将其命令行工具加入 PATH。",
+            "The existing WorkBuddy configuration must be a JSON object.":"现有 WorkBuddy 配置必须是 JSON 对象。",
+            "The existing WorkBuddy mcpServers value must be a JSON object.":"现有 WorkBuddy 的 mcpServers 必须是 JSON 对象。",
             "Enter the path to the jidr command.":"请输入 jidr 命令路径。"
         ]
         if let text = exact[value] { return text }

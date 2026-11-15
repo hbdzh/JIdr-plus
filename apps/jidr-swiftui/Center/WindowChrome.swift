@@ -171,7 +171,13 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate {
             button.setAccessibilityLabel(title)
         }
     }
-    @objc private func toggleSidebar() { model.sidebarVisible.toggle() }
+    @objc private func toggleSidebar() {
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            model.sidebarVisible.toggle()
+        } else {
+            withAnimation(.easeInOut(duration: 0.22)) { model.sidebarVisible.toggle() }
+        }
+    }
     @objc private func palette() { model.togglePalette() }
     @objc private func tasks() { model.openTasks() }
     @objc private func refresh() { model.refresh(); model.refreshJobs() }

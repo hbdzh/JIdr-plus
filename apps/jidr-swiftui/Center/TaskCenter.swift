@@ -114,6 +114,8 @@ enum TaskCatalog {
             base = text("启动设备", "Starting device")
         case "device.stop":
             base = text("停止设备", "Stopping device")
+        case "device.hibernate":
+            base = text("休眠设备", "Hibernating device")
         case "snapshot.save":
             base = text("保存快照", "Saving snapshot")
         case "snapshot.load":

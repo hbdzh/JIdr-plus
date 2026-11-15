@@ -24,6 +24,7 @@ final class PlayerTransport: ObservableObject {
         didSet { if recording == .idle { recordingStartedAt = nil } }
     }
     @Published var connectionEnded = false
+    @Published var stoppingDevice = false
     @Published var recordingStateUnknown = false
     @Published var language = 1
     /// What the window shows when there is no live frame (booting/stopped/lost).
@@ -1218,6 +1219,7 @@ final class SidebarState: ObservableObject {
 
 final class GameWindowController: NSObject, NSWindowDelegate {
     var onClose: (() -> Void)?
+    var onStopRequested: (() -> Void)?
     var canClose: (() -> Bool)?
     var stopDeviceOnClose = true
     var onWarning: ((String) -> Void)?
@@ -1759,7 +1761,12 @@ final class GameWindowController: NSObject, NSWindowDelegate {
             transport.onStatus?(t("请先停止录屏并等待保存完成", "Stop recording and wait for it to finish saving first", transport.language))
             return false
         }
-        return canClose?() ?? true
+        guard canClose?() ?? true else { return false }
+        if stopDeviceOnClose, let onStopRequested {
+            onStopRequested()
+            return false
+        }
+        return true
     }
 
     func windowWillClose(_ notification: Notification) {
