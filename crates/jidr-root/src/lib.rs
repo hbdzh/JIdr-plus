@@ -160,6 +160,7 @@ impl CommandProvider for RootProvider {
                 "Check that every CA certificate Jidr added is in the system store apps read",
             )
             .locks_device(),
+            CommandSpec::new::<DeviceParams>("root.helper.status", "Start the on-device helper if needed and report its status").locks_device(),
             CommandSpec::new::<cacerts::RemoveParams>(
                 "root.cacert.remove",
                 "Remove a CA certificate Jidr added (or all of them); restarts the device",
@@ -203,6 +204,9 @@ impl CommandProvider for RootProvider {
                 cacerts::verify(ctx, &parse_params::<DeviceParams>(params)?.device).await
             }
             "root.cacert.remove" => cacerts::remove(ctx, parse_params(params)?).await,
+            "root.helper.status" => {
+                helper_status(ctx, &parse_params::<DeviceParams>(params)?.device).await
+            }
             other => Err(JidrError::not_found(format!("unknown method {other}"))),
         }
     }
@@ -311,6 +315,16 @@ async fn set(ctx: &CallCtx, p: SetParams, su_settle: Duration) -> JidrResult<Val
         "verification": verification,
         "play_integrity": PLAY_INTEGRITY_NOTICE,
     }))
+}
+
+async fn helper_status(ctx: &CallCtx, selector: &str) -> JidrResult<Value> {
+    let device = ctx.daemon.device(selector).await?;
+    ensure_running(&device)?;
+    let helper = jidr_helper::host::Helper::for_device(ctx, &device).await?;
+    Ok(
+        json!({"device": device.id, "name": device.name, "root_mode": device.root.mode,
+        "helper": helper.pong, "port": helper.port}),
+    )
 }
 
 fn mode_label(mode: RootMode) -> &'static str {

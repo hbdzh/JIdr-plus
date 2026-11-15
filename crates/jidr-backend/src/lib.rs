@@ -222,6 +222,9 @@ pub trait Backend: Send + Sync + std::fmt::Debug {
     /// write is torn.
     async fn stop_without_save(&self, instance: &InstanceInfo) -> JidrResult<()>;
 
+    /// Wait for a guest shutdown before ending the emulator without a save.
+    async fn wait_powered_off(&self, instance: &InstanceInfo, within: Duration) -> bool;
+
     /// True while a client other than the daemon (the player, Android
     /// Studio) holds a gRPC connection to the instance. Idle detection.
     async fn has_clients(&self, _instance: &InstanceInfo) -> bool {

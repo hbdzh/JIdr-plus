@@ -36,3 +36,6 @@ Third-party attributions:
   reproduced (see docs/clean-room.md).
 
 - Lucide SVG sources in assets/lucide are ISC licensed; see assets/lucide/LICENSE-lucide.txt.
+- The on-device helper statically includes musl libc, Copyright 2005-2020
+  Rich Felker and contributors, licensed under the MIT License
+  (see LICENSE-MUSL; https://musl.libc.org, COPYRIGHT file).

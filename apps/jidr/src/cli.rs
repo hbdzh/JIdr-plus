@@ -117,6 +117,11 @@ pub enum Cmd {
         #[command(subcommand)]
         cmd: ProxyCmd,
     },
+    /// Simulate network conditions in a rooted guest.
+    Network {
+        #[command(subcommand)]
+        cmd: NetworkCmd,
+    },
     /// Play an audio file as a device's microphone (WAV, or raw 16-bit PCM).
     Audio {
         #[command(subcommand)]
@@ -392,7 +397,7 @@ pub enum PoolCmd {
 
 #[derive(Debug, Subcommand)]
 pub enum BaseCmd {
-    /// Save a running device (root none or adb) as a base: snapshot
+    /// Save a running device (including Magisk root) as a base: snapshot
     /// `jidr-base` with animations off. The device is stopped.
     Create { device: String, name: String },
     /// Bases and their leased clones.
@@ -524,6 +529,8 @@ pub enum RootCmd {
     Verify { device: String },
     /// Root mode and health.
     Status { device: String },
+    /// Start the on-device helper and show its status.
+    Helper { device: String },
     /// Grant every app root without a prompt on a Full-root device (D22, off by default).
     AutoGrant {
         device: String,
@@ -568,6 +575,15 @@ pub enum ProxyCmd {
     Clear { device: String },
     /// The current proxy.
     Show { device: String },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum NetworkCmd {
+    /// Show or set outgoing packet loss (0–100 percent; 0 clears it).
+    Loss {
+        device: String,
+        percent: Option<f64>,
+    },
 }
 
 #[derive(Debug, Subcommand)]

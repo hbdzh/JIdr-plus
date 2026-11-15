@@ -6,6 +6,7 @@
 //! `pool.get` wait, then fail with `resource_exhausted`. Persistent agent
 //! devices stay on `device.create`.
 
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,6 +20,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
+use crate::core_provider::move_device_files;
 use crate::leases::{Holder, Lease};
 use crate::state::{State, lock};
 
@@ -28,12 +30,32 @@ pub const BASE_SNAPSHOT: &str = "jidr-base";
 pub const DEFAULT_TTL: Duration = Duration::from_secs(2 * 60 * 60);
 /// How long `pool.get` waits for room in the budget by default.
 pub const DEFAULT_WAIT: Duration = Duration::from_secs(120);
+const ANIMATION_SCALES: [&str; 3] = [
+    "window_animation_scale",
+    "transition_animation_scale",
+    "animator_duration_scale",
+];
+
+/// Configure only the throwaway clone. The source and its snapshot retain
+/// their settings even if creation is interrupted or the daemon stops.
+async fn prepare_clone_animations(adb: &Adb, cancel: &jidr_core::Cancel) -> JidrResult<()> {
+    for key in ANIMATION_SCALES {
+        cancel.check()?;
+        adb.shell(&format!("settings put global {key} 0"))
+            .await
+            .map_err(|mut error| {
+                error.message = format!("cannot disable clone animations: {}", error.message);
+                error
+            })?;
+    }
+    cancel.check()
+}
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BaseCreateParams {
-    /// A running device to make the base from (root `none` or `adb`). It is
-    /// stopped; the base is a copy of it.
+    /// A running source; Magisk requires a patched ramdisk and shell su grant.
+    /// It is stopped; the base is a copy of it.
     pub from_device: String,
     /// The base's name.
     pub name: String,
@@ -51,8 +73,8 @@ pub struct BaseParams {
 pub struct PoolGetParams {
     /// Base name or id.
     pub base: String,
-    /// Lease lifetime in seconds. Without it the lease lasts as long as this
-    /// client connection, plus 2 minutes.
+    /// Lease lifetime in seconds from delivery. Without it the lease lasts as
+    /// long as this client connection, plus 2 minutes.
     #[serde(default)]
     pub ttl_s: Option<u64>,
     /// How long to wait for room in the RAM budget (default 120 s).
@@ -84,6 +106,66 @@ pub struct PoolProvider {
     state: Arc<State>,
 }
 
+/// Reject external, mismatched, or symlinked ramdisks: every copy must own
+/// the exact file whose bytes are used with its snapshot.
+fn magisk_ramdisk(device: &Device, dir: &Path) -> JidrResult<PathBuf> {
+    let invalid = || {
+        JidrError::usage(format!(
+            "{} has no valid per-device patched ramdisk; run `root set {} magisk` again first",
+            device.name, device.name
+        ))
+    };
+    let path = device.launch.ramdisk.as_ref().ok_or_else(invalid)?;
+    if device.root.patched_ramdisk_path.as_ref() != Some(path) {
+        return Err(invalid());
+    }
+    let rel = path.strip_prefix(dir.join("jidr")).map_err(|_| invalid())?;
+    if rel.as_os_str().is_empty() || rel.components().any(|c| !matches!(c, Component::Normal(_))) {
+        return Err(invalid());
+    }
+    let mut current = dir.join("jidr");
+    for component in rel.components() {
+        current.push(component);
+        let meta = std::fs::symlink_metadata(&current).map_err(|_| invalid())?;
+        if meta.file_type().is_symlink() {
+            return Err(invalid());
+        }
+    }
+    if std::fs::symlink_metadata(dir.join("jidr"))
+        .map_err(|_| invalid())?
+        .file_type()
+        .is_symlink()
+        || !path.is_file()
+    {
+        return Err(invalid());
+    }
+    Ok(path.clone())
+}
+
+async fn check_magisk_source(src: &Device, adb: &Adb, dir: &Path) -> JidrResult<()> {
+    magisk_ramdisk(src, dir)?;
+    let root = adb
+        .clone()
+        .with_timeout(Duration::from_secs(20))
+        .shell_status("su -c id")
+        .await
+        .is_ok_and(|(status, output)| {
+            status == 0 && output.split_whitespace().any(|s| s.starts_with("uid=0("))
+        });
+    if root {
+        return Ok(());
+    }
+    let hint = if src.image.allows_adb_root() {
+        "check it with `root verify`"
+    } else {
+        "on a Play Store image, tap Grant in Magisk's prompt and choose Forever"
+    };
+    Err(JidrError::root_failed(format!(
+        "{}'s shell `su -c id` isn't root, so its clones wouldn't be either; {hint}",
+        src.name
+    )))
+}
+
 impl PoolProvider {
     pub fn new(state: Arc<State>) -> Self {
         Self { state }
@@ -103,9 +185,20 @@ impl State {
         lock(&self.leases).len()
     }
 
+    pub(crate) fn connection_opened(&self, conn: u64) {
+        lock(&self.leases).connected(conn);
+    }
+
     /// A client connection closed: its leases expire after the grace period.
     pub fn connection_closed(&self, conn: u64) {
-        lock(&self.leases).disconnected(conn, Utc::now());
+        // Keep the disconnection in memory even if storage is temporarily
+        // unavailable; recovery treats an open connection as disconnected.
+        let mut leases = lock(&self.leases);
+        if leases.disconnected(conn, Utc::now())
+            && let Err(error) = leases.save(&self.paths.data.join("pool-leases.json"))
+        {
+            tracing::error!(%error, "cannot persist disconnected pool leases");
+        }
     }
 
     fn base(&self, selector: &str) -> JidrResult<Device> {
@@ -134,8 +227,46 @@ impl State {
         Ok(d)
     }
 
+    async fn clean_failed_clone(&self, device: Uuid, lease: Uuid) {
+        let removed = match self.remove_device(device).await {
+            Ok(_) => true,
+            Err(error) => {
+                tracing::warn!(%error, %device, "failed to remove pool clone; scheduling retry");
+                false
+            }
+        };
+        if let Err(error) = self.update_leases(|leases| {
+            if removed {
+                leases.remove(lease);
+            } else {
+                leases.abandon(lease, Utc::now());
+            }
+            Ok(())
+        }) {
+            // Avoid leaving an unreapable pending lease in this process. The
+            // persisted pending record also recovers into grace on restart.
+            let mut leases = lock(&self.leases);
+            if removed {
+                leases.remove(lease);
+            } else {
+                leases.abandon(lease, Utc::now());
+            }
+            tracing::error!(%error, %device, "cannot persist failed clone cleanup");
+        }
+    }
+
     /// Ends a lease: its clone is stopped and deleted.
     pub async fn release(&self, lease: Uuid) -> JidrResult<Value> {
+        self.release_checked(lease, None)
+            .await?
+            .ok_or_else(|| JidrError::not_found(format!("no lease {lease}")))
+    }
+
+    async fn release_checked(
+        &self,
+        lease: Uuid,
+        expired_at: Option<chrono::DateTime<Utc>>,
+    ) -> JidrResult<Option<Value>> {
         let l = lock(&self.leases)
             .get(lease)
             .cloned()
@@ -144,15 +275,33 @@ impl State {
             .with_store(|s| s.get(l.device).map(|d| d.name.clone()))
             .unwrap_or_default();
         let _guard = self.locks.try_lock(l.device, &name, "pool.release", None)?;
+        // Renewal takes the same device lock. Check again after taking it so
+        // a lease renewed since the reaper's scan cannot be deleted.
+        {
+            let leases = lock(&self.leases);
+            let Some(current) = leases.get(lease) else {
+                return Ok(None);
+            };
+            if expired_at.is_some_and(|now| {
+                leases.is_pending(lease) || !current.expires_at.is_some_and(|t| t <= now)
+            }) {
+                return Ok(None);
+            }
+        }
         if self.with_store(|s| s.get(l.device).is_ok()) {
             self.remove_device(l.device).await?;
         }
-        lock(&self.leases).remove(lease);
+        self.update_leases(|leases| {
+            leases.remove(lease);
+            Ok(())
+        })?;
         self.emit(
             "pool.released",
             json!({ "lease": lease, "device": l.device }),
         );
-        Ok(json!({ "released": lease, "device": l.device, "name": name }))
+        Ok(Some(
+            json!({ "released": lease, "device": l.device, "name": name }),
+        ))
     }
 
     /// One reaper pass as of `now`: releases every expired lease. Returns
@@ -161,40 +310,13 @@ impl State {
         let due = lock(&self.leases).expired(now);
         let mut done = Vec::new();
         for l in due {
-            match self.release(l.id).await {
-                Ok(_) => done.push(l.id),
+            match self.release_checked(l.id, Some(now)).await {
+                Ok(Some(_)) => done.push(l.id),
+                Ok(None) => {}
                 Err(e) => tracing::warn!(lease = %l.id, "reaping failed: {e}"),
             }
         }
         done
-    }
-
-    /// Pool clones left from before a daemon restart have no connection any
-    /// more: they get the grace period, then the reaper takes them.
-    pub(crate) fn adopt_pool_clones(&self) {
-        let now = Utc::now();
-        let clones: Vec<Device> = self.with_store(|s| {
-            s.all()
-                .iter()
-                .filter(|d| d.pool_base.is_some())
-                .cloned()
-                .collect()
-        });
-        let mut leases = lock(&self.leases);
-        for d in clones {
-            if leases.for_device(d.id).is_none() {
-                leases.insert(Lease {
-                    id: Uuid::new_v4(),
-                    base: d.pool_base.unwrap_or_default(),
-                    device: d.id,
-                    holder: Holder::Ttl,
-                    expires_at: Some(
-                        now + chrono::Duration::from_std(crate::leases::GRACE).unwrap_or_default(),
-                    ),
-                    created_at: now,
-                });
-            }
-        }
     }
 }
 
@@ -202,16 +324,13 @@ impl PoolProvider {
     async fn base_create(&self, ctx: &CallCtx, p: BaseCreateParams) -> JidrResult<Value> {
         let st = &self.state;
         let src = st.device(&p.from_device).await?;
+        let _guard = st.locks.try_lock(src.id, &src.name, "base.create", None)?;
+        let src = st.device(&src.id.to_string()).await?;
         if src.base || src.pool_base.is_some() {
             return Err(JidrError::usage(format!(
                 "{} is already a base or a pool device",
                 src.name
             )));
-        }
-        if src.root.mode == RootMode::Magisk {
-            return Err(JidrError::usage(
-                "bases are root none or adb for now; Magisk bases come later (Phase 13f)",
-            ));
         }
         if src.root.writable_system {
             // #25: the writable system copy isn't part of the base snapshot.
@@ -233,18 +352,12 @@ impl PoolProvider {
                 "a device named {name:?} already exists"
             )));
         }
-        let _guard = st.locks.try_lock(src.id, &src.name, "base.create", None)?;
-
-        // Agents' clones shouldn't wait on animations.
-        ctx.report(Some(0.1), "Turning animations off");
         let adb = Adb::new(info.adb_path.clone()).device(info.adb_serial.clone());
-        for key in [
-            "window_animation_scale",
-            "transition_animation_scale",
-            "animator_duration_scale",
-        ] {
-            adb.shell(&format!("settings put global {key} 0")).await?;
+        if src.root.mode == RootMode::Magisk {
+            ctx.report(Some(0.05), "Checking Magisk root");
+            check_magisk_source(&src, &adb, &st.avds().dir(&src.avd)).await?;
         }
+        ctx.cancel.check()?;
         ctx.report(Some(0.3), "Saving the base snapshot");
         let inst = st
             .instance(src.id)
@@ -254,6 +367,7 @@ impl PoolProvider {
             .save_snapshot(&inst, BASE_SNAPSHOT, &src_dir)
             .await?;
         jidr_sdk::avd::check_snapshot(&src_dir, BASE_SNAPSHOT)?;
+        ctx.cancel.check()?;
         ctx.report(Some(0.6), "Stopping the source");
         st.stop_device(src.id).await?;
 
@@ -261,20 +375,27 @@ impl PoolProvider {
         let avds = st.avds();
         let avd = st.with_store(|s| s.avd_id_for(&name, |id| avds.exists(id)));
         avds.clone_with_snapshot(&src.avd, &avd, &name, BASE_SNAPSHOT)?;
-        // The source keeps running as an ordinary device; its copy of the
+        // The stopped source remains an ordinary device; its copy of the
         // snapshot isn't needed.
         let _ = std::fs::remove_dir_all(src_dir.join("snapshots").join(BASE_SNAPSHOT));
+        let mut launch = LaunchPrefs {
+            force_cold_boot: false,
+            resume_snapshot: None,
+            ..src.launch.clone()
+        };
+        let mut root = src.root.clone();
+        if root.mode == RootMode::Magisk {
+            move_device_files(&mut launch, &mut root, &src_dir, &avds.dir(&avd));
+        } else {
+            launch.ramdisk = None;
+        }
         let base = Device {
             id: Uuid::new_v4(),
             name,
             avd: avd.clone(),
             created_at: Utc::now(),
-            launch: LaunchPrefs {
-                ramdisk: None,
-                force_cold_boot: false,
-                resume_snapshot: None,
-                ..src.launch.clone()
-            },
+            launch,
+            root,
             status: Default::default(),
             runtime: None,
             agent_owned: false,
@@ -283,6 +404,10 @@ impl PoolProvider {
             auto_hibernate_minutes: None,
             ..src.clone()
         };
+        if base.root.mode == RootMode::Magisk && magisk_ramdisk(&base, &avds.dir(&avd)).is_err() {
+            let _ = avds.delete(&avd);
+            return Err(JidrError::sdk("copying the base's patched ramdisk failed"));
+        }
         if let Err(e) = st.with_store(|s| s.insert(base.clone())) {
             let _ = avds.delete(&avd);
             return Err(e);
@@ -312,6 +437,10 @@ impl PoolProvider {
 
     async fn base_delete(&self, p: BaseParams) -> JidrResult<Value> {
         let b = self.state.base(&p.base)?;
+        let _guard = self
+            .state
+            .locks
+            .try_lock(b.id, &b.name, "base.delete", None)?;
         let n = lock(&self.state.leases).of_base(b.id);
         if n > 0 {
             return Err(JidrError::busy(format!(
@@ -320,10 +449,6 @@ impl PoolProvider {
             ))
             .with_data(json!({ "leases": n })));
         }
-        let _guard = self
-            .state
-            .locks
-            .try_lock(b.id, &b.name, "base.delete", None)?;
         let d = self.state.remove_device(b.id).await?;
         Ok(json!({ "deleted": d.id, "name": d.name }))
     }
@@ -331,30 +456,57 @@ impl PoolProvider {
     async fn pool_get(&self, ctx: &CallCtx, p: PoolGetParams) -> JidrResult<Value> {
         let st = &self.state;
         let base = st.base(&p.base)?;
+        // Copying a base and deleting it must not race, but concurrent pool
+        // requests are expected to wait briefly rather than fail as busy.
+        let base_guard = loop {
+            ctx.cancel.check()?;
+            match st.locks.try_lock(base.id, &base.name, "pool.get", None) {
+                Ok(guard) => break guard,
+                Err(error) if error.code == ErrorCode::Busy => {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
+                Err(error) => return Err(error),
+            }
+        };
+        let base = st.base(&base.id.to_string())?;
         let now = Utc::now();
         let holder = match (p.ttl_s, ctx.connection) {
             (None, Some(id)) => Holder::Connection { id },
             _ => Holder::Ttl,
         };
         let ttl = p.ttl_s.map(Duration::from_secs).unwrap_or(DEFAULT_TTL);
-        let expires_at = (holder == Holder::Ttl)
-            .then(|| now + chrono::Duration::from_std(ttl).unwrap_or_default());
+        crate::leases::expiry(now, ttl)?;
+        if tokio::time::Instant::now()
+            .checked_add(p.timeout_s.map(Duration::from_secs).unwrap_or(DEFAULT_WAIT))
+            .is_none()
+        {
+            return Err(JidrError::usage("timeout_s is too large"));
+        }
 
         ctx.report(Some(0.05), "Cloning the base");
         let name = format!("{}-{}", base.name, short_id());
         let avds = st.avds();
         let avd = st.with_store(|s| s.avd_id_for(&name, |id| avds.exists(id)));
         avds.clone_with_snapshot(&base.avd, &avd, &name, BASE_SNAPSHOT)?;
+        let mut launch = LaunchPrefs {
+            resume_snapshot: Some(BASE_SNAPSHOT.into()),
+            force_cold_boot: false,
+            ..base.launch.clone()
+        };
+        let mut root = base.root.clone();
+        move_device_files(
+            &mut launch,
+            &mut root,
+            &avds.dir(&base.avd),
+            &avds.dir(&avd),
+        );
         let device = Device {
             id: Uuid::new_v4(),
             name,
             avd: avd.clone(),
             created_at: now,
-            launch: LaunchPrefs {
-                resume_snapshot: Some(BASE_SNAPSHOT.into()),
-                force_cold_boot: false,
-                ..base.launch.clone()
-            },
+            launch,
+            root,
             status: Default::default(),
             runtime: None,
             agent_owned: true,
@@ -364,6 +516,17 @@ impl PoolProvider {
             auto_hibernate_minutes: Some(0),
             ..base.clone()
         };
+        let device_guard = st
+            .locks
+            .try_lock(device.id, &device.name, "pool.get", None)?;
+        if device.root.mode == RootMode::Magisk && magisk_ramdisk(&device, &avds.dir(&avd)).is_err()
+        {
+            let _ = avds.delete(&avd);
+            return Err(JidrError::not_found(format!(
+                "{} lost its patched ramdisk; make the base again",
+                base.name
+            )));
+        }
         if let Err(e) = st.with_store(|s| s.insert(device.clone())) {
             let _ = avds.delete(&avd);
             return Err(e);
@@ -373,17 +536,52 @@ impl PoolProvider {
             base: base.id,
             device: device.id,
             holder,
-            expires_at,
+            expires_at: None,
             created_at: now,
         };
         // Registered before the boot, so a client that disconnects mid-boot
         // still gets its clone reaped.
-        lock(&st.leases).insert(lease.clone());
+        if let Err(error) = st.update_leases(|leases| {
+            leases.insert_pending(lease.clone(), Utc::now());
+            Ok(())
+        }) {
+            if let Err(cleanup_error) = st.remove_device(device.id).await {
+                // Keep a retryable in-memory lease even if neither persistence
+                // nor the immediate clone cleanup is possible.
+                let mut leases = lock(&st.leases);
+                leases.insert_pending(lease.clone(), Utc::now());
+                leases.abandon(lease.id, Utc::now());
+                tracing::warn!(%cleanup_error, "cannot remove unleased pool clone");
+            }
+            return Err(error);
+        }
+        drop(base_guard);
 
         let result = self.boot_clone(ctx, &device, &p).await;
         match result {
             Ok(d) => {
-                let info = st.connect_info(d.id).await?;
+                let info = match st.connect_info(d.id).await {
+                    Ok(info) => info,
+                    Err(error) => {
+                        st.clean_failed_clone(device.id, lease.id).await;
+                        return Err(error);
+                    }
+                };
+                ctx.report(Some(0.9), "Preparing clone animations");
+                let adb = Adb::new(info.adb_path.clone()).device(info.adb_serial.clone());
+                if let Err(error) = prepare_clone_animations(&adb, &ctx.cancel).await {
+                    st.clean_failed_clone(device.id, lease.id).await;
+                    return Err(error);
+                }
+                let lease =
+                    match st.update_leases(|leases| leases.activate(lease.id, ttl, Utc::now())) {
+                        Ok(lease) => lease,
+                        Err(error) => {
+                            st.clean_failed_clone(device.id, lease.id).await;
+                            return Err(error);
+                        }
+                    };
+                drop(device_guard);
                 st.emit(
                     "pool.leased",
                     json!({ "lease": lease.id, "device": d.id, "base": base.id }),
@@ -396,8 +594,7 @@ impl PoolProvider {
                 }))
             }
             Err(e) => {
-                lock(&st.leases).remove(lease.id);
-                let _ = st.remove_device(device.id).await;
+                st.clean_failed_clone(device.id, lease.id).await;
                 Err(e)
             }
         }
@@ -447,7 +644,7 @@ impl CommandProvider for PoolProvider {
         vec![
             CommandSpec::new::<BaseCreateParams>(
                 "base.create",
-                "Save a running device as a read-only base for pool clones (snapshot jidr-base, animations off)",
+                "Save a running device as a read-only base for pool clones (snapshot jidr-base; clone animations off)",
             )
             .long_running(),
             CommandSpec::new::<jidr_core::provider::NoParams>("base.list", "Bases and how many clones each has leased"),
@@ -496,9 +693,22 @@ impl CommandProvider for PoolProvider {
             "pool.renew" => {
                 let p: PoolRenewParams = parse_params(params)?;
                 let ttl = p.ttl_s.map(Duration::from_secs).unwrap_or(DEFAULT_TTL);
-                let l = lock(&self.state.leases)
-                    .renew(p.lease, ttl, Utc::now())
+                crate::leases::expiry(Utc::now(), ttl)?;
+                let lease = lock(&self.state.leases)
+                    .get(p.lease)
+                    .cloned()
                     .ok_or_else(|| JidrError::not_found(format!("no lease {}", p.lease)))?;
+                let name = self
+                    .state
+                    .with_store(|s| s.get(lease.device).map(|d| d.name.clone()))
+                    .unwrap_or_default();
+                let _guard = self
+                    .state
+                    .locks
+                    .try_lock(lease.device, &name, "pool.renew", None)?;
+                let l = self
+                    .state
+                    .update_leases(|leases| leases.renew(p.lease, ttl, Utc::now()))?;
                 json(l)
             }
             "pool.list" => {

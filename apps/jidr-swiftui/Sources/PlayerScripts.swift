@@ -13,6 +13,7 @@ struct PlayerScriptSummary: Identifiable, Codable, Equatable {
     var name: String
     var duration_ms: Int
     var event_count: Int
+    var action_count: Int?
     var created_at: String
     var display: PlayerScriptDisplay?
 
@@ -464,7 +465,13 @@ struct PlayerScriptsView: View {
                 Text(PlayerScriptFormat.createdAt(script.created_at)).font(.caption).foregroundStyle(.secondary)
             }.frame(maxWidth: .infinity, alignment: .leading)
             Text(PlayerScriptFormat.duration(script.duration_ms)).monospacedDigit().frame(width: 54, alignment: .trailing)
-            Text(String(format: t("%d 个事件", "%d events", language), script.event_count))
+            Group {
+                if let count = script.action_count {
+                    Text(String(format: t("%d 次操作", "%d actions", language), count))
+                } else {
+                    Text(String(format: t("%d 个事件", "%d events", language), script.event_count))
+                }
+            }
                 .font(.caption).foregroundStyle(.secondary).frame(width: 80, alignment: .trailing)
             Button { perform?(.play(script, options)) } label: { Image(systemName: "play.fill") }
                 .buttonStyle(.borderless).help(t("回放", "Play", language))

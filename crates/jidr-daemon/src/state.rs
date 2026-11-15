@@ -195,6 +195,11 @@ impl State {
         host_memory: Option<HostMemory>,
     ) -> JidrResult<Arc<Self>> {
         let store = DeviceStore::load(config.paths.devices_file())?;
+        let leases = crate::leases::Leases::load(
+            &config.paths.data.join("pool-leases.json"),
+            store.all(),
+            chrono::Utc::now(),
+        )?;
         let settings = load_settings(&config.paths.settings_file());
         let (events, _) = broadcast::channel(1024);
         Ok(Arc::new_cyclic(|me| Self {
@@ -216,10 +221,25 @@ impl State {
             footprints: Mutex::new(HashMap::new()),
             budget_gate: Mutex::new(()),
             activity: Mutex::new(HashMap::new()),
-            leases: Mutex::new(crate::leases::Leases::default()),
+            leases: Mutex::new(leases),
             resumed: Mutex::new(std::collections::HashSet::new()),
         }))
-        .inspect(|s| s.adopt_pool_clones())
+    }
+
+    pub(crate) fn save_leases(&self) -> JidrResult<()> {
+        lock(&self.leases).save(&self.paths.data.join("pool-leases.json"))
+    }
+
+    pub(crate) fn update_leases<T>(
+        &self,
+        f: impl FnOnce(&mut crate::leases::Leases) -> JidrResult<T>,
+    ) -> JidrResult<T> {
+        let mut current = lock(&self.leases);
+        let mut next = current.clone();
+        let result = f(&mut next)?;
+        next.save(&self.paths.data.join("pool-leases.json"))?;
+        *current = next;
+        Ok(result)
     }
 
     pub fn host_memory(&self) -> JidrResult<HostMemory> {
@@ -728,6 +748,57 @@ impl DaemonContext for State {
         }
         self.finish_footprint(id);
         crate::state::lock(&self.activity).remove(&id);
+        self.set_status(id, DeviceStatus::Stopped, Some(None));
+        self.with_store(|s| s.get(id).cloned())
+    }
+
+    async fn shut_down_device(&self, id: Uuid) -> JidrResult<Device> {
+        let current = self.with_store(|s| s.get(id).cloned())?;
+        let Some(info) = self.instance(id) else {
+            return self.stop_device(id).await;
+        };
+        // A guest shutdown can make the emulator exit. Prevent the crash
+        // watcher from treating that expected exit as a crash.
+        if let Some(w) = lock(&self.watchers).remove(&id) {
+            w.abort();
+        }
+        let powered_off = if let Ok(path) = self.adb_path() {
+            let adb = Adb::new(path)
+                .device(&info.adb_serial)
+                .with_timeout(std::time::Duration::from_secs(30));
+            if adb.shell("true").await.is_ok() {
+                // adbd usually disconnects while the command is in flight;
+                // its result does not establish whether shutdown succeeded.
+                let _ = adb.shell("svc power shutdown").await;
+                self.backend
+                    .wait_powered_off(&info, std::time::Duration::from_secs(90))
+                    .await
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if !powered_off {
+            tracing::warn!(device = %current.name, "Android shutdown unconfirmed; falling back to normal stop");
+            self.watch_crash(id, info);
+            return self.stop_device(id).await;
+        }
+
+        lock(&self.instances).remove(&id);
+        let resumed = lock(&self.resumed).remove(&id);
+        self.set_status(id, DeviceStatus::Stopping, None);
+        if let Err(e) = self.backend.stop_without_save(&info).await {
+            lock(&self.instances).insert(id, info.clone());
+            if resumed {
+                lock(&self.resumed).insert(id);
+            }
+            self.set_status(id, DeviceStatus::Running, Some(Some(info.runtime())));
+            self.watch_crash(id, info);
+            return Err(e);
+        }
+        self.finish_footprint(id);
+        lock(&self.activity).remove(&id);
         self.set_status(id, DeviceStatus::Stopped, Some(None));
         self.with_store(|s| s.get(id).cloned())
     }

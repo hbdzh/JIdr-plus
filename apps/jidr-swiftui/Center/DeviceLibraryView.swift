@@ -12,6 +12,7 @@ struct DeviceLibrarySidebar: View {
             LibrarySearchField(model: model)
                 .frame(height: 30).padding(.horizontal, 12).padding(.top, 12)
             NativeDeviceLibraryList(model: model)
+            .padding(.horizontal, 12)
             .overlay {
                 if !model.deviceListLoaded {
                     ProgressView().controlSize(.small)
@@ -61,7 +62,6 @@ struct DeviceOverviewView: View {
     @State private var snapshotsError: String?
     @State private var snapshotGeneration = 0
     @State private var advancedExpanded = false
-    @State private var rootExpanded = false
     @State private var appQuery = ""
     @State private var savingSnapshot = false
     @State private var apkTargeted = false
@@ -339,15 +339,6 @@ struct DeviceOverviewView: View {
             infoRow(t("磁盘占用", "Disk usage"), details?.disk_usage.map {
                 ByteCountFormatter.string(fromByteCount: Int64(clamping: $0), countStyle: .file)
             } ?? "—")
-            DisclosureGroup(isExpanded: $rootExpanded) {
-                VStack(alignment: .leading, spacing: 12) {
-                    infoRow(t("镜像", "Image"), device.imageLabel)
-                    infoRow(t("序列号", "Serial"), device.runtime?.adb_serial ?? "—")
-                    infoRow(t("模式", "Mode"), Snapshots.modeName(device.root.mode, language: model.language))
-                    infoRow("Magisk", device.root.magisk_version ?? "—")
-                    infoRow(t("验证", "Verified"), verificationText)
-                }.padding(.top, 12)
-            } label: { Text(t("系统与 Root", "System & Root")).font(.system(size: 12, weight: .semibold)) }
             Divider()
             DeviceAdvancedInformation(model: model, device: device, isExpanded: $advancedExpanded)
             if advancedExpanded { sessionSection }
@@ -360,15 +351,6 @@ struct DeviceOverviewView: View {
             Text(text).font(.system(size: 12)).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }.frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 2)
-    }
-    private var verificationText: String {
-        switch device.root.health {
-        case "ok":
-            let date = Snapshots.when(device.root.verified_at, language: model.language)
-            return date.isEmpty ? t("已验证", "Verified") : t("已验证 · \(date)", "Verified · \(date)")
-        case "failed": return t("验证失败", "Verification failed")
-        default: return t("尚未验证", "Not verified")
-        }
     }
     private func infoRow(_ title: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -506,12 +488,15 @@ struct NativeDeviceLibraryList: NSViewRepresentable {
         private var devices: [Device] = []
         private var updating = false
         private var language = -1
+        private var thumbnailIDs: [String: ObjectIdentifier] = [:]
         init(model: CenterModel) { self.model = model }
         func update(_ table: NSTableView) {
             updating = true
             defer { updating = false }
-            if devices != model.filteredDevices || language != model.language {
+            let currentThumbnailIDs = model.deviceThumbnails.mapValues { ObjectIdentifier($0) }
+            if devices != model.filteredDevices || language != model.language || thumbnailIDs != currentThumbnailIDs {
                 devices = model.filteredDevices; language = model.language
+                thumbnailIDs = currentThumbnailIDs
                 table.reloadData()
             }
             let selected = model.showingAllDevices ? 0 : devices.firstIndex { $0.id == model.selected }.map { $0 + 2 }
@@ -538,7 +523,7 @@ struct NativeDeviceLibraryList: NSViewRepresentable {
                 return cell
             }
             let cell = (tableView.makeView(withIdentifier: .init("library-device"), owner: nil) as? LibraryDeviceCell) ?? LibraryDeviceCell()
-            cell.configure(devices[row - 2], language: language)
+            cell.configure(devices[row - 2], language: language, thumbnail: model.deviceThumbnails[devices[row - 2].id])
             return cell
         }
         func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { NSTableRowView() }
@@ -585,8 +570,8 @@ private final class LibraryDeviceHeadingCell: NSTableCellView {
             addSubview(view)
         }
         NSLayoutConstraint.activate([
-            divider.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            divider.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            divider.leadingAnchor.constraint(equalTo: leadingAnchor),
+            divider.trailingAnchor.constraint(equalTo: trailingAnchor),
             divider.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             heading.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             heading.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
@@ -637,7 +622,7 @@ private final class LibraryAllDevicesCell: NSTableCellView {
 
 private final class LibraryDeviceCell: NSTableCellView {
     private let subtitle = NSTextField(labelWithString: "")
-    private let icon = NSImageView()
+    private let icon = NSHostingView(rootView: DeviceArtwork(state: .stopped, frame: nil, width: 17, height: 30))
     private let badge = NSImageView()
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -647,11 +632,6 @@ private final class LibraryDeviceCell: NSTableCellView {
         name.lineBreakMode = .byTruncatingTail
         subtitle.font = .systemFont(ofSize: 11)
         subtitle.lineBreakMode = .byTruncatingTail
-        icon.wantsLayer = true
-        icon.layer?.cornerRadius = 7
-        icon.contentTintColor = .white
-        icon.image = NSImage(systemSymbolName: "iphone", accessibilityDescription: nil)
-        icon.symbolConfiguration = .init(pointSize: 17, weight: .medium)
         for view in [name, subtitle, icon, badge] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
@@ -674,18 +654,11 @@ private final class LibraryDeviceCell: NSTableCellView {
     }
     required init?(coder: NSCoder) { nil }
     override var backgroundStyle: NSView.BackgroundStyle { didSet { applyColors() } }
-    func configure(_ device: Device, language: Int) {
+    func configure(_ device: Device, language: Int, thumbnail: CGImage?) {
         textField?.stringValue = device.name
         subtitle.stringValue = device.statusText(language: language)
-        if device.stopped, let image = WbImageCache.image(named: "device-stopped") {
-            icon.image = image
-            icon.contentTintColor = nil
-            icon.layer?.backgroundColor = NSColor.clear.cgColor
-        } else {
-            icon.image = NSImage(systemSymbolName: "iphone", accessibilityDescription: nil)
-            icon.contentTintColor = .white
-            icon.layer?.backgroundColor = (device.running ? NSColor.systemGreen : NSColor.systemBlue).cgColor
-        }
+        icon.rootView = DeviceArtwork(state: DeviceArtworkState(deviceState: device.status.state),
+                                      frame: device.running ? thumbnail : nil, width: 17, height: 30)
         badge.image = device.root.mode == "none" ? nil : NSImage(systemSymbolName: device.root.mode == "magisk" ? "checkmark.seal" : "terminal", accessibilityDescription: nil)
         toolTip = device.name + " · " + subtitle.stringValue
         setAccessibilityIdentifier("library-device:\(device.id)")
@@ -708,6 +681,11 @@ struct DeviceAdvancedInformation: View {
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
             VStack(alignment: .leading, spacing: 14) {
+                row(model.text("Root 模式", "Root mode"), Snapshots.modeName(device.root.mode, language: model.language))
+                row(model.text("镜像", "Image"), device.imageLabel)
+                row(model.text("序列号", "Serial"), device.runtime?.adb_serial ?? "—")
+                row("Magisk", device.root.magisk_version ?? "—")
+                row(model.text("验证", "Verified"), verificationText)
                 row(model.text("设备 ID", "Device ID"), device.id, canCopy: true)
                 row(model.text("SDK 路径", "SDK path"), device.sdk_root, canCopy: true)
                 row(model.text("控制台端口", "Console port"), device.runtime?.console_port.map(String.init) ?? "—")
@@ -722,6 +700,16 @@ struct DeviceAdvancedInformation: View {
         }
         .accessibilityIdentifier("device-advanced-information")
         .padding(.top, 8)
+    }
+
+    private var verificationText: String {
+        switch device.root.health {
+        case "ok":
+            let date = Snapshots.when(device.root.verified_at, language: model.language)
+            return date.isEmpty ? model.text("已验证", "Verified") : model.text("已验证 · \(date)", "Verified · \(date)")
+        case "failed": return model.text("验证失败", "Verification failed")
+        default: return model.text("尚未验证", "Not verified")
+        }
     }
 
     private func row(_ label: String, _ value: String, canCopy: Bool = false) -> some View {

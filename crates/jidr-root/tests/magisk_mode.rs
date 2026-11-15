@@ -107,6 +107,19 @@ async fn a_healthy_setup_cold_boots_twice_and_grants_once() {
 }
 
 #[tokio::test]
+async fn cold_boots_shut_android_down_first() {
+    let env = Env::start().await;
+    let d = env.create("phone", "35:google_apis", None).await;
+    env.call("device.start", json!({ "device": "phone" }))
+        .await
+        .unwrap();
+    to_magisk(&env, "phone").await;
+    assert_eq!(env.shutdowns(), 2);
+    assert_eq!(env.backend.power_offs(), vec![d.avd.clone(), d.avd.clone()]);
+    assert_eq!(env.backend.unsaved_stops(), vec![d.avd.clone(), d.avd]);
+}
+
+#[tokio::test]
 async fn sdk_ramdisk_hash_is_unchanged_by_magisk() {
     let env = Env::start().await;
     env.create("phone", "35:google_apis", None).await;

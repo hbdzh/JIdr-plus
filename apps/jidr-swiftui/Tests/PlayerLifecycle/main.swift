@@ -34,6 +34,12 @@ try FileManager.default.createDirectory(at: home.appendingPathComponent("data"),
 let model = try CenterModel(center: CommandLine.arguments[1], bridge: "/usr/bin/false")
 eventually("center fixture connects") { model.connection.isOnline && model.deviceListLoaded && model.dataDirectory != nil }
 let id = "00000000-0000-4000-8000-000000000001"
+model.hibernate(id)
+eventually("hibernate sends the device command and finishes") {
+    let requests = (try? String(contentsOf: home.appendingPathComponent("requests.jsonl"), encoding: .utf8)) ?? ""
+    return requests.contains("\"method\": \"device.hibernate\"") && !model.busy.contains(id)
+}
+require(stopRequests(in: home) == 0, "hibernating does not send a normal stop")
 model.loadCardHardware(id)
 model.loadCardHardware(id)
 let secondID = "00000000-0000-4000-8000-000000000002"
@@ -64,21 +70,36 @@ eventually("replacement bridge exits") { model.players[id]?.transport.connection
 var replacement = model.players[id]!
 require(stopRequests(in: home) == 0, "reconnecting a player does not stop the device")
 model.recording.insert(id)
+model.hibernate(id)
+require(model.players[id] === replacement && stopRequests(in: home) == 0,
+        "hibernation cannot close the player while recording")
 replacement.window?.performClose(nil)
 require(model.players[id] === replacement && stopRequests(in: home) == 0,
         "an active center recording prevents closing and stopping the player")
 model.recording.remove(id)
 model.operation("test.block", id: id)
 eventually("fixture operation is in progress") { FileManager.default.fileExists(atPath: home.appendingPathComponent("block-started").path) }
+FileManager.default.createFile(atPath: home.appendingPathComponent("block-stop").path, contents: Data())
 replacement.window?.performClose(nil)
-require(!model.hasPlayers, "closing the player removes its window")
+require(model.players[id] === replacement && replacement.transport.stoppingDevice, "closing keeps the player visible while a stop is pending")
 require(stopRequests(in: home) == 0, "stop waits for the in-flight operation")
 FileManager.default.createFile(atPath: home.appendingPathComponent("block-release").path, contents: Data())
+eventually("stop waits for the simulated emulator exit") { FileManager.default.fileExists(atPath: home.appendingPathComponent("stop-started").path) }
+replacement.window?.performClose(nil)
+require(model.players[id] === replacement && stopRequests(in: home) == 1, "repeated close keeps the window open and does not duplicate the stop")
+FileManager.default.createFile(atPath: home.appendingPathComponent("stop-release").path, contents: Data())
 eventually("window close stops the device after the in-flight operation") { stopRequests(in: home) == 1 && !model.busy.contains(id) }
+require(!model.hasPlayers, "player closes after the stop completes")
+try FileManager.default.removeItem(at: home.appendingPathComponent("block-stop"))
 model.openGame(id)
 eventually("player reopens before an explicit stop") { model.players[id]?.transport.connectionEnded == true }
+FileManager.default.createFile(atPath: home.appendingPathComponent("fail-stop").path, contents: Data())
+model.players[id]?.window?.performClose(nil)
+eventually("a failed stop releases the stopping state") { stopRequests(in: home) == 2 && !model.busy.contains(id) }
+require(model.hasPlayers && model.players[id]?.transport.stoppingDevice == false, "a failed stop keeps the player open")
+try FileManager.default.removeItem(at: home.appendingPathComponent("fail-stop"))
 model.stop(id)
-eventually("explicit stop sends exactly one request") { stopRequests(in: home) == 2 && !model.busy.contains(id) }
+eventually("explicit stop sends exactly one request") { stopRequests(in: home) == 3 && !model.busy.contains(id) }
 require(!model.hasPlayers, "explicit stop closes the player")
 FileManager.default.createFile(atPath: home.appendingPathComponent("fixture-stopped").path, contents: Data())
 FileManager.default.createFile(atPath: home.appendingPathComponent("block-start").path, contents: Data())
@@ -88,12 +109,16 @@ model.start(id)
 eventually("starting player opens while startup is in progress") {
     model.players[id]?.window != nil && FileManager.default.fileExists(atPath: home.appendingPathComponent("start-started").path)
 }
+FileManager.default.createFile(atPath: home.appendingPathComponent("boot-progress").path, contents: Data())
+eventually("player and center share device boot progress") {
+    model.bootProgressFraction(for: id) == 0.3 && model.players[id]?.transport.linkState == .booting(progress: 0.3, message: "Starting the device…")
+}
 model.players[id]?.window?.performClose(nil)
-require(!model.hasPlayers && stopRequests(in: home) == 2, "closing during startup waits for the job ID")
+require(model.hasPlayers && model.players[id]?.transport.stoppingDevice == true && stopRequests(in: home) == 3, "closing during startup waits for cancellation and stop")
 FileManager.default.createFile(atPath: home.appendingPathComponent("start-release").path, contents: Data())
 eventually("closing during startup cancels the boot and stops the device") {
     let requests = (try? String(contentsOf: home.appendingPathComponent("requests.jsonl"), encoding: .utf8)) ?? ""
-    return requests.contains("\"method\": \"jobs.cancel\"") && stopRequests(in: home) == 3 && !model.busy.contains(id)
+    return requests.contains("\"method\": \"jobs.cancel\"") && stopRequests(in: home) == 4 && !model.busy.contains(id) && !model.hasPlayers
 }
 if ProcessInfo.processInfo.environment["JIDR_PLAYER_START_CANCEL_ONLY"] == "1" {
     model.close()
@@ -138,7 +163,9 @@ for launch in launchStates {
         require(replacement.transport.recording == .idle, "interrupted recording releases the pending phase")
         require(replacement.transport.recordingStateUnknown, "interrupted recording needs verification")
         require(notices.contains(where: { $0.contains("recording state is unknown") }), "interruption explains the unknown result")
+        replacement.stopDeviceOnClose = false
         require(replacement.windowShouldClose(replacement.window!), "interrupted recording does not trap the window")
+        replacement.stopDeviceOnClose = true
         require(!model.hasActiveRecording, "center quit guard is no longer stuck on this player")
         replacement.transport.toggleRecording()
         require(replacement.transport.recording == .idle, "unknown recording cannot start or stop on a dead bridge")
@@ -148,7 +175,7 @@ replacement.transport.recordingStateUnknown = false
 replacement.transport.applyLaunchState(.stopped(reason: "idle stop"))
 require(!replacement.transport.recordingStateUnknown, "an idle stop does not invent a recording interruption")
 replacement.window?.performClose(nil)
-eventually("closing a running player requests one stop") { stopRequests(in: home) == 4 && !model.busy.contains(id) }
+eventually("closing a running player requests one stop") { stopRequests(in: home) == 5 && !model.busy.contains(id) }
 require(!model.hasPlayers && model.quitBlockReason == nil, "window and center can close after the interruption")
 model.close()
 

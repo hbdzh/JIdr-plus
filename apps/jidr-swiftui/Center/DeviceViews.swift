@@ -968,8 +968,9 @@ struct SettingsView: View {
     let onClose: () -> Void
     private var category: Int { model.settingsCategory }
     @State private var tileURL = ""
-    @State private var mcpBinary = "jidr"
-    @State private var confirmClaudeConfig = false
+    @State private var mcpBinary = ProcessInfo.processInfo.environment["JIDR_DAEMON_BIN"] ?? "jidr"
+    @State private var confirmCodexConfig = false
+    @State private var confirmWorkBuddyConfig = false
     @State private var paths: CenterPaths?
     @State private var sdkStatus: SDKStatus?
     @State private var policy = DevicePolicyDraft(root: "none", quickBoot: true, budget: "80", idleMinutes: "0")
@@ -1100,14 +1101,35 @@ struct SettingsView: View {
         .sheet(isPresented:$installing,onDismiss:load) {
             InstallSDKView(model:model).environment(\.locale,Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
         }
-        .alert(model.text("配置 Claude Desktop？", "Configure Claude Desktop?"),isPresented:$confirmClaudeConfig) {
+        .alert(model.text("配置 Codex？", "Configure Codex?"),isPresented:$confirmCodexConfig) {
             Button(model.text("取消", "Cancel"),role:.cancel) { }
             Button(model.text("配置", "Configure")) {
-                let path = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Claude/claude_desktop_config.json")
-                do { try MCPConfiguration.install(at:path,command:mcpBinary); message = model.text("配置已保存，请重启 Claude Desktop。", "Configuration saved. Restart Claude Desktop.") }
-                catch { message = model.text("无法保存 Claude 配置：", "Could not save Claude configuration: ") + OperationMessages.error(error.localizedDescription,language:model.language) }
+                let command = mcpBinary
+                saving = true
+                DispatchQueue.global(qos:.userInitiated).async {
+                    let result = Result { try MCPConfiguration.install(command:command) }
+                    DispatchQueue.main.async {
+                        saving = false
+                        switch result {
+                        case .success: message = model.text("配置已保存，请重新打开 Codex 或开始新对话。", "Configuration saved. Reopen Codex or start a new conversation.")
+                        case .failure(let error): message = model.text("无法保存 Codex 配置：", "Could not save Codex configuration: ") + OperationMessages.error(error.localizedDescription,language:model.language)
+                        }
+                    }
+                }
             }
-        } message: { Text(model.text("将添加或替换 Jidr 的 MCP 配置，保留其他配置。", "This adds or replaces the Jidr MCP entry and preserves other settings.")) }
+        } message: { Text(model.text("将添加或替换 Codex 中的 Jidr MCP 配置，保留其他配置。", "This adds or replaces the Jidr MCP entry in Codex and preserves other settings.")) }
+        .alert(model.text("配置 WorkBuddy？", "Configure WorkBuddy?"),isPresented:$confirmWorkBuddyConfig) {
+            Button(model.text("取消", "Cancel"),role:.cancel) { }
+            Button(model.text("配置", "Configure")) {
+                let path = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".workbuddy/mcp.json")
+                do {
+                    try MCPConfiguration.installWorkBuddy(at:path,command:mcpBinary)
+                    message = model.text("配置已保存，请在 WorkBuddy 中检查 MCP 连接状态。", "Configuration saved. Check the MCP connection status in WorkBuddy.")
+                } catch {
+                    message = model.text("无法保存 WorkBuddy 配置：", "Could not save WorkBuddy configuration: ") + OperationMessages.error(error.localizedDescription,language:model.language)
+                }
+            }
+        } message: { Text(model.text("将添加或替换 WorkBuddy 中的 Jidr MCP 配置，保留其他配置。", "This adds or replaces the Jidr MCP entry in WorkBuddy and preserves other settings.")) }
         .alert("清理下载缓存？",isPresented:$confirmCacheClear) {
             Button("取消",role:.cancel) { }
             Button("清理",role:.destructive) {
@@ -1426,17 +1448,29 @@ struct SettingsView: View {
             } label: {
                 Text(model.text("MCP 命令路径", "MCP command path"))
             }
-            Text(model.text("可填写 jidr 可执行文件的绝对路径。将以下配置添加到支持 MCP 的客户端。",
-                            "Absolute path to the jidr executable. Add this configuration to your MCP client."))
+            Text(model.text("填写 jidr 可执行文件的绝对路径，然后配置对应的客户端。",
+                            "Enter the absolute path to the jidr executable, then configure your client."))
                 .wbFont(WbType.caption)
                 .foregroundStyle(WbColor.textSecondary)
             HStack(spacing: WbSpace.sm) {
                 Spacer(minLength: 0)
-                Button(model.text("配置 Claude Desktop…", "Configure Claude Desktop…")) { confirmClaudeConfig = true }
+                Button(model.text("配置 Codex…", "Configure Codex…")) { confirmCodexConfig = true }
                     .buttonStyle(.bordered).controlSize(.regular)
                     .disabled(saving)
-                Button(model.text("复制 MCP 配置", "Copy MCP configuration")) {
-                    guard !mcpBinary.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty, let data = try? JSONSerialization.data(withJSONObject:["mcpServers":["jidr":["command":mcpBinary,"args":["mcp"]]]],options:[.prettyPrinted,.sortedKeys]), let text = String(data:data,encoding:.utf8) else { return }
+                Button(model.text("复制 Codex MCP 配置", "Copy Codex MCP configuration")) {
+                    guard let text = try? MCPConfiguration.configuration(command:mcpBinary) else { return }
+                    NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text,forType:.string)
+                    message = model.text("MCP 配置已复制。", "MCP configuration copied.")
+                }
+                .buttonStyle(.bordered).controlSize(.regular)
+            }
+            HStack(spacing: WbSpace.sm) {
+                Spacer(minLength: 0)
+                Button(model.text("配置 WorkBuddy…", "Configure WorkBuddy…")) { confirmWorkBuddyConfig = true }
+                    .buttonStyle(.bordered).controlSize(.regular)
+                    .disabled(saving)
+                Button(model.text("复制 WorkBuddy MCP 配置", "Copy WorkBuddy MCP configuration")) {
+                    guard let data = try? MCPConfiguration.workBuddyConfiguration(command:mcpBinary), let text = String(data:data,encoding:.utf8) else { return }
                     NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text,forType:.string)
                     message = model.text("MCP 配置已复制。", "MCP configuration copied.")
                 }
@@ -1616,7 +1650,7 @@ struct DeviceMoreButton: NSViewRepresentable {
             func add(_ zh: String, _ en: String, _ tag: Int, enabled: Bool = true, destructive: Bool = false) {
                 let item = NSMenuItem(title: model.text(zh, en), action: #selector(performAction(_:)), keyEquivalent: "")
                 item.target = self; item.tag = tag; item.isEnabled = enabled
-                let symbols = [6: "shield", 12: "arrow.clockwise", 13: "trash"]
+                let symbols = [6: "shield", 12: "arrow.clockwise", 13: "trash", 14: "moon.zzz"]
                 if let symbol = symbols[tag] {
                     item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
                     item.image?.isTemplate = true
@@ -1633,6 +1667,7 @@ struct DeviceMoreButton: NSViewRepresentable {
             }
             if !device.stopped && model.fullRoot[device.id] != nil { add("查看 Root 配置", "View root setup", 6) }
             if !device.stopped {
+                add("休眠", "Hibernate", 14, enabled: device.running && !model.busy.contains(device.id) && model.busyHolder(for: device.id) == nil)
                 add("重启", "Restart", 12, enabled: device.running && !model.busy.contains(device.id))
             }
             if !menu.items.isEmpty { menu.addItem(.separator()) }
@@ -1645,6 +1680,7 @@ struct DeviceMoreButton: NSViewRepresentable {
             case 6: model.rootPresentation = RootPresentation(id: device.id, name: device.name)
             case 12: model.restart(device.id)
             case 13: model.requestDeletion(device.id)
+            case 14: model.hibernate(device.id)
             default: break
             }
         }

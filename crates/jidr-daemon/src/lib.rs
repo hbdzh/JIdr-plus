@@ -141,7 +141,9 @@ impl Daemon {
     /// Counts a new client connection and returns its id.
     pub(crate) fn client_connected(&self) -> u64 {
         self.clients.fetch_add(1, Ordering::Relaxed);
-        self.next_conn.fetch_add(1, Ordering::Relaxed) + 1
+        let id = self.next_conn.fetch_add(1, Ordering::Relaxed) + 1;
+        self.state.connection_opened(id);
+        id
     }
 
     /// The connection's pool leases start their grace period (D42).
@@ -187,6 +189,12 @@ impl Daemon {
             drop(listener);
             let _ = std::fs::remove_file(&path);
             return Err(jidr_core::JidrError::busy("daemon is already serving"));
+        }
+        // Commit recovery only while owning the storage lease, before serving.
+        if let Err(error) = self.state.save_leases() {
+            drop(listener);
+            let _ = std::fs::remove_file(&path);
+            return Err(error);
         }
         self.state.adopt_running().await;
         tracing::info!(socket = %path.display(), version = %self.version, "daemon listening");

@@ -10,12 +10,13 @@ class LightweightPanel: NSPanel {
     override var canBecomeMain: Bool { false }
     init(size: NSSize) {
         super.init(contentRect: NSRect(origin: .zero, size: size),
-                   styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
+                   styleMask: [.borderless], backing: .buffered, defer: false)
         titleVisibility = .hidden
         titlebarAppearsTransparent = true
         titlebarSeparatorStyle = .none
         for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] { standardWindowButton(kind)?.isHidden = true }
-        backgroundColor = NSColor(WbColor.raised)
+        isOpaque = false
+        backgroundColor = .clear
         hasShadow = true
         isFloatingPanel = true
         hidesOnDeactivate = true
@@ -29,7 +30,13 @@ class LightweightPanel: NSPanel {
 
 struct LightweightPanelSurface: ViewModifier {
     func body(content: Content) -> some View {
-        content.background(WbColor.raised).ignoresSafeArea(.container, edges: .top)
+        if #available(macOS 26.0, *) {
+            content.clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        } else {
+            content.clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        }
     }
 }
 
@@ -57,7 +64,11 @@ final class TaskPanelController: NSWindowController, NSWindowDelegate {
         let panel = LightweightPanel(size: NSSize(width: 480, height: 260))
         super.init(window: panel)
         panel.delegate = self
-        panel.contentView = NSHostingView(rootView: TaskCenterView(model: model))
+        let host = NSHostingView(rootView: TaskCenterView(model: model))
+        host.wantsLayer = true
+        host.layer?.cornerRadius = 26
+        host.layer?.masksToBounds = true
+        panel.contentView = host
         subscription = model.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async { self?.updateChrome() }
         }
@@ -83,8 +94,8 @@ final class TaskPanelController: NSWindowController, NSWindowDelegate {
         guard let panel = window else { return }
         updateChrome()
         let reference = model.centerWindow?.frame ?? NSApp.mainWindow?.frame ?? NSScreen.main?.visibleFrame ?? .zero
-        panel.setFrameOrigin(NSPoint(x: reference.maxX - panel.frame.width - 24,
-                                     y: reference.maxY - panel.frame.height - 80))
+        panel.setFrameOrigin(NSPoint(x: reference.midX - panel.frame.width / 2,
+                                     y: reference.midY - panel.frame.height / 2))
         panel.makeKeyAndOrderFront(sender)
     }
     private func updateChrome() {
@@ -94,7 +105,7 @@ final class TaskPanelController: NSWindowController, NSWindowDelegate {
         let count = model.taskRows.count
         let height: CGFloat = count == 0 && model.quitReason == nil && model.jobsError == nil ? 260 : min(420, CGFloat(120 + max(count, 2) * 72))
         if window.frame.height != height {
-            window.setFrame(NSRect(x: window.frame.minX, y: window.frame.maxY - height, width: 480, height: height), display: true)
+            window.setFrame(NSRect(x: window.frame.minX, y: window.frame.midY - height / 2, width: 480, height: height), display: true)
         }
     }
     func windowWillClose(_ notification: Notification) { model.taskPanelDidClose() }
@@ -118,7 +129,11 @@ final class PaletteWindowController: NSWindowController, NSWindowDelegate {
         let panel = LightweightPanel(size: NSSize(width: 600, height: 450))
         super.init(window: panel)
         panel.delegate = self
-        panel.contentView = NSHostingView(rootView: CommandPaletteView(model: model))
+        let host = NSHostingView(rootView: CommandPaletteView(model: model))
+        host.wantsLayer = true
+        host.layer?.cornerRadius = 26
+        host.layer?.masksToBounds = true
+        panel.contentView = host
         subscription = model.objectWillChange.sink { [weak self] in
             DispatchQueue.main.async { self?.window?.appearance = self?.model.windowAppearance }
         }
@@ -147,8 +162,8 @@ final class PaletteWindowController: NSWindowController, NSWindowDelegate {
         window.appearance = model.windowAppearance
         window.title = model.text("命令搜索", "Command search")
         window.contentView?.layoutSubtreeIfNeeded()
-        func find(_ view: NSView) -> NSSearchField? {
-            if let field = view as? NSSearchField, field.identifier?.rawValue == "palette-search" { return field }
+        func find(_ view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField, field.identifier?.rawValue == "palette-search" { return field }
             return view.subviews.lazy.compactMap { find($0) }.first
         }
         if let content = window.contentView, let field = find(content) {

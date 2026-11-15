@@ -93,6 +93,11 @@ fn run_swiftui(
     opts: &Options,
 ) -> Result<()> {
     let bin = target.join("release");
+    let helper = crate::helper::build(&["aarch64"])?
+        .into_iter()
+        .next()
+        .map(|(_, path)| path)
+        .context("the helper build returned nothing")?;
     crate::run(
         &cargo(),
         &[
@@ -130,6 +135,10 @@ fn run_swiftui(
     let staging = out.join("staging");
     let app = staging.join("Jidr.app");
     assemble_swiftui_app(root, &bin, &center, &app, version)?;
+    copy(
+        &helper,
+        &app.join("Contents/Resources/helper/aarch64/jidr-helper"),
+    )?;
     let identity = std::env::var(SIGNING_IDENTITY_ENV).ok();
     let signing = signing_mode(identity.as_deref(), opts.dry_run, opts.rehearsal);
     sign_swiftui(&app, &signing)?;
@@ -139,6 +148,7 @@ fn run_swiftui(
     pack_mcpb(
         root,
         &app.join("Contents/Helpers/jidr"),
+        &helper,
         &mcpb_dir,
         &out.join(&mcpb_name),
         version,
@@ -239,7 +249,7 @@ fn path_str(p: &Path) -> Result<String> {
         .with_context(|| format!("non-UTF-8 path {}", p.display()))
 }
 
-fn target_dir(root: &Path) -> PathBuf {
+pub(crate) fn target_dir(root: &Path) -> PathBuf {
     match std::env::var_os("CARGO_TARGET_DIR").map(PathBuf::from) {
         Some(dir) if dir.is_absolute() => dir,
         Some(dir) => root.join(dir),
@@ -389,6 +399,7 @@ fn assemble_swiftui_app(
     }
     for (from, name) in [
         ("LICENSE-APACHE", "LICENSE-APACHE"),
+        ("LICENSE-MUSL", "LICENSE-MUSL"),
         ("apps/jidr-swiftui/LICENSE-GPL", "LICENSE-GPL"),
         ("NOTICE", "NOTICE"),
     ] {
@@ -407,11 +418,20 @@ fn assemble_swiftui_app(
 
 /// An MCPB bundle (a zip: `manifest.json`, `server/jidr`, icon, licences)
 /// for Claude Desktop and the MCP registries.
-fn pack_mcpb(root: &Path, jidr: &Path, dir: &Path, mcpb: &Path, version: &str) -> Result<()> {
+fn pack_mcpb(
+    root: &Path,
+    jidr: &Path,
+    helper: &Path,
+    dir: &Path,
+    mcpb: &Path,
+    version: &str,
+) -> Result<()> {
     copy(jidr, &dir.join("server/jidr"))?;
+    copy(helper, &dir.join("server/helper/aarch64/jidr-helper"))?;
     for (from, name) in [
         ("assets/brand/app-icon-512.png", "icon.png"),
         ("LICENSE-APACHE", "LICENSE-APACHE"),
+        ("LICENSE-MUSL", "LICENSE-MUSL"),
         ("NOTICE", "NOTICE"),
     ] {
         copy(&root.join(from), &dir.join(name))?;
@@ -1590,6 +1610,11 @@ struct Finding {
 
 /// Walks `root` without following symlinks and classifies every file.
 fn scan_tree(root: &Path) -> Result<Vec<Finding>> {
+    let expected = crate::helper::output(&target_dir(&workspace_root()), "aarch64");
+    scan_tree_with_helper(root, &expected)
+}
+
+fn scan_tree_with_helper(root: &Path, expected: &Path) -> Result<Vec<Finding>> {
     let mut findings = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -1613,6 +1638,11 @@ fn scan_tree(root: &Path) -> Result<Vec<Finding>> {
                     read_head(&path)
                         .ok()
                         .and_then(|head| classify_content(&head))
+                        .filter(|reason| {
+                            *reason
+                                != "ELF binary (Android/Linux code has no place in the macOS app)"
+                                || !is_own_helper(&path, expected)
+                        })
                 });
                 if let Some(reason) = reason {
                     findings.push(Finding { path, reason });
@@ -1622,6 +1652,17 @@ fn scan_tree(root: &Path) -> Result<Vec<Finding>> {
     }
     findings.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(findings)
+}
+
+fn is_own_helper(path: &Path, expected: &Path) -> bool {
+    use sha2::{Digest, Sha256};
+    let allowed = path.ends_with("Contents/Resources/helper/aarch64/jidr-helper")
+        || path.ends_with("server/helper/aarch64/jidr-helper");
+    allowed
+        && std::fs::read(path)
+            .ok()
+            .zip(std::fs::read(expected).ok())
+            .is_some_and(|(actual, expected)| Sha256::digest(actual) == Sha256::digest(expected))
 }
 
 /// Enough of a file to see its magic numbers and an APK's first entries.
@@ -1934,6 +1975,30 @@ mod tests {
             .collect();
         // Sorted by path; the /Applications symlink is not followed or flagged.
         assert_eq!(names, ["payload.bin", "adb"]);
+    }
+
+    #[test]
+    fn scan_allows_only_the_exact_built_helper_at_its_release_path() {
+        let tmp = std::env::temp_dir().join(format!("jidr-helper-scan-{}", std::process::id()));
+        let app = tmp.join("Jidr.app/Contents/Resources/helper/aarch64");
+        std::fs::create_dir_all(&app).unwrap();
+        let expected = tmp.join("expected-helper");
+        std::fs::write(&expected, b"\x7fELF-good").unwrap();
+        let shipped = app.join("jidr-helper");
+        std::fs::copy(&expected, &shipped).unwrap();
+        assert!(
+            scan_tree_with_helper(&tmp.join("Jidr.app"), &expected)
+                .unwrap()
+                .is_empty()
+        );
+        std::fs::write(&shipped, b"\x7fELF-other").unwrap();
+        assert_eq!(
+            scan_tree_with_helper(&tmp.join("Jidr.app"), &expected)
+                .unwrap()
+                .len(),
+            1
+        );
+        std::fs::remove_dir_all(tmp).unwrap();
     }
 
     #[test]

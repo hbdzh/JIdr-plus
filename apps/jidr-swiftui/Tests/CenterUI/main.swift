@@ -121,13 +121,14 @@ require(centerToolbarIDs.first == "jidr.sidebar", "the native toolbar starts wit
 let sidebarToggle = window.toolbar!.items.first { $0.itemIdentifier.rawValue == "jidr.sidebar" }!
 require((sidebarToggle.view as? NSButton)?.isBordered == false, "sidebar toggle uses a borderless native button")
 require(NSApp.sendAction(sidebarToggle.action!, to: sidebarToggle.target, from: sidebarToggle), "sidebar toggle is actionable")
-pump()
-require(!model.sidebarVisible && descendants(window.contentView!, NSSearchField.self)
-    .filter { $0.identifier?.rawValue == "device-search" }.allSatisfy { $0.isHiddenOrHasHiddenAncestor || $0.visibleRect.isEmpty },
-        "the sidebar can be collapsed")
+eventually("the sidebar can be collapsed") {
+    !model.sidebarVisible && descendants(window.contentView!, NSSearchField.self)
+        .filter { $0.identifier?.rawValue == "device-search" }.allSatisfy { $0.isHiddenOrHasHiddenAncestor || $0.visibleRect.isEmpty }
+}
+// Let the system split-view transition settle before sending the next toggle.
+pump(0.35)
 require(NSApp.sendAction(sidebarToggle.action!, to: sidebarToggle.target, from: sidebarToggle), "sidebar can be reopened")
-pump()
-require(model.sidebarVisible, "the sidebar is visible after reopening")
+eventually("the sidebar is visible after reopening") { model.sidebarVisible }
 let sidebarSearch = descendants(window.contentView!, NSSearchField.self).first { $0.identifier?.rawValue == "device-search" }!
 require(sidebarSearch.placeholderString == "Search devices", "native sidebar search describes devices")
 require(sidebarSearch.isBezeled && sidebarSearch.bezelStyle == .roundedBezel,
@@ -286,7 +287,7 @@ settings.close()
 model.searchFocusRequest += 1 // A pending background request must lose.
 model.openPalette()
 let panel = model.paletteWindow!.window!
-let palette = descendants(panel.contentView!, NSSearchField.self).first!
+let palette = descendants(panel.contentView!, NSTextField.self).first { $0.identifier?.rawValue == "palette-search" }!
 let editor = palette.currentEditor() as! NSTextView
 // Type the first character before queued hosting/focus callbacks run, as when
 // a person starts typing immediately after Cmd+K. It must not be selected away.
@@ -564,7 +565,7 @@ require(!model.tasksOpen && taskOwner.window?.isVisible == false, "only one ligh
 require(taskOwner.window?.styleMask == model.paletteWindow?.window?.styleMask, "search and tasks share native frame styling")
 require(taskOwner.window?.hasShadow == true && model.paletteWindow?.window?.hasShadow == true, "both panels use one native shadow")
 let reusedPanel = model.paletteWindow!.window!
-let reusedField = descendants(reusedPanel.contentView!, NSSearchField.self).first!
+let reusedField = descendants(reusedPanel.contentView!, NSTextField.self).first { $0.identifier?.rawValue == "palette-search" }!
 require(reusedPanel.firstResponder === reusedField.currentEditor(), "reopening restores search focus")
 
 final class Presenter: CenterWindowPresenting {

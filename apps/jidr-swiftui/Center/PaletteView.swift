@@ -19,14 +19,16 @@ struct CommandPaletteView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                NativeSearchField(text: $model.paletteQuery,
-                                  placeholder: model.text("搜索命令或设备…", "Search commands or devices…"),
-                                  identifier: "palette-search")
-                    .frame(height: 30)
-                PanelCloseButton(label: model.text("关闭", "Close")) { model.hidePalette() }
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 21, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                PaletteSearchField(text: $model.paletteQuery,
+                                   placeholder: model.text("搜索命令或设备…", "Search commands or devices…"))
+                    .frame(height: 32)
             }
-            .padding(.horizontal, 20)
-            .frame(height: 58)
+            .padding(.horizontal, 22)
+            .frame(height: 68)
             Divider()
             if entries.isEmpty {
                 VStack(spacing: 10) {
@@ -39,11 +41,6 @@ struct CommandPaletteView: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 2) {
                             ForEach(Array(visible.enumerated()), id: \.element.id) { index, entry in
-                                if index == 0 || visible[index - 1].kind != entry.kind {
-                                    Text(entry.kind == .device ? model.text("设备", "Devices") : entry.kind == .setting ? model.text("设置", "Settings") : model.text("操作", "Actions"))
-                                        .font(.system(size: 11, weight: .medium)).foregroundStyle(WbColor.textSecondary)
-                                        .padding(.horizontal, 12).padding(.top, index == 0 ? 4 : 10).padding(.bottom, 4)
-                                }
                                 Button {
                                     model.closeOverlay()
                                     model.runPaletteAction(entry.action)
@@ -61,16 +58,7 @@ struct CommandPaletteView: View {
                     }
                 }
             }
-            Divider()
-            HStack(spacing: 16) {
-                Text(model.text("↑ ↓ 选择", "↑ ↓ Navigate"))
-                Text(model.text("↩ 执行", "↩ Run"))
-                Spacer()
-                Text(model.text("esc 关闭", "esc Close"))
-            }
-            .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
-            .padding(.horizontal, 20).frame(height: 32)
-            .background(WbColor.chrome)
+
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .modifier(LightweightPanelSurface())
@@ -119,6 +107,7 @@ private struct PaletteRow: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: WbSpace.xxs) {
                 Text(entry.title).lineLimit(1).truncationMode(.middle).font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(WbColor.textPrimary)
                 if !entry.subtitle.isEmpty {
                     Text(entry.subtitle).font(.system(size: 11)).foregroundStyle(WbColor.textSecondary).lineLimit(1)
                 }
@@ -132,9 +121,41 @@ private struct PaletteRow: View {
             }
         }
         .padding(.horizontal, WbSpace.md)
-        .frame(height: 46)
+        .frame(height: 54)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(selected ? WbColor.accentContainer : Color.clear, in: RoundedRectangle(cornerRadius: WbRadius.sm))
+        .background(selected ? Color.primary.opacity(0.10) : Color.clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .contentShape(Rectangle())
+    }
+}
+
+/// A borderless editor with a separate symbol, like Spotlight's search bar.
+struct PaletteSearchField: NSViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        field.identifier = NSUserInterfaceItemIdentifier("palette-search")
+        field.isBezeled = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = .systemFont(ofSize: 20)
+        field.delegate = context.coordinator
+        return field
+    }
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.parent = self
+        field.placeholderString = placeholder
+        field.setAccessibilityLabel(placeholder)
+        if field.stringValue != text { field.stringValue = text }
+    }
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: PaletteSearchField
+        init(_ parent: PaletteSearchField) { self.parent = parent }
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            parent.text = field.stringValue
+        }
     }
 }

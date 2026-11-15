@@ -142,6 +142,8 @@ struct ReinstallPrompt: Identifiable {
 /// A user-readable failure created by the center itself.
 struct CenterMessageError: LocalizedError {
     let message: String
+    var code: String? = nil
+    var data: [String: Any]? = nil
     var errorDescription: String? { message }
 }
 
@@ -567,16 +569,19 @@ final class CenterModel: ObservableObject {
         progressCallbacks[id] = onProgress
         requestMethods[id] = method
         if let device = params["device"] as? String { requestDevices[id] = device }
-        let readOnly = ["device.list", "device.details", "app.list", "app.inspect", "image.list", "profile.list", "snapshot.list", "sdk.status", "settings.get", "cache.list", "center.about", "center.paths", "center.prefs.get", "center.quit", "battery.get", "gps.get", "network.get", "network.proxy.get", "sensor.get", "logcat.dump", "root.cacert.list", "device.props.get", "dev.get", "clipboard.get", "jobs.list", "jobs.get", "daemon.status"]
+        let readOnly = ["host.budget", "device.list", "device.details", "app.list", "app.inspect", "image.list", "profile.list", "snapshot.list", "sdk.status", "settings.get", "cache.list", "center.about", "center.paths", "center.prefs.get", "center.quit", "battery.get", "gps.get", "network.get", "network.proxy.get", "sensor.get", "logcat.dump", "root.cacert.list", "device.props.get", "dev.get", "clipboard.get", "jobs.list", "jobs.get", "daemon.status"]
         if !readOnly.contains(method) { mutations.insert(id) }
-        if method == "device.details" {
+        if method == "device.details" || method == "host.budget" {
             let timeout = DispatchWorkItem { [weak self] in
                 guard let self, let completion = self.callbacks.removeValue(forKey: id) else { return }
                 self.readDeadlines.removeValue(forKey: id)
                 self.progressCallbacks.removeValue(forKey: id)
                 self.requestMethods.removeValue(forKey: id)
                 self.requestDevices.removeValue(forKey: id)
-                completion(.failure(CenterMessageError(message: self.text("读取设备详情超时，请重试。", "Loading device details timed out. Try again."))))
+                let message = method == "host.budget"
+                    ? self.text("读取内存预算超时，请重试。", "Loading the memory budget timed out. Try again.")
+                    : self.text("读取设备详情超时，请重试。", "Loading device details timed out. Try again.")
+                completion(.failure(CenterMessageError(message: message)))
             }
             readDeadlines[id] = timeout
             DispatchQueue.main.asyncAfter(deadline: .now() + detailsReadTimeout, execute: timeout)
@@ -613,6 +618,11 @@ final class CenterModel: ObservableObject {
                     // immediately but never trigger a full list refresh for it.
                     let value = min(1, max(0, progress))
                     if bootProgress[device] != value { bootProgress[device] = value }
+                    if !pendingWindowStops.contains(device), !stoppingDevices.contains(device),
+                       startingDevices.contains(device) || devices.first(where: { $0.id == device })?.status.state == "booting"
+                           || devices.first(where: { $0.id == device })?.status.state == "starting" {
+                        applyLaunchState(.booting(progress: value, message: self.progress(for: device) ?? ""), to: device)
+                    }
                     return
                 } else {
                     if topic == "device.boot_failed" { bootProgress.removeValue(forKey:device) }
@@ -644,7 +654,7 @@ final class CenterModel: ObservableObject {
         guard let completion = callbacks.removeValue(forKey:id) else { return }
         if kind == "error" {
             let message = event["message"] as? String ?? "操作失败"
-            completion(.failure(CenterMessageError(message: message)))
+            completion(.failure(CenterMessageError(message: message, code: event["code"] as? String, data: event["data"] as? [String: Any])))
             if let method, !localMethods.contains(method) { bridgeAnswered() }
             if ConnectionHealth.looksDisconnected(message) { connectionLost() }
         } else {
@@ -1139,7 +1149,7 @@ final class CenterModel: ObservableObject {
             if !deviceQuery.isEmpty { searchDeviceApps() }
         }
         if !deviceListLoaded { deviceListLoaded = true }
-        for device in list where device.running || device.stopped { bootProgress.removeValue(forKey: device.id) }
+        for device in list where device.running || (device.stopped && !startingDevices.contains(device.id)) { bootProgress.removeValue(forKey: device.id) }
         if !list.contains(where: { $0.id == selected }), selected != nil || !selectionCleared {
             if let next = filteredDevices.first?.id { select(next) }
             else {
@@ -1309,11 +1319,19 @@ final class CenterModel: ObservableObject {
             let stopPending = self.pendingWindowStops.contains(id)
             switch result {
             case .success:
+                if method == "device.stop", stopPending {
+                    self.pendingWindowStops.remove(id)
+                    self.finishClosingPlayer(id)
+                }
                 self.showToast(self.text("操作完成", "Completed"))
                 self.refresh(); self.refreshJobs()
                 if self.selected == id { self.load(id) }
                 if !stopPending { then?() }
             case .failure(let error):
+                if method == "device.stop", stopPending {
+                    self.pendingWindowStops.remove(id)
+                    self.players[id]?.transport.stoppingDevice = false
+                }
                 let message = error.localizedDescription
                 if method == "file.install", message.contains("INSTALL_FAILED_INSUFFICIENT_STORAGE") {
                     self.showError(self.text("安装失败：设备空间不足。可释放空间，或新建更大容量的设备。", "Installation failed: the device is out of storage. Free some space or create a larger device."))
@@ -1395,7 +1413,10 @@ final class CenterModel: ObservableObject {
                 let quality: UInt8
                 do { quality = try WindowQualityStore(dataDirectory:dataDirectory,device:id).load() }
                 catch { self.showError(self.readable(error)); return }
-                let launchState = launch ?? self.playerLaunchState(for: details.device)
+                let launchState = self.startingDevices.contains(id)
+                    ? PlayerLaunchState.booting(progress: self.bootProgressFraction(for: id),
+                                                message: self.progress(for: id) ?? self.text("正在启动设备…", "Starting the device…"))
+                    : (launch ?? self.playerLaunchState(for: details.device))
                 self.appliedLaunch[id] = launchState
                 let player = GameWindowController()
                 player.chrome.scriptAction = { [weak self] action, completion in
@@ -1410,13 +1431,12 @@ final class CenterModel: ObservableObject {
                     self.showError(self.text("请先停止录屏并等待保存完成。", "Stop recording and wait for it to be saved first."))
                     return false
                 }
+                player.onStopRequested = { [weak self] in self?.stopAfterWindowClose(id) }
                 player.onClose = { [weak self, weak player] in
                     if let frame = player?.transport.lastFrame { self?.rememberThumbnail(frame, device: id) }
-                    let shouldStop = player?.stopDeviceOnClose == true
                     self?.players.removeValue(forKey: id)
                     self?.appliedLaunch.removeValue(forKey: id)
                     self?.onPlayersChanged?()
-                    if shouldStop { self?.stopAfterWindowClose(id) }
                 }
                 self.players[id] = player
                 player.open(device:id,width:width,height:height,executable:self.bridgeExecutable,displayName:details.device.name,quality:quality,dataDirectory:dataDirectory,
@@ -1545,16 +1565,28 @@ final class CenterModel: ObservableObject {
     }
     func stop(_ id:String) {
         guard !busy.contains(id) else { return }
-        guard closePlayerForStop(id) else { return }
-        operation("device.stop",id:id)
+        if let player = players[id] { player.window?.performClose(nil) }
+        else { operation("device.stop",id:id) }
+    }
+    func hibernate(_ id: String) {
+        guard let device = devices.first(where: { $0.id == id }), device.running,
+              !busy.contains(id), busyHolder(for: id) == nil, closePlayerForStop(id) else { return }
+        operation("device.hibernate", id: id)
     }
     private func stopAfterWindowClose(_ id: String) {
+        guard pendingWindowStops.insert(id).inserted else { return }
+        players[id]?.transport.stoppingDevice = true
         if busy.contains(id) {
-            pendingWindowStops.insert(id)
             cancelStartingDeviceIfPossible(id)
         } else {
-            operation("device.stop", id: id)
+            drainWindowStop(id)
         }
+    }
+    private func finishClosingPlayer(_ id: String) {
+        guard let player = players[id] else { return }
+        player.stopDeviceOnClose = false
+        player.window?.performClose(nil)
+        if players[id] != nil { player.stopDeviceOnClose = true }
     }
     private func cancelStartingDeviceIfPossible(_ id: String) {
         guard startingDevices.contains(id), pendingWindowStops.contains(id),
@@ -1564,7 +1596,7 @@ final class CenterModel: ObservableObject {
         }
     }
     @discardableResult private func drainWindowStop(_ id: String) -> Bool {
-        guard pendingWindowStops.remove(id) != nil else { return false }
+        guard pendingWindowStops.contains(id), !busy.contains(id) else { return false }
         operation("device.stop", id: id)
         return true
     }
@@ -1592,7 +1624,9 @@ final class CenterModel: ObservableObject {
             }
             let text = message.isEmpty ? self.text("正在启动设备…", "Starting the device…")
                                        : OperationMessages.progress(message, language: self.language)
-            self.applyLaunchState(.booting(progress: fraction, message: text), to: id)
+            if !self.pendingWindowStops.contains(id) {
+                self.applyLaunchState(.booting(progress: self.bootProgressFraction(for: id), message: text), to: id)
+            }
         }) { [weak self] result in
             guard let self else { return }
             self.busy.remove(id)
@@ -1602,11 +1636,19 @@ final class CenterModel: ObservableObject {
             let stopPending = self.pendingWindowStops.contains(id)
             switch result {
             case .success:
-                self.applyLaunchState(.running, to: id)
-                if !stopPending { self.showToast(self.text("设备已启动。", "Device started.")) }
+                if !stopPending {
+                    self.applyLaunchState(.running, to: id)
+                    self.showToast(self.text("设备已启动。", "Device started."))
+                }
             case .failure(let error):
-                let reason = self.readable(error)
-                self.applyLaunchState(.stopped(reason: reason), to: id)
+                let reason: String
+                if let failure = error as? CenterMessageError, failure.code == "resource_exhausted",
+                   let data = failure.data, let refusal = try? self.decode(data, as: BudgetRefusal.self) {
+                    reason = refusal.message(language: self.language)
+                } else {
+                    reason = self.readable(error)
+                }
+                if !stopPending { self.applyLaunchState(.stopped(reason: reason), to: id) }
                 if !(stopPending && error.localizedDescription == "cancelled") { self.showError(reason) }
             }
             self.refresh(); self.refreshJobs()

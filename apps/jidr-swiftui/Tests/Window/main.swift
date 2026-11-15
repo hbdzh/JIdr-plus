@@ -118,7 +118,47 @@ func findToolTable(_ view: NSView) -> CompactDeviceToolsTableView? {
     if let table = view as? CompactDeviceToolsTableView { return table }
     return view.subviews.lazy.compactMap { findToolTable($0) }.first
 }
+// The palette editor must not recreate NSSearchField's bezel/focus ring or
+// overlap its separately laid-out magnifying glass with the text editor.
+struct PaletteSearchFixtureView: View {
+    @ObservedObject var fixture: PaletteSearchFixture
+    var body: some View {
+        PaletteSearchField(text: $fixture.value, placeholder: "Search commands")
+            .frame(width: 300, height: 32)
+    }
+}
+final class PaletteSearchFixture: ObservableObject { @Published var value = "" }
+let paletteSearchFixture = PaletteSearchFixture()
+let paletteHost = NSHostingView(rootView: PaletteSearchFixtureView(fixture: paletteSearchFixture))
+let paletteWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 350, height: 80),
+                             styleMask: [.titled], backing: .buffered, defer: false)
+paletteWindow.isReleasedWhenClosed = false
+paletteWindow.contentView = paletteHost
+paletteWindow.makeKeyAndOrderFront(nil)
+RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+func findPaletteField(_ view: NSView) -> NSTextField? {
+    if let field = view as? NSTextField, field.identifier?.rawValue == "palette-search" { return field }
+    return view.subviews.lazy.compactMap { findPaletteField($0) }.first
+}
+let paletteField = findPaletteField(paletteHost)!
+precondition(!(paletteField is NSSearchField) && !paletteField.isBezeled && !paletteField.drawsBackground && paletteField.focusRingType == .none,
+             "palette editor is borderless and leaves its symbol outside the editable area")
+paletteWindow.makeFirstResponder(paletteField)
+(paletteField.currentEditor() as! NSTextView).insertText("device", replacementRange: NSRange(location: NSNotFound, length: 0))
+RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+precondition(paletteSearchFixture.value == "device", "palette editor updates the query")
+paletteWindow.close()
+print("Palette search editor regression passed")
+
+
 let toolsWindow = toolController.window!
+precondition(toolsWindow.styleMask.contains(.titled) && toolsWindow.styleMask.contains(.fullSizeContentView)
+             && toolsWindow.styleMask.contains(.resizable), "device tools retains its native resizable window frame")
+precondition(toolsWindow.isOpaque && toolsWindow.isMovableByWindowBackground,
+             "device tools uses its native surface and can be dragged from its background")
+for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+    precondition(toolsWindow.standardWindowButton(kind)?.isHidden == true, "device tools keeps its traffic lights hidden")
+}
 let table = findToolTable(toolsWindow.contentView!)!
 let tableRect = table.enclosingScrollView!.convert(table.enclosingScrollView!.bounds, to: nil)
 precondition(toolsWindow.frame.height - tableRect.maxY < 76,
@@ -169,6 +209,7 @@ precondition(searchFixture.value == "fixture query", "typing updates the search 
 RunLoop.main.run(until:Date().addingTimeInterval(0.1))
 precondition(searchFixture.value.isEmpty, "the native clear button clears the search binding")
 searchWindow.close()
+
 
 let confirmedStop = ["one": "stopping", "two": "stopped"]
 precondition(CenterModel.canLeaveStopsRunning(stopping: ["one"], deviceStates: confirmedStop,

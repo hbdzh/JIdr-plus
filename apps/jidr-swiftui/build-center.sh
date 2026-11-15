@@ -5,8 +5,11 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
 source "$root/apps/jidr-swiftui/swift-target.sh"
 cargo build -p jidr -p jidr-swiftui-bridge
+cargo xtask helper --arch aarch64
 out="${JIDR_CENTER_OUT:-$root/target/swiftui-center}"
 app="$out/Jidr.app"
+mkdir -p "$app/Contents/Resources/helper/aarch64"
+cp "$root/target/jidr-helper/aarch64/jidr-helper" "$app/Contents/Resources/helper/aarch64/jidr-helper"
 mkdir -p "$app/Contents/Resources/licenses" "$app/Contents/MacOS" "$app/Contents/Helpers" "$out/module-cache"
 for helper in jidr jidr-center-bridge jidr-swiftui-bridge; do
   cp "$root/target/debug/$helper" "$app/Contents/Helpers/$helper"
@@ -24,7 +27,7 @@ cp apps/jidr-swiftui/Resources/device-stopped.png "$app/Contents/Resources/"
 mkdir -p "$app/Contents/Resources/fonts"
 cp apps/jidr-swiftui/Resources/fonts/*.ttf "$app/Contents/Resources/fonts/"
 cp apps/jidr-swiftui/Resources/fonts/OFL-*.txt "$app/Contents/Resources/licenses/"
-cp LICENSE-APACHE NOTICE apps/jidr-swiftui/LICENSE-GPL "$app/Contents/Resources/licenses/"
+cp LICENSE-APACHE LICENSE-MUSL NOTICE apps/jidr-swiftui/LICENSE-GPL "$app/Contents/Resources/licenses/"
 cp apps/jidr-swiftui/Resources/Jidr.icns "$app/Contents/Resources/"
 python3 "$root/apps/jidr-swiftui/app-metadata.py" "$app/Contents/Info.plist" --development
 printf 'APPL????' > "$app/Contents/PkgInfo"

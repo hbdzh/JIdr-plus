@@ -188,7 +188,7 @@ pub(crate) async fn repatch(ctx: &CallCtx, device: &Device) -> JidrResult<Device
 pub(crate) async fn cold_boot(ctx: &CallCtx, device: &Device) -> JidrResult<Device> {
     if device.status.is_active() {
         ctx.report(None, "Stopping before the cold boot");
-        ctx.daemon.stop_device(device.id).await?;
+        ctx.daemon.shut_down_device(device.id).await?;
     }
     ctx.report(None, "Cold booting");
     let device = ctx
@@ -393,6 +393,11 @@ pub(crate) async fn clear_patch(
 /// next boot when the pristine image or the pinned version changed. Best
 /// effort — it never fails the boot, because the current boot already worked.
 pub(crate) async fn on_booted(ctx: &CallCtx, device: &Device) -> JidrResult<()> {
+    // A pool clone resumes its base's snapshot and must keep the matching
+    // ramdisk and Magisk version instead of adopting a newer cached pin.
+    if device.pool_base.is_some() {
+        return Ok(());
+    }
     let Ok(pin) = pins::default_pin() else {
         return Ok(());
     };

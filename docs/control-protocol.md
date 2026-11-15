@@ -172,11 +172,11 @@ Stop the audio playing into the microphone
 
 #### `base.create`
 
-Save a running device as a read-only base for pool clones (snapshot jidr-base, animations off) · long-running (job)
+Save a running device as a read-only base for pool clones (snapshot jidr-base; clone animations off) · long-running (job)
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| `from_device` | string | yes | A running device to make the base from (root `none` or `adb`). It is stopped; the base is a copy of it. |
+| `from_device` | string | yes | A running source; Magisk requires a patched ramdisk and shell su grant. It is stopped; the base is a copy of it. |
 | `name` | string | yes | The base's name. |
 
 #### `base.delete`
@@ -726,6 +726,23 @@ Turn Wi-Fi or mobile data on/off and set the speed/delay profile
 | `mobile` | boolean |  | Mobile data. |
 | `profile` | Profile |  |  |
 
+#### `network.shaping.get`
+
+Packet loss on the device's networks (requires Shell or Full root) · locks the device
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `device` | string | yes | Device name or id. |
+
+#### `network.shaping.set`
+
+Set outgoing packet loss (requires Shell or Full root; a cold boot clears it) · locks the device
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `device` | string | yes | Device name or id (Shell root or Full root). |
+| `loss_pct` | number | yes | Percent of outgoing packets to drop, 0–100 (decimals allowed); 0 removes the loss. |
+
 ### `phone.*`
 
 #### `phone.call`
@@ -768,7 +785,7 @@ Lease a throwaway clone of a base, booted from its snapshot; returns its serial.
 | Param | Type | Required | Description |
 |---|---|---|---|
 | `base` | string | yes | Base name or id. |
-| `ttl_s` | integer |  | Lease lifetime in seconds. Without it the lease lasts as long as this client connection, plus 2 minutes. |
+| `ttl_s` | integer |  | Lease lifetime in seconds from delivery. Without it the lease lasts as long as this client connection, plus 2 minutes. |
 | `timeout_s` | integer |  | How long to wait for room in the RAM budget (default 120 s). |
 
 #### `pool.list`
@@ -844,6 +861,14 @@ Remove a CA certificate Jidr added (or all of them); restarts the device · long
 #### `root.cacert.verify`
 
 Check that every CA certificate Jidr added is in the system store apps read · locks the device
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `device` | string | yes | Device name or id. |
+
+#### `root.helper.status`
+
+Start the on-device helper if needed and report its status · locks the device
 
 | Param | Type | Required | Description |
 |---|---|---|---|
@@ -1017,6 +1042,9 @@ Save a snapshot of a running device · long-running (job) · locks the device
 
 | Version | Change |
 |---|---|
+| 0.1 (fix) | `base.create` leaves the source's animation settings unchanged. `pool.get` disables animations on each clone after boot and before delivery; a clone that cannot be configured is removed and reported as a failure. |
+| 0.1 (fix) | `pool.get` starts TTL at delivery and protects pending clones from expiry. TTL lease IDs and deadlines survive daemon restarts; connection leases enter grace on restart without extending an existing grace deadline. `pool.renew` returns `busy` when release has begun, and expiry rechecks the deadline under the device lock. |
+| 0.1 (additive) | `network.shaping.get {device}` and `network.shaping.set {device, loss_pct}` control outgoing loss through a rooted on-device helper. Both return `loss_pct` (null when interfaces differ) and `interfaces`; 0 clears netem and a cold boot clears it. `root.helper.status {device}` starts and reports the helper. All three lock the device. |
 | 0.1 (additive) | `daemon.quit` drains requests, refuses active jobs, syncs and gracefully stops running devices, verifies their files are no longer open, then exits the daemon. Unlike `daemon.shutdown`, it requires `hello` and stops devices. |
 | 0.1 | Initial protocol: hello, errors, jobs, events, core device/sdk/image/profile/file/logcat/jobs commands. |
 | 0.1 (additive) | Phase 5b: `cache.list`, `cache.import`, `cache.prune`, `device.logs`. No existing command changed. |
@@ -1030,6 +1058,7 @@ Save a snapshot of a running device · long-running (job) · locks the device
 | 0.1 (additive) | Phase 13b (D42): `device.clone` gains `keep_snapshot` (a snapshot name or id with a non-empty `ram.bin`): a copy-on-write clone that keeps only that snapshot (and its root-mode tag), drops `default_boot` and the locks, and rewrites the AVD name and folder in its ini files. `LaunchPrefs` gains `resume_snapshot`: the next start launches with `-snapshot <id>` (and no exit save into it), then it is cleared. Without `keep_snapshot`, `device.clone` is unchanged. |
 | 0.1 (additive) | Phase 13c (D42): new device state `hibernated` (not active; uses no RAM) and event `device.hibernated`. New `device.hibernate` (long-running, locks the device): a named snapshot `jidr-hibernate` via SnapshotService, refused with `sdk` (the device keeps running) when its `ram.bin` is empty, then an exit without the quick-boot save; `device.start` resumes it (`-snapshot jidr-hibernate`) and the snapshot's root tag is kept (D29); `device.stop` leaves it hibernated, `device.reset` discards it. `settings` gains `auto_hibernate_minutes` (0 = off, the default); `Device` and `device.edit` gain `auto_hibernate_minutes` (`0` = never, `null` = the setting). `resource_exhausted` details gain `hibernate_candidates: [{id, name, idle_s}]`, the longest-idle running devices first. |
 | 0.1 (additive) | Phase 13d (D42): new commands from the pool provider: `base.create {from_device, name}` (long-running), `base.list`, `base.delete {base}` (destructive), `pool.get {base, ttl_s?, timeout_s?}` (long-running) → `{lease, device, serial, connect}`, `pool.release {lease \| device}`, `pool.renew {lease, ttl_s?}`, `pool.list`. A lease without `ttl_s` is tied to the calling connection and expires 2 minutes after it closes; the daemon reaps expired leases every 30 s and stays up while any exist (D4). `Device` gains `base` (read-only; `device.start` refuses it) and `pool_base`. Events `pool.leased`, `pool.released`. A full budget makes `pool.get` wait, then fail with `resource_exhausted`. |
+| 0.1 (additive) | Phase 13f (D42): `base.create` accepts Magisk sources with a valid per-device patched ramdisk and an existing shell `su` grant. Bases and clones use separate ramdisk copies; clones preserve the base's Magisk version and snapshot settings. Existing parameters and result fields are unchanged. |
 | 0.1 (fix) | `snapshot.list` marks snapshots with missing or empty metadata or memory files as not restorable; `snapshot.load` refuses them before contacting the emulator. |
 | 0.1 (fix) | `root.set` (mode `magisk`) and `root.verify`: `magisk_version` is now the version alone (`30.7`), not the raw `magisk -v` output (`30.7:MAGISK:R`). The field and its type are unchanged. |
 | 0.1 (additive) | #25: `root.writable_system {device, enabled}` (long-running, locks the device) → `{device, writable_system, changed, applied: "unchanged" \| "next_boot" \| "live", system_writable?}`: a writable `/system` on an `adb`-root device (`-writable-system` launch option, then `adb remount` from the boot hook), stored in the existing `RootState.writable_system`. Enabling is refused with `usage` unless the device is in `adb` mode on an image that allows adb root, at API 31 or later; changing it forces a cold boot (D29). `root.set` to `none` or `magisk` resets `writable_system` to `false`, and `base.create` refuses a source with it on (`usage`). No existing field changed meaning. |
