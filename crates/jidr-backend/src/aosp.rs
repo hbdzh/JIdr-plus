@@ -502,11 +502,13 @@ impl Backend for AospBackend {
 
     async fn stop_without_save(&self, instance: &InstanceInfo) -> JidrResult<()> {
         if let Ok((mut c, _)) = grpc::connect(instance).await {
-            let _ = c
-                .set_vm_state(VmRunState {
+            let _ = timeout(
+                SHUTDOWN_REQUEST_TIMEOUT,
+                c.set_vm_state(VmRunState {
                     state: RunState::Paused as i32,
-                })
-                .await;
+                }),
+            )
+            .await;
         }
         // The launcher's QEMU child first: killing only the launcher would
         // orphan it.
@@ -523,6 +525,41 @@ impl Backend for AospBackend {
             .remove(&instance.pid);
         self.ports.release(instance.ports());
         Ok(())
+    }
+
+    async fn wait_powered_off(&self, instance: &InstanceInfo, within: Duration) -> bool {
+        let deadline = Instant::now() + within;
+        let mut controller = None;
+        let mut misses = 0;
+        while Instant::now() < deadline {
+            if !self.is_alive(instance).await {
+                return true;
+            }
+            if controller.is_none() {
+                controller = grpc::connect(instance).await.ok().map(|(c, _)| c);
+            }
+            let state = match controller.as_mut() {
+                Some(c) => match timeout(Duration::from_secs(2), c.get_vm_state(())).await {
+                    Ok(Ok(r)) => Some(r.get_ref().state()),
+                    _ => None,
+                },
+                None => None,
+            };
+            match state {
+                Some(RunState::Running | RunState::RestoreVm) => misses = 0,
+                Some(_) => return true,
+                None => {
+                    misses += 1;
+                    if misses >= 3 {
+                        // After Android powers off, the emulator can hang while
+                        // saving and stop answering its controller (upstream #78).
+                        return true;
+                    }
+                }
+            }
+            sleep(Duration::from_secs(1)).await;
+        }
+        false
     }
 
     async fn has_clients(&self, instance: &InstanceInfo) -> bool {

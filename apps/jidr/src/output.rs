@@ -385,6 +385,28 @@ pub fn audio(v: &Value) -> String {
     )
 }
 
+pub fn packet_loss(v: &Value) -> String {
+    let ifaces = v["interfaces"].as_array().cloned().unwrap_or_default();
+    let names: Vec<&str> = ifaces.iter().filter_map(|i| i["name"].as_str()).collect();
+    match v["loss_pct"].as_f64() {
+        Some(0.0) => format!("No packet loss ({}).", names.join(", ")),
+        Some(p) => format!("{p}% of outgoing packets dropped ({}).", names.join(", ")),
+        None => table(
+            &["INTERFACE", "LOSS", "QDISC"],
+            ifaces
+                .iter()
+                .map(|i| {
+                    vec![
+                        i["name"].as_str().unwrap_or("?").to_string(),
+                        format!("{}%", i["loss_pct"].as_f64().unwrap_or(0.0)),
+                        i["qdisc"].as_str().unwrap_or("").to_string(),
+                    ]
+                })
+                .collect(),
+        ),
+    }
+}
+
 pub fn pretty(v: &Value) -> String {
     serde_json::to_string_pretty(v).unwrap_or_default()
 }

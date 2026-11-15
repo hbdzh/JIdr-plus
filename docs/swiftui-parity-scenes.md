@@ -197,7 +197,7 @@
 | SDK 安装 / 许可 | 部分 | 离线测试 + 集成脚本（合成源） | `Center/DeviceViews.swift:307-484`、`Sources/SDKInstallPlan.swift` + `Tests/SDK/main.swift`（`test.sh:27-31`）；`Tests/SDK/integration.py`、`Tests/SDK/cancel_integration.py`（合成许可/镜像） |
 | 首次设置向导 | 未做（以 sheet 代替） | 未验证 | `Center/DeviceViews.swift:307-484,485-576` |
 | 设置：通用 / 存储 / 高级 / 关于 / 更新 | 部分 | 离线测试（MCP 配置） | `Center/DeviceViews.swift:589-860`；`Center/MCPConfiguration.swift` + `Tests/MCP/main.swift`（`test.sh:32-35`）；更新检查 `710-731` 无测试 |
-| MCP / Claude Desktop 配置 | 完整 | 离线测试 | `Center/MCPConfiguration.swift:4-39` + `Tests/MCP/main.swift` |
+| MCP / Codex 配置 | 完整 | 离线测试 | `Center/MCPConfiguration.swift:4-39` + `Tests/MCP/main.swift` |
 | 应用列表 | 部分 | 离线测试 | `Sources/AppListLoader.swift` + `Tests/AppList/main.swift`（`test.sh:36-39`）；UI `Center/DeviceViews.swift:1085-1116` |
 | 本地化（中/英） | 部分 | 离线测试（覆盖率脚本） | `Tests/localization_coverage.py:1-20`（仅扫 Center 直接字面量）；播放器本地化 `Sources/GameWindow.swift:472-482` |
 | RTL（D33） | 未做 | 未验证 | 无实现；Slint 参考 `goldens.rs:14-18`、`ui/theme.slint:7` 的 `rtl` |

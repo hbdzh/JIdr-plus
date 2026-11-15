@@ -18,6 +18,7 @@ use serde_json::{Value, json};
 use crate::device::target;
 
 pub mod proxy;
+pub mod shaping;
 
 /// Named profiles (speed + latency pairs from the console's own tables).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
@@ -86,6 +87,16 @@ pub fn specs() -> Vec<CommandSpec> {
             "network.proxy.clear",
             "Remove the device's global HTTP proxy",
         ),
+        CommandSpec::new::<DeviceParams>(
+            "network.shaping.get",
+            "Packet loss on the device's networks (requires Shell or Full root)",
+        )
+        .locks_device(),
+        CommandSpec::new::<shaping::SetParams>(
+            "network.shaping.set",
+            "Set outgoing packet loss (requires Shell or Full root; a cold boot clears it)",
+        )
+        .locks_device(),
     ]
 }
 
@@ -125,6 +136,10 @@ pub async fn call(ctx: &CallCtx, method: &str, params: Value) -> JidrResult<Valu
             let p: DeviceParams = parse_params(params)?;
             proxy::clear(&target(ctx, &p.device).await?.adb()).await
         }
+        "network.shaping.get" => {
+            shaping::get(ctx, &parse_params::<DeviceParams>(params)?.device).await
+        }
+        "network.shaping.set" => shaping::set(ctx, parse_params(params)?).await,
         "network.get" => {
             let p: DeviceParams = parse_params(params)?;
             let t = target(ctx, &p.device).await?;

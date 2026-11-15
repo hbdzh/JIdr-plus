@@ -11,7 +11,11 @@ use serde_json::Value;
 
 /// MCP client configs Jidr may have added itself to.
 pub fn mcp_config_paths(home: &Path) -> Vec<PathBuf> {
-    let mut v = vec![home.join(".claude.json"), home.join(".cursor/mcp.json")];
+    let mut v = vec![
+        home.join(".claude.json"),
+        home.join(".cursor/mcp.json"),
+        home.join(".workbuddy/mcp.json"),
+    ];
     if cfg!(target_os = "macos") {
         v.push(home.join("Library/Application Support/Claude/claude_desktop_config.json"));
     } else {
@@ -105,6 +109,25 @@ pub fn clean_mcp_configs(home: &Path) -> Vec<McpCleanup> {
             out.push(McpCleanup {
                 file,
                 removed,
+                backup,
+            });
+        }
+    }
+    // Codex uses TOML; edit only the entry installed by the settings UI.
+    let file = home.join(".codex/config.toml");
+    if let Ok(text) = std::fs::read_to_string(&file)
+        && let Ok(mut doc) = text.parse::<toml_edit::DocumentMut>()
+        && let Some(servers) = doc
+            .get_mut("mcp_servers")
+            .and_then(toml_edit::Item::as_table_like_mut)
+        && servers.remove("jidr").is_some()
+    {
+        let backup = PathBuf::from(format!("{}.jidr-backup", file.display()));
+        if std::fs::write(&backup, &text).is_ok() && std::fs::write(&file, doc.to_string()).is_ok()
+        {
+            out.push(McpCleanup {
+                file,
+                removed: vec!["jidr".into()],
                 backup,
             });
         }
@@ -287,6 +310,39 @@ mod tests {
             "not json"
         );
         assert!(clean_mcp_configs(home.path()).is_empty(), "idempotent");
+    }
+
+    #[test]
+    fn cleans_workbuddy_server_preserving_other_entries() {
+        let home = tempfile::tempdir().unwrap();
+        let cfg = home.path().join(".workbuddy/mcp.json");
+        std::fs::create_dir_all(cfg.parent().unwrap()).unwrap();
+        let original = r#"{"mcpServers":{"jidr":{"command":"jidr","args":["mcp"]},"other":{"command":"keep"}}}"#;
+        std::fs::write(&cfg, original).unwrap();
+        let done = clean_mcp_configs(home.path());
+        assert_eq!(done.len(), 1);
+        assert_eq!(std::fs::read_to_string(&done[0].backup).unwrap(), original);
+        let result: Value = serde_json::from_str(&std::fs::read_to_string(&cfg).unwrap()).unwrap();
+        assert!(result["mcpServers"].get("jidr").is_none());
+        assert!(result["mcpServers"].get("other").is_some());
+        assert!(clean_mcp_configs(home.path()).is_empty());
+    }
+
+    #[test]
+    fn cleans_codex_toml_preserving_other_configuration() {
+        let home = tempfile::tempdir().unwrap();
+        let cfg = home.path().join(".codex/config.toml");
+        std::fs::create_dir_all(cfg.parent().unwrap()).unwrap();
+        let original = "# retained comment\nmodel = \"example\"\n\n[mcp_servers.jidr]\ncommand = \"/app/jidr\"\nargs = [\"mcp\"]\n\n[mcp_servers.other]\ncommand = \"keep\"\n";
+        std::fs::write(&cfg, original).unwrap();
+        let done = clean_mcp_configs(home.path());
+        assert_eq!(done.len(), 1);
+        assert_eq!(std::fs::read_to_string(&done[0].backup).unwrap(), original);
+        let result = std::fs::read_to_string(&cfg).unwrap();
+        assert!(result.contains("# retained comment"));
+        assert!(result.contains("[mcp_servers.other]"));
+        assert!(!result.contains("[mcp_servers.jidr]"));
+        assert!(clean_mcp_configs(home.path()).is_empty());
     }
 
     #[test]

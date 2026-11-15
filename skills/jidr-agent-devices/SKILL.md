@@ -20,7 +20,7 @@ If there's none, ask the user before making one: it stops the device it is made 
 ```bash
 jidr -q device create agent-base --image 35 --profile agent-lean --agent-owned
 jidr -q device start agent-base --timeout 300
-jidr base create agent-base android-35    # snapshot jidr-base, animations off; stops agent-base
+jidr base create agent-base android-35    # snapshot jidr-base; stops agent-base, retains its settings
 ```
 
 Then lease a clone, use the serial it prints, and give it back:
@@ -34,8 +34,9 @@ jidr pool ls                                  # your leases and when they expire
 ```
 
 - The serial in `result.serial` is the only device you may touch. Pass it to adb (`adb -s <serial>`), Flutter (`flutter run -d <serial>`) or Gradle (`ANDROID_SERIAL=<serial>`).
-- A lease ends at its TTL (default `2h` from the CLI). The daemon then stops and deletes the clone, so renew it before a long run. Always release when you're done.
+- A lease ends at its TTL (default `2h` from the CLI), counted from delivery. TTL leases keep their IDs and deadlines across daemon restarts. The daemon then stops and deletes the clone, so renew it before a long run. If renewal reports `busy`, the clone is already being released. Always release when you're done.
 - Nothing you do in a clone reaches the base or other clones. Each clone starts from the base's saved state.
+- Jidr disables animations in each clone before handing it over; creating a base leaves the source's animation settings untouched.
 
 ## Persistent: a lean device
 
@@ -81,5 +82,6 @@ jidr call device.hibernate '{"device":"agent-phone"}'
 
 - Don't use, stop, hibernate or delete a device you didn't create or lease. Ask instead.
 - Don't make a base from the user's device without asking: `base create` stops it.
+- Magisk bases require an existing shell `su` grant and copy the source's app data and root settings into each clone. On Play Store images the user must choose a permanent grant; never grant it on their behalf.
 - Don't leave leases or running devices behind. Release and stop what you started, and say what you removed.
 - Don't use `--force` past the budget on your own.

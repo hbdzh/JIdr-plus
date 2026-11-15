@@ -206,6 +206,8 @@ jobs:
             sleep $((attempt * 20))
           done
           exit 1
+      - name: Build on-device helper
+        run: cargo xtask helper --arch x86_64
       - name: Emulator tests
         # Only this shard's tests, all of which boot a device; the check job
         # already runs the offline tests. `--no-fail-fast` so one flaky test

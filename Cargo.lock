@@ -1192,6 +1192,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "toml_edit",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -1303,6 +1304,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "jidr-helper"
+version = "0.5.0"
+dependencies = [
+ "hex",
+ "jidr-adb",
+ "jidr-core",
+ "rustix",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "jidr-mcp"
 version = "0.5.0"
 dependencies = [
@@ -1343,10 +1360,13 @@ dependencies = [
  "chrono",
  "jidr-adb",
  "jidr-backend",
+ "jidr-client",
  "jidr-core",
  "jidr-cpio",
  "jidr-daemon",
+ "jidr-helper",
  "jidr-sdk",
+ "jidr-widgets",
  "md-5",
  "schemars",
  "serde",
@@ -1418,6 +1438,7 @@ dependencies = [
  "jidr-client",
  "jidr-core",
  "jidr-daemon",
+ "jidr-helper",
  "jidr-proto",
  "jidr-sdk",
  "objc2",
@@ -3074,6 +3095,7 @@ dependencies = [
  "indexmap",
  "toml_datetime 1.1.2+spec-1.1.0",
  "toml_parser",
+ "toml_writer",
  "winnow 1.0.4",
 ]
 
@@ -3731,8 +3753,10 @@ dependencies = [
  "anyhow",
  "clap",
  "clap_complete",
+ "hex",
  "serde",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

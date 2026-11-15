@@ -63,6 +63,7 @@ case "$1" in
       "id -u") echo "$uid";;
       id*) echo "uid=$uid($name) gid=$uid($name) groups=$uid($name)";;
       "su -c id")
+        if [ -f "$dir/su-fake-failure" ]; then echo "uid=0(root)"; exit 1; fi
         # `su-stuck`: su doesn't answer (2026-11-03) until the grant is
         # written again, after the recovery cold boot.
         if [ -f "$dir/su-stuck" ]; then echo "su: no answer" >&2; exit 1; fi
@@ -106,6 +107,7 @@ case "$1" in
       "[ -e /dev/.jidr-reboot-pending ]"*) echo 1;;
       "am force-stop com.topjohnwu.magisk")
         echo 1 >> "$dir/force-stopped"; echo "ok";;
+      "svc power shutdown") echo 1 >> "$dir/shutdowns";;
       *"su_auto_response"*)
         # root.auto_grant writes Magisk's SharedPreferences; remember the value.
         case "$cmd" in
@@ -229,6 +231,10 @@ impl Env {
             },
             backend.clone(),
         )
+        .host_memory(jidr_sdk::host::HostMemory {
+            total_mb: 1 << 20,
+            available_mb: 1 << 19,
+        })
         .provider(root)
         .build()
         .unwrap();
@@ -327,6 +333,12 @@ impl Env {
     /// How many times the fake adb force-stopped the Magisk app.
     pub fn force_stop_count(&self) -> usize {
         std::fs::read_to_string(self.studio.join("platform-tools/force-stopped"))
+            .map(|s| s.lines().count())
+            .unwrap_or(0)
+    }
+
+    pub fn shutdowns(&self) -> usize {
+        std::fs::read_to_string(self.studio.join("platform-tools/shutdowns"))
             .map(|s| s.lines().count())
             .unwrap_or(0)
     }

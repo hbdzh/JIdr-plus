@@ -5,6 +5,7 @@
 
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::collections::HashSet;
 use uuid::Uuid;
 
 /// Magic value of the operation-recording JSON format.
@@ -145,9 +146,49 @@ impl Script {
             name: self.name.clone(),
             duration_ms: self.duration_ms(),
             event_count: self.events.len(),
+            action_count: self.action_count(),
             created_at: self.created_at,
             display: self.display,
         }
+    }
+
+    /// Count touch gestures, key presses and discrete commands for display.
+    fn action_count(&self) -> usize {
+        let mut count = 0;
+        let mut touch = false;
+        let mut mapped = HashSet::new();
+        let mut keys = HashSet::new();
+        for timed in &self.events {
+            match &timed.event {
+                Event::Touch { down, .. } => {
+                    if *down && !touch && mapped.is_empty() {
+                        count += 1;
+                    }
+                    touch = *down;
+                }
+                Event::MappedTouch { id, down, .. } => {
+                    if *down {
+                        if !touch && mapped.is_empty() {
+                            count += 1;
+                        }
+                        mapped.insert(*id);
+                    } else {
+                        mapped.remove(id);
+                    }
+                }
+                Event::Key { key, down } => {
+                    if *down {
+                        if keys.insert(key) {
+                            count += 1;
+                        }
+                    } else {
+                        keys.remove(key);
+                    }
+                }
+                Event::Text { .. } | Event::Paste { .. } | Event::ToolKey { .. } => count += 1,
+            }
+        }
+        count
     }
 }
 
@@ -158,6 +199,9 @@ pub struct ScriptSummary {
     pub name: String,
     pub duration_ms: u64,
     pub event_count: usize,
+    /// Display count; the underlying event timeline remains unchanged.
+    #[serde(default)]
+    pub action_count: usize,
     #[serde(
         serialize_with = "serialize_time",
         deserialize_with = "deserialize_time"
@@ -183,6 +227,86 @@ fn deserialize_time<'de, D: Deserializer<'de>>(deserializer: D) -> Result<DateTi
 mod tests {
     use super::*;
     use crate::test_support::{fixture, timed};
+
+    #[test]
+    fn summaries_count_gestures_without_changing_the_event_timeline() {
+        let mut script = fixture();
+        script.events.clear();
+        let touch = |down| Event::Touch {
+            x: 0.5,
+            y: 0.5,
+            down,
+        };
+        script.events.push(timed(0, touch(true)));
+        script.events.push(timed(1, touch(false)));
+        for _ in 0..16 {
+            script.events.push(timed(2, touch(true)));
+        }
+        script.events.push(timed(3, touch(false)));
+        for _ in 0..14 {
+            script.events.push(timed(4, touch(true)));
+        }
+        script.events.push(timed(5, touch(false)));
+        script.events.push(timed(6, touch(true)));
+        script.events.push(timed(7, touch(false)));
+        let before = serde_json::to_value(&script).expect("serialize script");
+        let summary = script.summary();
+        assert_eq!(summary.event_count, 36);
+        assert_eq!(summary.action_count, 4);
+        assert_eq!(
+            serde_json::to_value(&script).expect("serialize script"),
+            before
+        );
+    }
+
+    #[test]
+    fn summaries_group_multitouch_and_count_keys_and_discrete_commands() {
+        let mut script = fixture();
+        let mapped = |id, down| Event::MappedTouch {
+            id,
+            x: 0.5,
+            y: 0.5,
+            down,
+        };
+        let touch = |down| Event::Touch {
+            x: 0.5,
+            y: 0.5,
+            down,
+        };
+        let key = |name: &str, down| Event::Key {
+            key: name.to_owned(),
+            down,
+        };
+        script.events = vec![
+            timed(0, mapped(3, true)),
+            timed(1, touch(true)),
+            timed(2, mapped(3, true)),
+            timed(3, mapped(3, false)),
+            timed(4, touch(false)),
+            timed(5, mapped(4, true)),
+            timed(6, mapped(4, false)),
+            timed(7, key("A", true)),
+            timed(8, key("A", true)),
+            timed(9, key("B", true)),
+            timed(10, key("A", false)),
+            timed(11, key("B", false)),
+            timed(
+                12,
+                Event::Text {
+                    text: "hello".into(),
+                },
+            ),
+            timed(
+                13,
+                Event::Paste {
+                    text: "world".into(),
+                },
+            ),
+            timed(14, Event::ToolKey { key: "home".into() }),
+        ];
+        assert_eq!(script.summary().action_count, 7);
+        assert_eq!(script.summary().event_count, 15);
+    }
 
     #[test]
     fn round_trips_every_event_variant_through_json() {

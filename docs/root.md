@@ -52,6 +52,38 @@ dropped back so the final check exercises Magisk's own `su`. Apps still get
 Magisk's normal per-app prompt; the opt-in "auto-grant all" toggle is off by
 default.
 
+Before Root's cold boots, Jidr asks Android to shut down so that services can
+flush buffered changes, including the first boot's Wi-Fi configuration. If
+shutdown cannot be confirmed, it falls back to the normal device stop.
+
+## Packet loss
+
+On a running Shell-root or Full-root device, `jidr network loss <device> 10`
+sets 10% outgoing packet loss; `jidr network loss <device> 0` clears it.
+`jidr root helper <device>` reports the on-device helper's status. The device
+center offers the same controls under Device Tools → Network. See
+[on-device helper](on-device-helper.md) for kernel, network and qdisc limits.
+
+## Magisk pool bases
+
+A running Full-root device can be saved as a base for throwaway agent clones:
+
+```bash
+jidr base create <device> <base>
+jidr --json pool get <base>
+jidr pool release <lease>
+```
+
+Creating a base stops the source device after saving its snapshot. Jidr first
+checks that the device owns its patched ramdisk and that `su -c id` succeeds
+without a prompt. On Play Store images the user must grant the shell access in
+Magisk; choose **Forever**, since an expiring grant also expires in clones.
+The base and each clone keep separate copies of the patched ramdisk. A clone
+resumes the snapshot with its original Magisk version and settings; create a
+new base to use a newer version. The snapshot also contains the source's app
+data and credentials, so use a prepared device appropriate for the agents that
+will receive clones.
+
 ## Revert
 
 `root.set none` (or `adb`) on a Magisk device clears `launch.ramdisk`, deletes

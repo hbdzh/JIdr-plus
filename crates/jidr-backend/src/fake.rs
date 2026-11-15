@@ -31,6 +31,8 @@ struct FakeState {
     empty_saves: bool,
     /// Instances stopped without the exit save.
     unsaved_stops: Vec<String>,
+    power_offs: Vec<String>,
+    stuck_power_off: bool,
     clients: HashMap<String, bool>,
     /// The gRPC port started instances report (default `20000 + n`).
     grpc_port: Option<u16>,
@@ -40,6 +42,8 @@ struct FakeState {
 pub struct FakeBackend {
     state: Mutex<FakeState>,
     gate: Mutex<Option<Arc<Semaphore>>>,
+    stop_gate: Mutex<Option<Arc<Semaphore>>>,
+    snapshot_gate: Mutex<Option<Arc<Semaphore>>>,
 }
 
 impl FakeBackend {
@@ -56,6 +60,36 @@ impl FakeBackend {
         let sem = Arc::new(Semaphore::new(0));
         *self.gate.lock().unwrap_or_else(|e| e.into_inner()) = Some(sem.clone());
         sem
+    }
+
+    /// Hold stops until a test releases a permit, to exercise stop races.
+    pub fn gate_stops(&self) -> Arc<Semaphore> {
+        let sem = Arc::new(Semaphore::new(0));
+        *self.stop_gate.lock().unwrap_or_else(|e| e.into_inner()) = Some(sem.clone());
+        sem
+    }
+
+    /// Hold snapshot saves until a test releases a permit.
+    pub fn gate_snapshots(&self) -> Arc<Semaphore> {
+        let sem = Arc::new(Semaphore::new(0));
+        *self.snapshot_gate.lock().unwrap_or_else(|e| e.into_inner()) = Some(sem.clone());
+        sem
+    }
+
+    async fn wait_stop_gate(&self) -> JidrResult<()> {
+        let gate = self
+            .stop_gate
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if let Some(gate) = gate {
+            let permit = gate
+                .acquire()
+                .await
+                .map_err(|_| JidrError::unexpected("fake stop gate closed"))?;
+            permit.forget();
+        }
+        Ok(())
     }
 
     /// The next start fails with `err`.
@@ -104,6 +138,14 @@ impl FakeBackend {
     /// AVDs stopped with `stop_without_save`.
     pub fn unsaved_stops(&self) -> Vec<String> {
         self.lock().unsaved_stops.clone()
+    }
+
+    pub fn power_offs(&self) -> Vec<String> {
+        self.lock().power_offs.clone()
+    }
+
+    pub fn stick_power_off(&self) {
+        self.lock().stuck_power_off = true;
     }
 
     /// Pretends a player is attached to AVD `avd` (idle detection).
@@ -184,6 +226,7 @@ impl Backend for FakeBackend {
     }
 
     async fn stop(&self, instance: &InstanceInfo) -> JidrResult<()> {
+        self.wait_stop_gate().await?;
         self.lock().running.remove(&instance.pid);
         Ok(())
     }
@@ -217,6 +260,18 @@ impl Backend for FakeBackend {
             s.saves.push((instance.avd.clone(), name.to_string()));
             s.empty_saves
         };
+        let gate = self
+            .snapshot_gate
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        if let Some(gate) = gate {
+            let permit = gate
+                .acquire()
+                .await
+                .map_err(|_| JidrError::unexpected("fake snapshot gate closed"))?;
+            permit.forget();
+        }
         let dir = avd_dir.join("snapshots").join(name);
         let ram: &[u8] = if empty { b"" } else { b"fake ram" };
         std::fs::create_dir_all(&dir)
@@ -226,10 +281,17 @@ impl Backend for FakeBackend {
     }
 
     async fn stop_without_save(&self, instance: &InstanceInfo) -> JidrResult<()> {
+        self.wait_stop_gate().await?;
         let mut s = self.lock();
         s.running.remove(&instance.pid);
         s.unsaved_stops.push(instance.avd.clone());
         Ok(())
+    }
+
+    async fn wait_powered_off(&self, instance: &InstanceInfo, _within: Duration) -> bool {
+        let mut state = self.lock();
+        state.power_offs.push(instance.avd.clone());
+        !state.stuck_power_off
     }
 
     async fn has_clients(&self, instance: &InstanceInfo) -> bool {

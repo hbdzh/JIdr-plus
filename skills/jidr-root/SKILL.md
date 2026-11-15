@@ -51,6 +51,15 @@ adb -s emulator-5556 shell su -c 'magisk -v' # the Magisk version
 
 `google_apis_playstore` images refuse `adb root`, so the shell's `su` can't be pre-approved (ADR-0002). During `root set … magisk`, Magisk shows a prompt on the device: **the user** has to tap Grant within 60 seconds. Tell them before you run it, and tell them to open the device in the Jidr app (`open -a Jidr`). If nobody taps, the job fails with `awaiting_user_grant`: ask the user, then run `jidr root verify Phone` again or revert. Never try to get around the prompt.
 
+## Packet loss
+
+On a running Shell- or Full-root device, `jidr network loss Phone 10` sets
+10% outgoing loss, `jidr network loss Phone` reads it, and `jidr network loss
+Phone 0` clears it. This changes the guest's root qdisc, requires netem support,
+and is cleared by a cold boot; see `docs/on-device-helper.md`. Use it only on
+a device the user selected or an agent-owned test device, and restore it when
+the test is finished. `jidr root helper Phone` reports helper status.
+
 ## Who gets su
 
 On a `magisk` device:

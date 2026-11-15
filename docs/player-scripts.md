@@ -120,7 +120,10 @@ Rules:
 ```
 
 `message` is the English fallback (the Swift UI may translate common codes).
-Summaries contain `id,name,duration_ms,event_count,created_at,display`.
+Summaries contain `id,name,duration_ms,event_count,action_count,created_at,display`.
+`event_count` counts all recorded samples; `action_count` groups a touch gesture
+or key press and counts each text, paste or tool-key command. Only the summary
+changes: recording files and the playback timeline retain every event.
 
 ### Playback engine
 

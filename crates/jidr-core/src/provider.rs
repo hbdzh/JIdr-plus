@@ -171,6 +171,10 @@ pub trait DaemonContext: Send + Sync {
     /// Stops a device. Callers already hold its lock.
     async fn stop_device(&self, device: Uuid) -> JidrResult<Device>;
 
+    /// Shut down Android before a cold boot, falling back to a normal stop.
+    /// Callers already hold the device lock.
+    async fn shut_down_device(&self, device: Uuid) -> JidrResult<Device>;
+
     /// Publishes an event to `events.subscribe` listeners.
     fn emit(&self, topic: &str, data: Value);
 }

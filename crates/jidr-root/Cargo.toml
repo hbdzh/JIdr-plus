@@ -14,6 +14,7 @@ jidr-core.workspace = true
 jidr-adb.workspace = true
 jidr-sdk.workspace = true
 jidr-cpio.workspace = true
+jidr-helper = { workspace = true, features = ["host"] }
 async-trait.workspace = true
 base64 = "0.22"
 md-5 = "0.11"
@@ -31,7 +32,9 @@ uuid.workspace = true
 [dev-dependencies]
 jidr-backend.workspace = true
 jidr-daemon.workspace = true
+jidr-client.workspace = true
 jidr-cpio.workspace = true
+jidr-widgets.workspace = true
 zip.workspace = true
 tempfile.workspace = true
 tokio.workspace = true

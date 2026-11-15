@@ -1,5 +1,6 @@
 //! `cargo xtask <task>`: build automation for the Jidr workspace.
 
+mod helper;
 mod license_check;
 mod release;
 mod skills;
@@ -16,6 +17,7 @@ tasks:
   ci              fmt --check, clippy -D warnings, nextest, license-check, skills-check
   license-check   enforce Apache Rust crates and exclude retired GUI dependencies (D18)
   skills-check    check skills/*/SKILL.md frontmatter and their `jidr` commands (D43)
+  helper          build the on-device helper for Android guests
   e2e-mac         full arm64 end-to-end gate on Apple Silicon (release gate, D28)
   release         build the macOS release artifacts (Phase 12a)";
 
@@ -25,6 +27,7 @@ fn main() -> ExitCode {
         Some("ci") => ci(),
         Some("license-check") => license_check::run(),
         Some("skills-check") => skills::run(),
+        Some("helper") => helper::run(&args[1..]),
         Some("e2e-mac") => e2e_mac(),
         Some("release") => release::run(&args[1..]),
         Some("-h" | "--help" | "help") => {
@@ -110,6 +113,7 @@ fn e2e_mac() -> Result<()> {
         bail!("e2e-mac runs only on Apple Silicon macOS");
     }
     let cargo = cargo();
+    helper::build(&["aarch64"])?;
     run(
         &cargo,
         &[

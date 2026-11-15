@@ -20,6 +20,19 @@ fn booted(info: &Value) -> bool {
         .unwrap_or(false)
 }
 
+fn shell(info: &Value, command: &str) -> String {
+    let out = Command::new(info["adb_path"].as_str().unwrap())
+        .args(["-s", info["adb_serial"].as_str().unwrap(), "shell", command])
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "adb {command}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
 /// Running emulator processes for `avd` (`-avd <avd>` in the command line).
 fn emulators_of(avd: &str) -> usize {
     let out = Command::new("ps")
@@ -47,12 +60,45 @@ async fn pool_three_concurrent_clones() {
     let t = Instant::now();
     c.run_long("device.start", json!({ "device": src })).await;
     println!("source cold boot: {:.0} s", t.elapsed().as_secs_f32());
+    let original_info = c.ok("device.connect_info", json!({"device":src})).await;
+    shell(
+        &original_info,
+        "settings put global window_animation_scale 0.5",
+    );
+    shell(
+        &original_info,
+        "settings put global transition_animation_scale 1.5",
+    );
+    shell(
+        &original_info,
+        "settings delete global animator_duration_scale",
+    );
     let t = Instant::now();
     let b = c
         .run_long("base.create", json!({ "from_device": src, "name": base }))
         .await;
     println!("base.create: {:.1} s", t.elapsed().as_secs_f32());
     assert_eq!(b["base"], true);
+    // Restart the original to verify its persisted values, including an unset
+    // setting, survived creating and stopping the base source.
+    c.run_long("device.start", json!({"device":src})).await;
+    let source_info = c.ok("device.connect_info", json!({"device":src})).await;
+    assert_eq!(
+        shell(&source_info, "settings get global window_animation_scale"),
+        "0.5"
+    );
+    assert_eq!(
+        shell(
+            &source_info,
+            "settings get global transition_animation_scale"
+        ),
+        "1.5"
+    );
+    assert_eq!(
+        shell(&source_info, "settings get global animator_duration_scale"),
+        "null"
+    );
+    c.ok("device.stop", json!({"device":src})).await;
 
     // Three agents, three connections, at once.
     let t = Instant::now();
@@ -78,6 +124,17 @@ async fn pool_three_concurrent_clones() {
         let avd = r["device"]["avd"].as_str().unwrap().to_string();
         h.guard(&avd);
         assert!(booted(&r["connect"]), "{} isn't booted", r["serial"]);
+        for key in [
+            "window_animation_scale",
+            "transition_animation_scale",
+            "animator_duration_scale",
+        ] {
+            assert_eq!(
+                shell(&r["connect"], &format!("settings get global {key}")),
+                "0",
+                "{key}"
+            );
+        }
         avds.push((avd, r["lease"]["id"].clone()));
     }
     let serials: std::collections::HashSet<&str> = got

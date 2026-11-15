@@ -35,7 +35,7 @@ Tests named `*_emulator` run on a real emulator: on Linux KVM in CI (API 30, 33,
 | Baseband gsm signal/data/voice | Paid | ✅ | `widgets_core_commands` (signal level 0 and ≥ 3 on any radio via `phone.gsm`); data and voice registration via `phone.gsm` |
 | Baseband operator & SIM identity | Paid | ⏭️ | [#16](https://github.com/AbdurahmanAlmehdi/jidr/issues/16); the phone number alone works natively |
 | Network Wi-Fi / mobile toggles, speed/delay profiles | Paid | ✅ | `widgets_core_commands` (Wi-Fi via `settings`, mobile data via the emulated radio and `network.get`, speed via `adb emu network status`) |
-| Network packet loss / bad DNS | Paid | ⏭️ | [#17](https://github.com/AbdurahmanAlmehdi/jidr/issues/17) |
+| Network packet loss / bad DNS | Paid | 🚧 | Outgoing packet loss on rooted devices: `network.shaping.*` and `helper_emulator.rs`; bad DNS remains open ([#17](https://github.com/AbdurahmanAlmehdi/jidr/issues/17)). |
 | Identifiers (Android ID, IMEI) | Free | ⏭️ | [#19](https://github.com/AbdurahmanAlmehdi/jidr/issues/19) |
 | Build props | Free | ✅ | `crates/jidr-root/tests/props_emulator.rs:61` `props_spoof_after_cold_boot_and_stock_after_revert` (Full-root devices only) |
 | Disk I/O limit | Free | ⏭️ | [#20](https://github.com/AbdurahmanAlmehdi/jidr/issues/20) |
