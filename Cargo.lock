@@ -1174,7 +1174,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "jidr"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -1200,7 +1200,7 @@ dependencies = [
 
 [[package]]
 name = "jidr-adb"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "jidr-core",
  "schemars",
@@ -1212,7 +1212,7 @@ dependencies = [
 
 [[package]]
 name = "jidr-automation"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chrono",
  "jidr-core",
@@ -1224,7 +1224,7 @@ dependencies = [
 
 [[package]]
 name = "jidr-backend"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1245,7 +1245,7 @@ dependencies = [
 
 [[package]]
 name = "jidr-client"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "jidr-backend",
  "jidr-core",
@@ -1259,7 +1259,7 @@ dependencies = [
 
 [[package]]
 name = "jidr-core"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1273,7 +1273,7 @@ dependencies = [
 
 [[package]]
 name = "jidr-cpio"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "flate2",
  "liblzma",
@@ -1284,7 +1284,7 @@ dependencies = [
 
 [[package]]
 name = "jidr-daemon"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1305,7 +1305,7 @@ dependencies = [
 
 [[package]]
 name = "jidr-helper"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "hex",
  "jidr-adb",
@@ -1321,7 +1321,7 @@ dependencies = [
 
 [[package]]
 name = "jidr-mcp"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "base64 0.22.1",
  "jidr-adb",
@@ -1342,7 +1342,7 @@ dependencies = [
 
 [[package]]
 name = "jidr-proto"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "prost",
  "tempfile",
@@ -1353,7 +1353,7 @@ dependencies = [
 
 [[package]]
 name = "jidr-root"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1382,7 +1382,7 @@ dependencies = [
 
 [[package]]
 name = "jidr-sdk"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "chrono",
  "dirs",
@@ -1408,7 +1408,7 @@ dependencies = [
 
 [[package]]
 name = "jidr-swiftui-bridge"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1427,7 +1427,7 @@ dependencies = [
 
 [[package]]
 name = "jidr-widgets"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "async-trait",
  "block2",
@@ -3748,7 +3748,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "anyhow",
  "clap",
