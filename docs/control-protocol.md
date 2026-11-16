@@ -575,6 +575,12 @@ Install a system image (and the emulator if missing) · long-running (job)
 |---|---|---|---|
 | `image` | string | yes | `35`, `35:google_apis` or a full `system-images;…` package. |
 
+#### `image.inventory`
+
+List installed image copies and device references
+
+No params.
+
 #### `image.list`
 
 System images for this host, installed or available
@@ -582,6 +588,16 @@ System images for this host, installed or available
 | Param | Type | Required | Description |
 |---|---|---|---|
 | `available` | boolean |  | Include images that aren't installed (needs network; falls back to installed images when offline). |
+
+#### `image.remove`
+
+Remove an unused image from a Jidr-owned SDK · **destructive**
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `image` | string | yes | Full system-image package or image selector. |
+| `source` | string | yes | SDK source: `private` or `custom`; external SDKs are read-only. |
+| `root` | string | yes | SDK root shown to the user; protects against a changed install location. |
 
 ### `jobs.*`
 
@@ -937,6 +953,14 @@ Install SDK packages into the configured writable SDK · long-running (job)
 |---|---|---|---|
 | `packages` | string[] | yes | SDK package paths, e.g. `emulator`, `system-images;android-35;google_apis;arm64-v8a`. |
 
+#### `sdk.license_details`
+
+All license texts for SDK packages, including previously accepted licenses
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `packages` | string[] | yes | SDK package paths, e.g. `emulator`, `system-images;android-35;google_apis;arm64-v8a`. |
+
 #### `sdk.licenses`
 
 Licenses still to accept before installing packages, with their text
@@ -1038,10 +1062,25 @@ Save a snapshot of a running device · long-running (job) · locks the device
 | `name` | string | yes | Snapshot name. |
 <!-- commands:end -->
 
+`image.inventory` returns installed physical image copies, including separate
+copies of the same package in different SDK roots. Each entry has `api`, `tag`,
+`abi`, `package`, `source` (`private`, `custom`, or `external`), `root`,
+`size_bytes` (nullable when unavailable), `used_by` (device IDs and names), and
+`can_delete`. Device references are conservative across copies of the same
+image version. External SDKs are read-only.
+
+`image.remove` requires the selected image, source and SDK root. The daemon
+rechecks the root, refuses external or overlapping SDKs and referenced images,
+and serialises removal with device creation and SDK installation. It returns
+the removed package and root on success; stale roots and device references are
+reported as errors.
+
 ## Changelog
 
 | Version | Change |
 |---|---|
+| 0.1 (additive) | `image.inventory` lists installed SDK image copies and their device references; destructive `image.remove` removes an unused image from a specified Jidr-owned SDK. |
+| 0.1 (additive) | `sdk.license_details {packages}` returns each applicable licence text and its current `accepted` state without changing consent. Existing `sdk.licenses` continues to return only pending licences. |
 | 0.1 (fix) | `base.create` leaves the source's animation settings unchanged. `pool.get` disables animations on each clone after boot and before delivery; a clone that cannot be configured is removed and reported as a failure. |
 | 0.1 (fix) | `pool.get` starts TTL at delivery and protects pending clones from expiry. TTL lease IDs and deadlines survive daemon restarts; connection leases enter grace on restart without extending an existing grace deadline. `pool.renew` returns `busy` when release has begun, and expiry rechecks the deadline under the device lock. |
 | 0.1 (additive) | `network.shaping.get {device}` and `network.shaping.set {device, loss_pct}` control outgoing loss through a rooted on-device helper. Both return `loss_pct` (null when interfaces differ) and `interfaces`; 0 clears netem and a cold boot clears it. `root.helper.status {device}` starts and reports the helper. All three lock the device. |
@@ -1067,3 +1106,4 @@ Save a snapshot of a running device · long-running (job) · locks the device
 | 0.1 (additive) | `device.edit` accepts `quick_boot`: `true` or `false` overrides the global setting for this device; `null` restores the global setting. Changes require a stopped device. Disabled quick boot skips automatic snapshot loading and saving; named hibernation resumes are preserved. |
 | 0.1 (additive) | `app.list` lists launchable third-party applications for a running device, returning the package name, display name and an optional path to a cached icon. |
 | 0.1 (additive) | Custom SDK install root: `sdk.status` gains `install_sdk` (the writable SDK root installations go to: the user-configured `jidr_sdk` root or the private SDK) and `custom_sdk` (the configured custom root, or `null`). `sdk.install` and `image.install` install into that root; `image.install` also installs `emulator` and `platform-tools` into it when they are missing. No existing field changed meaning. |
+| 0.1 (additive) | Quick-boot save failures during `device.stop` and `daemon.quit` carry `data.details.operation = "quick_boot_save"`; the device remains running and the original error details are retained under `cause`. |

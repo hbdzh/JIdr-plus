@@ -98,6 +98,65 @@ async fn stop_goes_ahead_when_the_guest_sync_fails() {
 }
 
 #[tokio::test]
+async fn normal_stop_keeps_device_running_when_snapshot_is_incomplete() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    let d = c
+        .ok(
+            "device.create",
+            json!({ "name": "Safe", "image": "35", "root_mode": "adb" }),
+        )
+        .await;
+    let avd = d["avd"].as_str().unwrap().to_string();
+    c.run("device.start", json!({ "device": "Safe" })).await;
+    h.backend.fail_saves();
+    let err = c.err("device.stop", json!({ "device": "Safe" })).await;
+    assert_eq!(err["data"]["code"], "sdk");
+    assert_eq!(err["data"]["details"]["operation"], "quick_boot_save");
+    assert_eq!(h.backend.running().len(), 1);
+    assert_eq!(
+        c.ok("device.details", json!({"device":"Safe"})).await["device"]["status"]["state"],
+        "running"
+    );
+    h.backend.allow_saves();
+    c.ok("device.stop", json!({ "device": "Safe" })).await;
+    assert_eq!(
+        h.backend.saves().last().unwrap(),
+        &(avd, "default_boot".into())
+    );
+    assert!(h.backend.running().is_empty());
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn failed_save_preserves_previous_quick_boot() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    let d = c
+        .ok("device.create", json!({"name":"Previous", "image":"35"}))
+        .await;
+    let avd = d["avd"].as_str().unwrap();
+    let ram = h
+        .paths
+        .avd_home()
+        .join(format!("{avd}.avd/snapshots/default_boot/ram.bin"));
+    c.run("device.start", json!({"device":"Previous"})).await;
+    c.ok("device.stop", json!({"device":"Previous"})).await;
+    let previous = std::fs::read(&ram).unwrap();
+    c.run("device.start", json!({"device":"Previous"})).await;
+    h.backend.fail_saves();
+    c.err("device.stop", json!({"device":"Previous"})).await;
+    assert_eq!(
+        std::fs::read(&ram).unwrap(),
+        previous,
+        "failed save must not destroy the old checkpoint"
+    );
+    h.backend.allow_saves();
+    c.ok("device.stop", json!({"device":"Previous"})).await;
+    h.stop().await;
+}
+
+#[tokio::test]
 async fn accepted_stop_finishes_after_client_disconnects() {
     let h = Harness::start().await;
     let mut admin = h.client().await;

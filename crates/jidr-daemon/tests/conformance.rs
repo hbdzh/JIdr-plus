@@ -9,6 +9,88 @@ use common::Harness;
 use serde_json::json;
 
 #[tokio::test]
+async fn sdk_license_details_keeps_accepted_text_visible_without_recording_consent() {
+    let h = Harness::start().await;
+    std::fs::write(
+        h.tmp.path().join("repo/repository2-3.xml"),
+        r#"<?xml version="1.0"?>
+<sdk:sdk-repository xmlns:sdk="http://schemas.android.com/sdk/android/repo/repository2/03">
+  <license id="test-licence" type="text">Synthetic licence text.</license>
+  <remotePackage path="emulator"><revision><major>1</major></revision><uses-license ref="test-licence"/><archives/></remotePackage>
+</sdk:sdk-repository>"#,
+    ).unwrap();
+    let mut c = h.client().await;
+    let params = json!({"packages":["emulator"]});
+    let first = c.ok("sdk.license_details", params.clone()).await;
+    assert_eq!(first[0]["text"], "Synthetic licence text.");
+    assert_eq!(first[0]["accepted"], false);
+    let pending = c.ok("sdk.licenses", params.clone()).await;
+    assert_eq!(
+        pending.as_array().unwrap().len(),
+        1,
+        "viewing must not accept a licence"
+    );
+    c.ok(
+        "sdk.accept_license",
+        json!({"id":first[0]["id"], "sha256":first[0]["sha256"]}),
+    )
+    .await;
+    let accepted = c.ok("sdk.license_details", params.clone()).await;
+    assert_eq!(accepted[0]["accepted"], true);
+    assert_eq!(accepted[0]["text"], first[0]["text"]);
+    assert!(
+        c.ok("sdk.licenses", params)
+            .await
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn cache_prune_rejects_overflow_without_deleting_entries() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    let cache = h.paths.downloads().join("sha256");
+    std::fs::create_dir_all(&cache).unwrap();
+    let entry = cache.join("a".repeat(64));
+    std::fs::write(&entry, b"keep").unwrap();
+
+    let maximum = u64::MAX / 86_400;
+    let report = c
+        .ok("cache.prune", json!({"older_than_days": maximum}))
+        .await;
+    assert_eq!(report["removed"], 0);
+    let error = c
+        .err("cache.prune", json!({"older_than_days": maximum + 1}))
+        .await;
+    assert_eq!(error["data"]["code"], "usage");
+    assert!(entry.exists());
+    assert!(c.ok("cache.list", json!({})).await.is_array());
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn creation_persists_custom_resolution_and_keeps_profile_defaults() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    c.ok(
+        "device.create",
+        json!({"name":"Custom display", "image":"35", "profile":"agent-lean", "width":1440, "height":3000}),
+    )
+    .await;
+    let details = c
+        .ok("device.details", json!({"device":"Custom display"}))
+        .await;
+    assert_eq!(details["config"]["hw.lcd.width"], "1440");
+    assert_eq!(details["config"]["hw.lcd.height"], "3000");
+    assert_eq!(details["config"]["hw.ramSize"], "2048");
+    assert_eq!(details["config"]["hw.cpu.ncore"], "2");
+    h.stop().await;
+}
+
+#[tokio::test]
 async fn display_changes_preserve_snapshot_and_force_cold_boot() {
     let h = Harness::start().await;
     let mut c = h.client().await;
@@ -78,7 +160,7 @@ async fn device_quick_boot_override_does_not_change_other_devices() {
     c.run("device.start", json!({"device":"Default"})).await;
     let options = h.backend.launches().last().unwrap().1.clone();
     assert!(!options.cold_boot);
-    assert!(options.snapshot_save);
+    assert!(!options.snapshot_save);
     c.ok("device.stop", json!({"device":"Default"})).await;
     c.ok("device.edit", json!({"device":"Cold", "quick_boot":null}))
         .await;

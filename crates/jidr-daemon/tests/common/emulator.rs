@@ -64,6 +64,10 @@ pub struct Emu {
 
 impl Emu {
     pub async fn start() -> Self {
+        Self::start_with_root(false).await
+    }
+
+    pub async fn start_with_root(with_root: bool) -> Self {
         kill_orphans(PREFIX);
         let image = test_image();
         let dir =
@@ -79,7 +83,7 @@ impl Emu {
             std::fs::create_dir_all(link.parent().unwrap()).unwrap();
             std::os::unix::fs::symlink(&dir, link.trim_end()).unwrap();
         }
-        let daemon = Daemon::builder(
+        let builder = Daemon::builder(
             DaemonConfig {
                 paths: paths.clone(),
                 studio_sdk: Some(test_sdk()),
@@ -87,9 +91,13 @@ impl Emu {
                 sdk_repo: None,
             },
             Arc::new(jidr_backend::AospBackend::new()),
-        )
-        .build()
-        .unwrap();
+        );
+        let builder = if with_root {
+            builder.provider(jidr_root::provider())
+        } else {
+            builder
+        };
+        let daemon = builder.build().unwrap();
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         let task = tokio::spawn(daemon.clone().serve(async {
             let _ = rx.await;

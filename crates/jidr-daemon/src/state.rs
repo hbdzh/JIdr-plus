@@ -65,6 +65,8 @@ pub struct State {
     pub(crate) instances: Mutex<HashMap<Uuid, InstanceInfo>>,
     pub(crate) watchers: Mutex<HashMap<Uuid, JoinHandle<()>>>,
     pub(crate) locks: DeviceLocks,
+    /// Serialises image removal against device creation and SDK installation.
+    pub(crate) image_gate: tokio::sync::RwLock<()>,
     // The registry owns providers. Weak references prevent a cycle through
     // providers that themselves own the daemon state.
     providers: OnceLock<Vec<Weak<dyn CommandProvider>>>,
@@ -84,6 +86,9 @@ pub struct State {
     /// Running devices launched from a named snapshot (`-no-snapshot-save`):
     /// their stop saves `default_boot` explicitly.
     resumed: Mutex<std::collections::HashSet<Uuid>>,
+    /// Re-adopted processes may have been launched by an older daemon with
+    /// automatic exit saving enabled; do not let it overwrite our save.
+    adopted: Mutex<std::collections::HashSet<Uuid>>,
 }
 
 /// Latest and peak footprint of a device's current run, in MB.
@@ -146,7 +151,23 @@ impl State {
             .map_err(|e| JidrError::sdk(format!("cannot back up device configuration: {e}")))?;
         Ok(())
     }
-    /// Quit only after a confirmed guest flush and graceful emulator exit.
+
+    async fn save_stop_snapshot(&self, device: &Device, info: &InstanceInfo) -> JidrResult<()> {
+        let result = async {
+            let avd = self.avds().dir(&device.avd);
+            self.backend
+                .save_quick_boot(info, &avd, &self.adb_path()?)
+                .await?;
+            jidr_sdk::avd::check_snapshot(&avd, "default_boot")
+        }
+        .await;
+        result.map_err(|mut error| {
+            tracing::warn!(device = %device.name, error = %error, "quick-boot snapshot save failed; device remains running");
+            error.data = Some(json!({"operation": "quick_boot_save", "cause": error.data.take()}));
+            error
+        })
+    }
+    /// Quit only after a confirmed guest flush and saved state.
     /// On failure keep the instance owned so it can be inspected or retried.
     pub(crate) async fn stop_for_quit(&self, id: Uuid) -> JidrResult<()> {
         let device = self.with_store(|store| store.get(id).cloned())?;
@@ -158,31 +179,33 @@ impl State {
             .with_timeout(STOP_SYNC_TIMEOUT)
             .sync()
             .await?;
-        let resumed = lock(&self.resumed).contains(&id);
         let verify_quick_boot = device
             .launch
             .quick_boot
             .unwrap_or(self.settings().quick_boot)
             && device.pool_base.is_none();
-        if resumed && verify_quick_boot {
-            let avd = self.avds().dir(&device.avd);
-            self.backend
-                .save_quick_boot(&info, &avd, &self.adb_path()?)
-                .await?;
-            jidr_sdk::avd::check_snapshot(&avd, "default_boot")?;
+        if verify_quick_boot {
+            self.save_stop_snapshot(&device, &info).await?;
         }
         if let Some(watcher) = lock(&self.watchers).remove(&id) {
             watcher.abort();
         }
         lock(&self.instances).remove(&id);
         self.set_status(id, DeviceStatus::Stopping, None);
-        if let Err(error) = self.backend.stop_for_quit(&info).await {
+        let adopted = lock(&self.adopted).contains(&id);
+        let result = if adopted && verify_quick_boot {
+            self.backend.stop_without_save(&info).await
+        } else {
+            self.backend.stop_for_quit(&info).await
+        };
+        if let Err(error) = result {
             lock(&self.instances).insert(id, info.clone());
             self.set_status(id, DeviceStatus::Running, Some(Some(info.runtime())));
             self.watch_crash(id, info);
             return Err(error);
         }
         lock(&self.resumed).remove(&id);
+        lock(&self.adopted).remove(&id);
         self.finish_footprint(id);
         lock(&self.activity).remove(&id);
         self.set_status(id, DeviceStatus::Stopped, Some(None));
@@ -213,6 +236,7 @@ impl State {
             instances: Mutex::new(HashMap::new()),
             watchers: Mutex::new(HashMap::new()),
             locks: DeviceLocks::default(),
+            image_gate: tokio::sync::RwLock::new(()),
             providers: OnceLock::new(),
             events,
             me: me.clone(),
@@ -223,6 +247,7 @@ impl State {
             activity: Mutex::new(HashMap::new()),
             leases: Mutex::new(leases),
             resumed: Mutex::new(std::collections::HashSet::new()),
+            adopted: Mutex::new(std::collections::HashSet::new()),
         }))
     }
 
@@ -458,6 +483,7 @@ impl State {
             let id = self.with_store(|s| s.all().iter().find(|d| d.avd == info.avd).map(|d| d.id));
             let Some(id) = id else { continue };
             lock(&self.instances).insert(id, info.clone());
+            lock(&self.adopted).insert(id);
             self.set_status(id, DeviceStatus::Running, Some(Some(info.runtime())));
             self.watch_crash(id, info);
             self.touch(id);
@@ -648,22 +674,13 @@ impl DaemonContext for State {
                     .unwrap_or(self.settings().quick_boot)
                     && resume.is_none()),
             snapshot: resume.clone(),
-            // D29 / gap B4: save a quick-boot snapshot on stop unless off. A
-            // resumed run doesn't: the exit save would go into the named
-            // snapshot, not `default_boot`.
-            snapshot_save: device
-                .launch
-                .quick_boot
-                .unwrap_or(self.settings().quick_boot)
-                && resume.is_none(),
+            // Save explicitly before stopping. The headless emulator's exit
+            // save can stall and leave default_boot without a memory image.
+            snapshot_save: false,
             // #25: only adb-root devices boot a writable system image.
             writable_system: device.root.writable_system && device.root.mode == RootMode::Adb,
             ..LaunchOptions::default()
         };
-        if opts.snapshot_save {
-            // Without it the headless emulator skips the exit save (13c).
-            self.avds().set_save_on_exit(&device.avd, true)?;
-        }
         self.set_status(id, DeviceStatus::Starting, None);
         let progress = |stage: BootStage| {
             if stage == BootStage::Spawned {
@@ -683,6 +700,7 @@ impl DaemonContext for State {
             }
         };
         lock(&self.instances).insert(id, info.clone());
+        lock(&self.adopted).remove(&id);
         self.set_status(id, DeviceStatus::Running, Some(Some(info.runtime())));
         if device.launch.force_cold_boot || device.launch.resume_snapshot.is_some() {
             self.with_store(|s| {
@@ -714,20 +732,15 @@ impl DaemonContext for State {
         if let Some(info) = info {
             self.flush_guest_storage(&current.name, &info).await;
             let resumed = lock(&self.resumed).contains(&id);
-            if resumed
-                && current
-                    .launch
-                    .quick_boot
-                    .unwrap_or(self.settings().quick_boot)
-                && current.pool_base.is_none()
-            {
-                // A resumed run has no exit save. Do not stop the device if
-                // the replacement state could not be saved and verified.
-                let dir = self.avds().dir(&current.avd);
-                self.backend
-                    .save_quick_boot(&info, &dir, &self.adb_path()?)
-                    .await?;
-                jidr_sdk::avd::check_snapshot(&dir, "default_boot")?;
+            let quick_boot = current
+                .launch
+                .quick_boot
+                .unwrap_or(self.settings().quick_boot)
+                && current.pool_base.is_none();
+            if quick_boot {
+                // Do not stop the device if the replacement state could not
+                // be saved and verified.
+                self.save_stop_snapshot(&current, &info).await?;
             }
             if let Some(w) = lock(&self.watchers).remove(&id) {
                 w.abort();
@@ -735,7 +748,13 @@ impl DaemonContext for State {
             lock(&self.instances).remove(&id);
             lock(&self.resumed).remove(&id);
             self.set_status(id, DeviceStatus::Stopping, None);
-            if let Err(e) = self.backend.stop(&info).await {
+            let adopted = lock(&self.adopted).contains(&id);
+            let result = if adopted && quick_boot {
+                self.backend.stop_without_save(&info).await
+            } else {
+                self.backend.stop(&info).await
+            };
+            if let Err(e) = result {
                 // Put it back: we don't know its state.
                 lock(&self.instances).insert(id, info.clone());
                 if resumed {
@@ -745,6 +764,7 @@ impl DaemonContext for State {
                 self.watch_crash(id, info);
                 return Err(e);
             }
+            lock(&self.adopted).remove(&id);
         }
         self.finish_footprint(id);
         crate::state::lock(&self.activity).remove(&id);
