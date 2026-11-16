@@ -106,6 +106,7 @@ struct DeviceSheetFooter<Actions: View>: View {
 struct EditDeviceView: View {
     @ObservedObject var model: CenterModel
     let details: Details
+    let onPanelClose: ((@escaping () -> Void) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var ram: String
@@ -125,8 +126,8 @@ struct EditDeviceView: View {
     @State private var originalQuality = 1
     @State private var qualityMessage = ""
     private let resolutionPresets = [("720×1280", "720", "1280"), ("1080×1920", "1080", "1920"), ("1080×2400", "1080", "2400"), ("1280×720", "1280", "720"), ("1920×1080", "1920", "1080")]
-    init(model: CenterModel, details: Details) {
-        self.model = model; self.details = details
+    init(model: CenterModel, details: Details, onPanelClose: ((@escaping () -> Void) -> Void)? = nil) {
+        self.model = model; self.details = details; self.onPanelClose = onPanelClose
         _name = State(initialValue:details.device.name)
         _ram = State(initialValue:details.config["hw.ramSize"] ?? "")
         _cores = State(initialValue:details.config["hw.cpu.ncore"] ?? "")
@@ -138,6 +139,11 @@ struct EditDeviceView: View {
         _audio = State(initialValue:details.device.launch.audio ?? true)
         _quickBoot = State(initialValue:details.device.launch.quick_boot.map { $0 ? "on" : "off" } ?? "global")
         _sleepMinutes = State(initialValue:details.device.auto_hibernate_minutes.map(String.init) ?? "")
+    }
+
+    private func closePanel(after completion: @escaping () -> Void = {}) {
+        if let onPanelClose { onPanelClose(completion) }
+        else { dismiss(); DispatchQueue.main.async(execute: completion) }
     }
 
     var body: some View {
@@ -297,11 +303,10 @@ struct EditDeviceView: View {
             }
             .formStyle(.grouped)
             .scrollContentBackground(.hidden)
-            .background(WbColor.raised)
             .disabled(saving)
 
             DeviceSheetFooter(note: model.text("部分更改将在下次启动设备时生效。", "Some changes apply the next time the device starts.")) {
-                Button(model.text("取消", "Cancel")) { dismiss() }
+                Button(model.text("取消", "Cancel")) { closePanel() }
                     .buttonStyle(.bordered).controlSize(.regular)
                     .disabled(saving)
                     .keyboardShortcut(.cancelAction)
@@ -313,7 +318,7 @@ struct EditDeviceView: View {
         }
         .interactiveDismissDisabled(saving)
         .frame(width: 560, height: 620)
-        .background(WbColor.raised)
+        .modifier(DeviceSheetGlass())
         .onAppear {
             do {
                 guard let path = model.dataDirectory else { qualityMessage = model.text("无法读取数据目录", "Cannot read the data directory"); return }
@@ -324,7 +329,7 @@ struct EditDeviceView: View {
         }
         .alert("冷启动设备？",isPresented:$confirmColdBoot) {
             Button("取消",role:.cancel) { }
-            Button("冷启动") { model.start(details.device.id,coldBoot:true); dismiss() }
+            Button("冷启动") { model.start(details.device.id,coldBoot:true); closePanel() }
         } message: { Text("本次启动将跳过快速启动快照，未保存的设置不会应用。") }
     }
 
@@ -358,7 +363,7 @@ struct EditDeviceView: View {
         }
         if !details.device.stopped { values = values.filter { $0.key == "audio" } }
         let qualityChanged = qualityLoaded && quality != originalQuality
-        guard !values.isEmpty || qualityChanged else { dismiss(); return }
+        guard !values.isEmpty || qualityChanged else { closePanel(); return }
         let changes = values
         saving = true
         DeviceSettingsSave.commit(saveDevice: { done in
@@ -383,7 +388,7 @@ struct EditDeviceView: View {
         }, completion: { result in
             saving = false
             switch result {
-            case .success: dismiss()
+            case .success: closePanel()
             case .failure(.device(let failure)): error = failure.localizedDescription
             case .failure(.quality(let failure)):
                 error = (changes.isEmpty
@@ -398,349 +403,321 @@ struct EditDeviceView: View {
 struct HardwareProfile: Decodable, Identifiable {
     let id: String; let name: String
     let ram_mb: Int; let cpus: Int; let data_mb: Int; let audio: Bool
+    let width: Int?; let height: Int?; let form_factor: String?
 }
 struct AvailableImage: Decodable, Identifiable {
     let api: Int; let tag: String; let abi: String; let installed_in: String?
     var id: String { "\(api):\(tag):\(abi)" }
     var package: String { "system-images;android-\(api);\(tag);\(abi)" }
 }
-struct InstallSDKView: View {
-    @ObservedObject var model: CenterModel
-    var onClose: (() -> Void)? = nil
-    private func finish() { if let onClose { onClose() } else { dismiss() } }
+struct OnboardingCardMaterial: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 16, style: .continuous)
+        let dark = colorScheme == .dark
+        content.foregroundStyle(WbColor.textPrimary)
+            // The window supplies the blur; the translucent tint preserves
+            // its color instead of adding an opaque material on top.
+            .background {
+                shape.fill(Color.white.opacity(dark ? 0.08 : 0.36))
+                    .shadow(color: .black.opacity(dark ? 0.10 : 0.08), radius: 12, y: 5)
+                    .allowsHitTesting(false)
+            }
+            .overlay(shape.strokeBorder(dark ? Color.white.opacity(0.16) : Color.black.opacity(0.12)).allowsHitTesting(false))
+    }
+}
+
+struct CustomResolutionView: View {
+    let language: Int
+    let onConfirm: (DeviceResolution) -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var images: [AvailableImage] = []
-    @State private var selection = ""
-    @State private var licenses: [PendingLicense] = []
-    @State private var reviewed = false
-    @State private var loading = false
-    @State private var loadingImages = false
-    @State private var imageError = ""
-    @State private var sdkStatusError = ""
-    @State private var loadingMessage = ""
-    @State private var showingLicenses = false
-    @State private var showingInstallStatus = false
-    @State private var error = ""
-    @State private var plan: SDKInstallPlan?
-    @State private var sdkStatus: SDKStatus?
+    @State private var width: String
+    @State private var height: String
 
-    private var package: String? { images.first(where: { $0.id == selection })?.package }
-    private var packages: [String] { ["emulator", "platform-tools"] + (package.map { [$0] } ?? []) }
-
-    private func loadSDKStatus() {
-        sdkStatusError = ""
-        model.call("sdk.status") { result in
-            do { sdkStatus = try model.decode(result.get(),as:SDKStatus.self) }
-            catch { sdkStatusError = model.text("无法检查 SDK 状态，请重试。", "Unable to check SDK status. Try again.") + "\n" + error.localizedDescription }
-        }
-    }
-    private func loadAvailableImages() {
-        guard !loadingImages else { return }
-        loadingImages = true; imageError = ""
-        model.call("image.list", ["available":true]) { result in
-            loadingImages = false
-            do {
-                images = try model.decode(result.get(),as:[AvailableImage].self)
-                if !selection.isEmpty && !images.contains(where: { $0.id == selection && $0.installed_in == nil }) { selection = "" }
-            }
-            catch { imageError = model.text("无法读取 SDK 镜像列表，请检查网络后重试。", "Unable to load SDK images. Check your connection and retry.") + "\n" + error.localizedDescription }
-        }
-    }
-    private func retrySetup() {
-        showingInstallStatus = false; showingLicenses = false; reviewed = false
-        error = ""; plan = nil
-        loadSDKStatus(); loadAvailableImages()
+    init(language: Int, initialWidth: Int, initialHeight: Int, onConfirm: @escaping (DeviceResolution) -> Void) {
+        self.language = language
+        self.onConfirm = onConfirm
+        _width = State(initialValue: String(initialWidth))
+        _height = State(initialValue: String(initialHeight))
     }
 
-    private func chooseExistingSDK() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        loading = true; error = ""; loadingMessage = model.text("正在检查 SDK…", "Checking SDK…")
-        model.call("center.toolpath.set",["kind":"sdk","path":url.path]) { result in
-            loading = false
-            switch result {
-            case .success: model.refresh(); finish()
-            case .failure(let failure): error = model.text("无法使用该 SDK，请确认目录包含 emulator 和 platform-tools。", "Cannot use this SDK. Check that it contains emulator and platform-tools.") + "\n" + failure.localizedDescription
-            }
-        }
-    }
-
-    private func chooseInstallLocation() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true; panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false; panel.canCreateDirectories = true
-        panel.prompt = t("选择安装位置", "Choose install location")
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        setInstallLocation(url.path)
-    }
-    private func restoreInstallLocation() { setInstallLocation(NSNull()) }
-    private func setInstallLocation(_ path: Any) {
-        loading = true; error = ""
-        loadingMessage = t("正在保存安装位置…", "Saving install location…")
-        model.call("center.toolpath.set", ["kind": "jidr_sdk", "path": path]) { result in
-            loading = false
-            switch result {
-            case .success:
-                loadSDKStatus(); loadAvailableImages()
-            case .failure(let failure):
-                error = t("无法保存安装位置，请选择可写的目录后重试。",
-                          "Could not save the install location. Choose a writable directory and retry.")
-                    + "\n" + failure.localizedDescription
-            }
-        }
-    }
-
-    private func prepare() {
-        loading = true; error = ""; loadingMessage = model.text("正在读取许可…", "Loading licences…")
-        model.call("sdk.licenses", ["packages":packages]) { result in
-            loading = false
-            do {
-                let found = try model.decode(result.get(), as:[PendingLicense].self)
-                licenses = found; plan = SDKInstallPlan(imagePackage:package,licenses:found)
-                reviewed = false; showingLicenses = true
-            }
-            catch { self.error = model.text("无法读取 SDK 许可，请检查网络后重试。", "Unable to load SDK licences. Check your connection and retry.") + "\n" + error.localizedDescription }
-        }
-    }
-    private func accept(_ index: Int) {
-        guard let plan else { loading = false; return }
-        let requests: [[String:String]]
-        do { requests = try plan.consentRequests(reviewed:reviewed) }
-        catch { loading = false; self.error = model.text("请阅读并同意许可协议。", "Review and agree to the licences first."); return }
-        if index == requests.count {
-            showingInstallStatus = true; loading = false
-            model.startSDKInstall(plan)
-            return
-        }
-        model.call("sdk.accept_license", requests[index]) { result in
-            switch result {
-            case .success: accept(index + 1)
-            case .failure(let failure): loading = false; error = model.text("无法记录许可确认，请重新检查许可后重试。", "Unable to record licence consent. Review the licences and retry.") + "\n" + failure.localizedDescription
-            }
-        }
-    }
-    private func t(_ zh: String, _ en: String) -> String { model.text(zh, en) }
+    private func text(_ zh: String, _ en: String) -> String { language == 0 ? en : zh }
+    private var resolution: DeviceResolution? { DeviceResolution(width: width, height: height) }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 14) {
-                Image(systemName: "shippingbox")
-                    .font(.system(size: 22)).foregroundStyle(WbColor.accentText)
-                    .frame(width: 44, height: 44)
-                    .background(WbColor.accentContainer, in: RoundedRectangle(cornerRadius: 10))
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(showingInstallStatus ? t("安装进度", "Installation progress") : showingLicenses ? t("许可协议", "Licence agreements") : "Android SDK")
-                        .font(.system(size: 18, weight: .semibold))
-                    Text(t("配置模拟器工具和 Android 系统镜像。", "Set up emulator tools and Android system images."))
-                        .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
-                }
-                Spacer(minLength: 8)
-                Text(showingInstallStatus ? "3 / 3" : showingLicenses ? "2 / 3" : "1 / 3")
-                    .font(.system(size: 11, weight: .medium)).monospacedDigit().foregroundStyle(WbColor.textSecondary)
-            }
-            .padding(24)
-            Divider()
-            if showingLicenses {
-                licenceContent
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        if showingInstallStatus { installationContent }
-                        else { configurationContent }
-                        if loading { ProgressView(loadingMessage).controlSize(.small) }
-                        if !error.isEmpty {
-                            Label(error, systemImage: "exclamationmark.triangle")
-                                .font(.system(size: 12)).foregroundStyle(WbColor.negative).textSelection(.enabled)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(24)
-                }
-            }
-            Divider()
-            footer
-        }
-        .frame(width: 650, height: 520)
-        .font(.system(size: 13))
-        .background(WbColor.surface)
-        .tint(WbColor.accent)
-        .onAppear {
-            if model.sdkInstalling { showingInstallStatus = true; return }
-            loadSDKStatus(); loadAvailableImages()
-        }
-        .interactiveDismissDisabled(loading)
-    }
-
-    @ViewBuilder private var configurationContent: some View {
-        GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
-                if let existing = sdkStatus?.studio_sdk {
-                    Label(t("已检测到可用的 Android SDK", "Android SDK detected"), systemImage: "checkmark.circle.fill")
-                        .foregroundStyle(WbColor.positive).font(.system(size: 12, weight: .medium))
-                    Text(existing).font(.system(size: 11, design: .monospaced)).foregroundStyle(WbColor.textSecondary)
-                        .lineLimit(2).truncationMode(.middle).help(existing).textSelection(.enabled)
-                    HStack(spacing: 8) {
-                        Button(t("使用此 SDK", "Use this SDK")) { finish() }.disabled(loading)
-                        Button(t("选择其他位置…", "Choose another location…"), action: chooseExistingSDK).disabled(loading)
-                    }.buttonStyle(.bordered)
-                } else {
-                    Text(t("已有 SDK？选择包含 emulator 和 platform-tools 的目录。", "Already have an SDK? Choose its emulator and platform-tools directory."))
-                        .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
-                    Button(t("选择 SDK 目录…", "Choose SDK folder…"), action: chooseExistingSDK).buttonStyle(.bordered).disabled(loading)
-                }
-                if !sdkStatusError.isEmpty {
-                    Text(sdkStatusError).font(.system(size: 12)).foregroundStyle(WbColor.negative).textSelection(.enabled)
-                    Button(t("重新检查", "Check again"), action: loadSDKStatus).buttonStyle(.link)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(10)
-        } label: { Label(t("外部 Android SDK（只读，可选）", "External Android SDK (read-only, optional)"), systemImage: "folder").font(.system(size: 12, weight: .semibold)) }
-
-        GroupBox {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text(t("系统镜像", "System image"))
-                    Spacer(minLength: 16)
-                    Picker(t("系统镜像", "System image"), selection: $selection) {
-                        Text(t("仅安装模拟器工具", "Emulator tools only")).tag("")
-                        ForEach(Array(Set(images.filter { $0.installed_in == nil }.map(\.api))).sorted(by: >), id: \.self) { api in
-                            Section("Android API \(api)") {
-                                ForEach(images.filter { $0.api == api && $0.installed_in == nil }.sorted {
-                                    let lhs = DevicePresentation.imageOrder($0.tag)
-                                    let rhs = DevicePresentation.imageOrder($1.tag)
-                                    return lhs == rhs ? $0.id < $1.id : lhs < rhs
-                                }) { image in
-                                    Text("API \(api) · \(Device.imageTagLabel(image.tag)) · \(image.abi)").tag(image.id)
-                                }
-                            }
-                        }
-                    }.labelsHidden().frame(maxWidth: 360).disabled(loading || loadingImages)
-                }
-                if let location = sdkStatus?.install_sdk ?? sdkStatus?.private_sdk {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(t("安装位置：\(location)", "Install location: \(location)"))
-                            .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
-                            .textSelection(.enabled).lineLimit(2).truncationMode(.middle)
-                            .help(location)
-                        HStack(spacing: 8) {
-                            Button(t("更改安装位置…", "Change install location…"), action: chooseInstallLocation)
-                                .disabled(loading)
-                            if sdkStatus?.custom_sdk != nil {
-                                Button(t("恢复默认", "Restore default"), action: restoreInstallLocation)
-                                    .disabled(loading)
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                }
-                Text(t("新安装的 emulator 和系统镜像会保存到此目录；已有默认目录中的镜像仍可继续使用。",
-                       "Newly installed emulator files and system images go to this directory; images in the existing default directory remain available."))
-                    .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(t("将安装模拟器工具、ADB 和所选镜像。下一步先检查许可协议。", "Installs emulator tools, ADB and the selected image. Review licences before installation."))
-                    .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary).fixedSize(horizontal: false, vertical: true)
-                if loadingImages {
-                    ProgressView(t("正在读取镜像列表…", "Loading system images…")).controlSize(.small)
-                } else if !imageError.isEmpty {
-                    Text(imageError).font(.system(size: 12)).foregroundStyle(WbColor.negative).textSelection(.enabled)
-                    Button(t("重新读取镜像", "Retry images"), action: loadAvailableImages).buttonStyle(.link)
-                } else if images.allSatisfy({ $0.installed_in != nil }) {
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        Text(t("暂无可下载的镜像，可以只安装工具。", "No downloadable images are available. You can still install tools."))
-                            .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
-                        Spacer(minLength: 0)
-                        Button(t("刷新", "Refresh"), action: loadAvailableImages).buttonStyle(.link)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading).padding(10)
-        } label: { Label(t("安装或更新组件", "Install or update components"), systemImage: "arrow.down.circle").font(.system(size: 12, weight: .semibold)) }
-    }
-
-    private var licenceContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if licenses.isEmpty {
-                Label(t("所选组件没有需要接受的新许可。", "The selected components have no new licences to accept."), systemImage: "checkmark.circle")
-                    .foregroundStyle(WbColor.textSecondary)
-                Spacer()
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        ForEach(licenses) { license in
-                            Text(license.id).font(.system(size: 13, weight: .semibold))
-                            Text(license.text).font(.system(size: 12)).textSelection(.enabled)
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading).padding(14)
-                }
-                .background(WbColor.raised, in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(WbColor.borderDefault))
-                Toggle(t("我已阅读并同意上述许可协议", "I have read and agree to the licences above"), isOn: $reviewed).disabled(loading)
-            }
-            if loading { ProgressView(loadingMessage).controlSize(.small) }
-            if !error.isEmpty { Text(error).font(.system(size: 12)).foregroundStyle(WbColor.negative).textSelection(.enabled) }
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private var installationContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if model.sdkInstalling {
-                if let fraction = model.sdkInstallFraction {
-                    ProgressView(value: fraction) { Text(model.sdkInstallMessage).font(.system(size: 13)) }
-                    Text(t("当前步骤 \(Int(fraction * 100))%", "Current step \(Int(fraction * 100))%"))
-                        .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
-                } else { ProgressView(model.sdkInstallMessage).controlSize(.small) }
-                Text(t("可在后台继续。退出前请等待安装或取消完成。", "You can continue in the background. Wait for installation or cancellation before quitting."))
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(text("自定义分辨率", "Custom resolution"))
+                    .font(.system(size: 20, weight: .semibold))
+                Text(text("设置设备屏幕的宽度和高度。", "Set the width and height of the device screen."))
                     .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
-            } else {
-                Label(model.sdkInstallMessage, systemImage: model.sdkInstallSucceeded == false ? "exclamationmark.triangle" : "checkmark.circle")
             }
-            if let message = model.sdkInstallError { Text(message).font(.system(size: 12)).foregroundStyle(WbColor.negative).textSelection(.enabled) }
+            HStack(alignment: .top, spacing: 12) {
+                resolutionField(text("宽度 (px)", "Width (px)"), value: $width)
+                resolutionField(text("高度 (px)", "Height (px)"), value: $height)
+            }
+            Text(resolution == nil
+                 ? text("宽度和高度须为 240–4096 之间的整数。", "Width and height must be whole numbers from 240 to 4096.")
+                 : text("宽度和高度范围：240–4096 像素。", "Width and height: 240–4096 pixels."))
+                .font(.system(size: 11))
+                .foregroundStyle(resolution == nil ? WbColor.negative : WbColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button(text("取消", "Cancel")) { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+                Button(text("确认", "Confirm")) {
+                    guard let resolution else { return }
+                    onConfirm(resolution)
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                .disabled(resolution == nil)
+            }
         }
+        .padding(24).frame(width: 420)
+        .background(WbColor.raised)
     }
 
-    private var footer: some View {
-        HStack(spacing: 8) {
-            if showingLicenses, !loading {
-                Button(t("返回", "Back")) { showingLicenses = false; reviewed = false }
-            }
-            Spacer()
-            if showingInstallStatus {
-                if model.sdkInstalling {
-                    Button(model.sdkCancelPending ? t("正在取消…", "Cancelling…") : t("取消安装", "Cancel installation")) { model.cancelSDKInstall() }
-                        .disabled(model.sdkInstallJob == nil || model.sdkCancelPending)
-                    Button(t("后台运行", "Run in background")) { finish() }.keyboardShortcut(.cancelAction)
+    private func resolutionField(_ label: String, value: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(label).font(.system(size: 12, weight: .medium))
+            TextField(label, text: value).labelsHidden().textFieldStyle(.roundedBorder)
+                .accessibilityLabel(label)
+        }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A compact checkbox matching the onboarding cards while keeping toggle accessibility.
+struct OnboardingLicenseToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Button { configuration.isOn.toggle() } label: {
+            HStack(alignment: .center, spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .fill(configuration.isOn ? WbColor.accentText : Color.clear)
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(configuration.isOn ? WbColor.accentText : WbColor.textSecondary.opacity(0.55), lineWidth: 1.3)
+                    if configuration.isOn {
+                        Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white)
+                    }
+                }.frame(width: 17, height: 17)
+                configuration.label
+            }.contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityRepresentation {
+            Toggle(isOn: configuration.$isOn) { configuration.label }.toggleStyle(.checkbox)
+        }
+    }
+}
+
+struct EnvironmentLicensesView: View {
+    let language: Int
+    let licenses: [PendingLicense]?
+    let loading: Bool
+    let error: String
+    let canAgree: Bool
+    let retry: () -> Void
+    let onAgree: () -> Bool
+    @Environment(\.dismiss) private var dismiss
+    private func t(_ zh: String, _ en: String) -> String { language == 1 ? zh : en }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(t("Android SDK 许可说明", "Android SDK licence details"))
+                    .font(.system(size: 18, weight: .semibold))
+                Text(t("以下是所选组件实际需要确认的许可。", "These licences apply to the selected components."))
+                    .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
+            }.padding(22)
+            Divider()
+            Group {
+                if loading {
+                    ProgressView(t("正在读取许可…", "Loading licences…")).controlSize(.small)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if !error.isEmpty {
+                    VStack(spacing: 12) {
+                        Text(error).foregroundStyle(WbColor.negative).textSelection(.enabled)
+                        Button(t("重试", "Retry"), action: retry)
+                    }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let licenses, licenses.isEmpty {
+                    Text(t("所选组件没有关联的许可文本。", "No licence text is associated with the selected components."))
+                        .foregroundStyle(WbColor.textSecondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let licenses {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 14) {
+                            ForEach(licenses) { license in
+                                HStack {
+                                    Text(license.id).font(.system(size: 13, weight: .semibold))
+                                    if license.accepted == true {
+                                        Text(t("已接受", "Accepted")).font(.system(size: 10, weight: .semibold))
+                                            .foregroundStyle(WbColor.positive)
+                                    }
+                                }
+                                Text(license.text).font(.system(size: 12)).textSelection(.enabled)
+                            }
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(20)
+                    }
                 } else {
-                    if model.sdkInstallSucceeded == false { Button(t("重新选择并重试", "Choose and retry"), action: retrySetup) }
-                    Button(t("完成", "Done")) { finish() }.keyboardShortcut(.cancelAction)
+                    Text(t("许可尚未读取。", "Licences have not been loaded."))
+                        .foregroundStyle(WbColor.textSecondary).frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            } else {
-                Button(t("取消", "Cancel")) { finish() }.disabled(loading).keyboardShortcut(.cancelAction)
-                Button(showingLicenses ? (licenses.isEmpty ? t("安装", "Install") : t("同意并安装", "Agree and install")) : t("继续", "Continue")) {
-                    if showingLicenses {
-                        loading = true; error = ""; loadingMessage = t("正在确认许可…", "Confirming licences…"); accept(0)
-                    } else { prepare() }
+            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
+            HStack(spacing: 8) {
+                Spacer()
+                Button(t("关闭", "Close")) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(t("同意", "Agree")) {
+                    if onAgree() { dismiss() }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(loading || (showingLicenses && !licenses.isEmpty && !reviewed))
-                .keyboardShortcut(.defaultAction)
+                .disabled(loading || !error.isEmpty || licenses == nil || !canAgree)
+            }
+            .tint(WbColor.accent)
+            .padding(.horizontal, 22).padding(.vertical, 14)
+        }
+        .frame(width: 560, height: 420)
+        .background(WbColor.raised)
+    }
+}
+
+struct OnboardingInstallProgressView: View {
+    let language: Int
+    let state: SDKOnboardingInstallState
+    let fraction: Double?
+    let message: String
+    let error: String?
+    private func t(_ zh: String, _ en: String) -> String { language == 1 ? zh : en }
+
+    private var title: String {
+        switch state {
+        case .skipped: return t("需要确认许可", "Licence confirmation required")
+        case .preparing, .installing: return t("正在准备 Android 运行环境", "Preparing the Android environment")
+        case .completed: return t("Android 运行环境已准备好", "Android environment is ready")
+        case .failed: return t("安装未完成", "Installation did not complete")
+        case .cancelled: return t("安装已取消", "Installation cancelled")
+        }
+    }
+    private var subtitle: String {
+        switch state {
+        case .skipped: return t("请返回上一步，查看并同意许可后继续。", "Go back, review the licences, and agree before continuing.")
+        case .preparing: return t("正在确认安装许可。", "Confirming installation licences.")
+        case .installing: return t("安装所需组件，请稍候。", "Installing the required components.")
+        case .completed: return t("现在可以继续配置设备。", "You can now configure your device.")
+        case .failed, .cancelled: return t("返回上一步可调整设置并重试。", "Go back to change your settings and try again.")
+        }
+    }
+    private var symbol: String {
+        switch state {
+        case .skipped, .completed: return "checkmark.circle"
+        case .failed: return "exclamationmark.triangle"
+        case .cancelled: return "xmark.circle"
+        case .preparing, .installing: return "arrow.down.to.line"
+        }
+    }
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer(minLength: 20)
+            VStack(spacing: 14) {
+                Image(systemName: symbol)
+                    .font(.system(size: 29, weight: .medium))
+                    .foregroundStyle(state == .failed ? WbColor.negative : WbColor.accentText)
+                    .frame(width: 72, height: 72)
+                    .background(WbColor.accentContainer.opacity(0.65), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                Text(title).font(.system(size: 25, weight: .semibold)).foregroundStyle(WbColor.textPrimary)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+                Text(subtitle).font(.system(size: 13)).foregroundStyle(WbColor.textSecondary)
+                    .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
+            }.frame(maxWidth: .infinity)
+            if state == .preparing || state == .installing {
+                VStack(alignment: .leading, spacing: 11) {
+                    HStack {
+                        Text(t("当前任务进度", "Current task progress")).font(.system(size: 12, weight: .semibold))
+                        Spacer()
+                        if let fraction {
+                            Text("\(Int(fraction * 100))%")
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        }
+                    }
+                    if let fraction { ProgressView(value: fraction).labelsHidden().tint(WbColor.accent) }
+                    else { ProgressView().controlSize(.small) }
+                    if !message.isEmpty {
+                        Text(message).font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+                    }
+                }.frame(maxWidth: 500, alignment: .leading).padding(.top, 38)
+            }
+            if let error, !error.isEmpty, state == .failed {
+                Text(error).font(.system(size: 12)).foregroundStyle(WbColor.negative)
+                    .textSelection(.enabled).multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true).frame(maxWidth: 500).padding(.top, 20)
+            }
+            Spacer(minLength: 20)
+        }.padding(.horizontal, 32).frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct OnboardingInstallFooterView: View {
+    let language: Int
+    let state: SDKOnboardingInstallState
+    let cancelPending: Bool
+    let canCancel: Bool
+    let onCancel: () -> Void
+    let onReview: () -> Void
+    var onReturnToSetup: (() -> Void)? = nil
+    private func t(_ zh: String, _ en: String) -> String { language == 1 ? zh : en }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Spacer()
+            if state.showsCancel {
+                Button(cancelPending ? t("正在取消…", "Cancelling…") : t("取消安装", "Cancel installation"), action: onCancel)
+                    .disabled(!canCancel || cancelPending)
+            } else if state.showsReviewSettings {
+                Button(t("返回修改", "Review settings"), action: onReview)
+                if let onReturnToSetup {
+                    Button(t("返回设备配置", "Return to device setup"), action: onReturnToSetup)
+                }
             }
         }
         .buttonStyle(.bordered).controlSize(.regular)
-        .padding(.horizontal, 24).padding(.vertical, 16)
-        .background(WbColor.chrome)
+        .padding(.horizontal, 32).padding(.vertical, 18)
+    }
+}
+
+struct OnboardingEnvironmentChecking: View {
+    let language: Int
+    var body: some View {
+        ProgressView(language == 1 ? "正在检查环境…" : "Checking the environment…").controlSize(.small)
     }
 }
 
 struct NewDeviceView: View {
     @ObservedObject var model: CenterModel
+    var initialStep = 0
+    var inline = false
+    var initialShowAdvanced = false
+    var automaticallySkipReadyEnvironment = true
+    var initialImageInstall = false
+    var startAtDeviceSetup = false
+    var standaloneImageInstall = false
+    var standaloneSDKSetup = false
+    private var standaloneEnvironment: Bool { standaloneImageInstall || standaloneSDKSetup }
+    var reduceMotionOverride: Bool? = nil
+    var onPanelClose: ((@escaping () -> Void) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.accessibilityReduceMotion) private var systemReduceMotion
+    @State private var step: Int
     @State private var name = ""
     @State private var profiles: [HardwareProfile] = []
+    @State private var profilesLoaded = false
     @State private var images: [AvailableImage] = []
+    @State private var imagesLoaded = false
     @State private var profile = ""
+    @State private var customSelection = DeviceResolutionSelection()
+    @State private var showingCustomResolution = false
     @State private var image = ""
     @State private var ram = "4096"
     @State private var cpus = "4"
@@ -748,197 +725,969 @@ struct NewDeviceView: View {
     @State private var root = "none"
     @State private var audio = true
     @State private var error = ""
-    @State private var saving = false
-    @State private var installing = false
+    @State private var submission = DeviceCreationSubmission()
+    @State private var imageInstallReturnStep: Int?
+    @State private var environmentReturnStep: Int?
     @State private var showAdvanced = false
+    @State private var environmentStatus: SDKStatus?
+    @State private var initialImagesChecked = false
+    @State private var initialSDKChecked = false
+    @State private var initialRouteResolved = false
+    @State private var directDeviceSetup = false
+    @State private var initialized = false
+    @State private var environmentError = ""
+    @State private var environmentBusy = false
+    @State private var availableImages: [AvailableImage] = []
+    @State private var availableImagesLoading = false
+    @State private var availableImagesError = ""
+    @State private var installImageID = ""
+    @State private var installSelectionInitialized = false
+    @State private var onboardingInstallRequested = false
+    @State private var preparationAttempt = SDKPreparationAttempt()
+    @State private var environmentReview = SDKLicenseReview()
+    @State private var showingEnvironmentLicenses = false
+    @State private var environmentLicenseLoading = false
+    @State private var environmentLicenseError = ""
 
-    func applyProfile(_ id: String) {
-        guard let value = profiles.first(where: { $0.id == id }) else { return }
-        ram = String(value.ram_mb); cpus = String(value.cpus)
-        storage = String(max(2, value.data_mb / 1024)); audio = value.audio
+    init(model: CenterModel, initialStep: Int = 0, inline: Bool = false,
+         initialShowAdvanced: Bool = false, automaticallySkipReadyEnvironment: Bool = true,
+         initialImageInstall: Bool = false, startAtDeviceSetup: Bool = false,
+         standaloneImageInstall: Bool = false, standaloneSDKSetup: Bool = false,
+         reduceMotionOverride: Bool? = nil, onPanelClose: ((@escaping () -> Void) -> Void)? = nil) {
+        self.model = model
+        self.initialStep = initialStep
+        self.inline = inline
+        self.initialShowAdvanced = initialShowAdvanced
+        self.automaticallySkipReadyEnvironment = automaticallySkipReadyEnvironment
+        self.initialImageInstall = initialImageInstall
+        self.startAtDeviceSetup = startAtDeviceSetup
+        self.standaloneImageInstall = standaloneImageInstall
+        self.standaloneSDKSetup = standaloneSDKSetup
+        self.reduceMotionOverride = reduceMotionOverride
+        self.onPanelClose = onPanelClose
+        _step = State(initialValue: startAtDeviceSetup ? 3 : min(3, max(0, initialStep)))
+        _directDeviceSetup = State(initialValue: startAtDeviceSetup)
+        _showAdvanced = State(initialValue: initialShowAdvanced)
+    }
+    private func closePanel(after completion: @escaping () -> Void = {}) {
+        if let onPanelClose { onPanelClose(completion) }
+        else { dismiss(); DispatchQueue.main.async(execute: completion) }
+    }
+    private var saving: Bool { submission.isSaving }
+    private var createdSuccessfully: Bool { submission.didCreate }
+    private var reduceMotion: Bool { reduceMotionOverride ?? systemReduceMotion }
+    private var resolvingInitialRoute: Bool {
+        inline && initialStep == 0 && automaticallySkipReadyEnvironment && !initialRouteResolved
     }
 
-    func loadImages() {
-        model.call("image.list",["available":false]) { result in
-            do { images = try model.decode(result.get(),as:[AvailableImage].self).filter { $0.installed_in != nil }; image = images.first?.id ?? "" }
-            catch { self.error = error.localizedDescription }
-        }
+    private func resolveInitialRoute() {
+        guard resolvingInitialRoute, initialImagesChecked, initialSDKChecked else { return }
+        directDeviceSetup = DeviceOnboardingRoute.useDeviceSetup(hasTools: environmentStatus?.tools_sdk != nil,
+                                                                  installedImageCount: images.count)
+        if directDeviceSetup { step = 3 }
+        initialRouteResolved = true
     }
 
     private var creation: DeviceCreation {
         DeviceCreation(name: name, image: image, profile: profile, ram: ram, cpus: cpus,
-                       storage: storage, root: root, audio: audio)
+                       storage: storage, root: root, audio: audio,
+                       resolution: customSelection.active)
+    }
+    private var steps: [String] {
+        [model.text("运行环境", "Environment"), model.text("安装环境", "Install environment"), model.text("设备配置", "Device setup")]
+    }
+    private var validationMessage: String? {
+        guard imagesLoaded && !profiles.isEmpty else { return nil }
+        do { _ = try creation.parameters(); return nil }
+        catch { return model.creationError(error) }
+    }
+
+    private func applyProfile(_ id: String) {
+        guard let value = profiles.first(where: { $0.id == id }) else { return }
+        ram = String(value.ram_mb); cpus = String(value.cpus)
+        storage = String(max(2, value.data_mb / 1024)); audio = value.audio
+    }
+    private func loadImages(preferredImageID: String? = nil, onComplete: @escaping (Bool) -> Void = { _ in }) {
+        imagesLoaded = false
+        model.call("image.list", ["available": false]) { result in
+            do {
+                let available = try model.decode(result.get(), as: [AvailableImage].self).filter { $0.installed_in != nil }
+                images = available
+                image = DeviceOnboardingRoute.selectedImage(installed: available.map(\.id), current: image, preferred: preferredImageID)
+                imagesLoaded = true
+                onComplete(true)
+            } catch { self.error = error.localizedDescription; onComplete(false) }
+            initialImagesChecked = true
+            resolveInitialRoute()
+        }
+    }
+    private func advance() {
+        error = ""
+        if step == 0 {
+            guard canBeginEnvironmentInstallation else { return }
+            beginEnvironmentInstallation()
+        } else { step = 3 }
     }
 
     var body: some View {
-        ZStack {
-            creationForm.opacity(installing ? 0 : 1)
-                .allowsHitTesting(!installing).accessibilityHidden(installing).disabled(installing)
-            if installing {
-                InstallSDKView(model: model, onClose: { installing = false; loadImages() })
-                    .background(WbColor.raised)
-            }
-        }
-        .frame(width: installing ? 650 : 520, height: 520)
-    }
-    private var creationForm: some View {
-        VStack(spacing: 0) {
-            DeviceSheetHeader(title: model.text("添加设备", "Add device"),
-                              subtitle: model.text("选择已经安装的系统镜像和硬件配置。", "Choose an installed system image and hardware profile."))
-            Form {
-                Section(model.text("基础配置", "Basic configuration")) {
-                    LabeledContent(model.text("设备名称", "Device name")) {
-                        TextField(model.text("例如：Pixel 9 Pro", "e.g. Pixel 9 Pro"), text: $name)
-                            .labelsHidden()
-                            .textFieldStyle(.roundedBorder)
-                            .multilineTextAlignment(.leading)
-                            .frame(width: 220)
-                            .disabled(saving)
-                            .accessibilityLabel(model.text("设备名称", "Device name"))
+        GeometryReader { geometry in
+            let wide = inline && geometry.size.width >= 900 && geometry.size.height >= 600
+            VStack(spacing: 0) {
+                wizardHeader
+                ZStack {
+                if resolvingInitialRoute {
+                    VStack {
+                        Spacer()
+                        ProgressView(model.text("正在检查 Android 环境…", "Checking Android environment…"))
+                        Spacer()
                     }
-                    LabeledContent(model.text("系统镜像", "System image")) {
-                        Picker("", selection: $image) {
-                            Text(model.text("请选择", "Select")).tag("")
-                            ForEach(images) { item in
-                                Text("Android API \(item.api) · \(Device.imageTagLabel(item.tag))").tag(item.id)
+                    .transition(.opacity)
+                } else if step == 1 {
+                    VStack(spacing: 0) {
+                    OnboardingInstallProgressView(language: model.language, state: onboardingInstallState,
+                                                  fraction: onboardingInstallState.displayedFraction(model.sdkInstallFraction),
+                                                  message: onboardingInstallMessage,
+                                                  error: environmentError.isEmpty ? model.sdkInstallError : environmentError)
+                    onboardingInstallFooter
+                    }
+                    .transition(.opacity)
+                } else {
+                    VStack(spacing: 0) {
+                    ScrollViewReader { scroll in
+                    ScrollView {
+                        HStack(spacing: wide ? 48 : 0) {
+                            if wide {
+                                ZStack {
+                                    OnboardingArtwork(step: step == 3 ? 1 : 0)
+                                        .id(step == 3)
+                                        .transition(.opacity)
+                                }
+                            }
+                            VStack(alignment: .leading, spacing: 18) {
+                                ZStack(alignment: .topLeading) {
+                                    if step == 0 { environmentStep.transition(.opacity) }
+                                    else { configurationStep.transition(.opacity) }
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                if !error.isEmpty {
+                                    Text(error).wbFont(WbType.caption).foregroundStyle(WbColor.negative).textSelection(.enabled)
+                                }
+                                if createdSuccessfully {
+                                    HStack {
+                                        Text(model.text("设备已创建，正在刷新设备列表。", "Device created. Refreshing the device list."))
+                                            .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
+                                        Button(model.text("刷新", "Refresh")) { model.refresh() }.buttonStyle(.link)
+                                    }
+                                }
+                            }
+                            .frame(maxWidth: wide ? 390 : 470, alignment: .leading)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: max(0, geometry.size.height - 164), alignment: .center)
+                        .padding(.horizontal, wide ? 24 : 28)
+                        .padding(.vertical, 8)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onChange(of: showAdvanced) { expanded in
+                        guard expanded else { return }
+                        DispatchQueue.main.async {
+                            withAnimation(WbMotion.scroll.animation(reduceMotion: reduceMotion)) {
+                                scroll.scrollTo("onboarding-advanced-fields", anchor: .bottom)
                             }
                         }
-                        .labelsHidden()
-                        .frame(width: 220)
-                        .accessibilityLabel(model.text("系统镜像", "System image"))
                     }
-                    LabeledContent(model.text("硬件配置", "Hardware profile")) {
-                        Picker("", selection: $profile) {
-                            Text(model.text("请选择", "Select")).tag("")
-                            ForEach(profiles) { item in Text(item.name).tag(item.id) }
-                        }
-                        .labelsHidden()
-                        .frame(width: 220)
-                        .onChange(of: profile) { value in applyProfile(value) }
-                        .accessibilityLabel(model.text("硬件配置", "Hardware profile"))
                     }
-                    LabeledContent(model.text("Root 模式", "Root mode")) {
-                        Picker("", selection: $root) {
-                            Text(model.text("无", "None")).tag("none")
-                            Text("Shell Root").tag("adb")
-                            Text(model.text("完整 Root", "Full Root")).tag("magisk")
-                        }
-                        .labelsHidden()
-                        .frame(width: 220)
-                        .disabled(saving)
-                        .accessibilityLabel(model.text("Root 模式", "Root mode"))
+                    wizardFooter
                     }
-                    if root == "magisk" {
-                        Text(model.text("创建后将下载并配置 Magisk，期间设备会启动并重启。", "After creation Magisk is downloaded and configured; the device starts and reboots in the process."))
-                            .wbFont(WbType.caption)
-                            .foregroundStyle(WbColor.textSecondary)
-                    }
+                    .transition(.opacity)
                 }
-
-                Section {
-                    DisclosureGroup(model.text("高级配置", "Advanced configuration"), isExpanded: $showAdvanced) {
-                        LabeledContent(model.text("内存 (MB)", "Memory (MB)")) {
-                            numberField($ram, label: model.text("内存 (MB)", "Memory (MB)"))
-                        }
-                        LabeledContent(model.text("CPU 核心数", "CPU cores")) {
-                            numberField($cpus, label: model.text("CPU 核心数", "CPU cores"))
-                        }
-                        LabeledContent(model.text("设备存储 (GB)", "Device storage (GB)")) {
-                            numberField($storage, label: model.text("设备存储 (GB)", "Device storage (GB)"))
-                        }
-                        Toggle(model.text("设备声音", "Device audio"), isOn: $audio)
-                            .toggleStyle(.switch)
-                            .tint(WbColor.accent)
-                    }
                 }
-
-                if images.isEmpty {
-                    Section {
-                        HStack(alignment: .top, spacing: WbSpace.sm) {
-                            Image(systemName: WbIcon.info)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(WbColor.textTertiary)
-                                .padding(.top, 1)
-                            Text(model.text("没有找到已安装的系统镜像。", "No installed system images were found."))
-                                .wbFont(WbType.caption)
-                                .foregroundStyle(WbColor.textSecondary)
-                        }
-                    }
-                }
-
-                Section {
-                    Button(model.text("安装 SDK 和系统镜像…", "Install SDK & system images…")) { installing = true }
-                        .buttonStyle(.bordered).controlSize(.regular)
-                        .disabled(saving)
-                }
-
-                if !error.isEmpty {
-                    Section {
-                        Text(error)
-                            .wbFont(WbType.caption)
-                            .foregroundStyle(WbColor.negative)
-                            .textSelection(.enabled)
-                    }
-                }
-            }
-            .formStyle(.grouped)
-            .scrollContentBackground(.hidden)
-            .background(WbColor.raised)
-
-            DeviceSheetFooter(note: model.text("创建后可随时在设备设置中调整。", "You can adjust these settings after creating the device.")) {
-                Button(model.text("取消", "Cancel")) { dismiss() }
-                    .buttonStyle(.bordered).controlSize(.regular)
-                    .disabled(saving)
-                    .keyboardShortcut(.cancelAction)
-                Button(model.text("创建", "Create")) { create() }
-                    .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
-                    .disabled(saving || !creation.isValid || images.isEmpty || profiles.isEmpty)
-                    .keyboardShortcut(.defaultAction)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .animation(WbMotion.status.animation(reduceMotion: reduceMotion), value: step)
             }
         }
-        .frame(width: 520, height: 520)
-        .background(WbColor.raised)
+        .frame(width: inline ? nil : 650, height: inline ? nil : 580)
+        .frame(maxWidth: inline ? 1100 : nil, maxHeight: inline ? .infinity : nil)
+        .background(!inline && standaloneEnvironment ? WbColor.raised : Color.clear)
+        .modifier(DeviceSheetGlass(enabled: !inline && !standaloneEnvironment))
+        .sheet(isPresented: $showingEnvironmentLicenses) {
+            EnvironmentLicensesView(language: model.language, licenses: environmentReview.licenses,
+                                    loading: environmentLicenseLoading, error: environmentLicenseError,
+                                    canAgree: !environmentBusy && !sdkRootsOverlap && environmentReview.canAgree(to: environmentSelection),
+                                    retry: loadEnvironmentLicenses,
+                                    onAgree: { environmentReview.agree(to: environmentSelection) })
+        }
+        .sheet(isPresented: $showingCustomResolution) {
+            let selected = profiles.first(where: { $0.id == profile })
+            CustomResolutionView(language: model.language,
+                                 initialWidth: customSelection.saved?.width ?? selected?.width ?? 1080,
+                                 initialHeight: customSelection.saved?.height ?? selected?.height ?? 1920) { resolution in
+                customSelection.apply(resolution)
+            }
+        }
         .onAppear {
+            guard !initialized else { return }
+            initialized = true
             if name.isEmpty {
                 var number = 1
                 while model.devices.contains(where: { $0.name == model.text("我的安卓手机 \(number)", "My Android phone \(number)") }) { number += 1 }
                 name = model.text("我的安卓手机 \(number)", "My Android phone \(number)")
             }
             model.call("profile.list") { result in
-                do { profiles = try model.decode(result.get(),as:[HardwareProfile].self); profile = profiles.first?.id ?? "" }
+                profilesLoaded = true
+                do {
+                    profiles = try model.decode(result.get(), as: [HardwareProfile].self)
+                    profile = profiles.first?.id ?? ""
+                    applyProfile(profile)
+                }
                 catch { self.error = error.localizedDescription }
             }
             model.call("settings.get") { result in
-                if let data = try? result.get(), let value = try? model.decode(data,as:DaemonSettings.self) { root = value.default_root_mode }
+                if let data = try? result.get(), let value = try? model.decode(data, as: DaemonSettings.self) { root = value.default_root_mode }
             }
             loadImages()
+            if initialImageInstall { openImageInstaller() } else { loadEnvironment() }
+        }
+        .interactiveDismissDisabled(model.onboardingInstallForegroundRequired)
+        .onChange(of: installImageID) { _ in invalidateEnvironmentReview() }
+        .onChange(of: environmentStatus?.install_sdk ?? environmentStatus?.private_sdk) { _ in invalidateEnvironmentReview() }
+        .onChange(of: environmentStatus?.studio_sdk) { _ in invalidateEnvironmentReview() }
+    }
+
+    private var wizardHeader: some View {
+        HStack(alignment: .center) {
+            HStack(spacing: 8) {
+                Image(systemName: "square.stack.3d.up")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(WbColor.accentText)
+                Text("Jidr").font(.system(size: 15, weight: .semibold))
+            }
+            Spacer()
+            if !standaloneEnvironment && !directDeviceSetup && !resolvingInitialRoute {
+            HStack(spacing: 7) {
+                ForEach(0..<steps.count, id: \.self) { index in
+                    Capsule()
+                        .fill(index == min(step, 2) ? WbColor.textPrimary : WbColor.textSecondary.opacity(0.22))
+                        .frame(width: index == min(step, 2) ? 21 : 6, height: 6)
+                }
+                Text("\(min(step, 2) + 1) / \(steps.count)")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(WbColor.textSecondary)
+                    .padding(.leading, 5)
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(model.text("第 \(min(step, 2) + 1) 步，共 \(steps.count) 步：\(steps[min(step, 2)])", "Step \(min(step, 2) + 1) of \(steps.count): \(steps[min(step, 2)])"))
+            }
+        }
+        .padding(.horizontal, 32).padding(.top, 24).padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var stepEyebrow: some View {
+        Text(standaloneImageInstall ? model.text("系统镜像  /  安装镜像", "SYSTEM IMAGES  /  INSTALL IMAGE") : standaloneSDKSetup ? model.text("Android 环境  /  设置", "ANDROID ENVIRONMENT  /  SETUP") : directDeviceSetup ? (step == 0 ? (imageInstallReturnStep != nil ? model.text("创建设备  /  安装镜像", "CREATE DEVICE  /  INSTALL IMAGE") : model.text("创建设备  /  运行环境", "CREATE DEVICE  /  ENVIRONMENT")) : model.text("创建设备  /  设备配置", "CREATE DEVICE  /  DEVICE SETUP"))
+             : step == 0 ? model.text("第 1 步  /  运行环境", "STEP 1  /  ENVIRONMENT")
+                         : model.text("第 3 步  /  设备配置", "STEP 3  /  DEVICE SETUP"))
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .tracking(0.7)
+            .foregroundStyle(WbColor.textSecondary)
+    }
+
+    private func loadEnvironment(onStatus: @escaping (Bool) -> Void = { _ in }) {
+        environmentError = ""
+        model.call("sdk.status") { result in
+            do { environmentStatus = try model.decode(result.get(), as: SDKStatus.self); onStatus(true) }
+            catch { environmentStatus = nil; environmentError = model.text("无法检查 SDK 状态：", "Unable to check SDK status: ") + error.localizedDescription; onStatus(false) }
+            initialSDKChecked = true
+            resolveInitialRoute()
+        }
+        guard !availableImagesLoading else { return }
+        availableImagesLoading = true; availableImagesError = ""
+        model.call("image.list", ["available": true]) { result in
+            availableImagesLoading = false
+            do {
+                availableImages = try model.decode(result.get(), as: [AvailableImage].self).filter { $0.installed_in == nil }
+                if !installSelectionInitialized {
+                    installImageID = availableImages.first?.id ?? ""
+                    installSelectionInitialized = true
+                } else if !installImageID.isEmpty && !availableImages.contains(where: { $0.id == installImageID }) {
+                    installImageID = ""
+                }
+            } catch { availableImagesError = model.text("无法读取可下载镜像：", "Unable to load downloadable images: ") + error.localizedDescription }
         }
     }
 
-    private func numberField(_ value: Binding<String>, label: String) -> some View {
-        TextField("", text: value)
-            .textFieldStyle(.roundedBorder)
-            .multilineTextAlignment(.trailing)
-            .frame(width: 110)
-            .accessibilityLabel(label)
+    private func chooseSDKLocation(install: Bool) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true; panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false; panel.canCreateDirectories = install
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        setSDKLocation(url.path, install: install)
     }
 
+    private var sdkRootsOverlap: Bool {
+        guard let external = environmentStatus?.studio_sdk,
+              let destination = environmentStatus?.install_sdk ?? environmentStatus?.private_sdk else { return false }
+        return SDKInstallPlan.rootsOverlap(external, destination)
+    }
+
+    private func setSDKLocation(_ path: String, install: Bool) {
+        guard environmentStatus != nil else { return }
+        let other = install ? environmentStatus?.studio_sdk : (environmentStatus?.install_sdk ?? environmentStatus?.private_sdk)
+        if let other, SDKInstallPlan.rootsOverlap(path, other) {
+            environmentError = model.text("安装目录和已有 SDK 目录不能重叠。", "The install location and existing SDK must not overlap.")
+            return
+        }
+        invalidateEnvironmentReview()
+        environmentBusy = true; environmentError = ""
+        model.call("center.toolpath.set", ["kind": install ? "jidr_sdk" : "sdk", "path": path]) { result in
+            environmentBusy = false
+            switch result {
+            case .success:
+                model.refresh()
+                if !install && imageInstallReturnStep == nil {
+                    checkSelectedSDK()
+                } else { loadEnvironment(); loadImages() }
+            case .failure(let failure): environmentError = model.text("无法使用该目录：", "Unable to use this directory: ") + failure.localizedDescription
+            }
+        }
+    }
+
+    private func checkSelectedSDK() {
+        environmentBusy = true
+        var probe = DeviceSDKReuseCheck()
+        func finishIfReady() {
+            guard let ready = probe.ready else { return }
+            environmentBusy = false
+            guard ready else { return }
+            environmentReturnStep = nil
+            if standaloneSDKSetup { closePanel() } else { directDeviceSetup = true; step = 3 }
+        }
+        loadEnvironment { success in probe.recordTools(success && environmentStatus?.tools_sdk != nil); finishIfReady() }
+        loadImages { success in probe.recordImages(success ? images.count : 0); finishIfReady() }
+    }
+
+    private var environmentSelection: SDKInstallSelection? {
+        guard let status = environmentStatus, let destination = status.install_sdk ?? status.private_sdk else { return nil }
+        guard imageInstallReturnStep == nil || !installImageID.isEmpty else { return nil }
+        let selectedImage = availableImages.first(where: { $0.id == installImageID })
+        guard installImageID.isEmpty || selectedImage != nil else { return nil }
+        return SDKInstallSelection(imagePackage: selectedImage?.package, destination: destination, externalSDK: status.studio_sdk)
+    }
+
+    private func invalidateEnvironmentReview() {
+        environmentReview.reset(); environmentLicenseLoading = false; environmentLicenseError = ""
+    }
+
+    private func loadEnvironmentLicenses() {
+        guard !environmentLicenseLoading, let selection = environmentSelection, !sdkRootsOverlap else { return }
+        let revision = environmentReview.begin(selection)
+        environmentLicenseLoading = true; environmentLicenseError = ""
+        let packages = ["emulator", "platform-tools"] + (selection.imagePackage.map { [$0] } ?? [])
+        model.call("sdk.license_details", ["packages": packages]) { result in
+            guard environmentReview.revision == revision, environmentSelection == selection else { return }
+            environmentLicenseLoading = false
+            do {
+                let licenses = try model.decode(result.get(), as: [PendingLicense].self)
+                _ = environmentReview.complete(licenses, selection: selection, revision: revision)
+            } catch {
+                environmentLicenseError = model.text("无法读取许可，请检查网络后重试。", "Unable to load licences. Check your connection and retry.") + "\n" + error.localizedDescription
+            }
+        }
+    }
+
+    private var canBeginEnvironmentInstallation: Bool {
+        environmentReview.canBeginInstallation(for: environmentSelection, busy: environmentBusy,
+                                               installing: model.sdkInstalling, overlappingRoots: sdkRootsOverlap,
+                                               imagesLoading: availableImagesLoading)
+    }
+
+    private func beginEnvironmentInstallation() {
+        guard canBeginEnvironmentInstallation,
+              let selection = environmentSelection,
+              let plan = environmentReview.authorizedPlan(for: selection) else { return }
+        let requests: [[String: String]]
+        do { requests = try plan.consentRequests(reviewed: true) }
+        catch { environmentError = model.text("许可信息无效，请重新查看。", "Licence information is invalid. Review it again."); invalidateEnvironmentReview(); return }
+        onboardingInstallRequested = true; step = 1
+        let attempt = preparationAttempt.begin()
+        model.onboardingInstallForegroundRequired = true
+        environmentBusy = true; environmentError = ""
+        model.call("sdk.status") { result in
+            guard preparationAttempt.isCurrent(attempt) else { return }
+            do {
+                let current = try model.decode(result.get(), as: SDKStatus.self)
+                guard (current.install_sdk ?? current.private_sdk) == selection.destination,
+                      current.studio_sdk == selection.externalSDK,
+                      environmentSelection == selection,
+                      environmentReview.authorizedPlan(for: selection) != nil else {
+                    environmentBusy = false; model.onboardingInstallForegroundRequired = false
+                    environmentStatus = current; invalidateEnvironmentReview()
+                    environmentError = model.text("SDK 配置已更改，请重新查看许可。", "SDK configuration changed. Review the licences again.")
+                    return
+                }
+                acceptEnvironmentLicenses(requests, index: 0, plan: plan, attempt: attempt)
+            } catch {
+                environmentBusy = false; model.onboardingInstallForegroundRequired = false
+                environmentError = model.text("无法检查 SDK 状态：", "Unable to check SDK status: ") + error.localizedDescription
+            }
+        }
+    }
+
+    private func acceptEnvironmentLicenses(_ requests: [[String: String]], index: Int, plan: SDKInstallPlan, attempt: Int) {
+        guard preparationAttempt.isCurrent(attempt) else { return }
+        if index == requests.count {
+            guard !model.sdkInstalling else {
+                environmentBusy = false; model.onboardingInstallForegroundRequired = false
+                environmentError = model.text("已有安装任务正在运行。", "An installation is already running.")
+                return
+            }
+            let installedImageID = plan.imagePackage == nil ? nil : installImageID
+            model.startSDKInstall(plan) { succeeded in
+                if succeeded {
+                    loadImages(preferredImageID: installedImageID); loadEnvironment()
+                    if SDKOnboardingInstallState.shouldDismissAfterSuccess(requested: onboardingInstallRequested, step: step, succeeded: succeeded, standalone: standaloneEnvironment) {
+                        closePanel()
+                    } else if !standaloneEnvironment, let next = SDKOnboardingInstallState.nextStepAfterSuccess(requested: onboardingInstallRequested, step: step, succeeded: succeeded) { step = next }
+                    imageInstallReturnStep = nil
+                    environmentReturnStep = nil
+                }
+            }
+            environmentBusy = false
+            return
+        }
+        model.call("sdk.accept_license", requests[index]) { result in
+            guard preparationAttempt.isCurrent(attempt) else { return }
+            switch result {
+            case .success: acceptEnvironmentLicenses(requests, index: index + 1, plan: plan, attempt: attempt)
+            case .failure(let failure):
+                environmentBusy = false; model.onboardingInstallForegroundRequired = false; invalidateEnvironmentReview()
+                environmentError = model.text("无法记录许可确认，请重新查看后重试。", "Unable to record licence consent. Review and try again.") + "\n" + failure.localizedDescription
+            }
+        }
+    }
+
+    private func environmentSectionHeader(_ title: String, detail: String) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(WbColor.textPrimary)
+            Spacer(minLength: 8)
+            Text(detail).font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
+        }
+        .padding(.horizontal, 2)
+    }
+
+    private func environmentIcon(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 16, weight: .medium)).foregroundStyle(WbColor.accentText)
+            .frame(width: 38, height: 38)
+            .background(WbColor.accentContainer.opacity(0.9), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .accessibilityHidden(true)
+    }
+
+    private var environmentStep: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            stepEyebrow.padding(.bottom, 12)
+            Text(imageInstallReturnStep == nil ? model.text("准备 Android 环境", "Prepare your Android environment") : model.text("安装其他系统镜像", "Install another system image"))
+                .font(.system(size: 28, weight: .semibold)).foregroundStyle(WbColor.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(model.text("检查现有 SDK，按需准备运行模拟器所需的组件。", "Check an existing SDK and prepare the components needed to run the emulator."))
+                .font(.system(size: 13)).foregroundStyle(WbColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true).padding(.top, 10)
+
+            environmentSectionHeader(model.text("已有 Android SDK", "Existing Android SDK"),
+                                     detail: model.text("可选 · 只读复用", "Optional · read-only"))
+                .padding(.top, 22).padding(.bottom, 9)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 11) {
+                    environmentIcon("folder")
+                    VStack(alignment: .leading, spacing: 5) {
+                        if let existing = environmentStatus?.studio_sdk {
+                            HStack(spacing: 8) {
+                                Text(model.text("检测到 Android SDK", "Android SDK detected"))
+                                    .font(.system(size: 12, weight: .semibold))
+                                if environmentStatus?.tools_sdk == existing {
+                                    Text(model.text("正在使用", "In use"))
+                                        .font(.system(size: 10, weight: .semibold)).foregroundStyle(WbColor.positive)
+                                        .padding(.horizontal, 7).padding(.vertical, 4)
+                                        .background(WbColor.positive.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
+                                }
+                            }
+                            Text(existing).font(.system(size: 11, design: .monospaced)).foregroundStyle(WbColor.textSecondary)
+                                .lineLimit(1).truncationMode(.middle).textSelection(.enabled).help(existing)
+                        } else {
+                            Text(model.text("选择已有的 Android SDK", "Choose an existing Android SDK"))
+                                .font(.system(size: 12, weight: .semibold))
+                            Text(model.text("选择包含模拟器和 ADB 的目录。", "Choose a folder containing the emulator and ADB."))
+                                .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+                HStack(spacing: 14) {
+                    if let existing = environmentStatus?.studio_sdk {
+                        Button { setSDKLocation(existing, install: false) } label: {
+                            Label(environmentStatus?.tools_sdk == existing ? model.text("正在使用", "In use") : model.text("使用此 SDK", "Use this SDK"), systemImage: "checkmark")
+                                .font(.system(size: 11, weight: .semibold)).padding(.horizontal, 10).padding(.vertical, 7)
+                                .foregroundStyle(WbColor.accentText)
+                                .background(WbColor.accentContainer.opacity(0.75), in: RoundedRectangle(cornerRadius: 8))
+                        }.buttonStyle(.plain).disabled(environmentBusy || environmentStatus?.tools_sdk == existing)
+                    }
+                    Button(environmentStatus?.studio_sdk == nil ? model.text("选择 SDK 目录…", "Choose SDK folder…") : model.text("选择其他位置…", "Choose another location…")) { chooseSDKLocation(install: false) }
+                        .buttonStyle(.plain).font(.system(size: 11, weight: .semibold)).foregroundStyle(WbColor.accentText).disabled(environmentBusy)
+                }
+            }.padding(14).frame(maxWidth: .infinity, alignment: .leading).modifier(OnboardingCardMaterial())
+
+            environmentSectionHeader(model.text("安装所需组件", "Install components"),
+                                     detail: model.text("按需准备", "As needed"))
+                .padding(.top, 14).padding(.bottom, 8)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .center, spacing: 11) {
+                    environmentIcon("arrow.down.to.line")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(model.text("模拟器工具与系统镜像", "Emulator tools and system image"))
+                            .font(.system(size: 12, weight: .semibold))
+                        Text(model.text("安装到 Jidr 的目录，不修改外部 SDK。", "Install into Jidr’s folder without changing the external SDK."))
+                            .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Picker(model.text("安装组件", "Components to install"), selection: $installImageID) {
+                    if imageInstallReturnStep == nil { Text(model.text("仅模拟器工具", "Emulator tools only")).tag("") }
+                    else if availableImages.isEmpty { Text(model.text("没有可安装的系统镜像", "No system images available to install")).tag("") }
+                    ForEach(availableImages) { image in
+                        Text("API \(image.api) · \(Device.imageTagLabel(image.tag)) · \(image.abi)").tag(image.id)
+                    }
+                }
+                .pickerStyle(.menu).buttonStyle(.borderless).controlSize(.regular)
+                .labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel(model.text("安装组件", "Components to install"))
+                .disabled(environmentBusy)
+                Divider().opacity(0.65)
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(model.text("安装位置", "Install location"))
+                            .font(.system(size: 10)).foregroundStyle(WbColor.textSecondary)
+                        if let location = environmentStatus?.install_sdk ?? environmentStatus?.private_sdk {
+                            Text(location).font(.system(size: 11, weight: .medium, design: .monospaced))
+                                .foregroundStyle(WbColor.textSecondary).lineLimit(1).truncationMode(.middle)
+                                .help(location).textSelection(.enabled)
+                        } else {
+                            Text(model.text("正在检查…", "Checking…")).font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                    Button { chooseSDKLocation(install: true) } label: {
+                        Text(model.text("更改位置…", "Change location…"))
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(WbColor.textPrimary)
+                            .padding(.horizontal, 10).padding(.vertical, 7)
+                            .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(WbColor.borderDefault.opacity(0.8)))
+                    }
+                    .buttonStyle(.plain).disabled(environmentBusy || environmentStatus == nil)
+                }
+                HStack(alignment: .center, spacing: 8) {
+                    if availableImagesLoading {
+                        ProgressView().controlSize(.small)
+                        Text(model.text("正在读取镜像列表…", "Loading images…"))
+                    } else {
+                        Image(systemName: sdkRootsOverlap || !availableImagesError.isEmpty ? "exclamationmark.circle" : "checkmark.circle")
+                            .foregroundStyle(sdkRootsOverlap || !availableImagesError.isEmpty ? WbColor.negative : WbColor.positive)
+                        Text(sdkRootsOverlap ? model.text("安装目录与已有 SDK 重叠", "Install location overlaps the existing SDK")
+                             : !availableImagesError.isEmpty ? availableImagesError
+                             : installImageID.isEmpty ? (imageInstallReturnStep == nil ? model.text("仅安装模拟器工具", "Emulator tools only") : model.text("没有可安装的系统镜像", "No system images available to install"))
+                             : model.text("已读取系统镜像列表", "System images loaded"))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 4)
+                    Button(model.text("重新检测", "Check again")) {
+                        if imageInstallReturnStep == nil { checkSelectedSDK() }
+                        else { loadEnvironment(); loadImages() }
+                    }
+                        .buttonStyle(.plain).font(.system(size: 11, weight: .semibold)).foregroundStyle(WbColor.accentText)
+                        .disabled(environmentBusy || availableImagesLoading)
+                }
+                .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
+                .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            }.padding(14).frame(maxWidth: .infinity, alignment: .leading).modifier(OnboardingCardMaterial())
+            environmentSectionHeader(model.text("许可确认", "Licence confirmation"), detail: "")
+                .padding(.top, 14).padding(.bottom, 8)
+            VStack(alignment: .leading, spacing: 7) {
+                Toggle(model.text("我已阅读并同意相关许可", "I have read and agree to the licences"), isOn: Binding(
+                    get: { environmentReview.agreed },
+                    set: { agreed in
+                        if agreed && environmentReview.licenses == nil {
+                            showingEnvironmentLicenses = true
+                            loadEnvironmentLicenses()
+                        } else { environmentReview.setAgreed(agreed) }
+                    }
+                ))
+                .toggleStyle(OnboardingLicenseToggleStyle()).font(.system(size: 12, weight: .semibold))
+                .disabled(environmentBusy || environmentSelection == nil || sdkRootsOverlap || availableImagesLoading)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(model.text("安装组件可能涉及 Android SDK 许可。", "Installing components may require Android SDK licences."))
+                        .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(model.text("查看许可说明", "View licence details")) {
+                        showingEnvironmentLicenses = true
+                        if environmentReview.licenses == nil { loadEnvironmentLicenses() }
+                    }
+                    .buttonStyle(.plain).font(.system(size: 11, weight: .semibold)).foregroundStyle(WbColor.accentText)
+                    .disabled(environmentBusy || environmentSelection == nil || sdkRootsOverlap || availableImagesLoading)
+                }.padding(.leading, 27).frame(maxWidth: .infinity, alignment: .leading)
+            }.padding(14).frame(maxWidth: .infinity, alignment: .leading).modifier(OnboardingCardMaterial())
+            if environmentBusy { OnboardingEnvironmentChecking(language: model.language).padding(.top, 8) }
+            if !environmentError.isEmpty { Text(environmentError).font(.system(size: 11)).foregroundStyle(WbColor.negative).textSelection(.enabled).padding(.top, 8) }
+        }
+    }
+
+    private func openImageInstaller() {
+        imageInstallReturnStep = 3
+        directDeviceSetup = true
+        environmentError = ""; error = ""
+        invalidateEnvironmentReview()
+        installImageID = availableImages.first?.id ?? ""
+        installSelectionInitialized = false
+        step = 0
+        loadEnvironment()
+    }
+
+    private var configurationStep: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            stepEyebrow.padding(.bottom, 12)
+            Text(model.text("配置你的设备", "Configure your device"))
+                .font(.system(size: 28, weight: .semibold)).foregroundStyle(WbColor.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(model.text("设置名称、硬件和 Root 模式，之后也可以调整。", "Choose a name, hardware profile and root mode. You can adjust them later."))
+                .font(.system(size: 13)).foregroundStyle(WbColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true).padding(.top, 10)
+            VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(alignment: .center, spacing: 8) {
+                            Image(systemName: "square.3.layers.3d")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(WbColor.accentText)
+                                .accessibilityHidden(true)
+                            Text(model.text("系统镜像", "System image"))
+                            Spacer(minLength: 8)
+                            Button(action: openImageInstaller) {
+                                Label(images.isEmpty ? model.text("安装镜像…", "Install image…") : model.text("安装其他镜像…", "Install another image…"),
+                                      systemImage: "arrow.down.circle")
+                                    .font(.system(size: 11, weight: .semibold))
+                                    .lineLimit(1)
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(WbColor.accentText)
+                            .disabled(saving)
+                            .accessibilityIdentifier("onboarding-install-other-image")
+                        }
+                        if !imagesLoaded && error.isEmpty {
+                            ProgressView(model.text("正在读取系统镜像…", "Loading system images…")).controlSize(.small)
+                        } else if images.isEmpty {
+                            Text(model.text("没有已安装的系统镜像，请先安装。", "No system images are installed. Install one first."))
+                                .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
+                        } else {
+                            Picker(model.text("系统镜像", "System image"), selection: $image) {
+                                ForEach(images) { item in
+                                    Text("Android API \(item.api) · \(Device.imageTagLabel(item.tag)) · \(item.abi)").tag(item.id)
+                                }
+                            }
+                            .pickerStyle(.menu).buttonStyle(.borderless).labelsHidden()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .disabled(saving)
+                            .accessibilityLabel(model.text("系统镜像", "System image"))
+                        }
+                        if initialSDKChecked && environmentStatus?.tools_sdk == nil {
+                            Text(model.text("未找到可用的模拟器工具。", "Emulator tools are unavailable."))
+                                .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
+                            Button(model.text("配置运行环境…", "Configure environment…")) {
+                                environmentReturnStep = 3
+                                directDeviceSetup = true
+                                invalidateEnvironmentReview()
+                                step = 0
+                                loadEnvironment()
+                            }
+                            .buttonStyle(.link).disabled(saving)
+                        }
+                    }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(model.text("设备名称", "Device name"))
+                    TextField(model.text("例如：Pixel 9 Pro", "e.g. Pixel 9 Pro"), text: $name)
+                        .labelsHidden().textFieldStyle(.roundedBorder).multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity).disabled(saving)
+                        .accessibilityLabel(model.text("设备名称", "Device name"))
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(model.text("设备规格", "Device profile"))
+                    if profiles.isEmpty {
+                        Text(profilesLoaded ? model.text("没有可用的设备规格。", "No device profiles are available.")
+                                            : model.text("正在读取设备规格…", "Loading device profiles…"))
+                            .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
+                    } else {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                            ForEach(profiles) { item in profileCard(item) }
+                            customProfileCard
+                        }
+                    }
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(model.text("Root 模式", "Root mode"))
+                    rootModeControl
+                    Text(rootExplanation)
+                        .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .font(.system(size: 13)).padding(17)
+            .modifier(OnboardingCardMaterial())
+            .padding(.top, 22)
+            Button { showAdvanced.toggle() } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: showAdvanced ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(model.text("高级配置", "Advanced configuration"))
+                    Spacer(minLength: 0)
+                    Text(model.text("内存、CPU、存储与声音", "Memory, CPU, storage and audio"))
+                        .font(.system(size: 10)).lineLimit(1).minimumScaleFactor(0.8)
+                        .foregroundStyle(WbColor.textSecondary.opacity(0.8))
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain).font(.system(size: 12, weight: .medium))
+            .foregroundStyle(WbColor.textSecondary).padding(.top, 16)
+            .accessibilityLabel(model.text("高级配置", "Advanced configuration"))
+            .accessibilityValue(showAdvanced ? model.text("已展开", "Expanded") : model.text("已收起", "Collapsed"))
+            if showAdvanced {
+                VStack(spacing: 12) {
+                    HStack(alignment: .top, spacing: 10) {
+                        advancedNumberField(model.text("内存 (MB)", "Memory (MB)"), value: $ram)
+                        advancedNumberField(model.text("CPU 核心数", "CPU cores"), value: $cpus)
+                        advancedNumberField(model.text("设备存储 (GB)", "Storage (GB)"), value: $storage)
+                    }
+                    Divider()
+                    HStack {
+                        Text(model.text("设备声音", "Device audio"))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Toggle(model.text("设备声音", "Device audio"), isOn: $audio)
+                            .labelsHidden().toggleStyle(.switch).tint(Color(nsColor: .controlAccentColor))
+                    }
+                }
+                .font(.system(size: 12, weight: .medium)).foregroundStyle(WbColor.textSecondary)
+                .padding(17).frame(maxWidth: .infinity, alignment: .leading)
+                .modifier(OnboardingCardMaterial())
+                .padding(.top, 10)
+                .id("onboarding-advanced-fields")
+            }
+            if let validationMessage {
+                Text(validationMessage).wbFont(WbType.caption).foregroundStyle(WbColor.negative).padding(.top, 12)
+            }
+        }
+    }
+
+    @ViewBuilder private var rootModeControl: some View {
+        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        let segments = HStack(spacing: 0) {
+            rootModeButton(model.text("关闭", "Off"), value: "none")
+            rootModeButton("Shell Root", value: "adb")
+            rootModeButton(model.text("完整 Root", "Full Root"), value: "magisk")
+        }
+        .padding(3)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(model.text("Root 模式", "Root mode"))
+        .onMoveCommand { direction in
+            let values = ["none", "adb", "magisk"]
+            guard !saving, let index = values.firstIndex(of: root) else { return }
+            switch direction {
+            case .left: root = values[max(0, index - 1)]
+            case .right: root = values[min(values.count - 1, index + 1)]
+            default: break
+            }
+        }
+        if #available(macOS 26.0, *) {
+            segments.glassEffect(.regular, in: shape)
+        } else {
+            segments.background(.regularMaterial, in: shape)
+        }
+    }
+
+    private func rootModeButton(_ title: String, value: String) -> some View {
+        let selected = root == value
+        return Button { root = value } label: {
+            Text(title).font(.system(size: 12, weight: .medium)).lineLimit(1)
+                .foregroundStyle(selected ? Color(nsColor: .alternateSelectedControlTextColor) : WbColor.textPrimary)
+                .frame(maxWidth: .infinity, minHeight: 28)
+                .background(selected ? Color(nsColor: .controlAccentColor).opacity(0.88) : .clear,
+                            in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).disabled(saving)
+        .accessibilityValue(selected ? model.text("已选择", "Selected") : "")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var rootExplanation: String {
+        switch root {
+        case "adb": return model.text("通过 Root Shell 使用高级功能。", "Use advanced features through a root shell.")
+        case "magisk": return model.text("创建后将下载并配置 Magisk，期间设备会启动并重启。", "After creation Magisk is downloaded and configured; the device starts and reboots in the process.")
+        default: return model.text("设备不会启用 Root。", "Root access is disabled.")
+        }
+    }
+    private func profileCard(_ item: HardwareProfile) -> some View {
+        let detail = item.width.flatMap { width in item.height.map { "\(width) × \($0)" } }
+        return profileOption(item.name, detail: detail,
+                             symbol: item.form_factor == "tablet" ? "ipad" : "iphone",
+                             selected: !customSelection.isCustom && profile == item.id) {
+            profile = item.id
+            customSelection.selectPreset()
+            applyProfile(item.id)
+        }
+    }
+    private var customProfileCard: some View {
+        let detail = customSelection.saved.map { "\($0.width) × \($0.height)" }
+            ?? model.text("设置分辨率", "Set resolution")
+        return profileOption(model.text("自定义", "Custom"), detail: detail,
+                             symbol: "slider.horizontal.3", selected: customSelection.isCustom) {
+            showingCustomResolution = true
+        }
+        .accessibilityIdentifier("device-profile-custom")
+    }
+    private func profileOption(_ title: String, detail: String?, symbol: String, selected: Bool,
+                               action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Image(systemName: symbol)
+                        .font(.system(size: 15, weight: .medium))
+                    Spacer(minLength: 0)
+                    if selected { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)) }
+                }
+                .foregroundStyle(selected ? WbColor.accentText : WbColor.textSecondary)
+                Text(title).font(.system(size: 11, weight: .medium))
+                    .lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                if let detail {
+                    Text(verbatim: detail).font(.system(size: 10))
+                        .foregroundStyle(WbColor.textSecondary).lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 65, alignment: .topLeading)
+            .padding(9)
+            .background(selected ? WbColor.accentContainer.opacity(0.65) : Color.primary.opacity(0.025),
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(selected ? WbColor.accentText.opacity(0.65) : WbColor.borderSubtle))
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain).disabled(saving)
+        .accessibilityLabel(title)
+        .accessibilityValue(selected ? model.text("已选择", "Selected") : "")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+    private func advancedNumberField(_ label: String, value: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, minHeight: 28, alignment: .bottomLeading)
+            TextField("", text: value).textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.leading).foregroundStyle(WbColor.textPrimary)
+                .disabled(saving).accessibilityLabel(label)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+    private var onboardingInstallState: SDKOnboardingInstallState {
+        SDKOnboardingInstallState.resolve(requested: onboardingInstallRequested,
+                                          preparing: environmentBusy,
+                                          running: model.sdkInstalling,
+                                          succeeded: model.sdkInstallSucceeded,
+                                          error: environmentError.isEmpty ? model.sdkInstallError : environmentError)
+    }
+    private var onboardingInstallMessage: String {
+        if onboardingInstallState == .preparing { return model.text("正在确认许可…", "Confirming licences…") }
+        return model.sdkInstallMessage
+    }
+    private var onboardingInstallFooter: some View {
+        OnboardingInstallFooterView(language: model.language, state: onboardingInstallState,
+                                    cancelPending: model.sdkCancelPending,
+                                    canCancel: (onboardingInstallState == .preparing && environmentBusy && !model.sdkInstalling) || onboardingInstallState == .installing,
+                                    onCancel: {
+                                        if environmentBusy && !model.sdkInstalling {
+                                            preparationAttempt.cancel()
+                                            environmentBusy = false; model.onboardingInstallForegroundRequired = false
+                                            onboardingInstallRequested = false; environmentReview.reset(); step = 0
+                                        } else { model.cancelSDKInstall() }
+                                    },
+                                    onReview: { step = 0; environmentError = ""; environmentReview.reset() },
+                                    onReturnToSetup: standaloneEnvironment ? nil : {
+                                        environmentError = ""; environmentReview.reset()
+                                        imageInstallReturnStep = nil; environmentReturnStep = nil
+                                        directDeviceSetup = true; step = 3
+                                    })
+    }
+    private var wizardFooter: some View {
+        HStack(spacing: 8) {
+            if !standaloneEnvironment && step == 0 && (imageInstallReturnStep != nil || environmentReturnStep != nil) {
+                Button {
+                    error = ""
+                    if step == 0, let returnStep = imageInstallReturnStep {
+                        imageInstallReturnStep = nil; invalidateEnvironmentReview(); step = returnStep
+                    } else if step == 0, let returnStep = environmentReturnStep {
+                        environmentReturnStep = nil; invalidateEnvironmentReview(); step = returnStep
+                    }
+                } label: {
+                    Label(model.text("返回设备配置", "Return to device setup"), systemImage: "arrow.left")
+                }
+                .buttonStyle(.plain).foregroundStyle(WbColor.textSecondary).disabled(saving || environmentBusy)
+                .accessibilityIdentifier("onboarding-back")
+            }
+            Spacer()
+            if !inline {
+                Button(model.text("取消", "Cancel")) { closePanel() }.disabled(saving).keyboardShortcut(.cancelAction)
+            }
+            if step < 3 {
+                if step == 0 && !environmentReview.agreed {
+                    Text(model.text("请先查看并同意许可", "Review and agree to the licences first"))
+                        .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
+                }
+                onboardingAction(model.text("开始安装", "Install"), action: advance,
+                                 disabled: saving || environmentBusy || !canBeginEnvironmentInstallation)
+            } else {
+                onboardingAction(model.text("创建设备", "Create device"), action: create,
+                                 disabled: saving || createdSuccessfully || !imagesLoaded || !creation.isValid || images.isEmpty || profiles.isEmpty || environmentStatus?.tools_sdk == nil)
+            }
+        }
+        .buttonStyle(.bordered).controlSize(.regular)
+        .padding(.horizontal, 32).padding(.vertical, 18)
+    }
+
+    @ViewBuilder private func onboardingAction(_ title: String, action: @escaping () -> Void, disabled: Bool) -> some View {
+        let button = Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .frame(minWidth: 86, minHeight: 20)
+        }
+        .disabled(disabled)
+        .keyboardShortcut(.defaultAction)
+        .tint(Color(nsColor: .controlAccentColor))
+
+        if #available(macOS 26.0, *) {
+            button.buttonStyle(.glassProminent).buttonBorderShape(.roundedRectangle).controlSize(.regular)
+        } else {
+            button.buttonStyle(.borderedProminent).controlSize(.regular)
+        }
+    }
     private func create() {
-        let parameters: [String:Any]
+        let parameters: [String: Any]
         do { parameters = try creation.parameters() }
         catch { self.error = model.creationError(error); return }
-        saving = true
-        model.call("device.create",parameters) { result in
-            saving = false
+        guard submission.begin() else { return }
+        model.call("device.create", parameters) { result in
             switch result {
             case .success(let data):
+                submission.finish(succeeded: true)
                 do {
-                    let created = try model.decode(data,as:Device.self)
+                    let created = try model.decode(data, as: Device.self)
                     model.selected = created.id; model.details = nil; model.apps = []
-                    model.refresh(); dismiss()
-                    if root == "magisk" { DispatchQueue.main.async { model.setupFullRoot(created.id,name:created.name) } }
+                    model.refresh()
+                    let afterClose = {
+                        if root == "magisk" { model.setupFullRoot(created.id, name: created.name) }
+                    }
+                    if !inline { closePanel(after: afterClose) } else { afterClose() }
                 } catch { self.error = model.text("设备已创建，但读取结果失败：", "Device created, but its result could not be read: ") + error.localizedDescription; model.refresh() }
-            case .failure(let failure): error = failure.localizedDescription
+            case .failure(let failure): submission.finish(succeeded: false); error = failure.localizedDescription
             }
         }
     }
@@ -963,8 +1712,67 @@ struct SDKStatus: Decodable {
 }
 struct CacheEntry: Decodable { let size: UInt64 }
 struct AboutInfo: Decodable { let version: String; let repository: String }
+
+/// Keep the native pop-up menu and its keyboard behavior while giving its
+/// closed control the same system glass treatment as the surrounding window.
+private struct SettingsGlassPicker: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content.pickerStyle(.menu).buttonStyle(.borderless).controlSize(.regular)
+                .padding(.horizontal, 6).padding(.vertical, 3)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        } else {
+            content.pickerStyle(.menu).buttonStyle(.bordered).controlSize(.regular)
+        }
+    }
+}
+
+/// Settings has an AppKit glass backdrop rather than the SwiftUI glass
+/// container used by device panels. Give the same native bordered controls a
+/// glass surface while retaining their normal enabled and disabled colors.
+private struct SettingsPanelButtonStyle: ViewModifier {
+    var prominent = false
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            if prominent {
+                content.buttonStyle(.borderedProminent).controlSize(.regular)
+                    .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else {
+                content.buttonStyle(.bordered).controlSize(.regular)
+                    .glassEffect(.clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+        } else if prominent {
+            content.buttonStyle(.borderedProminent).controlSize(.regular)
+        } else {
+            content.buttonStyle(.bordered).controlSize(.regular)
+        }
+    }
+}
+
+private struct SettingsSection<Content: View>: View {
+    private let title: String?
+    private let content: Content
+
+    init(_ title: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.content = content()
+    }
+
+    var body: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 10) { content }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(8)
+        } label: {
+            if let title { Text(title) }
+        }
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var model: CenterModel
+    var glassBackground = false
+    var onContentHeightChange: (Int, CGFloat) -> Void = { _, _ in }
     let onClose: () -> Void
     private var category: Int { model.settingsCategory }
     @State private var tileURL = ""
@@ -979,7 +1787,6 @@ struct SettingsView: View {
     @State private var loaded = false
     @State private var message = ""
     @State private var saving = false
-    @State private var installing = false
     @State private var cacheBytes: UInt64?
     @State private var imageCount: Int?
     @State private var deviceUsage: [String:UInt64] = [:]
@@ -1014,10 +1821,7 @@ struct SettingsView: View {
                 cacheBytes = entries.reduce(0) { total, item in total.addingReportingOverflow(item.size).overflow ? UInt64.max : total + item.size }
             } catch { message = error.localizedDescription }
         }
-        model.call("image.list",["available":false]) { result in
-            do { imageCount = try model.decode(result.get(),as:[AvailableImage].self).filter { $0.installed_in != nil }.count }
-            catch { message = error.localizedDescription }
-        }
+        loadImageCount()
         for device in model.devices {
             model.call("device.details",["device":device.id]) { result in
                 if let value = try? result.get(), let details = try? model.decode(value,as:Details.self), let bytes = details.disk_usage { deviceUsage[device.id] = bytes }
@@ -1025,6 +1829,12 @@ struct SettingsView: View {
         }
         model.call("center.about") { result in
             if let value = try? result.get() { about = try? model.decode(value,as:AboutInfo.self) }
+        }
+    }
+    private func loadImageCount() {
+        model.call("image.list", ["available": false]) { result in
+            do { imageCount = try model.decode(result.get(), as: [AvailableImage].self).filter { $0.installed_in != nil }.count }
+            catch { message = error.localizedDescription }
         }
     }
     func tool(_ kind:String, path:Any) {
@@ -1092,15 +1902,14 @@ struct SettingsView: View {
     }
     var body: some View {
         settingsContent
-        .frame(minWidth: 640, minHeight: 340)
         .preferredColorScheme(model.colorScheme)
         .environment(\.locale, Locale(identifier: model.language == 0 ? "en" : "zh-Hans"))
-        .background(WbColor.surface)
+        .background {
+            if !glassBackground { WbColor.surface }
+        }
         .onExitCommand { if !saving { onClose() } }
         .onAppear(perform:load)
-        .sheet(isPresented:$installing,onDismiss:load) {
-            InstallSDKView(model:model).environment(\.locale,Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
-        }
+        .onChange(of: model.imageInventoryRevision) { _ in loadImageCount() }
         .alert(model.text("配置 Codex？", "Configure Codex?"),isPresented:$confirmCodexConfig) {
             Button(model.text("取消", "Cancel"),role:.cancel) { }
             Button(model.text("配置", "Configure")) {
@@ -1157,7 +1966,7 @@ struct SettingsView: View {
                                     Text("中文").tag(1)
                                     Text("English").tag(0)
                                 }
-                                .labelsHidden().frame(width: 180)
+                                .labelsHidden().modifier(SettingsGlassPicker()).frame(width: 180)
                             }
                             .padding(10)
                         }
@@ -1174,9 +1983,11 @@ struct SettingsView: View {
                     .frame(maxWidth: 600, alignment: .leading)
                     .padding(28)
                     .frame(maxWidth: .infinity, alignment: .top)
+                    .background(settingsHeightReader)
                 }
             } else {
-                Form {
+                ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
                     switch category {
                     case 1: defaultsPage
                     case 2: dataPage
@@ -1184,18 +1995,28 @@ struct SettingsView: View {
                     default: aboutPage
                     }
                     if !message.isEmpty {
-                        Section { Text(message).font(.system(size: 12)).foregroundStyle(WbColor.textSecondary).textSelection(.enabled) }
+                        SettingsSection { Text(message).font(.system(size: 12)).foregroundStyle(WbColor.textSecondary).textSelection(.enabled) }
                     }
                 }
-                .formStyle(.grouped)
                 .disabled(saving)
-                .scrollContentBackground(.hidden)
+                .padding(28)
                 .frame(maxWidth: 680)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
+                .background(settingsHeightReader)
+                }
             }
         }
         .font(.system(size: 13))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var settingsHeightReader: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { onContentHeightChange(category, proxy.size.height) }
+                .onChange(of: proxy.size.height) { height in onContentHeightChange(category, height) }
+        }
     }
 
     /// Actual appearance choices, including System. The thumbnail colours are
@@ -1254,18 +2075,19 @@ struct SettingsView: View {
     // MARK: - Device defaults
 
     @ViewBuilder private var defaultsPage: some View {
-        Section(model.text("新设备默认值", "Defaults for new devices")) {
-            Picker(selection: $policy.root) {
-                Text(model.text("无", "None")).tag("none")
-                Text("Shell Root").tag("adb")
-                Text(model.text("完整 Root", "Full Root")).tag("magisk")
-            } label: {
-                Text(model.text("默认 Root 模式", "Default root mode"))
+        SettingsSection(model.text("新设备默认值", "Defaults for new devices")) {
+            LabeledContent(model.text("默认 Root 模式", "Default root mode")) {
+                Picker(model.text("默认 Root 模式", "Default root mode"), selection: $policy.root) {
+                    Text(model.text("无", "None")).tag("none")
+                    Text("Shell Root").tag("adb")
+                    Text(model.text("完整 Root", "Full Root")).tag("magisk")
+                }
+                .labelsHidden().modifier(SettingsGlassPicker()).frame(width: 180)
             }
             Text(model.text("默认 Root 模式仅用于之后创建的设备。", "The default Root mode applies only to devices created later."))
                 .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
         }
-        Section(model.text("全局运行策略", "Global device policies")) {
+        SettingsSection(model.text("全局运行策略", "Global device policies")) {
             Toggle(model.text("停止设备时保存快速启动快照", "Save quick-boot snapshot when stopping"), isOn: $policy.quickBoot)
                 .toggleStyle(.switch)
                 .tint(WbColor.accent)
@@ -1295,7 +2117,7 @@ struct SettingsView: View {
                 .wbFont(WbType.caption)
                 .foregroundStyle(WbColor.textSecondary)
         }
-        Section {
+        SettingsSection {
             HStack(alignment: .center, spacing: WbSpace.md) {
                 Text(model.text("快速启动和休眠策略也适用于未单独覆盖设置的已有设备。", "Quick boot and idle sleep also apply to existing devices that follow global settings."))
                     .wbFont(WbType.caption)
@@ -1319,7 +2141,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
+                .modifier(SettingsPanelButtonStyle(prominent: true)).tint(WbColor.accent)
                 .disabled(!loaded || saving || !policyDirty || policy.parameters == nil)
             }
         }
@@ -1328,39 +2150,35 @@ struct SettingsView: View {
     // MARK: - Data and tools
 
     @ViewBuilder private var dataPage: some View {
-        Section(model.text("Jidr SDK（可写安装位置）", "Jidr SDK (writable install location)")) {
+        SettingsSection(model.text("Jidr SDK（可写安装位置）", "Jidr SDK (writable install location)")) {
             SettingsPathRow(title: model.text("安装位置", "Install location"),
                             path: installSDKPath ?? model.text("读取中…", "Loading…")) {
                 Button(model.text("更改位置…", "Change location…"), action: chooseJidrSDKLocation)
-                    .buttonStyle(.bordered).controlSize(.regular)
+                    .modifier(SettingsPanelButtonStyle())
                     .disabled(saving)
                 if sdkStatus?.custom_sdk != nil {
                     Button(model.text("恢复默认", "Restore default"), action: restoreJidrSDKLocation)
-                        .buttonStyle(.bordered).controlSize(.regular)
+                        .modifier(SettingsPanelButtonStyle())
                         .disabled(saving)
                 }
-                linkButton(model.text("显示目录", "Show folder"), disabled: installSDKPath == nil) {
+                settingsActionButton(model.text("显示目录", "Show folder"), disabled: installSDKPath == nil) {
                     showFolder(installSDKPath)
                 }
-                Spacer(minLength: 0)
-                Button(model.text("安装 SDK 和系统镜像…", "Install SDK & system images…")) { installing = true }
-                    .buttonStyle(.bordered).controlSize(.regular)
-                    .disabled(saving)
             }
             Text(model.text("新安装的 emulator 和系统镜像会保存到此目录；已有默认目录中的镜像仍可继续使用。",
                             "Newly installed emulator files and system images go to this directory; images in the existing default directory remain available."))
                 .wbFont(WbType.caption)
                 .foregroundStyle(WbColor.textSecondary)
         }
-        Section(model.text("外部 Android SDK（只读）", "External Android SDK (read-only)")) {
+        SettingsSection(model.text("外部 Android SDK（只读）", "External Android SDK (read-only)")) {
             SettingsPathRow(title: model.text("外部 Android SDK", "External Android SDK"),
                             path: paths?.tools.android_sdk ?? sdkStatus?.studio_sdk ?? model.text("自动选择", "Automatic")) {
                 Button(model.text("选择 SDK", "Choose SDK")) { choose("sdk") }
-                    .buttonStyle(.bordered).controlSize(.regular)
+                    .modifier(SettingsPanelButtonStyle())
                     .disabled(paths == nil || saving)
                 Button(model.text("恢复自动选择", "Restore automatic")) { tool("sdk",path:NSNull()) }
-                    .buttonStyle(.bordered).controlSize(.regular).disabled(paths == nil || saving)
-                linkButton(model.text("显示目录", "Show folder"), disabled: paths?.tools.android_sdk == nil && sdkStatus?.studio_sdk == nil) {
+                    .modifier(SettingsPanelButtonStyle()).disabled(paths == nil || saving)
+                settingsActionButton(model.text("显示目录", "Show folder"), disabled: paths?.tools.android_sdk == nil && sdkStatus?.studio_sdk == nil) {
                     showFolder(paths?.tools.android_sdk ?? sdkStatus?.studio_sdk)
                 }
             }
@@ -1369,11 +2187,11 @@ struct SettingsView: View {
                 .wbFont(WbType.caption)
                 .foregroundStyle(WbColor.textSecondary)
         }
-        Section(model.text("存储", "Storage")) {
+        SettingsSection(model.text("存储", "Storage")) {
             SettingsPathRow(title: model.text("数据目录", "Data folder"),
                             path: paths?.data ?? model.text("读取中…", "Loading…")) {
                 Button(model.text("显示数据目录", "Show data folder")) { showFolder(paths?.data) }
-                    .buttonStyle(.bordered).controlSize(.regular)
+                    .modifier(SettingsPanelButtonStyle())
                     .disabled(paths == nil)
             }
             HStack(alignment: .center, spacing: WbSpace.md) {
@@ -1383,7 +2201,7 @@ struct SettingsView: View {
                     .lineLimit(2)
                 Spacer(minLength: WbSpace.sm)
                 Button(model.text("清理下载缓存…", "Clear download cache…")) { confirmCacheClear = true }
-                    .buttonStyle(.bordered).controlSize(.regular)
+                    .modifier(SettingsPanelButtonStyle())
                     .disabled(saving || cacheBytes == nil || cacheBytes == 0)
             }
         }
@@ -1406,7 +2224,7 @@ struct SettingsView: View {
     // MARK: - Advanced
 
     @ViewBuilder private var advancedPage: some View {
-        Section(model.text("地图", "Maps")) {
+        SettingsSection(model.text("地图", "Maps")) {
             LabeledContent {
                 TextField("", text: $tileURL, prompt: Text(model.text("默认地图服务", "Default map provider")))
                     .labelsHidden()
@@ -1433,11 +2251,11 @@ struct SettingsView: View {
                         }
                     }
                 }
-                .buttonStyle(.bordered).controlSize(.regular)
+                .modifier(SettingsPanelButtonStyle())
                 .disabled(saving)
             }
         }
-        Section("MCP") {
+        SettingsSection("MCP") {
             LabeledContent {
                 TextField("", text: $mcpBinary, prompt: Text("jidr"))
                     .labelsHidden()
@@ -1455,26 +2273,26 @@ struct SettingsView: View {
             HStack(spacing: WbSpace.sm) {
                 Spacer(minLength: 0)
                 Button(model.text("配置 Codex…", "Configure Codex…")) { confirmCodexConfig = true }
-                    .buttonStyle(.bordered).controlSize(.regular)
+                    .modifier(SettingsPanelButtonStyle())
                     .disabled(saving)
                 Button(model.text("复制 Codex MCP 配置", "Copy Codex MCP configuration")) {
                     guard let text = try? MCPConfiguration.configuration(command:mcpBinary) else { return }
                     NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text,forType:.string)
                     message = model.text("MCP 配置已复制。", "MCP configuration copied.")
                 }
-                .buttonStyle(.bordered).controlSize(.regular)
+                .modifier(SettingsPanelButtonStyle())
             }
             HStack(spacing: WbSpace.sm) {
                 Spacer(minLength: 0)
                 Button(model.text("配置 WorkBuddy…", "Configure WorkBuddy…")) { confirmWorkBuddyConfig = true }
-                    .buttonStyle(.bordered).controlSize(.regular)
+                    .modifier(SettingsPanelButtonStyle())
                     .disabled(saving)
                 Button(model.text("复制 WorkBuddy MCP 配置", "Copy WorkBuddy MCP configuration")) {
                     guard let data = try? MCPConfiguration.workBuddyConfiguration(command:mcpBinary), let text = String(data:data,encoding:.utf8) else { return }
                     NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text,forType:.string)
                     message = model.text("MCP 配置已复制。", "MCP configuration copied.")
                 }
-                .buttonStyle(.bordered).controlSize(.regular)
+                .modifier(SettingsPanelButtonStyle())
             }
         }
     }
@@ -1482,7 +2300,7 @@ struct SettingsView: View {
     // MARK: - About
 
     @ViewBuilder private var aboutPage: some View {
-        Section(model.text("关于", "About")) {
+        SettingsSection(model.text("关于", "About")) {
             VStack(spacing: WbSpace.xs + 2) {
                 appIcon
                 Text("Jidr")
@@ -1496,21 +2314,21 @@ struct SettingsView: View {
             .padding(.vertical, WbSpace.sm)
             HStack(spacing: WbSpace.sm) {
                 Button(model.text("检查更新", "Check for updates")) { checkUpdate() }
-                    .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
+                    .modifier(SettingsPanelButtonStyle(prominent: true)).tint(WbColor.accent)
                     .disabled(checkingUpdate || about == nil)
                 if let releaseURL {
                     Button(model.text("查看新版本", "View new version")) { NSWorkspace.shared.open(releaseURL) }
-                        .buttonStyle(.bordered).controlSize(.regular)
+                        .modifier(SettingsPanelButtonStyle())
                 }
                 Button(model.text("源代码", "Source code")) {
                     if let value = about?.repository, let url = URL(string:value) { NSWorkspace.shared.open(url) }
                 }
-                .buttonStyle(.bordered).controlSize(.regular)
+                .modifier(SettingsPanelButtonStyle())
                 .disabled(about == nil)
                 Button(model.text("许可证", "Licenses")) {
                     if let value = about?.repository, let url = URL(string:value + "/blob/master/NOTICE") { NSWorkspace.shared.open(url) }
                 }
-                .buttonStyle(.bordered).controlSize(.regular)
+                .modifier(SettingsPanelButtonStyle())
                 .disabled(about == nil)
                 Spacer(minLength: 0)
             }
@@ -1545,13 +2363,9 @@ struct SettingsView: View {
 
     // MARK: - Small helpers
 
-    private func linkButton(_ title: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .wbFont(WbType.label.weighted(.medium))
-                .foregroundStyle(disabled ? WbColor.textDisabled : WbColor.accentText)
-        }
-        .buttonStyle(.plain)
+    private func settingsActionButton(_ title: String, disabled: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+        .modifier(SettingsPanelButtonStyle())
         .disabled(disabled)
     }
 }
@@ -1777,9 +2591,13 @@ struct CenterView: View {
                         ConnectionStatusPill(model: model).padding(.horizontal, WbSpace.lg).padding(.top, WbSpace.sm)
                     }
                     layout
-                    if model.isEmptyDeviceLibrary, let toast = model.toast {
-                        ToastOverlay(toast: toast) { model.dismissToast() }
-                    }
+                        .overlay(alignment: .bottom) {
+                            if model.isEmptyDeviceLibrary, let toast = model.toast {
+                                ToastOverlay(toast: toast) { model.dismissToast() }
+                                    .frame(maxWidth: 440)
+                                    .padding(.horizontal, WbSpace.lg)
+                            }
+                        }
                     if !model.notice.isEmpty {
                         HStack(alignment: .top, spacing: WbSpace.sm) {
                             Label(model.displayNotice, systemImage: WbIcon.info)
@@ -1801,30 +2619,15 @@ struct CenterView: View {
         .environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
         .preferredColorScheme(model.colorScheme)
         return base
+        .accessibilityHidden(model.sheet == .newDevice || model.sheet == .snapshots || model.sheet == .edit || model.sheet == .imageManagement)
         .onChange(of: model.isEmptyDeviceLibrary) { empty in
             if empty { model.deviceQuery = "" }
         }
-        .onChange(of:model.paletteOpen) { open in
-            if !open, model.sheet == nil, !model.tasksOpen { model.searchFocusRequest += 1 }
-        }
-        .onChange(of:model.tasksOpen) { open in
-            if !open, model.sheet == nil, !model.paletteOpen { model.searchFocusRequest += 1 }
-        }
         .modifier(CenterAPKDrop(model: model))
-        .sheet(item:$model.sheet) { sheet in
-            Group {
-                switch sheet {
-                case .newDevice: NewDeviceView(model:model)
-                case .setupSDK: InstallSDKView(model:model)
-                case .settings: EmptyView() // Routed to the independent settings window.
-                case .snapshots:
-                    if let device = selectedDevice { SnapshotsView(model:model, device:device) }
-                    else { Text("请选择设备") }
-                case .edit:
-                    if let details = model.details { EditDeviceView(model:model,details:details) }
-                    else { ProgressView(model.text("正在读取设备详情…", "Loading device details…")) }
-                }
-            }.environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
+        .sheet(item: Binding(get: { model.sheet == .setupSDK ? model.sheet : nil },
+                             set: { if $0 == nil { model.dismissSDKSheet() } }), onDismiss: model.sdkSheetDidDismiss) { _ in
+            NewDeviceView(model: model, standaloneSDKSetup: true)
+                .environment(\.locale, Locale(identifier: model.language == 0 ? "en" : "zh-Hans"))
         }
         .sheet(isPresented: $appsPresented) {
             VStack(spacing: 0) {
@@ -1864,11 +2667,27 @@ struct CenterView: View {
 
     // MARK: Layout
 
-    private var layout: some View {
-        navigationLayout
+    @ViewBuilder private var layout: some View {
+        if model.isEmptyDeviceLibrary {
+            NewDeviceView(model: model, inline: true)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background {
+                    ZStack {
+                        CenterOnboardingGlass()
+                        Color(nsColor: .windowBackgroundColor).opacity(0.75)
+                    }
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+                }
+        } else {
+            navigationLayout
+        }
     }
 
-    private var navigationLayout: some View {
+    private var navigationLayout: some View { nativeNavigationLayout }
+
+    private var nativeNavigationLayout: some View {
         NavigationSplitView(columnVisibility: Binding(
             get: { model.sidebarVisible ? .all : .detailOnly },
             set: { model.sidebarVisible = $0 != .detailOnly }
@@ -1876,76 +2695,33 @@ struct CenterView: View {
             DeviceLibrarySidebar(model: model)
                 .navigationSplitViewColumnWidth(min: 250, ideal: 270, max: 300)
         } detail: {
-            Group {
-                if model.isEmptyDeviceLibrary {
-                    emptyDeviceState
-                } else if model.showingAllDevices {
-                    AllDevicesView(model: model)
-                } else if let device = selectedDevice {
-                    DeviceOverviewView(model: model, device: device) { appsPresented = true }
-                        .id(device.id)
-                } else {
-                    CenterQuietState(icon: WbIcon.deviceEmpty,
-                                     text: model.text("选择一台设备查看详情", "Select a device to see its details"), height: 196)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
-            // The native detail column extends beneath the glass sidebar.
-            // Keep its solid surface out of that leading safe-area inset so
-            // the system glass can sample the backdrop instead of a gray fill.
-            .background(centerSurface, ignoresSafeAreaEdges: [.top, .bottom, .trailing])
+            libraryDetail
+                .background(centerSurface, ignoresSafeAreaEdges: [.top, .bottom, .trailing])
         }
-        .overlay(alignment: .bottomTrailing) {
-            if !model.isEmptyDeviceLibrary, let toast = model.toast {
-                ToastOverlay(toast: toast) { model.dismissToast() }
-                    .frame(maxWidth: 440).padding()
-            }
-        }
+        .overlay(alignment: .bottomTrailing) { libraryToast }
     }
 
-    private var emptyDeviceState: some View {
-        VStack(spacing: WbSpace.lg) {
-            ZStack {
-                RoundedRectangle(cornerRadius: WbRadius.xl, style: .continuous)
-                    .fill(WbColor.accentContainer)
-                    .frame(width: 80, height: 80)
-                Image(systemName: WbIcon.deviceEmpty)
-                    .font(.system(size: 34, weight: .light))
-                    .foregroundStyle(WbColor.textSecondary)
-                Circle()
-                    .fill(WbColor.accent)
-                    .frame(width: 22, height: 22)
-                    .overlay(
-                        Image(systemName: "plus")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(WbColor.accentOnAccent)
-                    )
-                    .offset(x: 31, y: 31)
+    private var libraryDetail: some View {
+        Group {
+            if model.showingAllDevices {
+                AllDevicesView(model: model)
+            } else if let device = selectedDevice {
+                DeviceOverviewView(model: model, device: device) { appsPresented = true }
+                    .id(device.id)
+            } else {
+                CenterQuietState(icon: WbIcon.deviceEmpty,
+                                 text: model.text("选择一台设备查看详情", "Select a device to see its details"), height: 196)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .accessibilityHidden(true)
-            VStack(spacing: WbSpace.sm) {
-                Text(model.text("创建你的第一台安卓设备", "Create your first Android device"))
-                    .font(.title.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(model.text("在 Mac 上运行安卓应用和游戏。", "Run Android apps and games on your Mac."))
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-            }
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
-            VStack(spacing: WbSpace.md) {
-                Button(model.text("创建设备", "Create device")) { model.present(.newDevice) }
-                    .buttonStyle(.borderedProminent).controlSize(.large).tint(WbColor.accent)
-                Button(model.text("设置 Android SDK…", "Set up Android SDK…")) { model.present(.setupSDK) }
-                    .buttonStyle(.link)
-            }
-            .padding(.top, WbSpace.xs)
         }
-        .frame(maxWidth: 480)
-        .padding(WbSpace.xl)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityIdentifier("empty-device-library")
+        .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder private var libraryToast: some View {
+        if !model.isEmptyDeviceLibrary, let toast = model.toast {
+            ToastOverlay(toast: toast) { model.dismissToast() }
+                .frame(maxWidth: 440).padding()
+        }
     }
 
     // MARK: Apps card

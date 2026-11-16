@@ -42,8 +42,77 @@ func brightPixels(_ bitmap: NSBitmapImageRep) -> Int {
 }
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
+setenv("JIDR_UI_SDK_PROGRESS", "1", 1)
 let model = try CenterModel(center: CommandLine.arguments[1], bridge: "/usr/bin/false")
+let directDeviceView = NewDeviceView(model: model, startAtDeviceSetup: true)
+let initialDeviceStep = Mirror(reflecting: directDeviceView).children.first { $0.label == "_step" }?.value as? State<Int>
+require(initialDeviceStep?.wrappedValue == 3, "new-device panel starts on the configuration page before its first render")
+unsetenv("JIDR_UI_SDK_PROGRESS")
 eventually("fixture loads") { model.connection.isOnline && model.details != nil }
+// Settings follows the selected pane and stays within the current display.
+let settingsController = SettingsWindowController(model: model)
+settingsController.showWindow(nil)
+settingsController.window?.orderFrontRegardless()
+settingsController.window?.displayIfNeeded()
+pump(0.8)
+let settingsWindow = settingsController.window!
+let generalHeight = settingsWindow.frame.height
+model.settingsCategory = 2
+pump(0.8)
+let measuredDataHeight = settingsWindow.frame.height
+if let screen = settingsWindow.screen {
+    require(settingsWindow.frame.width <= screen.frame.width * 0.7 + 1 &&
+            settingsWindow.frame.height <= screen.frame.height * 0.7 + 1,
+            "settings window is capped at 70 percent of the current screen")
+}
+require(measuredDataHeight > generalHeight + 20, "settings window grows to fit a longer pane")
+// Shrinking during a SwiftUI layout used to leave a stale native window
+// surface. Check both the content geometry and native input after a real
+// tall-to-short transition, then repeat it to exercise deferred updates.
+for _ in 0..<3 {
+    model.settingsCategory = 3
+    pump(0.4)
+    let root = settingsWindow.contentView!
+    root.layoutSubtreeIfNeeded()
+    require(abs(root.bounds.height - settingsWindow.frame.height) < 1,
+            "settings content matches the resized native window")
+    let fields = descendants(root, NSTextField.self).filter { $0.isEditable && $0.window === settingsWindow }
+    require(!fields.isEmpty, "the shorter settings pane exposes an editable field")
+    let field = fields[0]
+    let point = field.convert(NSPoint(x: field.bounds.midX, y: field.bounds.midY), to: root)
+    let hit = root.hitTest(point)
+    require(hit === field || hit?.isDescendant(of: field) == true,
+            "settings controls remain hit-testable after shrinking")
+    model.settingsCategory = 2
+    pump(0.4)
+}
+
+var smallFrame = settingsWindow.frame
+smallFrame.size.height = 300
+settingsWindow.setFrame(smallFrame, display: true)
+pump(0.2)
+let settingsScrolls = descendants(settingsWindow.contentView!, NSScrollView.self)
+require(settingsScrolls.contains { scroll in
+    guard let document = scroll.documentView else { return false }
+    return scroll.hasVerticalScroller && document.frame.height > scroll.contentSize.height + 1
+}, "settings content scrolls when it exceeds the available height")
+model.settingsCategory = 4
+pump(0.8)
+require(settingsWindow.frame.height < measuredDataHeight - 20, "settings window shrinks for a shorter pane")
+settingsController.close()
+model.settingsCategory = 0
+// Installation has its own progress page. Its events must not leave a second,
+// stale progress message in the global notice after the operation ends.
+model.notice = "Unrelated notice"
+var sdkProgressReceived = false
+var sdkRequestFinished = false
+model.call("sdk.install", onProgress: { message, _, _ in
+    sdkProgressReceived = message == "Downloading emulator"
+}) { _ in sdkRequestFinished = true }
+eventually("synthetic SDK installation finishes") { sdkRequestFinished }
+require(sdkProgressReceived && model.notice == "Unrelated notice",
+        "handled installation progress does not overwrite the global notice")
+model.notice = ""
 let stoppedDevice = model.devices.first { $0.stopped }!
 let moreButton = DeviceMoreButton(model: model, device: stoppedDevice)
 let menuCoordinator = moreButton.makeCoordinator()
@@ -110,11 +179,429 @@ window.contentView = NSHostingView(rootView: CenterView(model: model))
 window.makeKeyAndOrderFront(nil)
 app.activate(ignoringOtherApps: true)
 pump()
+// Device surfaces use the same transparent borderless window as the task
+// panel, with one clipped glass surface and no system sheet frame.
+let mainSearchBeforePanels = descendants(window.contentView!, NSSearchField.self).first { $0.identifier?.rawValue == "device-search" }!
+let searchWasEnabled = mainSearchBeforePanels.isEnabled
+let panelToolbarToggle = window.toolbar!.items.first { $0.itemIdentifier.rawValue == "jidr.sidebar" }!
+let toolbarWasEnabled = panelToolbarToggle.isEnabled
+let toolbarButton = panelToolbarToggle.view!
+window.contentView!.layoutSubtreeIfNeeded()
+let mainWindowFrameBeforePanels = window.frame
+let mainContentFrameBeforePanels = window.contentView!.frame
+let searchFrameBeforePanels = mainSearchBeforePanels.convert(mainSearchBeforePanels.bounds, to: nil)
+let toolbarFrameBeforePanels = toolbarButton.convert(toolbarButton.bounds, to: nil)
+eventually("device overview more button is available") {
+    descendants(window.contentView!, NSButton.self).contains { $0.identifier?.rawValue == "jidr-device-more:\(model.selected ?? "")" }
+}
+let overviewMoreButton = descendants(window.contentView!, NSButton.self).first { $0.identifier?.rawValue == "jidr-device-more:\(model.selected ?? "")" }!
+let overviewMoreFrameBeforePanels = overviewMoreButton.convert(overviewMoreButton.bounds, to: nil)
+let mainSplit = descendants(window.contentView!, NSSplitView.self).first { $0.isVertical && $0.arrangedSubviews.count == 2 }!
+let mainSplitFrameBeforePanels = mainSplit.convert(mainSplit.bounds, to: nil)
+let panelTestLibraryTable = descendants(window.contentView!, NSTableView.self).first { $0.accessibilityIdentifier() == "library-devices" }!
+func viewChain(_ source: NSView) -> String {
+    var current: NSView? = source
+    var values: [String] = []
+    while let view = current, values.count < 12 {
+        values.append("\(type(of: view)) frame=\(view.frame) safe=\(view.safeAreaInsets) window=\(view.window != nil)")
+        current = view.superview
+    }
+    return values.joined(separator: " | ")
+}
+let searchChainBeforePanels = viewChain(mainSearchBeforePanels)
+func windowChrome(_ window: NSWindow) -> String {
+    "toolbar=\(String(describing: window.toolbar?.identifier)) visible=\(String(describing: window.toolbar?.isVisible)) style=\(window.styleMask.rawValue) layout=\(window.contentLayoutRect) key=\(window.isKeyWindow) main=\(window.isMainWindow)"
+}
+let chromeBeforePanels = windowChrome(window)
+let requestLogURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["JIDR_HOME"]!).appendingPathComponent("requests.jsonl")
+func snapshotRequestCount() -> Int {
+    guard let contents = try? String(contentsOf: requestLogURL, encoding: .utf8) else { return 0 }
+    return contents.split(separator: "\n").filter { line in
+        guard let data = String(line).data(using: .utf8),
+              let request = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return false }
+        return request["method"] as? String == "snapshot.list"
+    }.count
+}
+for sheet: CenterSheet in [.newDevice, .snapshots, .edit, .imageManagement] {
+    model.present(sheet)
+    eventually("device panel is attached") { model.deviceSheetPanel?.window != nil }
+    guard let child = model.deviceSheetPanel?.window else { fatalError("missing device panel") }
+    (child as? LightweightPanel)?.reduceMotionOverride = false
+    require(child is LightweightPanel && child.parent === window && window.attachedSheet == nil,
+            "device panel uses the same native panel as tasks, not a system sheet")
+    pump(0.1)
+    child.contentView?.layoutSubtreeIfNeeded()
+    let panelScrolls = descendants(child.contentView!, NSScrollView.self).filter(\.hasVerticalScroller)
+    require(panelScrolls.count == 1 && panelScrolls[0].scrollerStyle == .overlay,
+            "\(sheet) uses one native overlay scrollbar")
+    if sheet == .edit {
+        let scroll = panelScrolls[0]
+        let original = scroll.contentView.bounds.origin
+        scroll.contentView.scroll(to: NSPoint(x: original.x, y: original.y + 40))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        require(scroll.contentView.bounds.origin.y != original.y, "the overlay scrollbar still scrolls device settings")
+        scroll.contentView.scroll(to: original)
+        scroll.reflectScrolledClipView(scroll.contentView)
+    }
+    if app.isActive, let row = panelTestLibraryTable.rowView(atRow: panelTestLibraryTable.selectedRow, makeIfNecessary: false) {
+        require(row.isEmphasized, "sidebar selection stays active behind a device panel")
+    }
+    window.contentView!.layoutSubtreeIfNeeded()
+    let searchFrameDuringPanel = mainSearchBeforePanels.convert(mainSearchBeforePanels.bounds, to: nil)
+    let splitFrameDuringPanel = mainSplit.convert(mainSplit.bounds, to: nil)
+    require(window.frame == mainWindowFrameBeforePanels && window.contentView!.frame == mainContentFrameBeforePanels,
+            "opening \(sheet) preserves the main window and content frames: window \(mainWindowFrameBeforePanels) -> \(window.frame), content \(mainContentFrameBeforePanels) -> \(window.contentView!.frame)")
+    require(searchFrameDuringPanel == searchFrameBeforePanels && splitFrameDuringPanel == mainSplitFrameBeforePanels,
+            "opening \(sheet) preserves main layout: search \(searchFrameBeforePanels) -> \(searchFrameDuringPanel), split \(mainSplitFrameBeforePanels) -> \(splitFrameDuringPanel)\nBEFORE: \(searchChainBeforePanels)\nAFTER: \(viewChain(mainSearchBeforePanels))\nCHROME: \(chromeBeforePanels) -> \(windowChrome(window))")
+    require(mainSearchBeforePanels.isEnabled == searchWasEnabled && panelToolbarToggle.isEnabled == toolbarWasEnabled,
+            "opening a device panel does not change the main controls' enabled appearance (search: \(searchWasEnabled) -> \(mainSearchBeforePanels.isEnabled), toolbar: \(toolbarWasEnabled) -> \(panelToolbarToggle.isEnabled))")
+    let searchCenter = mainSearchBeforePanels.convert(
+        NSPoint(x: mainSearchBeforePanels.bounds.midX, y: mainSearchBeforePanels.bounds.midY), to: nil)
+    let oldResponder = window.firstResponder
+    for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
+        guard let click = NSEvent.mouseEvent(with: type, location: searchCenter, modifierFlags: [],
+                                             timestamp: 0, windowNumber: window.windowNumber,
+                                             context: nil, eventNumber: 1, clickCount: 1, pressure: 1) else {
+            fatalError("cannot create background click")
+        }
+        NSApp.sendEvent(click)
+    }
+    require(window.firstResponder === oldResponder,
+            "a device panel blocks pointer input on the background search field")
+    let sidebarBeforeBlockedAction = model.sidebarVisible
+    require(NSApp.sendAction(panelToolbarToggle.action!, to: panelToolbarToggle.target, from: panelToolbarToggle),
+            "the toolbar routes its action while a panel is open")
+    require(model.sidebarVisible == sidebarBeforeBlockedAction,
+            "the toolbar ignores input behind an open device panel")
+    require(!child.isOpaque && child.backgroundColor.alphaComponent == 0 && child.styleMask.contains(.borderless),
+            "device panel has a transparent borderless window")
+    require(child.contentView?.layer?.masksToBounds == true && child.contentView?.layer?.cornerRadius == 26,
+            "device panel clips content to the glass corner radius")
+    guard let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                       timestamp: 0, windowNumber: child.windowNumber,
+                                       context: nil, characters: "\u{1b}",
+                                       charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53) else {
+        fatalError("cannot create Escape event")
+    }
+    child.makeKeyAndOrderFront(nil)
+    pump(0.1)
+    // Drain the manager's own initial request before counting the refresh
+    // caused by closing the panel.
+    var requestBarrier = false
+    model.call("device.list") { _ in requestBarrier = true }
+    eventually("panel requests have reached the fixture") { requestBarrier }
+    let requestsBeforeClose = snapshotRequestCount()
+    let delaySnapshotURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["JIDR_HOME"]!).appendingPathComponent("slow-snapshot-list")
+    if sheet == .snapshots { try Data().write(to: delaySnapshotURL) }
+    require(child.delegate?.windowShouldClose?(child) == false,
+            "native window closing cannot bypass the form's cancel policy")
+    if sheet == .edit {
+        guard let commandW = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command,
+                                               timestamp: 0, windowNumber: child.windowNumber, context: nil,
+                                               characters: "w", charactersIgnoringModifiers: "w",
+                                               isARepeat: false, keyCode: 13) else { fatalError("missing Cmd-W event") }
+        NSApp.sendEvent(commandW)
+    } else {
+        NSApp.sendEvent(escape)
+    }
+    pump(0.03)
+    require(model.sheet == sheet && child.parent === window,
+            "modal state and ownership remain active until the exit animation completes")
+    let closingResponder = window.firstResponder
+    guard let closingClick = NSEvent.mouseEvent(with: .leftMouseDown, location: searchCenter, modifierFlags: [],
+                                                 timestamp: 0, windowNumber: window.windowNumber,
+                                                 context: nil, eventNumber: 3, clickCount: 1, pressure: 1) else {
+        fatalError("cannot create click during dismissal")
+    }
+    NSApp.sendEvent(closingClick)
+    require(window.firstResponder === closingResponder, "background input remains blocked while the panel exits")
+    for sample in 0..<45 {
+        pump(0.01)
+        window.contentView!.layoutSubtreeIfNeeded()
+        let searchFrame = mainSearchBeforePanels.convert(mainSearchBeforePanels.bounds, to: nil)
+        let toolbarFrame = toolbarButton.convert(toolbarButton.bounds, to: nil)
+        let overviewFrame = overviewMoreButton.convert(overviewMoreButton.bounds, to: nil)
+        require(searchFrame == searchFrameBeforePanels && toolbarFrame == toolbarFrameBeforePanels && overviewFrame == overviewMoreFrameBeforePanels,
+                "closing \(sheet) moved main content at sample \(sample): search \(searchFrameBeforePanels) -> \(searchFrame), toolbar \(toolbarFrameBeforePanels) -> \(toolbarFrame), overview \(overviewMoreFrameBeforePanels) -> \(overviewFrame); \(windowChrome(window))")
+    }
+    if sheet == .snapshots {
+        eventually("closing snapshot management refreshes the overview") { snapshotRequestCount() == requestsBeforeClose + 1 }
+        try? FileManager.default.removeItem(at: delaySnapshotURL)
+    } else {
+        require(snapshotRequestCount() == requestsBeforeClose,
+                "closing an unrelated panel does not reload snapshots")
+    }
+    eventually("device panel closes with Escape") { model.deviceSheetPanel == nil && model.sheet == nil }
+    eventually("dismissed panel is removed from the center window") { child.parent == nil }
+    pump(0.2)
+    window.contentView!.layoutSubtreeIfNeeded()
+    require(window.frame == mainWindowFrameBeforePanels &&
+            mainSearchBeforePanels.convert(mainSearchBeforePanels.bounds, to: nil) == searchFrameBeforePanels,
+            "closing a device panel preserves the main window layout")
+    window.makeKeyAndOrderFront(nil)
+    window.makeFirstResponder(nil)
+    for type: NSEvent.EventType in [.leftMouseDown, .leftMouseUp] {
+        guard let click = NSEvent.mouseEvent(with: type, location: searchCenter, modifierFlags: [],
+                                             timestamp: 0, windowNumber: window.windowNumber,
+                                             context: nil, eventNumber: 2, clickCount: 1, pressure: 1) else {
+            fatalError("cannot create restored background click")
+        }
+        NSApp.sendEvent(click)
+    }
+    eventually("background search works again after closing the panel") {
+        mainSearchBeforePanels.currentEditor() != nil || window.firstResponder === mainSearchBeforePanels
+    }
+    window.makeFirstResponder(nil)
+}
+if ProcessInfo.processInfo.environment["JIDR_GLASS_PANEL_TEST_ONLY"] == "1" {
+    final class TrackingPanel: LightweightPanel {
+        var framesSet: [NSRect] = []
+        override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+            framesSet.append(frameRect)
+            super.setFrame(frameRect, display: flag)
+        }
+    }
+    let animatedPanel = TrackingPanel(size: NSSize(width: 120, height: 80))
+    let restingOrigin = NSPoint(x: 500, y: 500)
+    animatedPanel.preparePosition(restingOrigin)
+    animatedPanel.reduceMotionOverride = false
+    animatedPanel.framesSet.removeAll()
+    animatedPanel.showAnimated()
+    require(animatedPanel.framesSet.contains { abs($0.origin.y - (restingOrigin.y + 14)) < 0.5 },
+            "opening begins above the resting position")
+    eventually("panel finishes appearing") {
+        animatedPanel.isVisible && animatedPanel.alphaValue > 0.99 && abs(animatedPanel.frame.origin.y - restingOrigin.y) < 0.5
+    }
+    require(abs(animatedPanel.frame.origin.x - restingOrigin.x) < 0.5, "panel stays horizontally aligned")
+    var staleDismissal = false
+    animatedPanel.hideAnimated { staleDismissal = true }
+    animatedPanel.showAnimated()
+    pump(0.5)
+    require(animatedPanel.isVisible && animatedPanel.alphaValue > 0.99 && !staleDismissal,
+            "reopening prevents an earlier dismissal from hiding the panel")
+    let wasKeyBeforeDismissal = animatedPanel.isKeyWindow
+    var hiddenAlpha: CGFloat?
+    animatedPanel.hideAnimated { hiddenAlpha = animatedPanel.alphaValue }
+    require(!wasKeyBeforeDismissal || animatedPanel.isKeyWindow,
+            "glass retains its key appearance until it has disappeared")
+    eventually("panel finishes disappearing") { !animatedPanel.isVisible && hiddenAlpha != nil }
+    require((hiddenAlpha ?? 1) < 0.01 && animatedPanel.alphaValue < 0.01,
+            "dismissed window stays transparent rather than resetting to an opaque frame")
+    require(animatedPanel.frame.origin.y > restingOrigin.y + 10,
+            "closing moves the entire window upward")
+    animatedPanel.showAnimated()
+    eventually("reopened panel returns to its resting position") {
+        animatedPanel.alphaValue > 0.99 && abs(animatedPanel.frame.origin.y - restingOrigin.y) < 0.5
+    }
+    animatedPanel.hideAnimated(immediately: true)
+    animatedPanel.reduceMotionOverride = true
+    animatedPanel.showAnimated()
+    require(animatedPanel.isVisible && animatedPanel.alphaValue == 1 && abs(animatedPanel.frame.origin.y - restingOrigin.y) < 0.5,
+            "reduced motion shows immediately at the resting position")
+    animatedPanel.hideAnimated()
+    require(!animatedPanel.isVisible, "reduced motion hides immediately")
+
+    model.openTasks()
+    eventually("tasks panel appears") { model.taskPanel?.window?.isVisible == true }
+    pump(0.1)
+    window.contentView!.layoutSubtreeIfNeeded()
+    require(window.frame == mainWindowFrameBeforePanels && mainSearchBeforePanels.convert(mainSearchBeforePanels.bounds, to: nil) == searchFrameBeforePanels,
+            "opening the task panel preserves main window layout")
+    require(mainSearchBeforePanels.isEnabled == searchWasEnabled,
+            "task panel does not change the main search field's enabled appearance")
+    model.presentQuitBlocker()
+    let outgoingQuitReason = model.quitReason
+    require(outgoingQuitReason != nil, "task panel can display a quit blocker")
+    model.openPalette()
+    require(model.quitReason == outgoingQuitReason, "task content remains unchanged while its window fades out")
+    eventually("tasks panel disappears and command panel appears") {
+        model.taskPanel?.window?.isVisible == false && model.paletteWindow?.window?.isVisible == true
+    }
+    window.contentView!.layoutSubtreeIfNeeded()
+    require(window.frame == mainWindowFrameBeforePanels && mainSearchBeforePanels.convert(mainSearchBeforePanels.bounds, to: nil) == searchFrameBeforePanels,
+            "opening the command panel preserves main window layout")
+    require(mainSearchBeforePanels.isEnabled == searchWasEnabled,
+            "command panel does not change the main search field's enabled appearance")
+    let paletteScrolls = descendants(model.paletteWindow!.window!.contentView!, NSScrollView.self).filter(\.hasVerticalScroller)
+    require(!paletteScrolls.isEmpty && paletteScrolls.allSatisfy { $0.scrollerStyle == .overlay },
+            "command panel uses the native overlay scrollbar")
+    model.paletteQuery = "tasks"
+    model.hidePalette()
+    model.openPalette()
+    require(model.paletteQuery == "tasks", "reopening does not reset the outgoing command content during its fade")
+    pump(0.4)
+    require(model.paletteOpen && model.paletteWindow?.window?.isVisible == true,
+            "rapidly reopening command search keeps it visible")
+    require(model.paletteQuery.isEmpty, "the newly presented command panel starts with a clean query")
+    guard let newDeviceIndex = model.paletteFiltered.firstIndex(where: { $0.action == .newDevice }) else {
+        fatalError("missing new-device command")
+    }
+    model.paletteSelection = newDeviceIndex
+    let fadingPalette = model.paletteWindow!.window!
+    model.hidePalette()
+    guard let enterDuringClose = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                   timestamp: 0, windowNumber: fadingPalette.windowNumber,
+                                                   context: nil, characters: "\r", charactersIgnoringModifiers: "\r",
+                                                   isARepeat: false, keyCode: 36) else { fatalError("missing Return event") }
+    NSApp.sendEvent(enterDuringClose)
+    eventually("command panel disappears") { model.paletteWindow?.window?.isVisible == false }
+    pump(0.25)
+    require(model.sheet == nil, "Return during palette dismissal cannot run a command")
+
+    // Switching must not overlap windows or release modal input early.
+    model.openPalette()
+    eventually("palette becomes active before switching") { model.paletteOpen && model.paletteWindow?.window?.isVisible == true }
+    let previousPalette = model.paletteWindow!.window!
+    model.present(.edit)
+    require(model.paletteOpen && model.sheet == nil && model.deviceSheetPanel == nil,
+            "device settings waits for command search to finish closing")
+    eventually("device settings opens after search closes") { model.sheet == .edit && model.deviceSheetPanel?.window?.isVisible == true }
+    require(!previousPalette.isVisible && !model.paletteOpen, "old panel is gone before the new panel opens")
+    model.openTasks()
+    model.openPalette()
+    model.present(.newDevice)
+    pump(0.3)
+    require(model.sheet == .edit && model.deviceSheetPanel?.window?.isVisible == true && !model.tasksOpen && !model.paletteOpen,
+            "other panel requests do not discard an open device form")
+    let editingPanel = model.deviceSheetPanel!.window!
+    model.presentQuitBlocker()
+    eventually("quit blocker appears on the device panel") { editingPanel.attachedSheet != nil }
+    require(model.sheet == .edit && model.deviceSheetPanel?.window === editingPanel,
+            "a blocked quit does not replace the device form")
+    if let alert = editingPanel.attachedSheet {
+        editingPanel.endSheet(alert)
+        alert.orderOut(nil)
+    }
+    pump(0.2)
+    let closingDevice = model.deviceSheetPanel!.window!
+    var afterDeviceClose = false
+    model.dismissDevicePanel {
+        require(!closingDevice.isVisible && closingDevice.parent == nil && model.sheet == nil,
+                "follow-up actions run only after the device panel is removed")
+        afterDeviceClose = true
+    }
+    require(model.sheet == .edit && !afterDeviceClose, "device modal state stays active during closing")
+    eventually("device panel follow-up runs") { afterDeviceClose }
+
+    model.openPalette()
+    eventually("palette opens before SDK setup") { model.paletteOpen && model.paletteWindow?.window?.isVisible == true }
+    model.present(.setupSDK)
+    require(model.sheet == nil, "SDK setup waits for the outgoing palette")
+    eventually("SDK setup opens after palette dismissal") { model.sheet == .setupSDK && window.attachedSheet != nil }
+    model.present(.newDevice)
+    eventually("new device waits for the native SDK sheet to dismiss") {
+        model.sheet == .newDevice && window.attachedSheet == nil && model.deviceSheetPanel?.window?.isVisible == true
+    }
+    model.dismissDevicePanel()
+    eventually("device panel closes after SDK handoff") { model.sheet == nil && model.deviceSheetPanel == nil }
+    model.present(.setupSDK)
+    eventually("SDK sheet opens again") { model.sheet == .setupSDK && window.attachedSheet != nil }
+    model.present(.newDevice)
+    model.present(.setupSDK)
+    eventually("latest SDK request waits for the previous sheet to close") {
+        model.sheet == .setupSDK && window.attachedSheet != nil && model.deviceSheetPanel == nil
+    }
+    model.dismissSDKSheet()
+    eventually("SDK sheet closes after the handoff test") { model.sheet == nil && window.attachedSheet == nil }
+
+    model.openPalette()
+    eventually("palette opens before a replaced settings request") { model.paletteOpen && model.paletteWindow?.window?.isVisible == true }
+    model.present(.settings)
+    model.present(.newDevice)
+    eventually("latest request opens the new-device panel") { model.sheet == .newDevice && model.deviceSheetPanel?.window?.isVisible == true }
+    require(model.settingsWindow == nil, "a replaced settings request cannot appear over a newer panel")
+    model.dismissDevicePanel()
+    eventually("new-device panel closes after request replacement") { model.sheet == nil && model.deviceSheetPanel == nil }
+    let rightToolbarIDs = window.toolbar!.items.map(\.itemIdentifier.rawValue).filter { $0.hasPrefix("jidr.") && $0 != "jidr.sidebar" }
+    require(rightToolbarIDs == ["jidr.images", "jidr.palette", "jidr.tasks", "jidr.refresh"],
+            "system images is the first of the four right-side toolbar actions")
+    let imagesToolbar = window.toolbar!.items.first { $0.itemIdentifier.rawValue == "jidr.images" }!
+    let imageRevisionBefore = model.imageInventoryRevision
+    require(NSApp.sendAction(imagesToolbar.action!, to: imagesToolbar.target, from: imagesToolbar), "image manager toolbar action is available")
+    eventually("image manager opens from the center toolbar") {
+        model.sheet == .imageManagement && model.deviceSheetPanel?.window?.parent === window
+    }
+    require(window.attachedSheet == nil && model.settingsWindow?.window?.isVisible != true,
+            "image manager is centered on the main window without a settings sheet")
+    model.dismissDevicePanel()
+    eventually("image manager closes") { model.sheet == nil }
+    require(model.imageInventoryRevision == imageRevisionBefore + 1,
+            "closing image management invalidates the retained settings inventory")
+    model.present(.settings)
+    eventually("glass settings window opens") { model.settingsWindow?.window?.isVisible == true }
+    let glassSettings = model.settingsWindow!.window!
+    require(!glassSettings.isOpaque && glassSettings.backgroundColor == .clear && glassSettings.titlebarAppearsTransparent &&
+            glassSettings.titlebarSeparatorStyle == .none &&
+            glassSettings.styleMask.contains(.fullSizeContentView),
+            "settings uses glass with a system toolbar backdrop")
+    eventually("settings system glass is installed") {
+        descendants(glassSettings.contentView!, NSView.self).contains { $0.accessibilityIdentifier() == "settings-glass" }
+    }
+    let settingsGlass = descendants(glassSettings.contentView!, NSView.self).first { $0.accessibilityIdentifier() == "settings-glass" }!
+    let glassRect = settingsGlass.convert(settingsGlass.bounds, to: glassSettings.contentView!)
+    require(glassRect.insetBy(dx: -1, dy: -1).contains(glassSettings.contentView!.bounds),
+            "settings glass covers the content and toolbar area")
+    if #available(macOS 26.0, *) { require(settingsGlass is NSGlassEffectView, "settings uses native Liquid Glass") }
+    else { require(settingsGlass is NSVisualEffectView && (settingsGlass as? NSVisualEffectView)?.blendingMode == .behindWindow,
+                   "older macOS uses a behind-window system material") }
+    require(!descendants(glassSettings.contentView!, NSView.self).contains { $0.accessibilityIdentifier() == "settings-toolbar-blur" },
+            "settings does not add a custom background filter over the native toolbar")
+    for category in 0..<5 {
+        model.settingsCategory = category
+        pump(0.1)
+        require(settingsGlass.window === glassSettings && glassSettings.toolbar?.selectedItemIdentifier?.rawValue == "jidr.preferences.\(category)",
+                "settings retains its glass and native category toolbar when switching panes")
+        let settingsScrolls = descendants(glassSettings.contentView!, NSScrollView.self).filter(\.hasVerticalScroller)
+        require(!settingsScrolls.isEmpty && settingsScrolls.allSatisfy { $0.scrollerStyle == .overlay },
+                "settings panes use native overlay scrollbars")
+        let scrollBounds = settingsScrolls[0].convert(settingsScrolls[0].bounds, to: nil)
+        require(scrollBounds.maxY <= glassSettings.contentLayoutRect.maxY + 1,
+                "settings scroll content stays below the toolbar")
+        if category == 2 {
+            require(!descendants(glassSettings.contentView!, NSButton.self).contains { $0.title == "Manage system images…" || $0.title == "管理系统镜像…" },
+                    "image management no longer appears inside settings")
+        }
+    }
+    model.settingsCategory = 1
+    eventually("settings policy editor loads") {
+        descendants(glassSettings.contentView!, NSTextField.self).contains { $0.isEditable && $0.stringValue == "80" }
+    }
+    let budgetField = descendants(glassSettings.contentView!, NSTextField.self).first { $0.isEditable && $0.stringValue == "80" }!
+    glassSettings.makeKeyAndOrderFront(nil)
+    glassSettings.makeFirstResponder(budgetField)
+    guard let budgetEditor = budgetField.currentEditor() as? NSTextView else { fatalError("missing settings field editor") }
+    budgetEditor.selectAll(nil)
+    budgetEditor.insertText("75", replacementRange: budgetEditor.selectedRange())
+    pump(0.1)
+    window.makeKeyAndOrderFront(nil)
+    require(NSApp.sendAction(imagesToolbar.action!, to: imagesToolbar.target, from: imagesToolbar), "image manager can open while settings is retained")
+    eventually("image manager opens alongside retained settings") { model.sheet == .imageManagement }
+    model.dismissDevicePanel()
+    eventually("image manager finishes closing") { model.sheet == nil }
+    pump(0.2)
+    require(budgetField.stringValue == "75", "refreshing image inventory preserves unsaved settings edits")
+    model.settingsWindow?.close()
+    print("Device panel and animation tests passed")
+    model.close()
+    window.close()
+    exit(0)
+}
 require(window.toolbar != nil, "center has a real native toolbar")
 require(window.styleMask.contains(.fullSizeContentView), "content extends into the title-bar area")
 require(window.titlebarAppearsTransparent && window.titlebarSeparatorStyle == .none, "native toolbar blends with content without a separator")
 require(window.titleVisibility == .hidden, "window title does not duplicate the content heading")
 let centerToolbarIDs = window.toolbar!.items.map(\.itemIdentifier.rawValue)
+func trafficLightFrames(_ window: NSWindow) -> [NSRect] {
+    window.contentView?.superview?.layoutSubtreeIfNeeded()
+    return [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap {
+        guard let button = window.standardWindowButton($0) else { return nil }
+        let frame = button.convert(button.bounds, to: nil)
+        // The window is resized between captures; compare against its top edge.
+        return NSRect(x: frame.minX, y: window.frame.height - frame.maxY, width: frame.width, height: frame.height)
+    }
+}
+let centerTrafficLights = trafficLightFrames(window)
+require(centerTrafficLights.count == 3, "device center traffic lights are available")
 require(centerToolbarIDs.contains("jidr.palette") && centerToolbarIDs.contains("jidr.tasks") && centerToolbarIDs.contains("jidr.refresh"),
         "library toolbar exposes commands, tasks and refresh")
 require(centerToolbarIDs.first == "jidr.sidebar", "the native toolbar starts with the sidebar toggle")
@@ -137,10 +624,11 @@ if #available(macOS 26.0, *) {
     require(!sidebarSearch.drawsBackground && descendants(window.contentView!, NSGlassEffectView.self)
         .contains { descendants($0, NSSearchField.self).contains { $0 === sidebarSearch } },
             "sidebar search exposes the native translucent glass background")
+
 }
 
 require(descendants(window.contentView!, NSSplitView.self).contains { $0.isVertical && $0.arrangedSubviews.count == 2 },
-        "device sidebar and overview use the system navigation split")
+        "device center uses the system navigation split")
 
 // Native sidebar selection loads the corresponding overview; clearing it
 // must also invalidate in-flight detail and app-list replies.
@@ -311,8 +799,7 @@ let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: []
                              windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
                              charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!
 require(model.handleShortcutEvent(escape), "Escape is handled")
-pump()
-require(!model.paletteOpen && model.deviceQuery.isEmpty, "Escape closes only the palette")
+eventually("Escape closes only the palette") { !model.paletteOpen && model.deviceQuery.isEmpty }
 model.present(.settings)
 require(model.settingsWindow === settings && model.settingsCategory == 2, "reopening preserves the same settings window and pane")
 pump()
@@ -555,13 +1042,13 @@ require(taskOwner.window?.standardWindowButton(.closeButton)?.isHidden != false,
 let outsideClick = NSEvent.mouseEvent(with: .leftMouseDown, location: NSPoint(x: 3, y: 3), modifierFlags: [], timestamp: 0,
                                      windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!
 app.sendEvent(outsideClick)
-pump()
-require(!model.tasksOpen && taskOwner.window?.isVisible == false, "clicking outside dismisses the task panel")
+eventually("clicking outside dismisses the task panel") { !model.tasksOpen && taskOwner.window?.isVisible == false }
 model.openTasks()
 window.makeKeyAndOrderFront(nil)
 model.openPalette()
-pump()
-require(!model.tasksOpen && taskOwner.window?.isVisible == false, "only one lightweight panel is displayed at a time")
+eventually("only one lightweight panel is displayed at a time") {
+    !model.tasksOpen && taskOwner.window?.isVisible == false && model.paletteWindow?.window?.isVisible == true
+}
 require(taskOwner.window?.styleMask == model.paletteWindow?.window?.styleMask, "search and tasks share native frame styling")
 require(taskOwner.window?.hasShadow == true && model.paletteWindow?.window?.hasShadow == true, "both panels use one native shadow")
 let reusedPanel = model.paletteWindow!.window!
@@ -595,8 +1082,19 @@ require(closeItem.target == nil, "Close Window uses the key window's responder c
 let searchEscape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
                                   windowNumber: reusedPanel.windowNumber, context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!
 app.sendEvent(searchEscape)
-pump()
-require(!model.paletteOpen && !model.tasksOpen, "Escape dismisses the active lightweight panel")
+eventually("Escape dismisses the active lightweight panel") { !model.paletteOpen && !model.tasksOpen }
+model.present(.edit)
+eventually("device panel opens for menu isolation") { model.sheet == .edit && model.deviceSheetPanel?.window?.isVisible == true }
+app.activate(ignoringOtherApps: true)
+model.deviceSheetPanel?.window?.makeKeyAndOrderFront(nil)
+pump(0.1)
+menu.menuNeedsUpdate(deviceMenu)
+guard let deviceCommand = deviceMenu.items.compactMap(\.submenu).flatMap(\.items).first(where: { $0.action != nil }) else {
+    fatalError("missing explicit device menu command")
+}
+require(!menu.validateMenuItem(deviceCommand), "device menu actions are blocked while a center panel is active")
+model.dismissDevicePanel()
+eventually("device panel closes after menu isolation") { model.sheet == nil }
 taskOwner.close()
 pump()
 require(!model.tasksOpen, "panel dismissal synchronizes the task state")
@@ -606,7 +1104,9 @@ model.taskPanel?.close()
 model.openPalette()
 pump()
 NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: app)
-require(!model.paletteOpen && model.paletteWindow?.window?.isVisible == false, "application deactivation clears the transient search state")
+eventually("application deactivation clears the transient search state") {
+    !model.paletteOpen && model.paletteWindow?.window?.isVisible == false
+}
 
 let packed = ActionFlowLayout.arrange([112, 108, 124, 104, 112, 152].map { CGSize(width: $0, height: 28) }, width: 272, spacing: 8)
 require(packed.frames.count == 6, "all six actions stay visible")
@@ -664,11 +1164,43 @@ require(model.devices.isEmpty && model.selected == nil && model.details == nil &
         "deleting the last device clears both row and stale inspector content")
 pump()
 require(model.isEmptyDeviceLibrary, "the confirmed empty library enters onboarding")
-require(descendants(window.contentView!, NSSplitView.self).contains { $0.isVertical && $0.arrangedSubviews.count == 2 },
-        "an empty library retains the sidebar creation and settings controls")
-let emptyToolbar = window.toolbar!.items.map(\.itemIdentifier.rawValue)
-require(emptyToolbar == centerToolbarIDs, "library toolbar stays stable when the last device is removed")
-require(!background.isEnabled, "a hidden device search cannot take keyboard focus")
+// Capture the real hosted onboarding before and after feedback. The positive
+// checkmark must be rendered inside the window, even at the minimum size.
+model.dismissToast()
+model.notice = ""
+pump(0.3)
+func greenPixelCount(_ view: NSView) -> Int {
+    view.layoutSubtreeIfNeeded()
+    let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+    view.cacheDisplay(in: view.bounds, to: bitmap)
+    var count = 0
+    for y in 0..<bitmap.pixelsHigh {
+        for x in 0..<bitmap.pixelsWide {
+            guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+            if c.greenComponent > 0.35 && c.greenComponent > c.redComponent * 1.3 && c.greenComponent > c.blueComponent * 1.15 { count += 1 }
+        }
+    }
+    return count
+}
+let greenBeforeToast = greenPixelCount(window.contentView!)
+model.showToast("SDK installation cancelled")
+pump(0.3)
+require(greenPixelCount(window.contentView!) > greenBeforeToast + 8,
+        "the cancellation toast is visible within the onboarding window")
+model.dismissToast()
+if #available(macOS 15.0, *) {
+    let onboardingTrafficLights = trafficLightFrames(window)
+    require(onboardingTrafficLights.count == 3 && zip(centerTrafficLights, onboardingTrafficLights).allSatisfy {
+        abs($0.0.minX - $0.1.minX) < 0.5 && abs($0.0.midY - $0.1.midY) < 0.5
+    }, "onboarding and device center traffic lights have matching positions")
+}
+require(!descendants(window.contentView!, NSSplitView.self).contains { $0.delegate is NSSplitViewController },
+        "an empty library has no navigation sidebar")
+if #available(macOS 15.0, *) {
+    require(window.toolbar!.items.filter { $0.itemIdentifier != .flexibleSpace }.allSatisfy(\.isHidden), "empty onboarding hides toolbar actions")
+} else { require(window.toolbar!.isVisible && window.toolbar!.items.isEmpty, "empty onboarding uses an empty toolbar") }
+require(!descendants(window.contentView!, NSSearchField.self).contains { $0.identifier?.rawValue == "device-search" },
+        "empty onboarding removes device search")
 model.searchFocusRequest += 1
 pump()
 require(window.firstResponder !== background.currentEditor() || background.currentEditor() == nil,
@@ -678,16 +1210,20 @@ require(window.firstResponder !== background.currentEditor() || background.curre
 model.devices = originalDevices
 pump()
 require(!model.isEmptyDeviceLibrary, "adding a device leaves onboarding")
-require(background.isEnabled, "sidebar search is enabled when devices exist")
+let restoredSearch = descendants(window.contentView!, NSSearchField.self).first { $0.identifier?.rawValue == "device-search" }
+require(restoredSearch?.isEnabled == true, "sidebar search is enabled when devices exist")
+require(window.toolbar!.isVisible && window.toolbar!.items.map(\.itemIdentifier.rawValue) == centerToolbarIDs, "the toolbar returns with devices")
 require(!descendants(window.contentView!, NSTableView.self).isEmpty,
         "the device list returns when devices exist")
 model.deviceQuery = "no-matching-device-name"
 pump()
-require(!model.isEmptyDeviceLibrary && background.isEnabled, "zero search results retain usable search and the workspace")
+require(!model.isEmptyDeviceLibrary && restoredSearch?.isEnabled == true, "zero search results retain usable search and the workspace")
 model.devices = []
 pump()
-require(model.isEmptyDeviceLibrary && window.toolbar!.items.count == centerToolbarIDs.count && model.deviceQuery.isEmpty,
-        "the empty-library transition is repeatable and clears filters before a new device is created")
+require(model.isEmptyDeviceLibrary && model.deviceQuery.isEmpty, "the empty-library transition clears filters")
+if #available(macOS 15.0, *) {
+    require(window.toolbar!.items.filter { $0.itemIdentifier != .flexibleSpace }.allSatisfy(\.isHidden), "onboarding hides toolbar actions again")
+} else { require(window.toolbar!.isVisible && window.toolbar!.items.isEmpty, "onboarding restores the empty toolbar") }
 tools.close()
 window.orderOut(nil)
 model.close()

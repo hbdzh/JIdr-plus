@@ -106,6 +106,10 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// the menu bar can bring it back (macOS single-window app convention).
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard sender === window else { return true }
+        if model?.onboardingInstallForegroundRequired == true {
+            model?.showOnboardingInstallBlocker()
+            return false
+        }
         sender.orderOut(nil)
         return false
     }
@@ -135,6 +139,11 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationShouldTerminate(_ sender:NSApplication) -> NSApplication.TerminateReply {
         guard let model else { return .terminateNow }
+        if model.onboardingInstallForegroundRequired {
+            showCenterWindow()
+            model.showOnboardingInstallBlocker()
+            return .terminateCancel
+        }
         guard !shuttingDown else { return .terminateLater }
         if model.canQuitWhileStopping {
             // The daemon has acknowledged every stop and owns it independently
@@ -188,8 +197,12 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             case .success: NSApp.reply(toApplicationShouldTerminate:true)
             case .failure(let error):
                 model.resumeAfterFailedQuit()
-                model.notice = model.text("无法安全退出：", "Unable to quit safely: ") + error.localizedDescription
-                model.showError(model.notice)
+                if (error as? CenterMessageError)?.isQuickBootSaveFailure == true {
+                    model.notice = ""
+                } else {
+                    model.notice = model.text("无法安全退出：", "Unable to quit safely: ") + error.localizedDescription
+                    model.showError(model.notice)
+                }
                 NSApp.reply(toApplicationShouldTerminate:false)
             }
         }

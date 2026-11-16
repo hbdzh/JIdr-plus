@@ -127,7 +127,13 @@ enum CenterSheet: String, Identifiable {
     case settings
     case snapshots
     case edit
+    case imageManagement
     var id: String { rawValue }
+}
+
+private enum CenterManagedPanel: Equatable {
+    case palette, tasks
+    case device(CenterSheet)
 }
 
 /// Confirmation for an APK that cannot replace an app signed with another key.
@@ -145,6 +151,7 @@ struct CenterMessageError: LocalizedError {
     var code: String? = nil
     var data: [String: Any]? = nil
     var errorDescription: String? { message }
+    var isQuickBootSaveFailure: Bool { data?["operation"] as? String == "quick_boot_save" }
 }
 
 /// Per-bridge partial-line buffer; owned by the serial parse queue after start.
@@ -236,12 +243,26 @@ final class CenterModel: ObservableObject {
     }
     @Published var settingsCategory = 0
     private(set) var settingsWindow: SettingsWindowController?
+    private(set) var deviceSheetPanel: DeviceSheetPanelController?
+    private var pendingSDKPresentation = false
+    private var pendingSettingsPresentation = false
+    private var sdkSheetIsClosing = false
+    private var pendingPanelAfterSDK: CenterManagedPanel?
+    private lazy var panelCoordinator = PanelCoordinator<CenterManagedPanel>(
+        present: { [weak self] panel in self?.showManagedPanel(panel) },
+        dismiss: { [weak self] panel, completion in
+            guard let self else { completion(); return }
+            self.hideManagedPanel(panel, completion: completion)
+        },
+        didDismiss: { [weak self] panel in self?.managedPanelDidClose(panel) }
+    )
     private(set) var taskPanel: TaskPanelController?
     private(set) var paletteWindow: PaletteWindowController?
     @Published var tileURL = ""
     @Published var dataDirectory: String?
     @Published var rootPresentation: RootPresentation?
     @Published var fullRoot: [String:FullRootState] = [:]
+    @Published var onboardingInstallForegroundRequired = false
     @Published var sdkInstalling = false
     @Published var sdkInstallJob: String?
     @Published var sdkCancelPending = false
@@ -249,6 +270,7 @@ final class CenterModel: ObservableObject {
     @Published var sdkInstallFraction: Double?
     @Published var sdkInstallError: String?
     @Published var sdkInstallSucceeded: Bool?
+    private var sdkCancellation = SDKCancellationRequest()
 
     // Connection to the daemon through the center bridge.
     @Published private(set) var connection: ConnectionPhase = .connecting
@@ -287,10 +309,12 @@ final class CenterModel: ObservableObject {
     // Transient feedback and overlays.
     @Published var toast: Toast?
     private var toastDismissWork: DispatchWorkItem?
-    @Published var paletteOpen = false
-    @Published var tasksOpen = false
+    @Published private(set) var paletteOpen = false
+    @Published private(set) var tasksOpen = false
     @Published private(set) var quitReason: String?
-    @Published var sheet: CenterSheet?
+    @Published private(set) var sheet: CenterSheet?
+    @Published private(set) var snapshotRevisions: [String: UInt64] = [:]
+    @Published private(set) var imageInventoryRevision: UInt64 = 0
     @Published var searchFocusRequest = 0
     @Published var deleteTarget: DeviceDeletionTarget?
     var deleteRequested: Bool {
@@ -569,7 +593,7 @@ final class CenterModel: ObservableObject {
         progressCallbacks[id] = onProgress
         requestMethods[id] = method
         if let device = params["device"] as? String { requestDevices[id] = device }
-        let readOnly = ["host.budget", "device.list", "device.details", "app.list", "app.inspect", "image.list", "profile.list", "snapshot.list", "sdk.status", "settings.get", "cache.list", "center.about", "center.paths", "center.prefs.get", "center.quit", "battery.get", "gps.get", "network.get", "network.proxy.get", "sensor.get", "logcat.dump", "root.cacert.list", "device.props.get", "dev.get", "clipboard.get", "jobs.list", "jobs.get", "daemon.status"]
+        let readOnly = ["host.budget", "device.list", "device.details", "app.list", "app.inspect", "image.list", "image.inventory", "profile.list", "snapshot.list", "sdk.status", "sdk.license_details", "settings.get", "cache.list", "center.about", "center.paths", "center.prefs.get", "center.quit", "battery.get", "gps.get", "network.get", "network.proxy.get", "sensor.get", "logcat.dump", "root.cacert.list", "device.props.get", "dev.get", "clipboard.get", "jobs.list", "jobs.get", "daemon.status"]
         if !readOnly.contains(method) { mutations.insert(id) }
         if method == "device.details" || method == "host.budget" {
             let timeout = DispatchWorkItem { [weak self] in
@@ -638,10 +662,11 @@ final class CenterModel: ObservableObject {
         let method = requestMethods[id]
         if kind == "progress" {
             bridgeAnswered()
+            let hasProgressHandler = progressCallbacks[id] != nil
             progressCallbacks[id]?(event["message"] as? String ?? "", event["job"] as? String, event["progress"] as? Double)
             if let message = event["message"] as? String, !message.isEmpty {
                 if requestDevices[id] != nil { requestProgress[id] = message }
-                else { notice = OperationMessages.progress(message,language:language) }
+                else if !hasProgressHandler { notice = OperationMessages.progress(message,language:language) }
             }
             return
         }
@@ -740,60 +765,166 @@ final class CenterModel: ObservableObject {
         OperationMessages.error(error.localizedDescription, language: language)
     }
 
-    func openPalette() {
-        setTasksOpen(false)
-        quitReason = nil
-        paletteQuery = ""
-        paletteSelection = 0
-        paletteOpen = true
-        if paletteWindow == nil { paletteWindow = PaletteWindowController(model: self) }
-        paletteWindow?.present(relativeTo: centerWindow ?? NSApp.mainWindow)
+    private func showManagedPanel(_ panel: CenterManagedPanel) {
+        switch panel {
+        case .palette:
+            paletteQuery = ""
+            paletteSelection = 0
+            paletteOpen = true
+            if paletteWindow == nil { paletteWindow = PaletteWindowController(model: self) }
+            paletteWindow?.present(relativeTo: centerWindow ?? NSApp.mainWindow)
+        case .tasks:
+            tasksOpen = true
+            if taskPanel == nil { taskPanel = TaskPanelController(model: self) }
+            taskPanel?.showWindow(nil)
+            startJobsTimer()
+            refreshJobs()
+        case .device(let kind):
+            guard let parent = centerWindow else { panelCoordinator.request(nil); return }
+            sheet = kind
+            deviceSheetPanel = DeviceSheetPanelController(model: self, kind: kind, parent: parent)
+        }
     }
-    func togglePalette() { paletteOpen ? dismissOverlay() : openPalette() }
+
+    private func hideManagedPanel(_ panel: CenterManagedPanel, completion: @escaping () -> Void) {
+        switch panel {
+        case .palette:
+            if let paletteWindow { paletteWindow.dismissPanel(completion: completion) } else { completion() }
+        case .tasks:
+            if let taskPanel { taskPanel.dismissPanel(completion: completion) } else { completion() }
+        case .device:
+            if let deviceSheetPanel { deviceSheetPanel.dismissPanel(completion: completion) } else { completion() }
+        }
+    }
+
+    private func managedPanelDidClose(_ panel: CenterManagedPanel) {
+        switch panel {
+        case .palette: paletteOpen = false
+        case .tasks:
+            tasksOpen = false
+            if panelCoordinator.desired != .tasks { quitReason = nil }
+            if !hasActiveJobs { stopJobsTimer() }
+        case .device(let kind):
+            let deviceID = deviceSheetPanel?.deviceID
+            deviceSheetPanel = nil
+            sheet = nil
+            if kind == .snapshots, let deviceID {
+                snapshotRevisions[deviceID, default: 0] &+= 1
+            }
+            if kind == .imageManagement { imageInventoryRevision &+= 1 }
+        }
+        if panelCoordinator.desired == nil && sheet == nil && !pendingSDKPresentation && !pendingSettingsPresentation {
+            switch panel {
+            case .palette, .tasks: searchFocusRequest += 1
+            case .device: break
+            }
+        }
+    }
+
+    private func requestManagedPanel(_ panel: CenterManagedPanel) {
+        // Never discard a device form as a side effect of opening another
+        // surface. It must be explicitly saved or cancelled first.
+        if case .device = panelCoordinator.active, panelCoordinator.active != panel { return }
+        pendingSDKPresentation = false
+        pendingSettingsPresentation = false
+        if sheet == .setupSDK || sdkSheetIsClosing {
+            pendingPanelAfterSDK = panel
+            if sheet == .setupSDK { dismissSDKSheet() }
+        } else {
+            panelCoordinator.request(panel)
+        }
+    }
+
+    func dismissSDKSheet() {
+        if sheet == .setupSDK {
+            sdkSheetIsClosing = true
+            sheet = nil
+        }
+    }
+
+    func sdkSheetDidDismiss() {
+        sdkSheetIsClosing = false
+        if pendingSDKPresentation {
+            pendingSDKPresentation = false
+            pendingPanelAfterSDK = nil
+            sheet = .setupSDK
+        } else if let pending = pendingPanelAfterSDK {
+            pendingPanelAfterSDK = nil
+            panelCoordinator.request(pending)
+        }
+    }
+
+    func dismissDevicePanel(after completion: @escaping () -> Void = {}) {
+        guard case .device = panelCoordinator.active else { completion(); return }
+        panelCoordinator.dismissCurrent(after: completion)
+    }
+
+    func openPalette() {
+        guard !onboardingInstallForegroundRequired else { showOnboardingInstallBlocker(); return }
+        requestManagedPanel(.palette)
+    }
+    func togglePalette() {
+        if panelCoordinator.desired == .palette { hidePalette() } else { openPalette() }
+    }
     func hidePalette() {
-        paletteOpen = false
-        paletteWindow?.window?.orderOut(nil)
+        guard panelCoordinator.desired == .palette else { return }
+        panelCoordinator.request(nil)
     }
     func closeOverlay() {
-        if paletteOpen { hidePalette() }
-        else { setTasksOpen(false); quitReason = nil }
+        switch panelCoordinator.desired {
+        case .palette, .tasks: panelCoordinator.request(nil)
+        default: break
+        }
     }
     func dismissOverlay() { closeOverlay() }
     func openTasks() {
-        paletteOpen = false
-        paletteWindow?.window?.orderOut(nil)
-        quitReason = nil
-        setTasksOpen(true)
-        refreshJobs()
+        guard !onboardingInstallForegroundRequired else { showOnboardingInstallBlocker(); return }
+        if !tasksOpen { quitReason = nil }
+        requestManagedPanel(.tasks)
     }
     private func setTasksOpen(_ open: Bool) {
-        tasksOpen = open
-        if open {
-            if taskPanel == nil { taskPanel = TaskPanelController(model: self) }
-            if taskPanel?.window?.isMiniaturized == true { taskPanel?.window?.deminiaturize(nil) }
-            taskPanel?.showWindow(nil)
-            taskPanel?.window?.makeKeyAndOrderFront(nil)
-        } else { taskPanel?.window?.orderOut(nil) }
-        if open || hasActiveJobs { startJobsTimer() } else { stopJobsTimer() }
+        if open { requestManagedPanel(.tasks) }
+        else if panelCoordinator.desired == .tasks { panelCoordinator.request(nil) }
+        if !open && hasActiveJobs { startJobsTimer() }
     }
-    func taskPanelDidClose() { setTasksOpen(false); quitReason = nil }
+    func taskPanelDidClose() { setTasksOpen(false) }
+    func showOnboardingInstallBlocker() {
+        showToast(text("请等待安装完成，或先取消安装。", "Wait for installation to finish, or cancel it first."))
+    }
     func present(_ sheet: CenterSheet) {
-        hidePalette()
+        guard !onboardingInstallForegroundRequired else { showOnboardingInstallBlocker(); return }
+        if sheet == .newDevice && isEmptyDeviceLibrary { return }
+        if case .device = panelCoordinator.active { return }
         if sheet == .settings {
-            if settingsWindow == nil { settingsWindow = SettingsWindowController(model: self) }
-            settingsWindow?.showWindow(nil)
-            settingsWindow?.window?.makeKeyAndOrderFront(nil)
-            return
-        }
-        // Swapping the presented sheet in place is not reliable; dismiss the
-        // current one first so menu/palette actions always land.
-        if self.sheet != nil {
-            self.sheet = nil
-            DispatchQueue.main.async { [weak self] in self?.sheet = sheet }
+            guard self.sheet != .setupSDK && !sdkSheetIsClosing else { return }
+            pendingSDKPresentation = false
+            pendingSettingsPresentation = true
+            panelCoordinator.dismissCurrent { [weak self] in
+                guard let self, self.pendingSettingsPresentation else { return }
+                self.pendingSettingsPresentation = false
+                if self.settingsWindow == nil { self.settingsWindow = SettingsWindowController(model: self) }
+                self.settingsWindow?.showWindow(nil)
+                self.settingsWindow?.window?.makeKeyAndOrderFront(nil)
+            }
+        } else if sheet == .setupSDK {
+            pendingSettingsPresentation = false
+            if sdkSheetIsClosing {
+                pendingSDKPresentation = true
+                pendingPanelAfterSDK = nil
+                return
+            }
+            guard self.sheet != .setupSDK else { return }
+            pendingSDKPresentation = true
+            panelCoordinator.dismissCurrent { [weak self] in
+                guard let self, self.pendingSDKPresentation else { return }
+                self.pendingSDKPresentation = false
+                self.sheet = .setupSDK
+            }
         } else {
-            self.sheet = sheet
+            requestManagedPanel(.device(sheet))
         }
     }
+
     /// Opens a sheet that needs freshly loaded `device.details`.
     func presentDeviceSheet(_ sheet: CenterSheet, device: String) {
         hidePalette()
@@ -941,9 +1072,19 @@ final class CenterModel: ObservableObject {
     }
 
     func presentQuitBlocker() {
-        paletteOpen = false
-        paletteWindow?.window?.orderOut(nil)
         quitReason = quitBlockReason ?? self.text("暂时无法退出。", "Cannot quit right now.")
+        if let panel = deviceSheetPanel?.window {
+            // Keep pending edits intact when the app cannot quit. Present the
+            // reason on the active panel instead of replacing that panel.
+            if panel.attachedSheet == nil {
+                let alert = NSAlert()
+                alert.messageText = text("暂时无法退出", "Can't quit yet")
+                alert.informativeText = quitReason ?? ""
+                alert.addButton(withTitle: text("好", "OK"))
+                alert.beginSheetModal(for: panel)
+            }
+            return
+        }
         setTasksOpen(true)
         refreshJobs()
     }
@@ -1033,19 +1174,23 @@ final class CenterModel: ObservableObject {
 
     // MARK: - SDK install
 
-    func startSDKInstall(_ plan: SDKInstallPlan) {
-        guard !sdkInstalling else { return }
-        sdkInstalling = true; sdkCancelPending = false; sdkInstallJob = nil; sdkInstallError = nil; sdkInstallFraction = nil; sdkInstallSucceeded = nil
+    func startSDKInstall(_ plan: SDKInstallPlan, onFinish: @escaping (Bool) -> Void = { _ in }) {
+        guard !sdkInstalling else { onFinish(false); return }
+        sdkInstalling = true; sdkCancelPending = false; sdkCancellation.reset(); sdkInstallJob = nil; sdkInstallError = nil; sdkInstallFraction = nil; sdkInstallSucceeded = nil
         sdkInstallMessage = text("正在准备安装…", "Preparing installation…")
         call(plan.method,plan.parameters,onProgress:{ [weak self] message, job, fraction in
             guard let self else { return }
-            if let job { self.sdkInstallJob = job; self.ownJobs.insert(job) }
+            if let job {
+                self.sdkInstallJob = job; self.ownJobs.insert(job)
+                if self.sdkCancelPending { self.sendSDKCancellation(job) }
+            }
             if !message.isEmpty { self.sdkInstallMessage = OperationMessages.progress(message,language:self.language) }
             self.sdkInstallFraction = SDKInstallPlan.validProgress(fraction)
         }) { [weak self] result in
             guard let self else { return }
             let cancellationRequested = self.sdkCancelPending
-            self.sdkInstalling = false; self.sdkCancelPending = false; self.sdkInstallJob = nil
+            self.sdkInstalling = false; self.sdkCancelPending = false; self.sdkCancellation.reset(); self.sdkInstallJob = nil
+            self.onboardingInstallForegroundRequired = false
             switch result {
             case .success:
                 self.sdkInstallSucceeded = true
@@ -1065,13 +1210,19 @@ final class CenterModel: ObservableObject {
                 }
                 self.refreshJobs()
             }
+            onFinish(self.sdkInstallSucceeded == true)
         }
     }
     func cancelSDKInstall() {
-        guard sdkInstalling, !sdkCancelPending, let job = sdkInstallJob else { return }
+        guard sdkInstalling, sdkCancellation.request() else { return }
         sdkCancelPending = true
+        if let job = sdkInstallJob { sendSDKCancellation(job) }
+    }
+    private func sendSDKCancellation(_ job: String) {
+        guard sdkInstalling, sdkInstallJob == job, sdkCancellation.takeJob(job) != nil else { return }
         call("jobs.cancel",["job":job]) { [weak self] result in
-            guard let self, self.sdkInstalling, case .failure(let error) = result else { return }
+            guard let self, self.sdkInstalling, self.sdkInstallJob == job, case .failure(let error) = result else { return }
+            guard self.sdkCancellation.failed(job: job) else { return }
             self.sdkCancelPending = false
             self.sdkInstallError = OperationMessages.error(error.localizedDescription,language:self.language)
             self.showError(self.sdkInstallError ?? self.readable(error))
@@ -1263,7 +1414,7 @@ final class CenterModel: ObservableObject {
                 self.details = try self.decode(result.get(), as:Details.self)
                 if let pending = self.pendingSheetAfterDetails, self.details?.device.id == id {
                     self.pendingSheetAfterDetails = nil
-                    self.sheet = pending
+                    self.present(pending)
                 }
             } catch {
                 self.details = nil
@@ -1337,7 +1488,9 @@ final class CenterModel: ObservableObject {
                     self.showError(self.text("安装失败：设备空间不足。可释放空间，或新建更大容量的设备。", "Installation failed: the device is out of storage. Free some space or create a larger device."))
                 } else if method == "file.install", let apk = args["apk"] as? String, Self.isSignatureMismatch(message) {
                     self.promptReinstall(device:id, apkPath:apk)
-                } else { self.showError(self.readable(error)) }
+                } else if method != "device.stop" || (error as? CenterMessageError)?.isQuickBootSaveFailure != true {
+                    self.showError(self.readable(error))
+                }
                 self.refresh(); self.refreshJobs()
             }
             self.drainWindowStop(id)
@@ -1720,8 +1873,10 @@ final class CenterModel: ObservableObject {
     func close() {
         for controller in Array(deviceToolPanels.values) { controller.close() }
         deviceToolPanels.removeAll()
+        panelCoordinator.shutdown()
         paletteWindow?.close(); paletteWindow = nil
         taskPanel?.close(); taskPanel = nil
+        deviceSheetPanel?.dismissPanel(immediately: true); deviceSheetPanel = nil
         settingsWindow?.close(); settingsWindow = nil
         stopping = true
         for work in readDeadlines.values { work.cancel() }

@@ -43,6 +43,18 @@ struct SnapshotRefusal: Identifiable {
     let name: String
 }
 
+/// A refresh keeps the previous snapshot list visible after its first success.
+struct SnapshotOverviewLoadState {
+    private(set) var hasLoaded = false
+    private(set) var showInitialLoading = true
+
+    mutating func begin() { showInitialLoading = !hasLoaded }
+    mutating func finish(succeeded: Bool) {
+        if succeeded { hasLoaded = true }
+        showInitialLoading = false
+    }
+}
+
 /// Snapshot formatting, sorting and validation shared by the two views.
 enum Snapshots {
     /// Quick boot last, newest named snapshots first (snapshots/mod.rs:64-72).

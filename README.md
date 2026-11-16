@@ -24,7 +24,7 @@ JIdr Plus 基于开源项目 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr) �
 - **操作录制**：录制并回放点击、按键和文本操作，设置回放次数、间隔和速度，导入或导出录制文件。
 - **设备工具**：调整 GPS、网络、摄像头和电量，查看 Logcat，使用音频文件模拟麦克风输入。
 - **Root 管理**：配置和验证 Root，管理模块、证书及系统分区写入设置。
-- **开发工具**：通过 CLI 和 MCP 控制设备，使用外部 Android SDK 或配置 JIdr 的 SDK 安装位置。
+- **开发工具**：通过 CLI 和 MCP 控制设备，使用外部 Android SDK 或配置 JIdr 的 SDK 安装位置。在设置中管理系统镜像，查看来源和设备引用，删除不再使用的 JIdr 镜像；外部 SDK 保持只读。
 
 ## 安装和编译
 

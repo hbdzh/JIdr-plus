@@ -215,6 +215,12 @@ fn fixture_result(request: &Request, case: &str) -> Value {
         "settings.get" => json!({"id":id,"type":"result","result":{
             "default_root_mode":"none","quick_boot":true,"budget_percent":80,"auto_hibernate_minutes":0
         }}),
+        "profile.list" => json!({"id":id,"type":"result","result":[{
+            "id":"fixture-phone","name":"Phone 6.1 FHD+","ram_mb":4096,"cpus":4,"data_mb":8192,"audio":true
+        }]}),
+        "image.list" => json!({"id":id,"type":"result","result":[{
+            "api":35,"tag":"google_apis","abi":"arm64-v8a","installed_in":"/tmp/jidr-fixture/sdk"
+        }]}),
         "snapshot.list" => json!({"id":id,"type":"result","result":{"snapshots":[
             {"name":"fixture-snapshot","quick_boot":true,"restorable":true,"root_mode":null,"size_bytes":1048576u64}
         ]}}),
@@ -496,7 +502,7 @@ async fn main() -> Result<()> {
                             );
                         }
                     }
-                    Err(error) => send(json!({"id":id,"type":"error","message":error.message})),
+                    Err(error) => send(daemon_error_reply(id, &error)),
                 }
                 return;
             }
@@ -561,6 +567,15 @@ mod tests {
         assert_eq!(reply["code"], "resource_exhausted");
         assert_eq!(reply["data"]["needed_mb"], 4096);
         assert_eq!(reply["message"], "full");
+    }
+
+    #[test]
+    fn daemon_error_keeps_snapshot_failure_marker() {
+        let error = jidr_core::JidrError::sdk("save failed")
+            .with_data(json!({"operation": "quick_boot_save"}));
+        let reply = daemon_error_reply(8, &error);
+        assert_eq!(reply["code"], "sdk");
+        assert_eq!(reply["data"]["operation"], "quick_boot_save");
     }
 
     /// Old Slint/pre-M2 `gui-prefs.json` is still a JSON object with these

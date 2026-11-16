@@ -94,9 +94,12 @@ try FileManager.default.removeItem(at: home.appendingPathComponent("block-stop")
 model.openGame(id)
 eventually("player reopens before an explicit stop") { model.players[id]?.transport.connectionEnded == true }
 FileManager.default.createFile(atPath: home.appendingPathComponent("fail-stop").path, contents: Data())
+model.dismissToast()
 model.players[id]?.window?.performClose(nil)
 eventually("a failed stop releases the stopping state") { stopRequests(in: home) == 2 && !model.busy.contains(id) }
 require(model.hasPlayers && model.players[id]?.transport.stoppingDevice == false, "a failed stop keeps the player open")
+require(model.toast == nil, "a snapshot save failure is not displayed")
+require(CenterMessageError(message: "other", data: ["operation": "other"]).isQuickBootSaveFailure == false, "other failures are not silenced")
 try FileManager.default.removeItem(at: home.appendingPathComponent("fail-stop"))
 model.stop(id)
 eventually("explicit stop sends exactly one request") { stopRequests(in: home) == 3 && !model.busy.contains(id) }

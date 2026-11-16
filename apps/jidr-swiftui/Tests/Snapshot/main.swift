@@ -60,6 +60,10 @@ let allCases: [SnapshotCase] = [
     SnapshotCase(name: "center-long-task", kind: .center(fixture: "long-task"), language: 1, appearance: .dark),
     SnapshotCase(name: "player-running", kind: .player, language: 1, appearance: .dark),
     SnapshotCase(name: "player-running-light", kind: .player, language: 1, appearance: .light),
+    SnapshotCase(name: "player-booting-light", kind: .player, language: 1, appearance: .light, scriptState: "booting"),
+    SnapshotCase(name: "player-booting-en-dark", kind: .player, language: 0, appearance: .dark, scriptState: "booting"),
+    SnapshotCase(name: "player-connecting-light", kind: .player, language: 1, appearance: .light, scriptState: "connecting"),
+    SnapshotCase(name: "player-stopped-en-dark", kind: .player, language: 0, appearance: .dark, scriptState: "stopped"),
     SnapshotCase(name: "player-keymap-light", kind: .player, language: 1, appearance: .light, scriptState: "keymap"),
     SnapshotCase(name: "script-recording-light", kind: .player, language: 1, appearance: .light, scriptState: "recording"),
     SnapshotCase(name: "script-playing-light", kind: .player, language: 1, appearance: .light, scriptState: "playing"),
@@ -79,8 +83,46 @@ let allCases: [SnapshotCase] = [
     SnapshotCase(name: "center-deselected-en-dark", kind: .center(fixture: "populated"), language: 0, appearance: .dark, deselected: true),
     SnapshotCase(name: "settings-general-light", kind: .auxiliary(page: "settings"), language: 1, appearance: .light, width: 700, height: 360),
     SnapshotCase(name: "settings-general-en-dark", kind: .auxiliary(page: "settings"), language: 0, appearance: .dark, width: 700, height: 360),
-    SnapshotCase(name: "sdk-setup-light", kind: .auxiliary(page: "sdk"), language: 1, appearance: .light, width: 650, height: 520),
-    SnapshotCase(name: "sdk-setup-en-dark", kind: .auxiliary(page: "sdk"), language: 0, appearance: .dark, width: 650, height: 520),
+    SnapshotCase(name: "image-management-light", kind: .auxiliary(page: "image-management"), language: 1, appearance: .light, width: 700, height: 500),
+    SnapshotCase(name: "image-management-en-dark", kind: .auxiliary(page: "image-management"), language: 0, appearance: .dark, width: 700, height: 500),
+    SnapshotCase(name: "image-management-empty-light", kind: .auxiliary(page: "image-management-empty"), language: 1, appearance: .light, width: 700, height: 500),
+    SnapshotCase(name: "image-management-install-light", kind: .auxiliary(page: "image-management-install"), language: 1, appearance: .light, width: 650, height: 580),
+    SnapshotCase(name: "sdk-setup-light", kind: .auxiliary(page: "sdk"), language: 1, appearance: .light, width: 650, height: 580),
+    SnapshotCase(name: "sdk-setup-en-dark", kind: .auxiliary(page: "sdk"), language: 0, appearance: .dark, width: 650, height: 580),
+    SnapshotCase(name: "onboarding-install-footer-active-light", kind: .auxiliary(page: "onboarding-install-footer-active"), language: 1, appearance: .light, width: 650, height: 70),
+    SnapshotCase(name: "onboarding-install-footer-failed-en-dark", kind: .auxiliary(page: "onboarding-install-footer-failed"), language: 0, appearance: .dark, width: 650, height: 70),
+    SnapshotCase(name: "onboarding-install-active-light", kind: .auxiliary(page: "onboarding-install-active"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "onboarding-install-indeterminate-en-dark", kind: .auxiliary(page: "onboarding-install-indeterminate"), language: 0, appearance: .dark, width: 800, height: 550),
+    SnapshotCase(name: "onboarding-install-error-light", kind: .auxiliary(page: "onboarding-install-error"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "onboarding-install-wizard-skipped-light", kind: .auxiliary(page: "onboarding-install-wizard-skipped"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "onboarding-install-skipped-light", kind: .auxiliary(page: "onboarding-install-skipped"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "onboarding-licence-loading-light", kind: .auxiliary(page: "environment-licence-loading"), language: 1, appearance: .light, width: 560, height: 420),
+    SnapshotCase(name: "onboarding-licence-light", kind: .auxiliary(page: "environment-licence"), language: 1, appearance: .light, width: 560, height: 420),
+    SnapshotCase(name: "onboarding-licence-empty-en-dark", kind: .auxiliary(page: "environment-licence-empty"), language: 0, appearance: .dark, width: 560, height: 420),
+    SnapshotCase(name: "onboarding-licence-error-en-dark", kind: .auxiliary(page: "environment-licence-error"), language: 0, appearance: .dark, width: 560, height: 420),
+    SnapshotCase(name: "onboarding-environment-light", kind: .auxiliary(page: "onboarding-environment"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "onboarding-ready-light", kind: .auxiliary(page: "onboarding-ready"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "onboarding-ready-reduced-motion-light", kind: .auxiliary(page: "onboarding-ready-reduced-motion"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "onboarding-checking-status-light", kind: .auxiliary(page: "onboarding-checking-status"), language: 1, appearance: .light, width: 320, height: 60),
+    SnapshotCase(name: "onboarding-install-other-image-light", kind: .auxiliary(page: "onboarding-install-other-image"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "onboarding-missing-tools-light", kind: .auxiliary(page: "onboarding-missing-tools"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "onboarding-auto-no-images-light", kind: .auxiliary(page: "onboarding-auto-no-images"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "onboarding-environment-no-images-light", kind: .auxiliary(page: "onboarding-environment-no-images"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "onboarding-environment-en-dark", kind: .auxiliary(page: "onboarding-environment"), language: 0, appearance: .dark, width: 1050, height: 700),
+    SnapshotCase(name: "onboarding-environment-en-minimum", kind: .auxiliary(page: "onboarding-environment"), language: 0, appearance: .dark, width: 800, height: 550),
+    SnapshotCase(name: "new-device-config-light", kind: .auxiliary(page: "new-device-config"), language: 1, appearance: .light, width: 650, height: 580),
+    SnapshotCase(name: "new-device-direct-light", kind: .auxiliary(page: "new-device-direct"), language: 1, appearance: .light, width: 650, height: 580),
+    SnapshotCase(name: "new-device-direct-no-images-light", kind: .auxiliary(page: "new-device-direct-no-images"), language: 1, appearance: .light, width: 650, height: 580),
+    SnapshotCase(name: "new-device-direct-no-tools-light", kind: .auxiliary(page: "new-device-direct-no-tools"), language: 1, appearance: .light, width: 650, height: 580),
+    SnapshotCase(name: "onboarding-config-wide-light", kind: .auxiliary(page: "onboarding-config-wide"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "onboarding-config-wide-en-dark", kind: .auxiliary(page: "onboarding-config-wide"), language: 0, appearance: .dark, width: 1050, height: 700),
+    SnapshotCase(name: "onboarding-config-en-minimum", kind: .auxiliary(page: "onboarding-config-wide"), language: 0, appearance: .dark, width: 800, height: 550),
+    SnapshotCase(name: "onboarding-advanced-wide-light", kind: .auxiliary(page: "onboarding-advanced-wide"), language: 1, appearance: .light, width: 1050, height: 700),
+    SnapshotCase(name: "onboarding-advanced-wide-en-dark", kind: .auxiliary(page: "onboarding-advanced-wide"), language: 0, appearance: .dark, width: 1050, height: 700),
+    SnapshotCase(name: "onboarding-custom-resolution-light", kind: .auxiliary(page: "custom-resolution"), language: 1, appearance: .light, width: 420, height: 230),
+    SnapshotCase(name: "onboarding-custom-resolution-invalid-en-dark", kind: .auxiliary(page: "custom-resolution-invalid"), language: 0, appearance: .dark, width: 420, height: 230),
+    SnapshotCase(name: "onboarding-card-transparency-light", kind: .auxiliary(page: "onboarding-card-transparency"), language: 1, appearance: .light, width: 320, height: 160),
+    SnapshotCase(name: "onboarding-card-white-background", kind: .auxiliary(page: "onboarding-card-white-background"), language: 1, appearance: .light, width: 320, height: 160),
     SnapshotCase(name: "tasks-empty-light", kind: .auxiliary(page: "tasks"), language: 1, appearance: .light, width: 480, height: 260),
     SnapshotCase(name: "tasks-active-en-dark", kind: .auxiliary(page: "tasks-active"), language: 0, appearance: .dark, width: 480, height: 264),
     SnapshotCase(name: "command-search-light", kind: .auxiliary(page: "palette"), language: 1, appearance: .light, width: 600, height: 450),
@@ -105,6 +147,7 @@ let allCases: [SnapshotCase] = [
     SnapshotCase(name: "tools-root-stopped", kind: .auxiliary(page: "root"), language: 1, appearance: .light, width: 716, height: 500),
     SnapshotCase(name: "tools-camera-stopped-en", kind: .auxiliary(page: "camera"), language: 0, appearance: .dark, width: 716, height: 500),
     SnapshotCase(name: "tools-clipboard-en", kind: .auxiliary(page: "clipboard"), language: 0, appearance: .light, width: 716, height: 500),
+    SnapshotCase(name: "snapshots-incomplete-light", kind: .auxiliary(page: "snapshots-incomplete"), language: 1, appearance: .light, width: 600, height: 560),
     SnapshotCase(name: "snapshots-stopped-en", kind: .auxiliary(page: "snapshots"), language: 0, appearance: .dark, width: 600, height: 560),
     SnapshotCase(name: "tools-battery-light", kind: .auxiliary(page: "battery"), language: 1, appearance: .light, width: 716, height: 500),
     SnapshotCase(name: "tools-gps-en-dark", kind: .auxiliary(page: "gps"), language: 0, appearance: .dark, width: 716, height: 500),
@@ -443,6 +486,101 @@ func renderCenter(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
     let canvas = Canvas(width: snapshotCase.width, height: snapshotCase.height, appearance: snapshotCase.appearance)
     canvas.mount(CenterView(model: model))
     canvas.settle(0.4)
+    if fixture == "empty" {
+        model.present(.newDevice)
+        require(model.sheet == nil, "initial device creation stays in the main window")
+        canvas.inspect { host, window in
+            require(window.attachedSheet == nil, "initial onboarding is not presented as a sheet")
+            require(window.toolbar == nil, "borderless snapshot canvases do not install window chrome")
+            require(!nativeDescendants(host, NSSplitView.self).contains { $0.delegate is NSSplitViewController },
+                    "empty onboarding must not contain a navigation sidebar")
+            require(!nativeDescendants(host, NSSearchField.self).contains { $0.identifier?.rawValue == "device-search" },
+                    "empty onboarding must not contain device search")
+            if #available(macOS 26.0, *) {
+                require(nativeDescendants(host, NSGlassEffectView.self).contains { $0.accessibilityIdentifier() == "onboarding-glass" },
+                        "onboarding uses the system Liquid Glass effect")
+            } else {
+                require(nativeDescendants(host, NSVisualEffectView.self).contains { $0.accessibilityIdentifier() == "onboarding-glass" && $0.blendingMode == .behindWindow },
+                        "older systems use a behind-window material")
+            }
+        }
+        let previousWindow = model.centerWindow
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 550),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        let chrome = CenterToolbarController(model: model, window: window)
+        guard let onboardingToolbar = window.toolbar else { fail("onboarding toolbar is missing") }
+        if #available(macOS 15.0, *) {
+            let actions = onboardingToolbar.items.filter { $0.itemIdentifier != .flexibleSpace }
+            require(onboardingToolbar.isVisible && actions.count == 4 && actions.allSatisfy { $0.isHidden && !$0.isEnabled },
+                    "onboarding keeps its native title bar but hides toolbar actions")
+        } else {
+            require(onboardingToolbar.isVisible && onboardingToolbar.items.isEmpty, "older systems use an empty onboarding toolbar")
+        }
+        require(!window.isOpaque && window.backgroundColor == .clear, "onboarding window exposes its glass backdrop")
+        window.contentView?.superview?.layoutSubtreeIfNeeded()
+        guard let close = window.standardWindowButton(.closeButton),
+              let minimize = window.standardWindowButton(.miniaturizeButton),
+              let zoom = window.standardWindowButton(.zoomButton) else { fail("window controls are missing") }
+        let onboardingButtons = [close, minimize, zoom].map { $0.convert($0.bounds, to: nil) }
+        model.deviceListLoaded = false
+        pump(0.2)
+        guard let toolbar = window.toolbar else { fail("device center toolbar is missing") }
+        require(toolbar.isVisible && toolbar.items.map(\.itemIdentifier) == chrome.toolbarAllowedItemIdentifiers(toolbar),
+                "all toolbar actions return outside onboarding")
+        if #available(macOS 15.0, *) {
+            require(toolbar.items.allSatisfy { !$0.isHidden }, "device center actions are visible")
+            require(toolbar.items.filter { $0.itemIdentifier != .flexibleSpace }.allSatisfy(\.isEnabled),
+                    "device center actions are enabled again")
+        }
+        if #available(macOS 26.0, *) {
+            require(!window.isOpaque && window.backgroundColor == .clear, "custom sidebar glass needs a transparent window")
+        } else {
+            require(window.isOpaque && window.backgroundColor != .clear, "older device center restores its window background")
+        }
+        window.contentView?.superview?.layoutSubtreeIfNeeded()
+        guard let centerClose = window.standardWindowButton(.closeButton),
+              let centerMinimize = window.standardWindowButton(.miniaturizeButton),
+              let centerZoom = window.standardWindowButton(.zoomButton) else { fail("device center window controls are missing") }
+        let centerButtons = [centerClose, centerMinimize, centerZoom].map { $0.convert($0.bounds, to: nil) }
+        require(zip(onboardingButtons, centerButtons).allSatisfy { pair in abs(pair.0.minX - pair.1.minX) < 0.5 && abs(pair.0.midY - pair.1.midY) < 0.5 },
+                "onboarding and device center window controls have matching positions")
+        model.deviceListLoaded = true
+        pump(0.2)
+        if #available(macOS 15.0, *) {
+            require(window.toolbar === onboardingToolbar && onboardingToolbar.items.filter { $0.itemIdentifier != .flexibleSpace }.allSatisfy(\.isHidden),
+                    "toolbar actions are hidden when onboarding returns")
+        } else { require(window.toolbar === onboardingToolbar && onboardingToolbar.items.isEmpty, "older systems restore the empty toolbar") }
+        require(!window.isOpaque && window.backgroundColor == .clear, "returning to onboarding restores the glass window")
+        if snapshotCase.name == "center-empty-light" {
+            let legacyWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 550),
+                                        styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            let legacyChrome = CenterToolbarController(model: model, window: legacyWindow, forceLegacyToolbar: true)
+            guard let emptyToolbar = legacyWindow.toolbar else { fail("legacy onboarding toolbar missing") }
+            require(emptyToolbar.isVisible && emptyToolbar.items.isEmpty, "legacy onboarding retains an empty title bar")
+            func legacyTrafficLights() -> [NSRect] {
+                legacyWindow.contentView?.superview?.layoutSubtreeIfNeeded()
+                return [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].compactMap {
+                    guard let button = legacyWindow.standardWindowButton($0) else { return nil }
+                    return button.convert(button.bounds, to: nil)
+                }
+            }
+            let emptyFrames = legacyTrafficLights()
+            model.deviceListLoaded = false
+            pump(0.2)
+            guard let libraryToolbar = legacyWindow.toolbar else { fail("legacy library toolbar missing") }
+            require(libraryToolbar !== emptyToolbar && libraryToolbar.items.map(\.itemIdentifier) == legacyChrome.toolbarAllowedItemIdentifiers(libraryToolbar),
+                    "legacy device center restores its actions")
+            let libraryFrames = legacyTrafficLights()
+            require(emptyFrames.count == 3 && libraryFrames.count == 3 && zip(emptyFrames, libraryFrames).allSatisfy {
+                abs($0.0.minX - $0.1.minX) < 0.5 && abs($0.0.midY - $0.1.midY) < 0.5
+            }, "legacy title bars align their traffic lights")
+            model.deviceListLoaded = true
+            pump(0.2)
+            require(legacyWindow.toolbar === emptyToolbar, "legacy onboarding restores its empty toolbar")
+        }
+        model.centerWindow = previousWindow
+        canvas.settle(0.2)
+    }
     let rep = canvas.capture()
     canvas.unmount()
     pump(0.05)
@@ -460,6 +598,17 @@ func renderPlayer(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
     // Shared material, transparent hosting surfaces and live appearance changes
     // are checked on the real window in Tests/PlayerLifecycle. These hidden
     // snapshots cover the native fallback; WindowServer blur needs screen review.
+    if ["booting", "connecting", "stopped"].contains(snapshotCase.scriptState) {
+        if snapshotCase.scriptState == "booting" {
+            transport.applyLaunchState(.booting(progress: 0.3, message: snapshotCase.language == 0 ? "Starting 30%" : "正在启动 30%"))
+        } else if snapshotCase.scriptState == "stopped" {
+            transport.applyLaunchState(.stopped(reason: ""))
+        }
+        canvas.settle(0.3)
+        let rep = canvas.capture()
+        canvas.unmount()
+        return rep
+    }
     // ContentView.onAppear installs transport.onStatus; wait for it so the
     // transient connecting notice can later be cleared deterministically.
     pump(0.2)
@@ -519,6 +668,7 @@ func renderPlayer(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
 func nativeDescendants<T: NSView>(_ root: NSView, _ type: T.Type) -> [T] {
     ((root as? T).map { [$0] } ?? []) + root.subviews.flatMap { nativeDescendants($0, type) }
 }
+
 
 /// Check actual hosted controls while every window remains unordered. These
 /// regressions are scoped to Device tools, and never drive the user's desktop.
@@ -653,10 +803,20 @@ func validateTools(_ canvas: Canvas, selection: DeviceToolsSelection, page: Stri
 
 func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImageRep {
     require(!options.uiFixture.isEmpty, "auxiliary views require --ui-fixture")
+    if page == "new-device-direct-no-images" || page == "onboarding-environment-no-images" || page == "onboarding-auto-no-images" { setenv("JIDR_UI_NO_IMAGES", "1", 1) }
+    defer { unsetenv("JIDR_UI_NO_IMAGES") }
     if page == "center-many-content" { setenv("JIDR_UI_MANY_CONTENT", "1", 1) }
     defer { unsetenv("JIDR_UI_MANY_CONTENT") }
+    if page == "snapshots-incomplete" { setenv("JIDR_UI_INCOMPLETE_QUICK_BOOT", "1", 1) }
+    defer { unsetenv("JIDR_UI_INCOMPLETE_QUICK_BOOT") }
     if page == "center-stopped-empty" { setenv("JIDR_UI_EMPTY_SNAPSHOTS", "1", 1) }
     defer { unsetenv("JIDR_UI_EMPTY_SNAPSHOTS") }
+    if page == "onboarding-install-active" { setenv("JIDR_UI_SDK_SUCCESS", "1", 1) }
+    defer { unsetenv("JIDR_UI_SDK_SUCCESS") }
+    if page == "onboarding-missing-tools" || page == "new-device-direct-no-tools" { setenv("JIDR_UI_NO_TOOLS", "1", 1) }
+    defer { unsetenv("JIDR_UI_NO_TOOLS") }
+    if page == "image-management-empty" { setenv("JIDR_UI_NO_MANAGED_IMAGES", "1", 1) }
+    defer { unsetenv("JIDR_UI_NO_MANAGED_IMAGES") }
     if page == "tasks-active" { setenv("JIDR_UI_TASKS", "1", 1) }
     else { unsetenv("JIDR_UI_TASKS") }
     defer { unsetenv("JIDR_UI_TASKS") }
@@ -675,7 +835,7 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
         model.refreshJobs()
         require(waitUpTo(5) { model.taskRows.count == 2 }, "task fixture did not load")
     }
-    if ["center-stopped", "center-stopped-empty", "device-settings", "root", "camera", "snapshots", "details-error", "root-full", "root-adb", "root-adb-writable"].contains(page) {
+    if ["center-stopped", "center-stopped-empty", "device-settings", "root", "camera", "snapshots", "snapshots-incomplete", "details-error", "root-full", "root-adb", "root-adb-writable"].contains(page) {
         guard let device = model.devices.first(where: { $0.stopped }) else { fail("fixture has no stopped device") }
         model.select(device.id)
         require(waitUpTo(5) { model.details?.device.id == device.id }, "stopped details did not load")
@@ -701,6 +861,8 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
     let canvas = Canvas(width: snapshotCase.width, height: snapshotCase.height, appearance: snapshotCase.appearance)
     var toolsSelection: DeviceToolsSelection?
     switch page {
+    case "image-management", "image-management-empty": canvas.mount(ImageManagementView(model: model))
+    case "image-management-install": canvas.mount(NewDeviceView(model: model, initialImageInstall: true, standaloneImageInstall: true))
     case "settings", "settings-defaults", "settings-advanced": canvas.mount(SettingsView(model: model, onClose: {}))
     case "center-stopped", "center-stopped-empty", "center-many-content", "search-empty", "details-error", "all-devices-list", "all-devices-grid": canvas.mount(CenterView(model: model))
     case "root", "root-full", "root-adb", "root-adb-writable", "microphone", "camera", "clipboard", "battery", "gps", "network", "calls", "fingerprint", "developer", "logcat":
@@ -723,11 +885,70 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
         } else {
             canvas.mount(tools)
         }
-    case "snapshots": canvas.mount(SnapshotsView(model: model, device: model.details!.device))
+    case "snapshots", "snapshots-incomplete": canvas.mount(SnapshotsView(model: model, device: model.details!.device))
     case "device-settings":
         guard let details = model.details else { fail("editor details missing") }
         canvas.mount(EditDeviceView(model: model, details: details))
-    case "sdk": canvas.mount(InstallSDKView(model: model))
+    case "sdk": canvas.mount(NewDeviceView(model: model, standaloneSDKSetup: true))
+    case "new-device-config": canvas.mount(NewDeviceView(model: model, initialStep: 3))
+    case "new-device-direct", "new-device-direct-no-images", "new-device-direct-no-tools":
+        canvas.mount(NewDeviceView(model: model, startAtDeviceSetup: true))
+    case "custom-resolution", "custom-resolution-invalid":
+        canvas.mount(CustomResolutionView(language: snapshotCase.language,
+                                          initialWidth: page == "custom-resolution" ? 1080 : 100,
+                                          initialHeight: page == "custom-resolution" ? 2400 : 5000,
+                                          onConfirm: { _ in }))
+    case "onboarding-config-wide", "onboarding-advanced-wide":
+        canvas.mount(NewDeviceView(model: model, initialStep: 3, inline: true, initialShowAdvanced: page == "onboarding-advanced-wide").frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { CenterOnboardingGlass().ignoresSafeArea() }
+            .transaction { $0.animation = nil; $0.disablesAnimations = true })
+    case "onboarding-install-footer-active", "onboarding-install-footer-failed":
+        canvas.mount(OnboardingInstallFooterView(language: snapshotCase.language,
+                                                 state: page == "onboarding-install-footer-active" ? .installing : .failed,
+                                                 cancelPending: false, canCancel: true, onCancel: {}, onReview: {},
+                                                 onReturnToSetup: page == "onboarding-install-footer-failed" ? {} : nil)
+            .background { CenterOnboardingGlass().ignoresSafeArea() })
+    case "onboarding-install-wizard-skipped":
+        canvas.mount(NewDeviceView(model: model, initialStep: 1, inline: true).frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { CenterOnboardingGlass().ignoresSafeArea() })
+    case "onboarding-install-active", "onboarding-install-indeterminate", "onboarding-install-error", "onboarding-install-skipped":
+        let state: SDKOnboardingInstallState = page == "onboarding-install-skipped" ? .skipped : page == "onboarding-install-error" ? .failed : .installing
+        canvas.mount(OnboardingInstallProgressView(language: snapshotCase.language, state: state,
+                                                  fraction: page == "onboarding-install-active" ? 0.42 : nil,
+                                                  message: "Downloading emulator", error: page == "onboarding-install-error" ? "Network unavailable." : nil)
+            .background { CenterOnboardingGlass().ignoresSafeArea() })
+    case "environment-licence", "environment-licence-empty", "environment-licence-error", "environment-licence-loading":
+        let licenses = page == "environment-licence" ? [PendingLicense(id: "fixture-test-licence", sha256: "test-hash", text: String(repeating: "Synthetic test licence text. No SDK licence is accepted.\n", count: 12), accepted: true)] : page == "environment-licence-empty" ? [] : nil
+        canvas.mount(EnvironmentLicensesView(language: snapshotCase.language, licenses: licenses, loading: page == "environment-licence-loading",
+                                             error: page == "environment-licence-error" ? "Unable to load licences. Try again." : "",
+                                             canAgree: page != "environment-licence-error" && page != "environment-licence-loading", retry: {}, onAgree: { true }))
+    case "onboarding-environment", "onboarding-environment-no-images":
+        canvas.mount(NewDeviceView(model: model, inline: true, automaticallySkipReadyEnvironment: false).frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { CenterOnboardingGlass().ignoresSafeArea() })
+    case "onboarding-ready", "onboarding-missing-tools", "onboarding-auto-no-images":
+        canvas.mount(NewDeviceView(model: model, inline: true).frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { CenterOnboardingGlass().ignoresSafeArea() })
+    case "onboarding-ready-reduced-motion":
+        canvas.mount(NewDeviceView(model: model, inline: true, reduceMotionOverride: true).frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { CenterOnboardingGlass().ignoresSafeArea() })
+    case "onboarding-checking-status":
+        canvas.mount(OnboardingEnvironmentChecking(language: snapshotCase.language).padding())
+    case "onboarding-install-other-image":
+        canvas.mount(NewDeviceView(model: model, initialStep: 2, inline: true, initialImageInstall: true).frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background { CenterOnboardingGlass().ignoresSafeArea() })
+    case "onboarding-card-transparency":
+        canvas.mount(ZStack {
+            HStack(spacing: 0) {
+                Color(red: 0.9, green: 0.25, blue: 0.3)
+                Color(red: 0.15, green: 0.4, blue: 0.9)
+            }
+            Color.clear.frame(width: 240, height: 110).modifier(OnboardingCardMaterial())
+        })
+    case "onboarding-card-white-background":
+        canvas.mount(ZStack {
+            Color.white
+            Color.clear.frame(width: 240, height: 110).modifier(OnboardingCardMaterial())
+        })
     case "tasks", "tasks-active": canvas.mount(TaskCenterView(model: model))
     case "palette": canvas.mount(CommandPaletteView(model: model))
     case "device-preview-states":
@@ -758,6 +979,44 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
     default: fail("unknown auxiliary view: \(page)")
     }
     canvas.settle(0.5)
+    if ["new-device-direct", "new-device-direct-no-images", "new-device-direct-no-tools"].contains(page) {
+        canvas.inspect { host, _ in
+            require(nativeDescendants(host, NSTextField.self).contains { $0.isEditable && $0.stringValue.contains("安卓手机") },
+                    "new device opens directly at device configuration")
+            let hasImageSelector = !nativeDescendants(host, NSPopUpButton.self).isEmpty
+            require(hasImageSelector == (page != "new-device-direct-no-images"),
+                    "the image selector appears only when an installed image exists")
+        }
+    }
+    if ["onboarding-ready", "onboarding-ready-reduced-motion", "onboarding-missing-tools", "onboarding-auto-no-images"].contains(page) {
+        canvas.inspect { host, _ in
+            let hasDeviceName = nativeDescendants(host, NSTextField.self).contains { $0.isEditable }
+            require(hasDeviceName == (page == "onboarding-ready" || page == "onboarding-ready-reduced-motion"),
+                    "only a complete SDK with an installed image opens device setup directly")
+            if page == "onboarding-ready" || page == "onboarding-ready-reduced-motion" {
+                require(!nativeDescendants(host, NSPopUpButton.self).isEmpty,
+                        "direct setup exposes an image selector")
+            }
+        }
+    }
+    if page == "onboarding-advanced-wide" {
+        // Profile loading changes the document height while the expansion
+        // scroll animation is running. Capture its settled bottom position.
+        canvas.settle(1.0)
+        canvas.inspect { host, _ in
+            guard let scroll = nativeDescendants(host, NSScrollView.self)
+                .filter({ ($0.documentView?.bounds.height ?? 0) > $0.contentView.bounds.height })
+                .max(by: { $0.bounds.width < $1.bounds.width }),
+                  let document = scroll.documentView else {
+                fail("expanded onboarding must have a scrollable configuration")
+            }
+            let clip = scroll.contentView
+            let bottom = max(0, document.bounds.height - clip.bounds.height)
+            clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: bottom))
+            scroll.reflectScrolledClipView(clip)
+        }
+        canvas.settle(0.2)
+    }
     if page == "center-many-content" {
         canvas.inspect { host, _ in
             guard let appsScroll = nativeDescendants(host, NSScrollView.self).first(where: {
@@ -776,43 +1035,14 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
         }
     }
     if page == "all-devices-list" || page == "all-devices-grid" {
-        canvas.inspect { host, _ in
-            guard let table = nativeDescendants(host, NSTableView.self).first(where: { $0.accessibilityIdentifier() == "library-devices" }) else {
+        canvas.inspect { host, window in
+            guard nativeDescendants(host, NSTableView.self).contains(where: { $0.accessibilityIdentifier() == "library-devices" }) else {
                 fail("native device sidebar is missing")
             }
-            guard let split = nativeDescendants(host, NSSplitView.self).first(where: { $0.delegate is NSSplitViewController }),
-                  let splitController = split.delegate as? NSSplitViewController,
-                  let sidebarItem = splitController.splitViewItems.first(where: { $0.behavior == .sidebar }) else {
-                fail("navigation split must expose a native sidebar item")
-            }
-            if #available(macOS 26.0, *) {
-                var ancestor = table.superview
-                var hasSystemGlass = false
-                while let view = ancestor {
-                    if view is NSGlassEffectView { hasSystemGlass = true; break }
-                    ancestor = view.superview
-                }
-                require(hasSystemGlass, "system sidebar glass surrounds the device list")
-                guard let detail = splitController.splitViewItems.last?.viewController.view,
-                      let bitmap = detail.bitmapImageRepForCachingDisplay(in: detail.bounds) else {
-                    fail("native detail background cannot be inspected")
-                }
-                // Inspect the detail alone: a screenshot of the whole window
-                // includes the glass fallback and cannot reveal a solid fill
-                // underneath it. macOS extends this column into the sidebar.
-                require(detail.safeAreaInsets.left > 0, "native detail extends beneath the sidebar")
-                detail.cacheDisplay(in: detail.bounds, to: bitmap)
-                let underSidebarX = Int(detail.safeAreaInsets.left * 0.5 * CGFloat(bitmap.pixelsWide) / detail.bounds.width)
-                let middleY = bitmap.pixelsHigh / 2
-                guard let underSidebar = bitmap.colorAt(x: underSidebarX, y: middleY),
-                      let mainSurface = bitmap.colorAt(x: bitmap.pixelsWide - 5, y: middleY) else {
-                    fail("native detail background samples are missing")
-                }
-                require(underSidebar.alphaComponent < 0.01,
-                        "detail surface must not paint an opaque background beneath the system glass sidebar")
-                require(mainSurface.alphaComponent > 0.99,
-                        "detail surface remains solid outside the sidebar")
-            }
+            let systemSidebar = nativeDescendants(host, NSSplitView.self)
+                .compactMap { $0.delegate as? NSSplitViewController }
+                .flatMap(\.splitViewItems).first { $0.behavior == .sidebar }
+            require(systemSidebar != nil, "device center uses the system sidebar")
             let previousCenterWindow = model.centerWindow
             let toolbarWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 550),
                                          styleMask: [.titled, .closable], backing: .buffered, defer: false)
@@ -828,10 +1058,15 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
             require(toolbarWindow.toolbar === toolbar, "system toolbar replacement preserves the Jidr toolbar")
             require(NSApp.sendAction(toggleAction, to: toggle.target, from: toggle), "sidebar toolbar action responds")
             pump(0.3)
-            require(!model.sidebarVisible && sidebarItem.isCollapsed, "toolbar collapses the system sidebar")
+            require(!model.sidebarVisible, "toolbar collapses the sidebar")
+            require(systemSidebar?.isCollapsed == true, "native sidebar is collapsed")
             require(NSApp.sendAction(toggleAction, to: toggle.target, from: toggle), "sidebar toolbar action responds again")
             pump(0.3)
-            require(model.sidebarVisible && !sidebarItem.isCollapsed, "toolbar expands the system sidebar")
+            require(model.sidebarVisible, "toolbar expands the sidebar")
+            require(systemSidebar?.isCollapsed == false, "native sidebar is expanded")
+            guard let table = nativeDescendants(host, NSTableView.self).first(where: { $0.accessibilityIdentifier() == "library-devices" }) else {
+                fail("device sidebar did not return after expanding")
+            }
             guard let search = nativeDescendants(host, NSSearchField.self).first(where: { $0.identifier?.rawValue == "device-search" }) else {
                 fail("device search is missing")
             }
@@ -851,9 +1086,11 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
             require(!(table.delegate?.tableView?(table, shouldSelectRow: 1) ?? true), "device heading is not selectable")
             guard let headingCell = table.view(atColumn: 0, row: 1, makeIfNecessary: true),
                   let addButton = nativeDescendants(headingCell, NSButton.self).first else { fail("device heading add button is missing") }
+            // The temporary toolbar test window must not become the owner of
+            // a real panel in this deliberately hidden renderer.
+            model.centerWindow = previousCenterWindow
             addButton.performClick(nil)
-            require(model.sheet == .newDevice && table.selectedRow == 0, "heading add button opens device creation without changing selection")
-            model.sheet = nil
+            require(model.sheet == nil && table.selectedRow == 0, "hidden snapshot canvas does not open a device window or change selection")
             require(model.showingAllDevices && model.selected == nil, "all-devices view has no selected device")
             table.selectRowIndexes(IndexSet(integer: 2), byExtendingSelection: false)
             require(!model.showingAllDevices && model.selected == model.filteredDevices.first?.id,
@@ -872,6 +1109,75 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
         canvas.settle(0.3)
     }
     let rep = canvas.capture()
+    if page == "onboarding-card-transparency" {
+        guard let redSide = rep.colorAt(x: 80, y: 80)?.usingColorSpace(.sRGB),
+              let blueSide = rep.colorAt(x: 240, y: 80)?.usingColorSpace(.sRGB),
+              let redBackground = rep.colorAt(x: 20, y: 80)?.usingColorSpace(.sRGB),
+              let blueBackground = rep.colorAt(x: 300, y: 80)?.usingColorSpace(.sRGB) else {
+            fail("cannot inspect onboarding card backdrop")
+        }
+        require(redSide.greenComponent > redBackground.greenComponent + 0.1 &&
+                blueSide.greenComponent > blueBackground.greenComponent + 0.1 &&
+                redSide.greenComponent < redBackground.greenComponent + 0.4 &&
+                blueSide.greenComponent < blueBackground.greenComponent + 0.4,
+                "onboarding card adds a translucent light tint to the backdrop")
+        require(redSide.redComponent - blueSide.redComponent > 0.25 &&
+                blueSide.blueComponent - redSide.blueComponent > 0.25,
+                "onboarding card must let different backdrop colors show through")
+    }
+    if page == "onboarding-install-active" {
+        model.onboardingInstallForegroundRequired = true
+        var completionResult: Bool?
+        model.startSDKInstall(SDKInstallPlan(imagePackage: nil, licenses: [])) { completionResult = $0 }
+        require(waitUpTo(5) { !model.sdkInstalling && model.sdkInstallSucceeded == true && completionResult == true },
+                "synthetic successful installation did not complete")
+        require(!model.onboardingInstallForegroundRequired,
+                "the foreground restriction must clear when an installation succeeds")
+        require(SDKOnboardingInstallState.shouldAdvanceAfterSuccess(requested: true, step: 1, succeeded: completionResult),
+                "successful installation must advance to the image step")
+    }
+    if page == "onboarding-install-error" {
+        model.onboardingInstallForegroundRequired = true
+        model.openPalette()
+        model.openTasks()
+        model.present(.settings)
+        require(!model.paletteOpen && !model.tasksOpen && model.settingsWindow == nil,
+                "foreground installation must block navigation to other panels")
+        var completionResult: Bool?
+        model.startSDKInstall(SDKInstallPlan(imagePackage: nil, licenses: [])) { completionResult = $0 }
+        require(waitUpTo(5) { !model.sdkInstalling && model.sdkInstallSucceeded == false && completionResult == false },
+                "synthetic installation failure did not complete")
+        require(!model.onboardingInstallForegroundRequired,
+                "the foreground restriction must clear when an installation fails")
+    }
+    if page == "onboarding-card-white-background" {
+        guard let edge = rep.colorAt(x: 40, y: 80)?.usingColorSpace(.sRGB),
+              let inside = rep.colorAt(x: 60, y: 80)?.usingColorSpace(.sRGB) else {
+            fail("cannot inspect onboarding card boundary")
+        }
+        require(inside.redComponent - edge.redComponent > 0.05,
+                "onboarding card boundary must remain visible against white")
+    }
+    if page == "all-devices-list" {
+        let devices = model.devices
+        require(!devices.isEmpty, "transition fixture needs devices")
+        for _ in 0..<2 {
+            model.devices = []
+            canvas.settle(0.3)
+            canvas.inspect { host, _ in
+                require(model.isEmptyDeviceLibrary && !nativeDescendants(host, NSSplitView.self).contains { $0.delegate is NSSplitViewController },
+                        "removing the last device shows onboarding without a sidebar")
+            }
+            model.devices = devices
+            canvas.settle(0.3)
+            canvas.inspect { host, _ in
+                require(!model.isEmptyDeviceLibrary && nativeDescendants(host, NSSplitView.self).contains { $0.delegate is NSSplitViewController },
+                        "adding a device restores the navigation sidebar")
+                require(nativeDescendants(host, NSSearchField.self).contains { $0.identifier?.rawValue == "device-search" && $0.isEnabled },
+                        "adding a device restores search")
+            }
+        }
+    }
     if page == "device-preview-states" {
         guard let running = rep.colorAt(x: 32, y: 55)?.usingColorSpace(.sRGB),
               let stopped = rep.colorAt(x: 106, y: 55)?.usingColorSpace(.sRGB) else { fail("cannot inspect thumbnail pixels") }

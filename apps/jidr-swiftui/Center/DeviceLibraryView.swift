@@ -40,15 +40,16 @@ struct DeviceLibrarySidebar: View {
 /// The device search keeps its existing focus/overlay policy on the shared control.
 struct LibrarySearchField: View {
     @ObservedObject var model: CenterModel
-    private var enabled: Bool {
-        model.sidebarVisible && !model.isEmptyDeviceLibrary && !model.paletteOpen && model.sheet == nil && !model.tasksOpen
+    private var enabled: Bool { model.sidebarVisible && !model.isEmptyDeviceLibrary }
+    private var canFocus: Bool {
+        enabled && !model.paletteOpen && model.sheet == nil && !model.tasksOpen
     }
     var body: some View {
         NativeSearchField(text: $model.deviceQuery,
                           placeholder: model.text("搜索设备", "Search devices"),
                           identifier: "device-search",
                           focusRequest: model.searchFocusRequest,
-                          canFocus: { enabled })
+                          canFocus: { canFocus })
             .disabled(!enabled)
     }
 }
@@ -58,7 +59,7 @@ struct DeviceOverviewView: View {
     let device: Device
     var showApps: () -> Void
     @State private var snapshots: [SnapshotRow] = []
-    @State private var snapshotsLoading = true
+    @State private var snapshotLoadState = SnapshotOverviewLoadState()
     @State private var snapshotsError: String?
     @State private var snapshotGeneration = 0
     @State private var advancedExpanded = false
@@ -66,6 +67,7 @@ struct DeviceOverviewView: View {
     @State private var savingSnapshot = false
     @State private var apkTargeted = false
 
+    private var snapshotsLoading: Bool { snapshotLoadState.showInitialLoading }
     private var canOperate: Bool { device.running && !model.busy.contains(device.id) && model.busyHolder(for: device.id) == nil }
     private var filteredApps: [AndroidApp] {
         model.apps.filter { appQuery.isEmpty || $0.name.localizedCaseInsensitiveContains(appQuery) || $0.package.localizedCaseInsensitiveContains(appQuery) }
@@ -121,7 +123,7 @@ struct DeviceOverviewView: View {
             })
         }
         .onAppear(perform: loadSnapshots)
-        .onChange(of: model.sheet) { sheet in if sheet == nil { loadSnapshots() } }
+        .onChange(of: model.snapshotRevisions[device.id, default: 0]) { _ in loadSnapshots() }
         .onChange(of: device.root) { _ in loadSnapshots() }
         .onDisappear { snapshotGeneration += 1 }
     }
@@ -290,7 +292,7 @@ struct DeviceOverviewView: View {
     private var installButton: some View {
         Button(t("安装 APK", "Install APK"), systemImage: "square.and.arrow.down") {
             model.chooseFile(device: device.id, apk: true)
-        }.buttonStyle(.bordered).disabled(!canOperate)
+        }.buttonStyle(.bordered).controlSize(.large).disabled(!canOperate)
             .accessibilityIdentifier("overview-install-apk")
     }
     private func receiveAPK(_ providers: [NSItemProvider]) -> Bool {
@@ -370,9 +372,9 @@ struct DeviceOverviewView: View {
                 }
                 Spacer()
                 Button(t("创建快照", "Create snapshot")) { savingSnapshot = true }
-                    .buttonStyle(.bordered).disabled(!canOperate)
+                    .buttonStyle(.bordered).controlSize(.large).disabled(!canOperate)
                 Button(t("管理快照", "Manage snapshots")) { model.present(.snapshots) }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.bordered).controlSize(.large)
             }
             if snapshotsLoading {
                 ProgressView().controlSize(.small)
@@ -419,12 +421,19 @@ struct DeviceOverviewView: View {
     private func loadSnapshots() {
         snapshotGeneration += 1
         let generation = snapshotGeneration
-        snapshotsLoading = true; snapshotsError = nil
+        // Keep the existing count and rows visible during a refresh. Replacing
+        // them with a spinner briefly moves the adjacent action buttons.
+        snapshotLoadState.begin()
+        snapshotsError = nil
         model.call("snapshot.list", ["device": device.id]) { result in
             guard generation == snapshotGeneration else { return }
-            snapshotsLoading = false
-            do { snapshots = Snapshots.sorted(try model.decode(result.get(), as: SnapshotList.self).snapshots) }
-            catch { snapshotsError = model.readable(error) }
+            do {
+                snapshots = Snapshots.sorted(try model.decode(result.get(), as: SnapshotList.self).snapshots)
+                snapshotLoadState.finish(succeeded: true)
+            } catch {
+                snapshotLoadState.finish(succeeded: false)
+                snapshotsError = model.readable(error)
+            }
         }
     }
 }
@@ -526,7 +535,9 @@ struct NativeDeviceLibraryList: NSViewRepresentable {
             cell.configure(devices[row - 2], language: language, thumbnail: model.deviceThumbnails[devices[row - 2].id])
             return cell
         }
-        func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { NSTableRowView() }
+        func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+            LibraryRowView(model: model)
+        }
         func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { row == 0 ? 36 : row == 1 ? 48 : 54 }
         func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool { row != 1 }
         func tableViewSelectionDidChange(_ notification: Notification) {
@@ -549,6 +560,23 @@ struct NativeDeviceLibraryList: NSViewRepresentable {
             model.focusOrOpenDeviceWindow(devices[index].id)
         }
         @objc func addDevice() { model.present(.newDevice) }
+    }
+}
+
+/// A Jidr panel is still part of the library's active context even while it
+/// owns keyboard focus. Keep the native source-list selection emphasized in
+/// that case; losing application activation retains normal system behavior.
+private final class LibraryRowView: NSTableRowView {
+    private weak var model: CenterModel?
+    init(model: CenterModel) { self.model = model; super.init(frame: .zero) }
+    required init?(coder: NSCoder) { nil }
+    override var isEmphasized: Bool {
+        get {
+            let panelOpen = model.map { $0.paletteOpen || $0.tasksOpen || $0.sheet == .newDevice ||
+                                       $0.sheet == .snapshots || $0.sheet == .edit || $0.sheet == .imageManagement } ?? false
+            return super.isEmphasized || (NSApp.isActive && panelOpen)
+        }
+        set { super.isEmphasized = newValue }
     }
 }
 

@@ -28,6 +28,12 @@ class FixtureTests(unittest.TestCase):
             with launch() as process:
                 devices = call(process, "device.list")["result"]
                 self.assertEqual(call(process, "jobs.list")["result"][1]["device"], devices[0]["id"])
+                images = call(process, "image.inventory")["result"]
+                protected = next(image for image in images if not image["can_delete"])
+                self.assertEqual(call(process, "image.remove", image=protected["package"], source=protected["source"], root=protected["root"])["type"], "error")
+                removable = next(image for image in images if image["can_delete"])
+                self.assertEqual(call(process, "image.remove", image=removable["package"], source=removable["source"], root=removable["root"])["type"], "result")
+                self.assertNotIn(removable, call(process, "image.inventory")["result"])
                 for method in ["device.restart", "file.install", "sdk.install", "not.a.command"]:
                     self.assertEqual(call(process, method)["type"], "error")
                 for device in devices:

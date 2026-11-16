@@ -270,7 +270,7 @@ struct ContentView: View {
                 Text(t("正在停止设备…", "Stopping the device…", language)).wbFont(WbType.body)
                 Text(t("正在等待模拟器退出，保存快速启动状态可能需要一些时间。",
                        "Waiting for the emulator to exit. Saving quick-boot state may take some time.", language))
-                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).multilineTextAlignment(.center)
+                    .wbFont(WbType.caption).foregroundStyle(Color.white.opacity(0.72)).multilineTextAlignment(.center)
             } else { switch linkState {
             case .running:
                 EmptyView()
@@ -278,22 +278,22 @@ struct ContentView: View {
                 ProgressView().controlSize(.small)
                 Text(t("正在连接设备…", "Connecting to the device…", language)).wbFont(WbType.body)
             case .booting(let progress, let message):
+                Text(t("正在启动设备…", "Starting the device…", language)).wbFont(WbType.title)
                 if let progress {
-                    ProgressView(value: progress).frame(width: 220)
+                    ProgressView(value: progress).frame(maxWidth: 220)
                 } else {
                     ProgressView().controlSize(.small)
                 }
-                Text(t("正在启动设备…", "Starting the device…", language)).wbFont(WbType.body)
                 if !message.isEmpty {
-                    Text(message).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).multilineTextAlignment(.center)
+                    Text(message).wbFont(WbType.caption).foregroundStyle(Color.white.opacity(0.72)).multilineTextAlignment(.center)
                 }
                 Text(t("设备启动后画面会自动出现。", "The screen appears once the device has started.", language))
-                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
+                    .wbFont(WbType.caption).foregroundStyle(Color.white.opacity(0.72))
             case .stopped(let reason):
-                Image(systemName: WbIcon.power).font(.system(size: WbIconSize.iconLg)).foregroundStyle(WbColor.textSecondary)
+                Image(systemName: WbIcon.power).font(.system(size: WbIconSize.iconLg)).foregroundStyle(Color.white.opacity(0.72))
                 Text(t("设备已停止", "The device is stopped", language)).wbFont(WbType.title)
                 Text(PlayerDiagnosis.describe(reason, language: language))
-                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).multilineTextAlignment(.center)
+                    .wbFont(WbType.caption).foregroundStyle(Color.white.opacity(0.72)).multilineTextAlignment(.center)
                 HStack(spacing: WbSpace.sm) {
                     if transport.onStartDevice != nil {
                         Button(t("启动设备", "Start device", language)) { transport.startDevice() }
@@ -303,21 +303,21 @@ struct ContentView: View {
                         .disabled(!canReconnect)
                 }
             case .disconnected(let reason):
-                Image(systemName: WbIcon.disconnected).font(.system(size: WbIconSize.iconLg)).foregroundStyle(WbColor.textSecondary)
+                Image(systemName: WbIcon.disconnected).font(.system(size: WbIconSize.iconLg)).foregroundStyle(Color.white.opacity(0.72))
                 Text(t("连接已断开", "The connection was lost", language)).wbFont(WbType.title)
                 Text(PlayerDiagnosis.describe(reason, language: language))
-                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary).multilineTextAlignment(.center)
+                    .wbFont(WbType.caption).foregroundStyle(Color.white.opacity(0.72)).multilineTextAlignment(.center)
                 Button(t("重新连接", "Reconnect", language)) { transport.reconnect() }
                     .buttonStyle(.borderedProminent)
                     .disabled(!canReconnect)
                 if !canReconnect {
-                    Text(reconnectBlocker).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
+                    Text(reconnectBlocker).wbFont(WbType.caption).foregroundStyle(Color.white.opacity(0.72))
                 }
             } }
         }
         .padding(WbSpace.lg)
         .frame(maxWidth: WbLayout.windowDeviceWidgetPanelWidth)
-        .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.lg))
+        .modifier(PlayerCanvasGlassSurface(cornerRadius: WbRadius.lg))
         .padding(WbSpace.xl)
     }
 
@@ -352,11 +352,11 @@ struct ContentView: View {
                 Text(t("原始像素 · 1 设备像素 = 1 屏幕像素", "Pixel-perfect · 1 device pixel = 1 screen pixel", language))
                     .wbFont(WbType.label)
                 Text("\(transport.frameWidth)×\(transport.frameHeight)")
-                    .wbFont(WbType.code).foregroundStyle(WbColor.textSecondary)
+                    .wbFont(WbType.code).foregroundStyle(Color.white.opacity(0.72))
                 Button(t("适应", "Fit", language)) { transport.onFitScreen?() }.controlSize(.small)
             }
             .padding(.horizontal, WbSpace.md).padding(.vertical, WbSpace.sm)
-            .background(WbColor.overlay, in: Capsule())
+            .modifier(PlayerCanvasGlassSurface(cornerRadius: 20))
             Spacer()
         }
         .padding(WbSpace.md)
@@ -370,12 +370,12 @@ struct ContentView: View {
                 .background(WbColor.accentContainer.opacity(0.6), in: RoundedRectangle(cornerRadius: WbRadius.xl))
             VStack(alignment: .leading, spacing: WbSpace.xs) {
                 Text(drop.title).wbFont(WbType.body.weighted(.semibold))
-                Text(drop.body).wbFont(WbType.label).foregroundStyle(WbColor.textSecondary)
+                Text(drop.body).wbFont(WbType.label).foregroundStyle(Color.white.opacity(0.72))
                     .fixedSize(horizontal: false, vertical: true)
             }
             .padding(WbSpace.lg)
             .frame(width: 290, alignment: .leading)
-            .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.lg))
+            .modifier(PlayerCanvasGlassSurface(cornerRadius: WbRadius.lg))
         }
         .padding(WbSpace.md)
         .allowsHitTesting(false)
@@ -387,7 +387,7 @@ struct ContentView: View {
             Text(PlayerStatusText.translate(text, language: language))
                 .wbFont(WbType.body)
                 .padding(WbSpace.md)
-                .background(WbColor.overlay, in: RoundedRectangle(cornerRadius: WbRadius.md))
+                .modifier(PlayerCanvasGlassSurface(cornerRadius: WbRadius.md))
                 .padding(WbSpace.sm)
         }
         .padding(.bottom, 0)
@@ -406,7 +406,7 @@ struct ContentView: View {
                     }
                 }
                 .padding(.horizontal, WbSpace.md).padding(.vertical, WbSpace.xs)
-                .background(WbColor.overlay, in: Capsule())
+                .modifier(PlayerCanvasGlassSurface(cornerRadius: 20))
                 Spacer()
             }
             .padding(WbSpace.md)
