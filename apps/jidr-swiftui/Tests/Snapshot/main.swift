@@ -507,6 +507,8 @@ func renderCenter(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
         let previousWindow = model.centerWindow
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 550),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        let originalOpaque = window.isOpaque
+        let originalBackground = window.backgroundColor
         let chrome = CenterToolbarController(model: model, window: window)
         guard let onboardingToolbar = window.toolbar else { fail("onboarding toolbar is missing") }
         if #available(macOS 15.0, *) {
@@ -532,11 +534,8 @@ func renderCenter(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
             require(toolbar.items.filter { $0.itemIdentifier != .flexibleSpace }.allSatisfy(\.isEnabled),
                     "device center actions are enabled again")
         }
-        if #available(macOS 26.0, *) {
-            require(!window.isOpaque && window.backgroundColor == .clear, "custom sidebar glass needs a transparent window")
-        } else {
-            require(window.isOpaque && window.backgroundColor != .clear, "older device center restores its window background")
-        }
+        require(window.isOpaque == originalOpaque && window.backgroundColor == originalBackground,
+                "device center restores its original window background")
         window.contentView?.superview?.layoutSubtreeIfNeeded()
         guard let centerClose = window.standardWindowButton(.closeButton),
               let centerMinimize = window.standardWindowButton(.miniaturizeButton),
