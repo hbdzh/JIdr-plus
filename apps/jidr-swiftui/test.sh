@@ -88,6 +88,10 @@ swiftc -module-cache-path "$out/module-cache" \
   apps/jidr-swiftui/Tests/RootFlow/main.swift -o "$out/root-flow-tests"
 "$out/root-flow-tests"
 swiftc -module-cache-path "$out/module-cache" \
+  apps/jidr-swiftui/Center/PanelCoordinator.swift \
+  apps/jidr-swiftui/Tests/PanelCoordinator/main.swift -o "$out/panel-coordinator-tests"
+"$out/panel-coordinator-tests"
+swiftc -module-cache-path "$out/module-cache" \
   apps/jidr-swiftui/Center/SnapshotData.swift \
   apps/jidr-swiftui/Tests/SnapshotDialogs/main.swift -o "$out/snapshot-data-tests"
 "$out/snapshot-data-tests"

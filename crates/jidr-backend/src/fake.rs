@@ -130,6 +130,11 @@ impl FakeBackend {
         self.lock().empty_saves = true;
     }
 
+    /// Restore successful snapshot saves after a simulated failure.
+    pub fn allow_saves(&self) {
+        self.lock().empty_saves = false;
+    }
+
     /// Every `save_snapshot` so far: (AVD, snapshot name).
     pub fn saves(&self) -> Vec<(String, String)> {
         self.lock().saves.clone()

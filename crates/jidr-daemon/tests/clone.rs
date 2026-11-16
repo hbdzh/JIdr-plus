@@ -65,7 +65,7 @@ async fn clone_keeping_a_snapshot_resumes_it_once() {
     assert_eq!(first.snapshot.as_deref(), Some("Logged_in"));
     assert!(!first.snapshot_save && !first.cold_boot);
     assert_eq!(second.snapshot, None);
-    assert!(second.snapshot_save, "quick boot is back on");
+    assert!(!second.snapshot_save, "quick boot is saved explicitly");
     let d = c.ok("device.details", json!({ "device": "Copy" })).await;
     assert!(d["device"]["launch"].get("resume_snapshot").is_none());
     h.stop().await;

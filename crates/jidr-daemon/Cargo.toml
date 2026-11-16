@@ -25,6 +25,7 @@ async-trait.workspace = true
 zip.workspace = true
 
 [dev-dependencies]
+jidr-root.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 proptest.workspace = true

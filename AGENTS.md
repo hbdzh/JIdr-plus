@@ -29,6 +29,13 @@ Jidr is an open-source Genymotion Desktop alternative in Rust with one-click roo
 
 Dependency versions live in the root `[workspace.dependencies]`; crates use `foo.workspace = true`.
 
+## Development skills
+
+- `.agents/skills/` contains optional internal development skills. Choose skills and references for the task at hand; related areas do not require loading every skill or repeating the same analysis and checks.
+- Use visual-design and relevant HIG skills for design questions, SwiftUI/AppKit skills for their implementation boundaries, and Rust skills for the specific language, API, concurrency, testing, performance, or safety work involved. Use `rust-uniffi-building` only when UniFFI is actually in use or explicitly being evaluated; FFI alone does not select a binding technology.
+- Follow Jidr's existing architecture, build scripts, and rules below over generic skill examples. Scope verification to the change and its risks, preserving regression tests, safety checks, and the full pre-PR gates required here.
+- `skills/` contains product-facing skills. Read them when their development, maintenance, testing, or user-facing behavior is relevant; do not register them as default internal development skills.
+
 ## Licensing (D18)
 
 - Apache-2.0 everywhere except the desktop GUI sources: `apps/jidr-swiftui` Swift/AppKit code (GPL-3.0-only by choice, ADR-0003). The SwiftUI Rust bridge is Apache-2.0.

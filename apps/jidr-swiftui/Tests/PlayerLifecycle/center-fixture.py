@@ -41,7 +41,7 @@ for line in sys.stdin:
         while not (home / "stop-release").exists():
             time.sleep(0.01)
     if request["method"] == "device.stop" and (home / "fail-stop").exists():
-        print(json.dumps({"id": request["id"], "type": "error", "message": "fixture stop failed"}), flush=True)
+        print(json.dumps({"id": request["id"], "type": "error", "message": "fixture snapshot failed", "code": "sdk", "data": {"operation": "quick_boot_save"}}), flush=True)
         continue
     if request["method"] == "device.start" and (home / "block-start").exists():
         (home / "start-started").touch()

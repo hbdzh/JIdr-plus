@@ -328,9 +328,20 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         presenter?.showCenterWindow()
     }
 
+    /// A custom device panel is modal to the center, but must not disable
+    /// commands for a separate player window that the user has focused.
+    private var isCenterModalContext: Bool {
+        guard let model, model.sheet != nil else { return false }
+        guard let key = NSApp.keyWindow else { return true }
+        let panel = model.deviceSheetPanel?.window
+        return key === model.centerWindow || key === panel ||
+            key.sheetParent === model.centerWindow || key.sheetParent === panel
+    }
+
     // MARK: - Actions
 
     @objc private func openSettings() {
+        guard !isCenterModalContext else { return }
         showCenter()
         model?.runPaletteAction(.settings)
     }
@@ -346,19 +357,25 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         model?.openTasks()
     }
     @objc private func newDeviceAction() {
+        guard !isCenterModalContext else { return }
         showCenter()
         model?.runPaletteAction(.newDevice)
     }
     @objc private func refreshDevicesAction() {
+        guard !isCenterModalContext else { return }
         model?.refresh()
         model?.refreshJobs()
     }
     @objc private func openScreenshotFolderAction() { model?.openScreenshotFolder() }
-    @objc private func focusDeviceSearch() { showCenter(); model?.hidePalette(); model?.searchFocusRequest += 1 }
+    @objc private func focusDeviceSearch() {
+        guard !isCenterModalContext else { return }
+        showCenter(); model?.hidePalette(); model?.searchFocusRequest += 1
+    }
     @objc private func toggleSidebarAction() {
         keyPlayer()?.toggleSidebarFromMenu()
     }
     @objc private func appearanceAction(_ sender: NSMenuItem) {
+        guard !isCenterModalContext else { return }
         model?.setPreference("appearance", sender.tag)
     }
     @objc private func openDocumentation() {
@@ -411,6 +428,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
     }
 
     @objc private func deviceAction(_ sender: NSMenuItem) {
+        guard !isCenterModalContext else { return }
         guard let command = DeviceCommand(rawValue: sender.tag),
               let id = sender.representedObject as? String,
               let device = model?.devices.first(where: { $0.id == id }) else { return }
@@ -418,6 +436,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
     }
 
     @objc private func openDockDevice(_ sender: NSMenuItem) {
+        guard !isCenterModalContext else { return }
         guard let id = sender.representedObject as? String else { return }
         showCenter()
         model?.focusOrOpenDeviceWindow(id)
@@ -434,10 +453,14 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
 
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         guard let model else { return false }
+        if isCenterModalContext && (item.action == #selector(openSettings) ||
+            item.action == #selector(newDeviceAction) || item.action == #selector(refreshDevicesAction) ||
+            item.action == #selector(focusDeviceSearch) || item.action == #selector(deviceAction(_:)) ||
+            item.action == #selector(appearanceAction(_:))) { return false }
         // Overlays stay behind a modal sheet; disabling them keeps the key
         // equivalent from opening a window the user cannot see.
         if item.action == #selector(openPaletteAction) || item.action == #selector(openTasksAction) {
-            return model.sheet == nil
+            return model.sheet == nil && !model.onboardingInstallForegroundRequired
         }
         if item.action == #selector(appearanceAction(_:)) { item.state = model.appearance == item.tag ? .on : .off; return true }
         if item.action == #selector(toggleSidebarAction) {
@@ -446,6 +469,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
             return true
         }
         if item.action == #selector(deviceAction(_:)) {
+            guard !model.onboardingInstallForegroundRequired else { return false }
             guard let command = DeviceCommand(rawValue: item.tag), let id = item.representedObject as? String,
                   let device = model.devices.first(where: { $0.id == id }) else { return false }
             switch command {

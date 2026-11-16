@@ -258,6 +258,17 @@ pub struct ImageParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
+pub struct RemoveImageParams {
+    /// Full system-image package or image selector.
+    pub image: String,
+    /// SDK source: `private` or `custom`; external SDKs are read-only.
+    pub source: String,
+    /// SDK root shown to the user; protects against a changed install location.
+    pub root: PathBuf,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CacheImportParams {
     /// A local file to add to the download cache (e.g. a Magisk APK for offline use).
     pub path: PathBuf,
@@ -367,6 +378,112 @@ pub fn parse_image(sel: &str) -> JidrResult<ImageRef> {
         return Err(JidrError::usage(format!("invalid image {sel:?}")));
     }
     Ok(ImageRef { api, tag, abi })
+}
+
+/// Reject selectors that could escape an SDK or name a special path component.
+fn validate_image_components(image: &ImageRef) -> JidrResult<()> {
+    fn component(s: &str) -> bool {
+        !s.is_empty()
+            && s != "."
+            && s != ".."
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+    }
+    if !component(&image.tag) || !component(&image.abi) {
+        return Err(JidrError::usage("invalid system image path component"));
+    }
+    Ok(())
+}
+
+fn image_directory(sdk: &Sdk, image: &ImageRef) -> JidrResult<PathBuf> {
+    validate_image_components(image)?;
+    let mut path = std::fs::canonicalize(&sdk.root)
+        .map_err(|e| JidrError::sdk(format!("cannot resolve SDK directory: {e}")))?;
+    for part in [
+        "system-images".to_string(),
+        format!("android-{}", image.api),
+        image.tag.clone(),
+        image.abi.clone(),
+    ] {
+        path.push(part);
+        let meta = std::fs::symlink_metadata(&path).map_err(|e| {
+            JidrError::not_found(format!("system image directory is unavailable: {e}"))
+        })?;
+        if meta.file_type().is_symlink() || !meta.is_dir() {
+            return Err(JidrError::sdk(
+                "system image path contains a symlink or is not a directory",
+            ));
+        }
+    }
+    Ok(path)
+}
+
+fn image_size(path: &std::path::Path) -> Option<u64> {
+    let mut total = 0u64;
+    let mut dirs = vec![path.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(dir).ok()? {
+            let entry = entry.ok()?;
+            if entry.file_type().ok()?.is_symlink() {
+                continue;
+            }
+            let meta = entry.metadata().ok()?;
+            if meta.is_dir() {
+                dirs.push(entry.path());
+            } else {
+                total = total.checked_add(meta.len())?;
+            }
+        }
+    }
+    Some(total)
+}
+
+/// Do not recursively delete a mounted filesystem nested inside an image.
+#[cfg(unix)]
+fn verify_image_volume(path: &std::path::Path, sdk_root: &std::path::Path) -> JidrResult<()> {
+    use std::os::unix::fs::MetadataExt;
+    let device = std::fs::metadata(sdk_root)
+        .map_err(|e| JidrError::sdk(format!("cannot inspect image: {e}")))?
+        .dev();
+    if std::fs::metadata(path)
+        .map_err(|e| JidrError::sdk(format!("cannot inspect image: {e}")))?
+        .dev()
+        != device
+    {
+        return Err(JidrError::sdk("system image is on a different filesystem"));
+    }
+    let mut dirs = vec![path.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        for entry in std::fs::read_dir(dir)
+            .map_err(|e| JidrError::sdk(format!("cannot inspect image: {e}")))?
+        {
+            let entry = entry.map_err(|e| JidrError::sdk(format!("cannot inspect image: {e}")))?;
+            let meta = std::fs::symlink_metadata(entry.path())
+                .map_err(|e| JidrError::sdk(format!("cannot inspect image: {e}")))?;
+            if meta.file_type().is_symlink() {
+                continue;
+            }
+            if meta.dev() != device {
+                return Err(JidrError::sdk("system image contains a mounted filesystem"));
+            }
+            if meta.is_dir() {
+                dirs.push(entry.path());
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn verify_image_volume(_path: &std::path::Path, _sdk_root: &std::path::Path) -> JidrResult<()> {
+    Ok(())
+}
+
+fn sdk_roots_overlap(a: &std::path::Path, b: &std::path::Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a.starts_with(&b) || b.starts_with(&a),
+        _ => false,
+    }
 }
 
 /// `logcat -d` arguments. logcat applies `-t N` to the raw buffer *before*
@@ -548,6 +665,7 @@ impl CoreProvider {
     }
 
     async fn create(&self, p: CreateParams) -> JidrResult<Value> {
+        let _image_guard = self.state.image_gate.read().await;
         validate_device_name(&p.name)?;
         let name = p.name.trim().to_string();
         if self.state.with_store(|s| s.name_taken(&name, None)) {
@@ -917,7 +1035,116 @@ impl CoreProvider {
         ))
     }
 
+    /// Each physical copy is shown separately, including read-only SDKs.
+    async fn image_inventory(&self) -> JidrResult<Value> {
+        let _image_guard = self.state.image_gate.read().await;
+        let state = self.state.clone();
+        tokio::task::spawn_blocking(move || {
+            let sdks = state.sdks();
+            let devices = state.with_store(|s| s.all().to_vec());
+            let mut entries = Vec::new();
+            for (source, sdk) in sdks
+                .custom
+                .as_ref()
+                .map(|s| ("custom", s))
+                .into_iter()
+                .chain(std::iter::once(("private", &sdks.private)))
+                .chain(sdks.studio.as_ref().map(|s| ("external", s)))
+            {
+                for image in sdk.installed_images() {
+                    let path = image_directory(sdk, &image).ok();
+                    let used_by: Vec<_> = devices
+                        .iter()
+                        .filter(|d| d.image == image)
+                        .map(|d| json!({"id": d.id, "name": d.name}))
+                        .collect();
+                    let external_safe = sdks.studio.as_ref().is_none_or(|external| {
+                        external.root.is_absolute()
+                            && std::fs::canonicalize(&external.root).is_ok()
+                            && !sdk_roots_overlap(&sdk.root, &external.root)
+                    });
+                    let can_delete = source != "external"
+                        && external_safe
+                        && path.is_some()
+                        && used_by.is_empty();
+                    entries.push(json!({
+                        "api": image.api, "tag": image.tag, "abi": image.abi,
+                        "package": image.package(), "source": source, "root": sdk.root,
+                        "size_bytes": path.as_deref().and_then(image_size), "used_by": used_by,
+                        "can_delete": can_delete
+                    }));
+                }
+            }
+            Ok(json!(entries))
+        })
+        .await
+        .map_err(|e| JidrError::unexpected(format!("reading system images: {e}")))?
+    }
+
+    async fn image_remove(&self, p: RemoveImageParams) -> JidrResult<Value> {
+        let _image_guard = self.state.image_gate.write().await;
+        let image = parse_image(&p.image)?;
+        validate_image_components(&image)?;
+        let state = self.state.clone();
+        tokio::task::spawn_blocking(move || {
+            let sdks = state.sdks();
+            let sdk = match p.source.as_str() {
+                "private" => &sdks.private,
+                "custom" => sdks
+                    .custom
+                    .as_ref()
+                    .ok_or_else(|| JidrError::not_found("custom SDK is no longer configured"))?,
+                _ => {
+                    return Err(JidrError::usage(
+                        "only Jidr-owned SDK images can be removed",
+                    ));
+                }
+            };
+            let expected = std::fs::canonicalize(&p.root)
+                .map_err(|e| JidrError::sdk(format!("cannot resolve selected SDK: {e}")))?;
+            let current = std::fs::canonicalize(&sdk.root)
+                .map_err(|e| JidrError::sdk(format!("cannot resolve current SDK: {e}")))?;
+            if expected != current {
+                return Err(JidrError::busy(
+                    "SDK location changed; refresh the image list",
+                ));
+            }
+            if let Some(external) = &sdks.studio {
+                if !external.root.is_absolute() || std::fs::canonicalize(&external.root).is_err() {
+                    return Err(JidrError::sdk("external SDK location cannot be verified"));
+                }
+                if sdk_roots_overlap(&sdk.root, &external.root) {
+                    return Err(JidrError::sdk(
+                        "Jidr SDK overlaps the read-only external SDK",
+                    ));
+                }
+            }
+            let used_by: Vec<String> = state.with_store(|s| {
+                s.all()
+                    .iter()
+                    .filter(|d| d.image == image)
+                    .map(|d| d.name.clone())
+                    .collect()
+            });
+            if !used_by.is_empty() {
+                return Err(JidrError::busy("system image is used by devices")
+                    .with_data(json!({"devices": used_by})));
+            }
+            let dir = image_directory(sdk, &image)?;
+            if !sdk.has_image(&image) {
+                return Err(JidrError::not_found("system image is not installed"));
+            }
+            verify_image_volume(&dir, &sdk.root)?;
+            std::fs::remove_dir_all(&dir)
+                .map_err(|e| JidrError::sdk(format!("cannot remove system image: {e}")))?;
+            Ok(json!({"removed": image.package(), "root": sdk.root}))
+        })
+        .await
+        .map_err(|e| JidrError::unexpected(format!("removing system image: {e}")))?
+    }
+
     async fn image_install(&self, ctx: &CallCtx, p: ImageParams) -> JidrResult<Value> {
+        let _image_guard = self.state.image_gate.write().await;
         let image = parse_image(&p.image)?;
         let packages = image_install_plan(&self.state.sdks(), &image)?;
         if packages.is_empty() {
@@ -989,6 +1216,10 @@ impl CommandProvider for CoreProvider {
                 "sdk.licenses",
                 "Licenses still to accept before installing packages, with their text",
             ),
+            CommandSpec::new::<PackagesParams>(
+                "sdk.license_details",
+                "All license texts for SDK packages, including previously accepted licenses",
+            ),
             CommandSpec::new::<AcceptLicenseParams>(
                 "sdk.accept_license",
                 "Record consent to a license text by its SHA-256 (D8)",
@@ -1007,6 +1238,8 @@ impl CommandProvider for CoreProvider {
                 "Install a system image (and the emulator if missing)",
             )
             .long_running(),
+            CommandSpec::new::<NoParams>("image.inventory", "List installed image copies and device references"),
+            CommandSpec::new::<RemoveImageParams>("image.remove", "Remove an unused image from a Jidr-owned SDK").destructive(),
             CommandSpec::new::<NoParams>("profile.list", "Built-in hardware profiles"),
             CommandSpec::new::<CreateParams>(
                 "device.create",
@@ -1110,6 +1343,19 @@ impl CommandProvider for CoreProvider {
                 parse_params::<NoParams>(params)?;
                 json(self.state.budget()?)
             }
+            "sdk.license_details" => {
+                let p: PackagesParams = parse_params(params)?;
+                let repo = self.repository().await?;
+                let pkgs = p
+                    .packages
+                    .iter()
+                    .map(|n| {
+                        repo.latest(n, 0)
+                            .ok_or_else(|| JidrError::not_found(format!("no SDK package {n}")))
+                    })
+                    .collect::<JidrResult<Vec<_>>>()?;
+                json(self.consent()?.details(&repo, &pkgs)?)
+            }
             "sdk.licenses" => {
                 let p: PackagesParams = parse_params(params)?;
                 let repo = self.repository().await?;
@@ -1130,10 +1376,16 @@ impl CommandProvider for CoreProvider {
             }
             "sdk.install" => {
                 let p: PackagesParams = parse_params(params)?;
+                let _image_guard = self.state.image_gate.write().await;
                 let repo = self.repository().await?;
                 self.install_packages(ctx, &repo, &p.packages).await
             }
             "image.list" => self.image_list(parse_params(params)?).await,
+            "image.inventory" => {
+                parse_params::<NoParams>(params)?;
+                self.image_inventory().await
+            }
+            "image.remove" => self.image_remove(parse_params(params)?).await,
             "image.install" => self.image_install(ctx, parse_params(params)?).await,
             "profile.list" => {
                 parse_params::<NoParams>(params)?;
@@ -1291,7 +1543,14 @@ impl CommandProvider for CoreProvider {
             }
             "cache.prune" => {
                 let p: CachePruneParams = parse_params(params)?;
-                let age = p.older_than_days.map(|d| Duration::from_secs(d * 86_400));
+                let age = p
+                    .older_than_days
+                    .map(|days| {
+                        days.checked_mul(86_400)
+                            .map(Duration::from_secs)
+                            .ok_or_else(|| JidrError::usage("older_than_days is too large"))
+                    })
+                    .transpose()?;
                 json(self.cache().prune(age))
             }
             "logcat.clear" => {

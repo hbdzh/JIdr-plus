@@ -501,15 +501,19 @@ impl Backend for AospBackend {
     }
 
     async fn stop_without_save(&self, instance: &InstanceInfo) -> JidrResult<()> {
-        if let Ok((mut c, _)) = grpc::connect(instance).await {
-            let _ = timeout(
-                SHUTDOWN_REQUEST_TIMEOUT,
-                c.set_vm_state(VmRunState {
-                    state: RunState::Paused as i32,
-                }),
-            )
-            .await;
-        }
+        // Only terminate after the VM acknowledged pause. Otherwise guest
+        // writes could still be in flight while the process is killed.
+        timeout(SHUTDOWN_REQUEST_TIMEOUT, async {
+            let (mut c, _) = grpc::connect(instance).await?;
+            c.set_vm_state(VmRunState {
+                state: RunState::Paused as i32,
+            })
+            .await
+            .map_err(|e| grpc::status_error("Pause", e))?;
+            Ok::<(), JidrError>(())
+        })
+        .await
+        .map_err(|_| JidrError::sdk("timed out pausing emulator before stop"))??;
         // The launcher's QEMU child first: killing only the launcher would
         // orphan it.
         kill_tree(instance.pid).await;

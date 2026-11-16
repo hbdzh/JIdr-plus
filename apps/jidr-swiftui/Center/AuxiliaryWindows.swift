@@ -1,11 +1,34 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import AppKit
 import Combine
+import QuartzCore
 import SwiftUI
+
+/// Glass panels use the system overlay scroller so the legacy scroller's
+/// persistent track does not form a second dark strip over the material.
+/// SwiftUI can replace scroll views as content changes, so reconcile on layout.
+final class GlassPanelHostingView<Content: View>: NSHostingView<Content> {
+    override func layout() {
+        super.layout()
+        func update(_ view: NSView) {
+            if let scroll = view as? NSScrollView, scroll.scrollerStyle != .overlay {
+                scroll.scrollerStyle = .overlay
+            }
+            view.subviews.forEach(update)
+        }
+        subviews.forEach(update)
+    }
+}
 
 /// Both lightweight surfaces use the same native frame, border and shadow.
 /// SwiftUI draws content only, avoiding a second outline on top of AppKit's rim.
 class LightweightPanel: NSPanel {
+    private var transitionGeneration = 0
+    private(set) var isDismissing = false
+    /// Override only in tests; production follows the system accessibility setting.
+    var reduceMotionOverride: Bool?
+    private var reduceMotion: Bool { reduceMotionOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
     init(size: NSSize) {
@@ -26,6 +49,68 @@ class LightweightPanel: NSPanel {
         setFrame(NSRect(origin: .zero, size: size), display: false)
     }
     required init?(coder: NSCoder) { nil }
+
+    private var restingFrame: NSRect?
+    private let travelDistance: CGFloat = 14
+
+    /// Controllers set the resting location before presentation; keeping it
+    /// separate from the animated frame also handles a quick reopen.
+    func preparePosition(_ origin: NSPoint) {
+        restingFrame = NSRect(origin: origin, size: frame.size)
+    }
+
+    func showAnimated() {
+        transitionGeneration += 1
+        isDismissing = false
+        let fresh = !isVisible || alphaValue < 0.05
+        let target = restingFrame ?? frame
+        restingFrame = target
+        ignoresMouseEvents = false
+        if !isVisible { alphaValue = reduceMotion ? 1 : 0 }
+        if reduceMotion {
+            setFrame(target, display: true)
+            alphaValue = 1
+            makeKeyAndOrderFront(nil)
+            return
+        }
+        if fresh {
+            var start = target
+            start.origin.y += travelDistance
+            setFrame(start, display: true)
+        }
+        makeKeyAndOrderFront(nil)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animator().setFrame(target, display: true)
+            animator().alphaValue = 1
+        }
+    }
+
+    func hideAnimated(immediately: Bool = false, completion: (() -> Void)? = nil) {
+        transitionGeneration += 1
+        let generation = transitionGeneration
+        isDismissing = true
+        ignoresMouseEvents = true
+        let finish = { [self] in
+            guard generation == transitionGeneration else { return }
+            // Leave the final frame transparent until the next presentation;
+            // resetting it while ordering out can produce a visible flash.
+            orderOut(nil)
+            isDismissing = false
+            completion?()
+        }
+        guard isVisible, !immediately, !reduceMotion else { finish(); return }
+        var destination = frame
+        destination.origin.y = (restingFrame?.origin.y ?? frame.origin.y) + travelDistance
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.20
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            animator().setFrame(destination, display: true)
+            animator().alphaValue = 0
+        } completionHandler: { finish() }
+    }
+
 }
 
 struct LightweightPanelSurface: ViewModifier {
@@ -36,6 +121,111 @@ struct LightweightPanelSurface: ViewModifier {
         } else {
             content.clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        }
+    }
+}
+
+/// The device panels share the exact surface and transparent borderless
+/// window used by the task and command panels.
+struct DeviceSheetGlass: ViewModifier {
+    var enabled = true
+    @ViewBuilder func body(content: Content) -> some View {
+        if enabled { content.modifier(LightweightPanelSurface()) }
+        else { content }
+    }
+}
+
+final class DeviceSheetPanelController: NSWindowController, NSWindowDelegate {
+    private weak var model: CenterModel?
+    private var backgroundInputMonitor: Any?
+    let kind: CenterSheet
+    let deviceID: String?
+
+    init(model: CenterModel, kind: CenterSheet, parent: NSWindow) {
+        self.model = model
+        self.kind = kind
+        self.deviceID = model.selected
+        let size: NSSize
+        switch kind {
+        case .newDevice: size = NSSize(width: 650, height: 580)
+        case .snapshots: size = NSSize(width: 600, height: 560)
+        case .imageManagement: size = NSSize(width: 700, height: 500)
+        default: size = NSSize(width: 560, height: 620)
+        }
+        let panel = LightweightPanel(size: size)
+        panel.isFloatingPanel = false
+        panel.hidesOnDeactivate = false
+        super.init(window: panel)
+        panel.delegate = self
+        let close: (@escaping () -> Void) -> Void = { [weak model] completion in
+            if let model { model.dismissDevicePanel(after: completion) } else { completion() }
+        }
+        let content: AnyView
+        switch kind {
+        case .newDevice:
+            content = AnyView(NewDeviceView(model: model, startAtDeviceSetup: true, onPanelClose: close))
+        case .imageManagement:
+            content = AnyView(ImageManagementView(model: model, onPanelClose: close))
+        case .snapshots:
+            if let device = model.devices.first(where: { $0.id == model.selected }) {
+                content = AnyView(SnapshotsView(model: model, device: device, onPanelClose: close))
+            } else { content = AnyView(EmptyView()) }
+        case .edit:
+            if let details = model.details {
+                content = AnyView(EditDeviceView(model: model, details: details, onPanelClose: close))
+            } else { content = AnyView(EmptyView()) }
+        default: content = AnyView(EmptyView())
+        }
+        let host = GlassPanelHostingView(rootView: content
+            .environment(\.locale, Locale(identifier: model.language == 0 ? "en" : "zh-Hans"))
+            .preferredColorScheme(model.colorScheme))
+        host.wantsLayer = true
+        host.layer?.cornerRadius = 26
+        host.layer?.masksToBounds = true
+        panel.contentView = host
+        panel.appearance = model.windowAppearance
+        panel.preparePosition(NSPoint(x: parent.frame.midX - size.width / 2,
+                                      y: parent.frame.midY - size.height / 2))
+        panel.alphaValue = 0
+        // The panel is modal to its parent, without disabling or rewrapping
+        // the SwiftUI root (which changes its title-bar safe area).
+        backgroundInputMonitor = NSEvent.addLocalMonitorForEvents(matching: [
+            .leftMouseDown, .leftMouseUp, .leftMouseDragged,
+            .rightMouseDown, .rightMouseUp, .rightMouseDragged,
+            .otherMouseDown, .otherMouseUp, .otherMouseDragged,
+            .scrollWheel, .keyDown, .keyUp
+        ]) { [weak parent, weak panel] event in
+            if let panel, event.window === panel {
+                if panel.isDismissing { return nil }
+                if event.type == .keyDown, event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+                   event.charactersIgnoringModifiers?.lowercased() == "w",
+                   let escape = NSEvent.keyEvent(with: .keyDown, location: event.locationInWindow,
+                                                 modifierFlags: [], timestamp: event.timestamp,
+                                                 windowNumber: panel.windowNumber, context: nil,
+                                                 characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}",
+                                                 isARepeat: false, keyCode: 53) {
+                    // Route Cmd-W through the form's cancel action so a
+                    // disabled cancel button cannot be bypassed while saving.
+                    DispatchQueue.main.async { NSApp.sendEvent(escape) }
+                    return nil
+                }
+            }
+            guard let parent, event.window === parent else { return event }
+            return nil
+        }
+        parent.addChildWindow(panel, ordered: .above)
+        panel.showAnimated()
+    }
+    required init?(coder: NSCoder) { nil }
+    func windowShouldClose(_ sender: NSWindow) -> Bool { false }
+    func windowWillClose(_ notification: Notification) { model?.dismissDevicePanel() }
+    deinit { if let backgroundInputMonitor { NSEvent.removeMonitor(backgroundInputMonitor) } }
+    func dismissPanel(immediately: Bool = false, completion: @escaping () -> Void = {}) {
+        guard let panel = window as? LightweightPanel else { completion(); return }
+        panel.hideAnimated(immediately: immediately) { [self] in
+            panel.parent?.removeChildWindow(panel)
+            if let backgroundInputMonitor { NSEvent.removeMonitor(backgroundInputMonitor); self.backgroundInputMonitor = nil }
+            completion()
         }
     }
 }
@@ -64,7 +254,7 @@ final class TaskPanelController: NSWindowController, NSWindowDelegate {
         let panel = LightweightPanel(size: NSSize(width: 480, height: 260))
         super.init(window: panel)
         panel.delegate = self
-        let host = NSHostingView(rootView: TaskCenterView(model: model))
+        let host = GlassPanelHostingView(rootView: TaskCenterView(model: model))
         host.wantsLayer = true
         host.layer?.cornerRadius = 26
         host.layer?.masksToBounds = true
@@ -74,6 +264,7 @@ final class TaskPanelController: NSWindowController, NSWindowDelegate {
         }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.window else { return event }
+            if (self.window as? LightweightPanel)?.isDismissing == true { return nil }
             if event.modifierFlags.contains(.command) {
                 if event.charactersIgnoringModifiers == "w" { self.model.taskPanelDidClose(); return nil }
                 return event
@@ -94,14 +285,20 @@ final class TaskPanelController: NSWindowController, NSWindowDelegate {
         guard let panel = window else { return }
         updateChrome()
         let reference = model.centerWindow?.frame ?? NSApp.mainWindow?.frame ?? NSScreen.main?.visibleFrame ?? .zero
-        panel.setFrameOrigin(NSPoint(x: reference.midX - panel.frame.width / 2,
-                                     y: reference.midY - panel.frame.height / 2))
-        panel.makeKeyAndOrderFront(sender)
+        guard let lightweight = panel as? LightweightPanel else { return }
+        lightweight.preparePosition(NSPoint(x: reference.midX - panel.frame.width / 2,
+                                            y: reference.midY - panel.frame.height / 2))
+        lightweight.showAnimated()
+    }
+    func dismissPanel(immediately: Bool = false, completion: @escaping () -> Void = {}) {
+        guard let panel = window as? LightweightPanel else { completion(); return }
+        panel.hideAnimated(immediately: immediately, completion: completion)
     }
     private func updateChrome() {
         guard let window else { return }
+        guard (window as? LightweightPanel)?.isDismissing != true else { return }
         window.title = model.text("后台任务", "Background tasks")
-        window.appearance = model.windowAppearance
+        if window.appearance?.name != model.windowAppearance?.name { window.appearance = model.windowAppearance }
         let count = model.taskRows.count
         let height: CGFloat = count == 0 && model.quitReason == nil && model.jobsError == nil ? 260 : min(420, CGFloat(120 + max(count, 2) * 72))
         if window.frame.height != height {
@@ -129,16 +326,23 @@ final class PaletteWindowController: NSWindowController, NSWindowDelegate {
         let panel = LightweightPanel(size: NSSize(width: 600, height: 450))
         super.init(window: panel)
         panel.delegate = self
-        let host = NSHostingView(rootView: CommandPaletteView(model: model))
+        let host = GlassPanelHostingView(rootView: CommandPaletteView(model: model))
         host.wantsLayer = true
         host.layer?.cornerRadius = 26
         host.layer?.masksToBounds = true
         panel.contentView = host
         subscription = model.objectWillChange.sink { [weak self] in
-            DispatchQueue.main.async { self?.window?.appearance = self?.model.windowAppearance }
+            DispatchQueue.main.async {
+                guard let self, let window = self.window,
+                      (window as? LightweightPanel)?.isDismissing != true else { return }
+                if window.appearance?.name != self.model.windowAppearance?.name {
+                    window.appearance = self.model.windowAppearance
+                }
+            }
         }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.window else { return event }
+            if (self.window as? LightweightPanel)?.isDismissing == true { return nil }
             if event.modifierFlags.contains(.command) {
                 if event.charactersIgnoringModifiers == "w" { self.model.hidePalette(); return nil }
                 return event
@@ -157,8 +361,8 @@ final class PaletteWindowController: NSWindowController, NSWindowDelegate {
     func present(relativeTo parent: NSWindow?) {
         guard let window else { return }
         let reference = parent?.frame ?? NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1000, height: 700)
-        window.setFrameOrigin(NSPoint(x: reference.midX - window.frame.width / 2,
-                                      y: reference.maxY - window.frame.height - 100))
+        (window as? LightweightPanel)?.preparePosition(NSPoint(x: reference.midX - window.frame.width / 2,
+                                                                y: reference.maxY - window.frame.height - 100))
         window.appearance = model.windowAppearance
         window.title = model.text("命令搜索", "Command search")
         window.contentView?.layoutSubtreeIfNeeded()
@@ -172,14 +376,18 @@ final class PaletteWindowController: NSWindowController, NSWindowDelegate {
             field.stringValue = model.paletteQuery
             if let editor = field.currentEditor() as? NSTextView { editor.string = model.paletteQuery }
             window.initialFirstResponder = field
-            window.makeKeyAndOrderFront(nil)
+            (window as? LightweightPanel)?.showAnimated()
             if window.firstResponder !== field && window.firstResponder !== field.currentEditor() {
                 window.makeFirstResponder(field)
             }
-        } else { window.makeKeyAndOrderFront(nil) }
+        } else { (window as? LightweightPanel)?.showAnimated() }
+    }
+    func dismissPanel(immediately: Bool = false, completion: @escaping () -> Void = {}) {
+        guard let panel = window as? LightweightPanel else { completion(); return }
+        panel.hideAnimated(immediately: immediately, completion: completion)
     }
 
-    func windowWillClose(_ notification: Notification) { model.paletteOpen = false }
+    func windowWillClose(_ notification: Notification) { model.hidePalette() }
     deinit {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }

@@ -63,11 +63,11 @@ async fn hibernate_saves_stops_and_resumes() {
     c.run("device.start", json!({ "device": "H" })).await;
     let launches = h.backend.launches();
     let third = &launches[2].1;
-    assert!(third.snapshot.is_none() && third.snapshot_save && !third.cold_boot);
-    // A normal run's stop leaves it to the emulator's own exit save.
+    assert!(third.snapshot.is_none() && !third.snapshot_save && !third.cold_boot);
+    // Normal runs also save explicitly before stopping.
     let n = h.backend.saves().len();
     c.ok("device.stop", json!({ "device": "H" })).await;
-    assert_eq!(h.backend.saves().len(), n);
+    assert_eq!(h.backend.saves().len(), n + 1);
     h.stop().await;
 }
 
@@ -97,6 +97,7 @@ async fn hibernate_keeps_running_when_the_save_is_empty() {
     );
     assert!(h.backend.unsaved_stops().is_empty());
     // Not running: not_found.
+    h.backend.allow_saves();
     c.ok("device.stop", json!({ "device": "E" })).await;
     let job = c.ok("device.hibernate", json!({ "device": "E" })).await;
     let done = c.ok("jobs.wait", json!({ "job": job["job"] })).await;

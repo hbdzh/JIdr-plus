@@ -32,6 +32,16 @@ pub struct PendingLicense {
     pub packages: Vec<String>,
 }
 
+/// A license applicable to packages, including previously accepted texts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct LicenseDetails {
+    pub id: String,
+    pub sha256: String,
+    pub text: String,
+    pub packages: Vec<String>,
+    pub accepted: bool,
+}
+
 #[derive(Debug)]
 pub struct ConsentStore {
     path: PathBuf,
@@ -111,6 +121,30 @@ impl ConsentStore {
             .ctx(ErrorCode::Sdk, format!("writing {}", self.path.display()))
     }
 
+    /// All applicable license texts, without changing stored consent.
+    pub fn details(
+        &self,
+        repo: &Repository,
+        packages: &[&RemotePackage],
+    ) -> JidrResult<Vec<LicenseDetails>> {
+        let mut out: Vec<LicenseDetails> = Vec::new();
+        for pkg in packages {
+            let Some(id) = &pkg.license else { continue };
+            let license = repo.license(id)?;
+            match out.iter_mut().find(|item| &item.id == id) {
+                Some(item) => item.packages.push(pkg.path.clone()),
+                None => out.push(LicenseDetails {
+                    id: id.clone(),
+                    sha256: license_sha256(&license.text),
+                    text: license.text.clone(),
+                    packages: vec![pkg.path.clone()],
+                    accepted: self.is_accepted(license),
+                }),
+            }
+        }
+        Ok(out)
+    }
+
     /// Licenses still needed before `packages` can be installed.
     pub fn pending(
         &self,
@@ -183,6 +217,14 @@ mod tests {
             .filter(|p| p.license.is_some())
             .collect();
         let mut store = ConsentStore::load(dir.path().join("c.json")).unwrap();
+        let details = store.details(&repo, &pkgs).unwrap();
+        assert_eq!(details.len(), 1);
+        assert!(!details[0].accepted);
+        assert_eq!(details[0].packages.len(), 2);
+        assert!(
+            !store.path().exists(),
+            "viewing licences must not record consent"
+        );
         let pending = store.pending(&repo, &pkgs).unwrap();
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].packages.len(), 2);
@@ -197,6 +239,11 @@ mod tests {
         );
         store.accept_hash(&repo, "test-license", &hash).unwrap();
         assert!(store.pending(&repo, &pkgs).unwrap().is_empty());
+        let accepted = store.details(&repo, &pkgs).unwrap();
+        assert_eq!(accepted.len(), 1);
+        assert!(accepted[0].accepted);
+        assert_eq!(accepted[0].sha256, hash);
+        assert_eq!(accepted[0].text, details[0].text);
     }
 
     #[test]

@@ -47,6 +47,7 @@ extension CenterModel {
 
     /// Runs a palette entry; the overlay is already dismissed by the caller.
     func runPaletteAction(_ action: PaletteAction) {
+        guard !onboardingInstallForegroundRequired else { showOnboardingInstallBlocker(); return }
         switch action {
         case .newDevice: present(.newDevice)
         case .setupSDK: present(.setupSDK)

@@ -4,6 +4,24 @@
 // No SwiftUI, no daemon.
 import Foundation
 
+// A background refresh must retain the count and actions instead of
+// switching back to the initial loading layout.
+var overviewLoad = SnapshotOverviewLoadState()
+assert(overviewLoad.showInitialLoading)
+overviewLoad.begin()
+assert(overviewLoad.showInitialLoading)
+overviewLoad.finish(succeeded: false)
+assert(!overviewLoad.showInitialLoading && !overviewLoad.hasLoaded)
+overviewLoad.begin()
+assert(overviewLoad.showInitialLoading, "a first-load retry still shows progress")
+overviewLoad.finish(succeeded: true)
+assert(overviewLoad.hasLoaded && !overviewLoad.showInitialLoading)
+overviewLoad.begin()
+assert(!overviewLoad.showInitialLoading, "refresh keeps the existing snapshot layout")
+overviewLoad.finish(succeeded: false)
+overviewLoad.begin()
+assert(!overviewLoad.showInitialLoading, "a failed refresh does not forget the last successful result")
+
 let rows = [
     SnapshotRow(name: "default_boot", folder: "default_boot", quick_boot: true, restorable: true,
                 root_mode: nil, magisk_version: nil, created_at: "2026-10-01T10:00:00Z", size_bytes: 0, thumbnail: nil),

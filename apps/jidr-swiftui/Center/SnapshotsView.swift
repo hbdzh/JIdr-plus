@@ -8,6 +8,7 @@ import SwiftUI
 struct SnapshotsView: View {
     @ObservedObject var model: CenterModel
     let device: Device
+    var onPanelClose: ((@escaping () -> Void) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
 
     @State private var snapshots: [SnapshotRow] = []
@@ -35,6 +36,11 @@ struct SnapshotsView: View {
         }
     }
 
+    private func closePanel(after completion: @escaping () -> Void = {}) {
+        if let onPanelClose { onPanelClose(completion) }
+        else { dismiss(); DispatchQueue.main.async(execute: completion) }
+    }
+
     private func t(_ chinese: String, _ english: String) -> String { model.text(chinese, english) }
 
     private var running: Bool { model.devices.first(where: { $0.id == device.id })?.running ?? device.running }
@@ -53,19 +59,17 @@ struct SnapshotsView: View {
                     model.refresh()
                     model.notice = t("快照已保存。", "Snapshot saved.")
                 })
-                .background(WbColor.raised)
             }
         }
         .frame(width: 600, height: 560)
+        .modifier(DeviceSheetGlass())
     }
     private var snapshotList: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
                 .padding(.bottom, WbSpace.lg)
-            if let banner = banner {
-                bannerView(banner)
-                    .padding(.bottom, WbSpace.md)
-            }
+            WbDivider()
+                .padding(.bottom, WbSpace.md)
             if !error.isEmpty {
                 Label(error, systemImage: WbIcon.warning).wbFont(WbType.caption)
                     .foregroundStyle(WbColor.negative).textSelection(.enabled)
@@ -81,12 +85,13 @@ struct SnapshotsView: View {
                 .padding(.bottom, WbSpace.sm)
             }
             snapshotCard
+            WbDivider()
+                .padding(.top, WbSpace.md)
             footer
                 .padding(.top, WbSpace.md)
         }
         .padding(WbSpace.xl)
         .frame(width: 600, height: 560)
-        .tint(WbColor.accent)
         .onAppear(perform: load)
         .alert(item: $alertItem) { item in
             switch item {
@@ -111,15 +116,17 @@ struct SnapshotsView: View {
                 HStack(spacing: WbSpace.sm) {
                     Text(device.name).wbFont(WbType.body).foregroundStyle(WbColor.textSecondary).lineLimit(1)
                         .truncationMode(.middle)
-                    Text(Snapshots.modeName(currentDevice.root.mode, language: model.language))
-                        .wbFont(WbType.caption.weighted(.medium))
+                    Circle()
+                        .fill(running ? Color.green : Color.secondary)
+                        .frame(width: 7, height: 7)
+                        .accessibilityHidden(true)
+                    Text(running ? t("运行中", "Running") : t("已停止", "Stopped"))
+                        .wbFont(WbType.caption)
                         .foregroundStyle(WbColor.textSecondary)
-                        .padding(.horizontal, WbSpace.sm)
-                        .padding(.vertical, WbSpace.xxs)
-                        .background(WbColor.control, in: Capsule())
                 }
             }
-            Spacer(minLength: WbSpace.sm)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(-1)
             if loading || busy {
                 ProgressView().controlSize(.small)
                     .padding(.trailing, WbSpace.xs)
@@ -133,53 +140,79 @@ struct SnapshotsView: View {
                 .help(t("刷新", "Refresh"))
                 .accessibilityLabel(t("刷新", "Refresh"))
             }
-            Button { showSave = true } label: {
-                Label(t("保存当前快照", "Save snapshot"), systemImage: WbIcon.plus)
-            }
-            .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
-            .disabled(!running || busy)
-            .help(t("保存当前快照", "Save snapshot"))
-            .accessibilityLabel(t("保存当前快照", "Save snapshot"))
+            saveButton
+
+        }
+    }
+
+    @ViewBuilder
+    private var saveButton: some View {
+        let button = Button { showSave = true } label: {
+            Label(t("保存当前快照", "Save snapshot"), systemImage: WbIcon.plus)
+        }
+        .disabled(!running || busy)
+        .fixedSize()
+        .help(t("保存当前快照", "Save snapshot"))
+        if running && !busy {
+            button.buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
+        } else {
+            button.buttonStyle(.bordered).controlSize(.regular)
         }
     }
 
     // MARK: list card
 
     private var snapshotCard: some View {
-        VStack(spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: WbSpace.sm) {
-                Text(t("已保存的快照", "Saved snapshots")).wbFont(WbType.title)
-                    .foregroundStyle(WbColor.textPrimary)
-                Spacer(minLength: WbSpace.sm)
-                Text("\(snapshots.count)")
-                    .wbFont(WbType.caption)
-                    .foregroundStyle(WbColor.textTertiary)
-                    .monospacedDigit()
-            }
-            .padding(.horizontal, WbSpace.lg)
-            .padding(.vertical, WbSpace.md)
-
-            WbDivider()
-
+        Group {
             if loading {
                 loadingState
-            } else if snapshots.isEmpty {
-                emptyState
             } else {
-                // Native list: row separators, scrolling and hover feedback come
-                // from AppKit; the sheet keeps its card surface behind it.
-                List {
-                    ForEach(snapshots) { snapshot in
-                        row(snapshot)
-                            .listRowInsets(EdgeInsets(top: 0, leading: WbSpace.md,
-                                                      bottom: 0, trailing: WbSpace.md))
+                ScrollView {
+                    VStack(alignment: .leading, spacing: WbSpace.xl) {
+                        snapshotSection(t("自动快照", "Automatic snapshots"), rows: snapshots.filter(\.quick_boot), automatic: true)
+                        snapshotSection(t("手动快照", "Manual snapshots"), rows: snapshots.filter { !$0.quick_boot }, automatic: false)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .listStyle(.inset)
-                .frame(maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func snapshotSection(_ title: String, rows: [SnapshotRow], automatic: Bool) -> some View {
+        VStack(alignment: .leading, spacing: WbSpace.md) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).wbFont(WbType.title).foregroundStyle(WbColor.textPrimary)
+                Spacer()
+                Text(t("\(rows.count) 个", "\(rows.count)"))
+                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
+                    .monospacedDigit()
+            }
+            if rows.isEmpty {
+                VStack(spacing: WbSpace.sm) {
+                    Image(systemName: automatic ? WbIcon.quickBoot : WbIcon.camera)
+                        .font(.system(size: 22, weight: .light))
+                        .foregroundStyle(WbColor.textTertiary)
+                    Text(automatic ? t("暂无自动快照", "No automatic snapshots") : t("暂无手动保存的快照", "No manually saved snapshots"))
+                        .wbFont(WbType.body).foregroundStyle(WbColor.textSecondary)
+                    if !automatic {
+                        Text(running ? t("保存快照以保留设备当前状态。", "Save a snapshot to keep the device's current state.") : t("启动设备后，可以保存当前状态。", "Start the device to save its current state."))
+                            .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, WbSpace.lg)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, snapshot in
+                        if index > 0 { WbDivider() }
+                        row(snapshot)
+                    }
+                }
+                .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: WbRadius.md))
+                .overlay(RoundedRectangle(cornerRadius: WbRadius.md).stroke(Color.primary.opacity(0.10), lineWidth: 1))
+            }
+        }
     }
 
     private var loadingState: some View {
@@ -191,89 +224,81 @@ struct SnapshotsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private var emptyState: some View {
-        VStack(spacing: WbSpace.sm) {
-            Image(systemName: WbIcon.camera)
-                .font(.system(size: 26, weight: .light))
-                .foregroundStyle(WbColor.textTertiary)
-            Text(t("暂无快照", "No snapshots"))
-                .wbFont(WbType.body.weighted(.medium)).foregroundStyle(WbColor.textPrimary)
-            Text(t("快照会按当前状态保存内存和磁盘，并记录保存时的 Root 模式。",
-                   "A snapshot saves memory and disk as they are, tagged with the root mode."))
-                .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 320)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     private func row(_ snapshot: SnapshotRow) -> some View {
-        HStack(alignment: .top, spacing: WbSpace.md) {
-            Image(systemName: snapshot.quick_boot ? WbIcon.quickBoot : WbIcon.camera)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(snapshot.quick_boot ? WbColor.accentText : WbColor.textSecondary)
-                .frame(width: 20)
-                .accessibilityHidden(true)
-
-            VStack(alignment: .leading, spacing: WbSpace.xxs + 1) {
-                Text(displayName(snapshot))
-                    .wbFont(WbType.body.weighted(.medium))
-                    .foregroundStyle(WbColor.textPrimary)
-                    .lineLimit(1).truncationMode(.middle)
-
-                metaLine(snapshot)
-                    .wbFont(WbType.caption)
+        VStack(alignment: .leading, spacing: WbSpace.md) {
+            HStack(alignment: .center, spacing: WbSpace.md) {
+                Image(systemName: snapshot.quick_boot ? WbIcon.quickBoot : WbIcon.camera)
+                    .font(.system(size: 17, weight: .medium))
                     .foregroundStyle(WbColor.textSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
+                    .frame(width: 24, height: 24)
+                    .accessibilityHidden(true)
+
+                VStack(alignment: .leading, spacing: WbSpace.xs) {
+                    Text(displayName(snapshot))
+                        .wbFont(WbType.body.weighted(.medium))
+                        .foregroundStyle(WbColor.textPrimary)
+                        .lineLimit(1).truncationMode(.middle)
+                    metaLine(snapshot)
+                        .wbFont(WbType.caption)
+                        .foregroundStyle(WbColor.textSecondary)
+                        .lineLimit(1).truncationMode(.tail)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
 
                 if !snapshot.restorable {
-                    Label(refusalLine(snapshot), systemImage: WbIcon.warning)
-                        .wbFont(WbType.caption).foregroundStyle(WbColor.warning)
+                    Text(t("不可用", "Unavailable"))
+                        .wbFont(WbType.caption.weighted(.medium))
+                        .foregroundStyle(WbColor.warning)
+                        .padding(.horizontal, WbSpace.sm)
+                        .padding(.vertical, WbSpace.xxs)
+                        .background(WbColor.warning.opacity(0.12), in: Capsule())
+                        .fixedSize()
                 }
-            }
-
-            Spacer(minLength: WbSpace.sm)
-
-            HStack(spacing: WbSpace.sm) {
                 Button(t("恢复", "Restore")) { requestRestore(snapshot) }
                     .buttonStyle(.bordered).controlSize(.regular)
+                    .fixedSize()
                     .disabled(!running || busy || !snapshot.restorable)
                     .help(snapshot.restorable ? t("恢复此快照", "Restore this snapshot") : refusalLine(snapshot))
-                if !snapshot.restorable {
-                    Button { requestRestore(snapshot) } label: { Image(systemName: WbIcon.info) }
-                        .buttonStyle(.borderless)
-                        .disabled(busy)
-                        .help(refusalLine(snapshot))
-                        .accessibilityLabel(t("查看无法恢复的原因", "Explain why this snapshot cannot be restored"))
-                }
-                if !snapshot.quick_boot {
-                    Button {
-                        alertItem = .delete(snapshot)
+                if !snapshot.restorable || !snapshot.quick_boot {
+                    Menu {
+                        if !snapshot.restorable {
+                            Button(t("查看无法恢复的原因", "Why can't this be restored?")) { requestRestore(snapshot) }
+                        }
+                        if !snapshot.quick_boot {
+                            Button(t("删除快照…", "Delete snapshot…"), role: .destructive) { alertItem = .delete(snapshot) }
+                        }
                     } label: {
-                        Image(systemName: WbIcon.trash)
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(WbColor.negative)
-                            .frame(width: 24, height: 24)
-                            .contentShape(Rectangle())
+                        Image(systemName: "ellipsis.circle")
+                            .font(.system(size: 16))
                     }
-                    .buttonStyle(.borderless)
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
                     .disabled(busy)
-                    .help(t("删除此快照", "Delete this snapshot"))
-                    .accessibilityLabel(t("删除此快照", "Delete this snapshot"))
+                    .help(t("更多操作", "More actions"))
+                    .accessibilityLabel(t("更多操作", "More actions"))
+                } else {
+                    Color.clear.frame(width: 16, height: 1).accessibilityHidden(true)
                 }
             }
+            if !snapshot.restorable {
+                Label(refusalLine(snapshot), systemImage: WbIcon.warning)
+                    .wbFont(WbType.caption)
+                    .foregroundStyle(WbColor.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 24 + WbSpace.md)
+            }
         }
-        .padding(.vertical, WbSpace.sm)
+        .padding(.horizontal, WbSpace.lg)
+        .padding(.vertical, WbSpace.lg)
+        .frame(minHeight: 78, alignment: .center)
     }
 
     /// Retain size/date for quick boot, with policy guidance separate from metadata.
     @ViewBuilder
     private func metaLine(_ snapshot: SnapshotRow) -> some View {
         VStack(alignment: .leading, spacing: WbSpace.xs) {
-            if snapshot.quick_boot {
-                Text(t("快速启动保存点 · 自动保存和加载遵循设备设置", "Quick-boot save point · auto-save and loading follow device settings"))
-            }
             HStack(spacing: WbSpace.sm) {
                 if !snapshot.quick_boot {
                     Text(Snapshots.rootTag(mode: snapshot.root_mode, magisk: snapshot.magisk_version, language: model.language))
@@ -284,7 +309,7 @@ struct SnapshotsView: View {
                 }
                 let when = Snapshots.when(snapshot.created_at, language: model.language)
                 if !when.isEmpty {
-                    Text("·")
+                    if !snapshot.quick_boot || (snapshot.size_bytes ?? 0) > 0 { Text("·") }
                     Text(when)
                 }
             }
@@ -297,11 +322,7 @@ struct SnapshotsView: View {
                 .wbFont(WbType.caption).foregroundStyle(WbColor.textTertiary)
                 .lineLimit(1)
             Spacer(minLength: WbSpace.md)
-            Text(footerNote)
-                .wbFont(WbType.caption).foregroundStyle(WbColor.textTertiary)
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-            Button(t("关闭", "Close")) { dismiss() }
+            Button(t("关闭", "Close")) { closePanel() }
                 .buttonStyle(.bordered)
                 .keyboardShortcut(.cancelAction)
                 .disabled(busy)
@@ -316,33 +337,6 @@ struct SnapshotsView: View {
             return t("共 \(count) 个快照", "\(count) snapshot\(count == 1 ? "" : "s")")
         }
         return t("共 \(count) 个快照 · 占用 \(size)", "\(count) snapshot\(count == 1 ? "" : "s") · \(size) total")
-    }
-
-    private var footerNote: String {
-        running
-            ? t("恢复快照会覆盖设备当前状态。", "Restoring replaces the device's current state.")
-            : t("手动恢复需先启动设备；快速启动遵循设备设置。", "Start the device for manual restore. Quick boot follows device settings.")
-    }
-
-    private var banner: (String, Bool)? {
-        let (text, warning) = Snapshots.banner(snapshots, deviceMode: deviceMode ?? currentDevice.root.mode, language: model.language)
-        return text.isEmpty ? nil : (text, warning)
-    }
-
-    private func bannerView(_ banner: (String, Bool)) -> some View {
-        let tone = banner.1 ? WbStatus.warning : WbStatus.neutral
-        return HStack(alignment: .top, spacing: WbSpace.sm) {
-            Image(systemName: banner.1 ? WbIcon.warning : WbIcon.info)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(tone.onContainer)
-                .padding(.top, 1)
-            Text(banner.0).wbFont(WbType.caption)
-                .foregroundStyle(tone.onContainer)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(WbSpace.md)
-        .background(tone.container, in: RoundedRectangle(cornerRadius: WbRadius.md, style: .continuous))
     }
 
     private func displayName(_ snapshot: SnapshotRow) -> String {
@@ -420,8 +414,7 @@ struct SnapshotsView: View {
 
     /// "Set up Full root…" from the refusal dialog (snapshots/mod.rs:292-313).
     private func setupRootMode(_ mode: String) {
-        dismiss()
-        DispatchQueue.main.async {
+        closePanel {
             if mode == "magisk" {
                 model.setupFullRoot(device.id, name: device.name)
             } else {
