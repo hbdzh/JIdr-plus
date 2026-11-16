@@ -4,9 +4,9 @@
 
 > M0 的本地化走查记录。三条机制、缺口清单、CI 规则建议与英文模式 top 10 见正文；摘要见 [swiftui-migration.md](swiftui-migration.md) 的 M0 一节。
 
-- 基线：`master@b46a2f3`（工作区无已跟踪改动；本报告为未跟踪草稿）
+- 基线：`master@b46a2f3`。
 - 范围：`apps/jidr-swiftui` 的 `Center/*.swift`、`Sources/*.swift`、`Player/*.swift`、`Resources/{en,zh-Hans}.lproj/Localizable.strings`，以及 `apps/jidr-swiftui/bridge` 的 Rust 诊断消息
-- 方法：只读代码分析；辅助脚本 `target/m0/scan_localization.py`（输出 `target/m0/scan_raw2.txt`）做字面量扫描与分类，所有结论行号均已人工逐条核对；未启动 GUI、未运行构建
+- 方法：只读代码分析；辅助脚本 `target/m0/scan_localization.py`（输出 `target/m0/scan_raw2.txt`）做字面量扫描与分类，行号对应上述基线；未启动 GUI 或运行构建
 - 非测试 Swift 中 CJK 字面量：**629 处 / 去重 514 个**；`en.lproj` 214 个唯一 key（215 行，1 个重复键），`zh-Hans.lproj` 193 个唯一 key（194 行，同样重复 `"系统镜像"`）
 - 结论先行：**去重后约 43 个中文 UI 串未走任何机制；扣除 3 个被英文固定文案临时遮住的日志错误和 4 个当前调用点不可达的桥接参数错误，英文模式可达路径上约 36 个**
 
@@ -150,7 +150,7 @@
 
 1. **EN 模式无中文→英文兜底**：`OperationMessages.error` 早退 + bridge/Swift 中文错误 → 直接露中文（§2-C/D/E）。
 2. **播放器状态没有中央消息目录**：`localized()` 只 3 个前缀 + 精确键，新增中文状态（含 bridge 文案）默认漏。
-3. **反向（ZH 模式露英文）同样存在**：未知英文 daemon 错误、`LogStream.start` 的 `error.localizedDescription`、`SDKInstallPlan.PlanError`（无 `LocalizedError` 文案，系统英文文案）、`appsError` 拼接的英文尾缀。本次任务只要求英文模式，但 M1 若做统一消息层应一并处理。
+3. **反向（ZH 模式露英文）同样存在**：未知英文 daemon 错误、`LogStream.start` 的 `error.localizedDescription`、`SDKInstallPlan.PlanError`（无 `LocalizedError` 文案，系统英文文案）、`appsError` 拼接的英文尾缀。本次审计以英文模式为范围；统一消息层时也应处理这些情况。
 4. **无语言协商/无 code**：bridge 不知道 UI 语言，也不返回可翻译的 code；`SettingsView` 只能按英文原文 `contains` 匹配，属于已知脆弱点。
 
 ---

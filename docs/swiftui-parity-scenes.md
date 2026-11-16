@@ -6,10 +6,10 @@
 
 > 这是 M0 的行为级审计记录，由 68 个 golden 场景逐行映射而来；摘要与模块矩阵见 [swiftui-parity.md](swiftui-parity.md)。判定口径：**有入口** = 场景的主要 UI 与行为都有对应实现，仅细节差异；**部分** = 有入口但一项以上可见/行为要素缺失；**缺失** = 无入口或无法到达该状态。
 
-- 基线：`master@b46a2f3`（`feat(gui): add SwiftUI prototype`），只读审计，未修改任何已跟踪文件、未提交、未 push。
+- 基线：`master@b46a2f3`（`feat(gui): add SwiftUI prototype`）。
 - 参考实现：Slint 正式 UI `crates/jidr-ui`（Rust 逻辑 + `ui/*.slint` + `tests/golden` 204 张 PNG，68 场景 × dark/light/rtl）。
 - 待迁移实现：`apps/jidr-swiftui`（`Center/` 设备中心与设置、`Sources/` 播放器与工具、`bridge/` Rust 助手）。
-- 方法：`team_task_list` / `team_task_get` 取证后，逐文件 read/grep；未运行 emulator、未启动 GUI、未跑构建。行号均来自本次实际读到的代码版本。凡依赖运行时行为、代码无法单独证明的，标“待确认”。
+- 方法：逐文件检查代码与测试；未运行模拟器、GUI 或构建。行号对应上述基线；无法从代码确认的运行时行为标为“待确认”。
 - 文件缩写（证据列）：Slint 侧相对 `crates/jidr-ui/`：`goldens.rs`=`src/goldens.rs`，`root/goldens.rs`=`src/root/goldens.rs`，`ui/*.slint`=`ui/*.slint`；SwiftUI 侧相对 `apps/jidr-swiftui/`：`Center/DeviceViews.swift`、`Center/DeviceModel.swift`、`Center/AdvancedTools.swift`、`Sources/GameWindow.swift` 等。
 
 ## 0. 结论摘要（数字）
@@ -258,9 +258,9 @@ P2（细节对齐）：首次设置向导、小组件面板常驻化、截图/�
 4. Golden 未提供独立 `widgets-battery` 场景（只有设备默认 tab 隐含电池面板），是否有意。
 5. `snapshots-save` 中“同设备其它快照体积”提示的来源（Slint `src/snapshots/mod.rs:316-363` 计算；SwiftUI 无）。
 6. 设置存储页 SDK 状态 chip 与 Slint `sdk-state`（`ui/settings.slint:190`）的语义差异。
-7. 语言切换对已打开播放器/高级工具窗口中动态错误文本（`OperationMessages`）的影响，见 task-2 审计。
+7. 语言切换对已打开播放器/高级工具窗口中动态错误文本（`OperationMessages`）的影响，见本地化审计。
 
-## 附录 B：本次审计的覆盖与未覆盖
+## 附录 B：审计范围
 
 - 覆盖：`crates/jidr-ui` 的 `goldens.rs`/`root/goldens.rs` 全部 68 个 Case、`ui/*.slint`、`src/` 主要模块（app/bridge/shutdown/launcher/player/root/widgets/settings/snapshots/wizard/device_form/palette/recording/model/i18n/macos_dock/window_state/keymap/game_shortcuts）；SwiftUI 原型 `Center/*`、`Sources/*`、`bridge/src/*`、`Tests/*`、构建/测试脚本。
 - 未覆盖（只读分析限制）：实际 UI 渲染与像素对比、真实 SDK/镜像安装、真实设备/游戏验收、daemon 运行时协议行为、RTL 视觉验证、macOS 辅助功能/输入法实测。

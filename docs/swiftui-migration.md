@@ -2,9 +2,7 @@
 
 > Historical migration/parity record. Since the maintainer-approved retirement on 2026-11-11, SwiftUI is the sole UI in `apps/jidr-swiftui`; Slint sources, baselines and fallback commands below describe earlier revisions. See [ADR-0003](decisions/0003-swiftui-gui.md) and the root README for current builds. Retired sources remain available in Git history (before this cleanup).
 
-Status: **M0–M6 complete (2026-11-11)**. The SwiftUI centre is the default GUI of the release
-chain; the Slint app stays as the `--gui slint` fallback. Evidence per item is recorded in the
-sections below; the remaining manual checks are listed under M6.
+Status: **M0–M6 complete (2026-11-11)**. The sections below record the migration as it stood at M6; the Slint fallback was subsequently retired. Remaining manual checks are listed under M6.
 
 The parity matrix lives in [docs/swiftui-parity.md](swiftui-parity.md): implementation and
 verification are separate columns, and every row names its evidence.
