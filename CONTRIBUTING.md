@@ -1,6 +1,6 @@
 # Contributing to JIdr Plus
 
-Thanks for helping. Bug reports, fixes, features and docs are all welcome. This page covers setting up, the rules the code follows, and how a change gets merged.
+Thanks for helping. Bug reports, fixes, features and docs are all welcome. This guide covers setup, project conventions and the pull request process.
 
 ## Before you start
 
@@ -56,10 +56,6 @@ Emulator tests on shared CI runners can be slow. If one fails in code you didn't
 ## Releases
 
 Automated releases are currently disabled. The release workflow can build assets for an existing tag; signing and notarization require separately configured Apple credentials. See [packaging/macos/README.md](packaging/macos/README.md).
-
-## Using an AI coding agent
-
-You're welcome to. Point it at [AGENTS.md](AGENTS.md); `CLAUDE.md` does that for Claude Code. You remain responsible for the change: review it, run the checks, and make sure it follows the clean-room rules.
 
 ## Licence of contributions
 
