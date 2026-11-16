@@ -511,7 +511,7 @@ func renderCenter(_ snapshotCase: SnapshotCase) -> NSBitmapImageRep {
         guard let onboardingToolbar = window.toolbar else { fail("onboarding toolbar is missing") }
         if #available(macOS 15.0, *) {
             let actions = onboardingToolbar.items.filter { $0.itemIdentifier != .flexibleSpace }
-            require(onboardingToolbar.isVisible && actions.count == 4 && actions.allSatisfy { $0.isHidden && !$0.isEnabled },
+            require(onboardingToolbar.isVisible && Set(actions.map(\.itemIdentifier.rawValue)) == Set(["jidr.sidebar", "jidr.images", "jidr.palette", "jidr.tasks", "jidr.refresh"]) && actions.allSatisfy { $0.isHidden && !$0.isEnabled },
                     "onboarding keeps its native title bar but hides toolbar actions")
         } else {
             require(onboardingToolbar.isVisible && onboardingToolbar.items.isEmpty, "older systems use an empty onboarding toolbar")
