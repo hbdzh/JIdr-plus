@@ -75,6 +75,14 @@ async fn tools_are_listed_with_annotations() {
 #[tokio::test]
 async fn generic_commands_and_jobs() {
     let (_t, d, _h, mcp) = setup(McpOptions::default()).await;
+    let physical = mcp
+        .ok("command_list", json!({ "prefix": "physical." }))
+        .await;
+    assert_eq!(physical["commands"], json!([]));
+    let missing = mcp
+        .err("screenshot", json!({ "device": "USB123456" }))
+        .await;
+    assert_eq!(missing["code"], "not_found");
     let list = mcp.ok("command_list", json!({ "prefix": "device." })).await;
     let cmds = list["commands"].as_array().unwrap();
     assert!(

@@ -10,8 +10,9 @@ adapted from upstream Jidr's [helper implementation](https://github.com/jidr-dev
 
 `network.shaping.set` controls egress packet loss using the guest's `tc`
 and `netem` on interfaces with an IPv4 default route. It needs a running,
-rooted device and kernel support for netem. A cold boot clears the setting;
-a snapshot can retain it. Changing interfaces or routes may require applying
+rooted device and kernel support for netem. Jidr stores the requested packet
+loss and DNS settings and attempts to restore them after boot. Slow or failed
+DNS is supported on ports 53 and 853. Changing interfaces or routes may require applying
 the setting again. A partial failure across interfaces can leave some changed;
 read the status and clear or retry. Setting loss replaces the selected
 interfaces' root qdisc; clearing removes a root netem qdisc. It is therefore

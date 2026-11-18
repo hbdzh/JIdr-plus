@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use jidr_core::{
-    Device, DeviceStatus, ErrorCode, ImageRef, JidrError, JidrResult, LaunchPrefs, ResultExt,
-    RootState,
+    Device, DeviceStatus, ErrorCode, ImageRef, JidrError, JidrResult, LaunchPrefs, NetworkShaping,
+    ResultExt, RootState,
 };
 use serde::{Serialize, Serializer};
 use uuid::Uuid;
@@ -32,6 +32,8 @@ struct PersistedDevice<'a> {
     base: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pool_base: Option<Uuid>,
+    #[serde(skip_serializing_if = "NetworkShaping::is_off")]
+    network_shaping: &'a NetworkShaping,
 }
 
 impl<'a> From<&'a Device> for PersistedDevice<'a> {
@@ -54,6 +56,7 @@ impl<'a> From<&'a Device> for PersistedDevice<'a> {
             auto_hibernate_minutes,
             base,
             pool_base,
+            network_shaping,
         } = device;
         Self {
             id: *id,
@@ -75,6 +78,7 @@ impl<'a> From<&'a Device> for PersistedDevice<'a> {
             auto_hibernate_minutes: *auto_hibernate_minutes,
             base: *base,
             pool_base: *pool_base,
+            network_shaping,
         }
     }
 }
@@ -258,6 +262,7 @@ mod tests {
             auto_hibernate_minutes: None,
             base: false,
             pool_base: None,
+            network_shaping: Default::default(),
         }
     }
 
@@ -290,6 +295,11 @@ mod tests {
         populated.auto_hibernate_minutes = Some(0);
         populated.base = true;
         populated.pool_base = Some(Uuid::new_v4());
+        populated.network_shaping = jidr_core::NetworkShaping {
+            loss_pct: 12.5,
+            dns: jidr_core::DnsMode::Slow,
+            dns_delay_ms: Some(3000),
+        };
         let runtime = DeviceRuntime {
             pid: 123,
             console_port: 5554,

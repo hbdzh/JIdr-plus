@@ -21,7 +21,7 @@ members = [
 default-members = ["apps/jidr"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.99"
 license = "Apache-2.0"
@@ -66,6 +66,7 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock", "s
 sha2 = "0.11"
 hex = "0.4.3"
 dirs = "7.0"
+notify = "8.2"
 
 # gRPC
 tonic = "0.14.6"

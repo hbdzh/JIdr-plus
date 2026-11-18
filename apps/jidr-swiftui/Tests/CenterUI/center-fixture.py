@@ -21,6 +21,8 @@ managed_images=[
 ]
 noop_used=False
 packet_loss=0.0
+dns_mode="normal"
+dns_delay=None
 for line in sys.stdin:
  r=json.loads(line);m=r["method"];p=r.get("params",{});d=next((d for d in devices if d["id"]==p.get("device")),None)
  with (home/'requests.jsonl').open('a') as log: log.write(json.dumps({"method":m,"device":p.get("device")})+'\n')
@@ -60,14 +62,19 @@ for line in sys.stdin:
   value={"installed":["synthetic-emulator"]}
  elif m=="image.inventory":
   value=[] if os.environ.get("JIDR_UI_NO_MANAGED_IMAGES")=="1" else managed_images
+ elif m=="file.sync.list":
+  value=[]
  elif m=="image.remove":
   item=next((item for item in managed_images if item["package"]==p.get("image") and item["source"]==p.get("source") and item["root"]==p.get("root")),None)
   if item is None or not item["can_delete"]:
    print(json.dumps({"id":r["id"],"type":"error","message":"Synthetic image cannot be removed"}),flush=True);continue
   managed_images.remove(item);value={"removed":item["package"]}
  elif m in ("network.shaping.get", "network.shaping.set"):
-  if m=="network.shaping.set": packet_loss=float(p["loss_pct"])
-  value={"loss_pct":packet_loss,"interfaces":[{"name":"wlan0","qdisc":"netem" if packet_loss else "noqueue","loss_pct":packet_loss}]}
+  if m=="network.shaping.set":
+   if "loss_pct" in p: packet_loss=float(p["loss_pct"])
+   if "dns" in p: dns_mode=p["dns"]
+   dns_delay=p.get("dns_delay_ms",dns_delay) if dns_mode=="slow" else None
+  value={"loss_pct":packet_loss,"dns":dns_mode,"dns_delay_ms":dns_delay,"interfaces":[{"name":"wlan0","qdisc":"netem" if packet_loss else "noqueue","loss_pct":packet_loss}]}
  else:
   values={"center.prefs.get":prefs,"center.paths":{"data":str(home/'data'),"cache":str(home/'cache'),"logs":str(home/'logs'),"tools":{"android_sdk":"/Volumes/External/Android/SDK","jidr_sdk":None}},"center.about":{"version":"0.3.1","repository":"https://github.com/hbdzh/JIdr-plus"},"device.list":devices,"device.details":{"device":d,"config":{"hw.cpu.ncore":"4","hw.ramSize":"4096","hw.lcd.width":"1080","hw.lcd.height":"2400","hw.lcd.density":"420"},"disk_usage":2147483648},"app.list":{"apps":[{"package":"com.example.test","name":"示例应用","icon":None},{"package":"com.example.long","name":"用于检查长名称是否截断的测试应用程序","icon":None}]},"jobs.list":[],"settings.get":settings,"sdk.status":{"tools_sdk":"/Volumes/External/Android/SDK","studio_sdk":"/Volumes/External/Android/SDK","private_sdk":None,"install_sdk":"/Users/Shared/Jidr/sdk","custom_sdk":None},"profile.list":[{"id":"pixel_7","name":"Phone 6.1 FHD+","ram_mb":4096,"cpus":4,"data_mb":8192,"audio":True}],"image.list":[{"api":35,"tag":"google_apis","abi":"arm64-v8a","installed_in":"/Volumes/External/Android/SDK"}],"cache.list":[],"snapshot.list":{"device_root_mode":"none","snapshots":[{"name":"日常测试保存点","id":"one","quick_boot":False,"restorable":True,"root_mode":"none","created_at":"2026-11-11T01:00:00Z","size_bytes":536870912},{"name":"用于检查长名称与拒绝恢复原因的快照记录","id":"two","quick_boot":False,"restorable":False,"root_mode":"magisk","magisk_version":"30.7","created_at":"2026-11-10T02:00:00Z","size_bytes":1073741824},{"name":"default_boot","id":"quick","quick_boot":True,"restorable":True,"root_mode":None,"size_bytes":1048576}]},"battery.get":{"level":75,"charger":"ac"},"network.get":{"wifi":True,"mobile":True,"profile":"full"},"dev.get":{"show_taps":False,"pointer_location":False,"layout_bounds":False,"animation_scale":1.0},"root.cacert.list":{"certificates":[]},"commands.list":[],"center.quit":None}
   if m=="profile.list":

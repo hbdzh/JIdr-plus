@@ -68,6 +68,15 @@ See [docs/clean-room.md](docs/clean-room.md). In short: use only Genymotion's pu
 
 The control protocol is frozen at the tag `protocol-v0.1` ([docs/control-protocol.md](docs/control-protocol.md)). Any change to the wire format, an existing command's params or result, error codes or event topics needs a row in that file's changelog. New commands from providers are additive. The generated command reference is kept in sync by `cargo nextest run -p jidr-daemon protocol_doc` (`JIDR_UPDATE_DOCS=1` rewrites it).
 
+## GitHub presentation and releases
+
+- Write the README, repository description, release notes and other public-facing copy in clear, natural Chinese unless the maintainer asks for another language. Be concise and specific; avoid formulaic promotion, repetitive headings, task handoff language and references to the writing process.
+- Present the project as **JIdr Plus**, a macOS Android emulator management tool based on Jidr. Keep the upstream attribution, licence and third-party notices accurate. The README should make the main features, download, usage, build instructions and project links easy to find; update claims as the product changes.
+- For each release, compare the new version with the previous released version and account for all relevant additions, fixes and improvements, including work merged in multiple PRs. Use the categories **新增**, **修复** and **优化** where applicable; describe user-visible behavior and important technical changes concretely. Check the actual changes and changelog rather than relying on generated commit summaries alone.
+- Include relevant installation requirements, signing/notarization status, checksums, known issues and verification limits when they apply. Report failed, skipped or unverified checks accurately; do not imply that a build or automated test proves real-device acceptance. Keep GitHub Release notes and `CHANGELOG.md` consistent without dropping substantive changes or risks.
+- Keep PR titles and descriptions focused on the actual change and its validation. Avoid conversational history or unsupported claims about authorship; retain necessary attribution and factual records.
+- After an authorized PR is merged, remove its merged local and remote working branches when safe. Keep `master` and preserve branches containing unmerged work. Do not generalize a one-time approval to bypass a failing check to future PRs or releases.
+
 ## Before you open a pull request
 
 1. `cargo xtask ci` passes: fmt, clippy, tests, the licence check and the skills check.

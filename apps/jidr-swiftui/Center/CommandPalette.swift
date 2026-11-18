@@ -21,6 +21,7 @@ enum PaletteAction: Equatable {
     case editDevice(String)
     case deleteDevice(String)
     case snapshots(String)
+    case folderSync(String)
     case advancedTools(String)
     /// Opens the advanced-tools window on its Root tab (modules, certificates,
     /// build props, auto-grant) — the center's root command surface.
@@ -110,6 +111,7 @@ enum PaletteCatalog {
                 add(.action, text("删除 ", "Delete ") + device.name, text("删除设备、应用和快照", "Deletes the device, apps and snapshots"), "", .deleteDevice(device.id))
             }
             add(.action, text("管理快照 ", "Manage snapshots ") + device.name, text("保存、恢复或删除快照", "Save, restore or delete snapshots"), "", .snapshots(device.id))
+            add(.action, text("文件夹同步 ", "Folder sync ") + device.name, text("单向或双向同步 Mac 与设备文件夹", "Sync folders one-way or both ways"), "", .folderSync(device.id))
             add(.action, text("设备工具 ", "Device tools ") + device.name, text("电池、GPS、网络、传感器", "Battery, GPS, network, sensors"), "", .advancedTools(device.id))
                 add(.action, text("Root 工具 ", "Root tools ") + device.name, text("模块、证书、系统属性、自动授权", "Modules, certificates, build props, auto-grant"), "", .rootTools(device.id))
             if device.isRunning {
@@ -135,6 +137,7 @@ enum PaletteCatalog {
         case .editDevice(let id): return "edit:\(id)"
         case .deleteDevice(let id): return "delete:\(id)"
         case .snapshots(let id): return "snapshots:\(id)"
+        case .folderSync(let id): return "folderSync:\(id)"
         case .advancedTools(let id): return "advanced:\(id)"
         case .rootTools(let id): return "root:\(id)"
         case .installAPK(let id): return "install:\(id)"

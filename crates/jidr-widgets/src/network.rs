@@ -89,12 +89,12 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         CommandSpec::new::<DeviceParams>(
             "network.shaping.get",
-            "Packet loss on the device's networks (requires Shell or Full root)",
+            "Packet loss and DNS shaping on the device's networks (requires Shell or Full root)",
         )
         .locks_device(),
         CommandSpec::new::<shaping::SetParams>(
             "network.shaping.set",
-            "Set outgoing packet loss (requires Shell or Full root; a cold boot clears it)",
+            "Set outgoing packet loss and DNS shaping (requires Shell or Full root; restored after boot)",
         )
         .locks_device(),
     ]

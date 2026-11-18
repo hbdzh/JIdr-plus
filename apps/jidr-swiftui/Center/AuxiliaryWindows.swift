@@ -149,6 +149,7 @@ final class DeviceSheetPanelController: NSWindowController, NSWindowDelegate {
         switch kind {
         case .newDevice: size = NSSize(width: 650, height: 580)
         case .snapshots: size = NSSize(width: 600, height: 560)
+        case .folderSync: size = NSSize(width: 580, height: 560)
         case .imageManagement: size = NSSize(width: 700, height: 500)
         default: size = NSSize(width: 560, height: 620)
         }
@@ -169,6 +170,10 @@ final class DeviceSheetPanelController: NSWindowController, NSWindowDelegate {
         case .snapshots:
             if let device = model.devices.first(where: { $0.id == model.selected }) {
                 content = AnyView(SnapshotsView(model: model, device: device, onPanelClose: close))
+            } else { content = AnyView(EmptyView()) }
+        case .folderSync:
+            if let device = model.devices.first(where: { $0.id == model.selected }) {
+                content = AnyView(FolderSyncView(model: model, device: device, onPanelClose: close))
             } else { content = AnyView(EmptyView()) }
         case .edit:
             if let details = model.details {

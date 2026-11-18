@@ -24,6 +24,14 @@ struct AdvancedToolsView: View {
     @State private var profile = "full"
     @State private var packetLoss = "0"
     @State private var packetLossStatus = ""
+    @State private var dnsMode = "normal"
+    @State private var dnsDelay = "3000"
+    @State private var androidID = ""
+    @State private var imei = ""
+    @State private var folderSyncs: [[String: Any]] = []
+    @State private var gamepadActive = false
+    @State private var gamepadReady = false
+    private let syncTimer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
     @State private var proxyHost = ""
     @State private var proxyPort = ""
     @State private var sensor = "acceleration"
@@ -110,6 +118,9 @@ struct AdvancedToolsView: View {
         packetLossStatus = ""
         call("network.shaping.get") { value in showPacketLoss(value) }
     }
+    private func refreshFolderSyncs() {
+        readState("file.sync.list") { value in folderSyncs = value as? [[String: Any]] ?? [] }
+    }
     private func showPacketLoss(_ value: Any) {
         guard let result = value as? [String: Any], let interfaces = result["interfaces"] as? [[String: Any]] else {
             packetLossStatus = ""
@@ -117,6 +128,8 @@ struct AdvancedToolsView: View {
             return
         }
         if let loss = result["loss_pct"] as? Double { packetLoss = String(format: "%g", loss) }
+        if let dns = result["dns"] as? String { dnsMode = dns }
+        if let delay = result["dns_delay_ms"] as? Int { dnsDelay = String(delay) }
         packetLossStatus = interfaces.isEmpty
             ? t("没有活动的默认网络接口。", "No active default network interfaces.")
             : interfaces.compactMap { item in
@@ -167,6 +180,9 @@ struct AdvancedToolsView: View {
         .textFieldStyle(.roundedBorder)
         .environment(\.locale,Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
         .onAppear { loadInitialState() }
+        .onReceive(syncTimer) { _ in
+            if selection.section == 2 && running { refreshFolderSyncs() }
+        }
         .onChange(of: selection.section) { section in
             message = ""
             if section != 3 { stopLogStream() }
@@ -446,8 +462,18 @@ struct AdvancedToolsView: View {
             DeviceToolPageGroup(t("网络丢包", "Packet loss")) {
                 Group {
                     toolField(t("丢包率（%）", "Packet loss (%)"), placeholder: "0–100", text: $packetLoss, width: 110, alignment: .trailing)
-                    Text(t("模拟设备出站丢包，需要 Shell Root 或完整 Root。会替换接口现有队列规则，冷启动后清除。", "Drops outgoing packets; requires Shell or Full Root. Replaces existing interface queue rules and clears on cold boot."))
+                    Text(t("模拟出站丢包和异常 DNS，需要 Shell Root 或完整 Root。设置会在启动后恢复。", "Simulates outgoing packet loss and DNS failures; requires Shell or Full Root. Settings are restored after boot."))
                         .font(.caption).foregroundStyle(.secondary)
+                    LabeledContent("DNS") {
+                        Picker("DNS", selection: $dnsMode) {
+                            Text(t("正常", "Normal")).tag("normal")
+                            Text(t("延迟", "Slow")).tag("slow")
+                            Text(t("失败", "Fail")).tag("fail")
+                        }.labelsHidden().frame(width: 180)
+                    }
+                    if dnsMode == "slow" {
+                        toolField(t("DNS 延迟（毫秒）", "DNS delay (ms)"), placeholder: "1–30000", text: $dnsDelay, width: 110, alignment: .trailing)
+                    }
                     if !packetLossStatus.isEmpty { Text(packetLossStatus).font(.caption).foregroundStyle(.secondary) }
                 }
                 DeviceToolActions {
@@ -463,7 +489,80 @@ struct AdvancedToolsView: View {
                         packetLossStatus = ""
                         call("network.shaping.set", ["loss_pct": 0]) { value in showPacketLoss(value) }
                     }
+                    Button(t("应用 DNS", "Apply DNS")) {
+                        var params: [String: Any] = ["dns": dnsMode]
+                        if dnsMode == "slow" {
+                            guard let delay = Int(dnsDelay), (1...30000).contains(delay) else {
+                                message = t("请输入 1–30000 毫秒的 DNS 延迟。", "Enter a DNS delay between 1 and 30000 ms."); return
+                            }
+                            params["dns_delay_ms"] = delay
+                        }
+                        call("network.shaping.set", params) { value in showPacketLoss(value) }
+                    }
                 }.disabled(!running || working)
+            }
+            DeviceToolPageGroup(t("设备标识", "Identifiers")) {
+                Group {
+                    toolField("Android ID", placeholder: "0123456789abcdef", text: $androidID)
+                    LabeledContent("IMEI", value: imei.isEmpty ? "—" : imei)
+                    Text(t("修改 Android ID 需要 Root，并会重启 Android 框架；IMEI 为只读。", "Changing Android ID requires root and restarts the Android framework. IMEI is read-only."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                DeviceToolActions {
+                    Button(t("读取标识", "Read identifiers")) {
+                        call("identity.get") { value in
+                            if let result = value as? [String: Any] {
+                                androidID = result["android_id"] as? String ?? ""
+                                imei = result["imei"] as? String ?? ""
+                            }
+                        }
+                    }
+                    Button(t("设置 Android ID", "Set Android ID")) {
+                        call("identity.set", ["android_id": androidID]) { value in
+                            if let result = value as? [String: Any] { androidID = result["android_id"] as? String ?? androidID }
+                        }
+                    }.disabled(androidID.isEmpty)
+                }.disabled(!running || working)
+            }
+            DeviceToolPageGroup(t("文件夹同步", "Folder sync")) {
+                Group {
+                    Text(folderSyncs.isEmpty
+                         ? t("使用独立的文件夹同步面板配置单向或双向同步、查看进度并处理冲突。",
+                             "Use the dedicated Folder Sync panel to configure one-way or two-way sync, view progress, and resolve conflicts.")
+                         : t("当前有 \(folderSyncs.count) 个活动同步；可在文件夹同步面板中管理或解决冲突。",
+                             "\(folderSyncs.count) active sync\(folderSyncs.count == 1 ? "" : "s"). Open the Folder Sync panel to manage or resolve conflicts."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                DeviceToolActions {
+                    Button(t("打开文件夹同步面板…", "Open folder sync…")) {
+                        model.closeDeviceTools(id)
+                        if model.selected != id { model.select(id) }
+                        model.present(.folderSync)
+                    }
+                    Button(t("刷新", "Refresh"), action: refreshFolderSyncs).disabled(!running || working)
+                }
+            }
+            DeviceToolPageGroup(t("游戏手柄", "Game controller")) {
+                Text(t("连接 Mac 上的第一个手柄并转发到此设备。", "Forward the first controller connected to this Mac to this device."))
+                    .font(.caption).foregroundStyle(.secondary)
+                DeviceToolActions {
+                    Button(t("连接手柄", "Connect controller")) {
+                        gamepadActive = true
+                        model.call("input.gamepad.connect", ["device": id], onProgress: { _, progressMessage, _ in
+                            if let progressMessage, !progressMessage.isEmpty { gamepadReady = true }
+                        }) { result in
+                            gamepadActive = false
+                            gamepadReady = false
+                            if case .failure(let error) = result { message = OperationMessages.error(error.localizedDescription, language: model.language) }
+                        }
+                    }.disabled(gamepadActive)
+                    Button(t("断开手柄", "Disconnect controller")) {
+                        gamepadReady = false
+                        model.call("input.gamepad.disconnect", ["device": id]) { result in
+                            if case .failure(let error) = result { gamepadReady = true; message = OperationMessages.error(error.localizedDescription, language: model.language) }
+                        }
+                    }.disabled(!gamepadActive || !gamepadReady)
+                }.disabled(!running)
             }
             DeviceToolPageGroup(t("设备 HTTP 代理", "Device HTTP proxy")) {
                 Group {

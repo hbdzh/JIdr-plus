@@ -82,6 +82,7 @@ Subscribing again replaces the filter. Topics:
 | `device.created`, `device.deleted`, `device.updated` | `{device, name}` |
 | `device.hibernated` | `{device, name}`: saved and stopped by `device.hibernate` or auto-hibernate |
 | `device.hook_failed` | `{device, provider, error}`: a provider's after-boot hook failed |
+| `file.sync.started`, `file.sync.progress`, `file.sync.synced`, `file.sync.conflict`, `file.sync.error`, `file.sync.stopped` | Folder synchronization state, conflicts and progress. |
 | `pool.leased`, `pool.released` | `{lease, device, base?}`: a pool clone was leased, or released (by `pool.release` or the reaper) |
 | `job.started` | `{job, kind, device}` |
 | `job.progress` | `{job, progress, message}` |
@@ -452,6 +453,15 @@ Stop a device, saving its quick-boot state · locks the device
 
 ### `file.*`
 
+#### `file.flash`
+
+Flash a zip: a Magisk or Zygisk module installs and reboots a Full-root device; recovery, Riru and image zips are refused; anything else is copied to /sdcard/Download · long-running (job) · locks the device · **destructive**
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `device` | string | yes | Device name or id (must be running). |
+| `path` | string | yes | A local zip: a Magisk or Zygisk module installs on a Full-root device; recovery, Riru and image zips are refused; anything else is copied to /sdcard/Download. |
+
 #### `file.install`
 
 Install an APK on a running device · locks the device
@@ -483,6 +493,46 @@ Copy a file to a running device (default /sdcard/Download/)
 | `device` | string | yes |  |
 | `local` | string | yes | Local file. |
 | `remote` | string |  | Device path; default `/sdcard/Download/`. |
+
+#### `file.sync.list`
+
+Folder syncs and their state
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `device` | string |  | Only this device's syncs (name or id). |
+
+#### `file.sync.resolve`
+
+Resolve a conflict in a bidirectional folder sync
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Sync id (`file.sync.list`), or its first characters when they name one sync. |
+| `path` | string | yes | Relative path of the conflicted file inside the synced folder. |
+| `resolution` | `keep_local` \| `keep_remote` \| `keep_both` | yes | How to resolve the conflict (`keep_local`, `keep_remote`, or `keep_both`). |
+
+#### `file.sync.start`
+
+Keep a folder on this machine synced with a running device (one-way or bidirectional)
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `device` | string | yes | Device name or id (must be running). |
+| `local` | string | yes | Folder on this machine (an absolute path). |
+| `remote` | string |  | Folder on the device; default `/sdcard/Download/<the local folder's name>`. |
+| `direction` | `one_way` \| `bidirectional` |  | Sync direction: `one_way` (host to device, default) or `bidirectional`. |
+| `ignore` | string[] |  | More file or folder names to skip at any depth (exact names, not patterns), besides `.git`, `node_modules` and `.DS_Store`. |
+| `no_default_ignore` | boolean |  | Sync `.git`, `node_modules` and `.DS_Store` too. |
+| `max_files` | integer |  | Refuse a folder with more files than this, after skips (default 10000). |
+
+#### `file.sync.stop`
+
+Stop a folder sync
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Sync id (`file.sync.list`), or its first characters when they name one sync. |
 
 ### `fingerprint.*`
 
@@ -565,6 +615,25 @@ Host RAM, the device budget and what each running device uses
 
 No params.
 
+### `identity.*`
+
+#### `identity.get`
+
+The device's Android ID and IMEI (no root needed)
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `device` | string | yes | Device name or id. |
+
+#### `identity.set`
+
+Change the device's Android ID as every installed app reads it (needs Shell or Full root; restarts the Android framework; kept across cold boots) · long-running (job) · locks the device
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `device` | string | yes | Device name or id (Shell root or Full root). |
+| `android_id` | string | yes | New Android ID: 16 hexadecimal digits. Every installed app reads it (its SSAID), as does `settings get secure android_id`. Restarts the Android framework. |
+
 ### `image.*`
 
 #### `image.install`
@@ -598,6 +667,39 @@ Remove an unused image from a Jidr-owned SDK · **destructive**
 | `image` | string | yes | Full system-image package or image selector. |
 | `source` | string | yes | SDK source: `private` or `custom`; external SDKs are read-only. |
 | `root` | string | yes | SDK root shown to the user; protects against a changed install location. |
+
+### `input.*`
+
+#### `input.gamepad.connect`
+
+Forward a game controller on this computer to the device until input.gamepad.disconnect · long-running (job)
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `device` | string | yes | Device name or id. |
+| `controller` | integer |  | Which controller: an `id` from `input.gamepad.list`. Default: the first one connected. |
+
+#### `input.gamepad.disconnect`
+
+Stop forwarding the game controller to the device
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `device` | string | yes | Device name or id. |
+
+#### `input.gamepad.get`
+
+Whether a game controller is being forwarded to the device
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `device` | string | yes | Device name or id. |
+
+#### `input.gamepad.list`
+
+List the game controllers connected to this computer
+
+No params.
 
 ### `jobs.*`
 
@@ -669,7 +771,7 @@ Dump the device log
 
 #### `media.record`
 
-Record the screen to MP4 (H.264) until media.record_stop or max_seconds · long-running (job)
+Record the screen and the device's audio to MP4 (H.264, AAC) until media.record_stop or max_seconds · long-running (job)
 
 | Param | Type | Required | Description |
 |---|---|---|---|
@@ -677,6 +779,7 @@ Record the screen to MP4 (H.264) until media.record_stop or max_seconds · long-
 | `path` | string |  | Where to save the MP4 (default `~/Movies/Jidr/<device> <time>.mp4`). |
 | `max_seconds` | integer |  | Stop on its own after this many seconds (default 3600). |
 | `fps` | integer |  | Frames per second (default 30). |
+| `audio` | boolean |  | Also record the device's audio (AAC; default true). If the emulator's audio stream fails, the recording goes on without it. |
 
 #### `media.record_stop`
 
@@ -744,7 +847,7 @@ Turn Wi-Fi or mobile data on/off and set the speed/delay profile
 
 #### `network.shaping.get`
 
-Packet loss on the device's networks (requires Shell or Full root) · locks the device
+Packet loss and DNS shaping on the device's networks (requires Shell or Full root) · locks the device
 
 | Param | Type | Required | Description |
 |---|---|---|---|
@@ -752,12 +855,14 @@ Packet loss on the device's networks (requires Shell or Full root) · locks the 
 
 #### `network.shaping.set`
 
-Set outgoing packet loss (requires Shell or Full root; a cold boot clears it) · locks the device
+Set outgoing packet loss and DNS shaping (requires Shell or Full root; restored after boot) · locks the device
 
 | Param | Type | Required | Description |
 |---|---|---|---|
 | `device` | string | yes | Device name or id (Shell root or Full root). |
-| `loss_pct` | number | yes | Percent of outgoing packets to drop, 0–100 (decimals allowed); 0 removes the loss. |
+| `loss_pct` | number |  | Percent of outgoing packets to drop, 0–100 (decimals allowed); 0 removes the loss. Omitted: unchanged. |
+| `dns` | DnsMode |  | DNS: `normal`, `slow` (each query delayed by `dns_delay_ms`) or `fail` (no answers, lookups time out). Omitted: unchanged. |
+| `dns_delay_ms` | integer |  | The DNS delay for `slow`, 1–30000 ms (default 3000, or the device's current one). Given alone, it means `slow`. |
 
 ### `phone.*`
 
@@ -1079,6 +1184,8 @@ reported as errors.
 
 | Version | Change |
 |---|---|
+| 0.1 (additive) | `file.sync.start` gains optional `direction` (`one_way` default, or `bidirectional`); `SyncInfo` and `file.sync.synced` gain `direction`, `pulled`, `removed_local`, and `conflicts`; new `file.sync.resolve {id, path, resolution}` resolves bidirectional conflicts and `file.sync.conflict` reports active conflicts. |
+| 0.1 (additive/change) | `network.shaping.set` accepts optional `dns` and `dns_delay_ms`, and shaping is stored on `Device` and restored on boot. `identity.get/set`, `input.gamepad.*`, `file.sync.*`, and `file.flash` add device identifiers, controller forwarding, one-way folder sync and ZIP classification. `media.record` gains optional `audio` (default true) and reports whether an audio track was included (`audio`) and any valid audio packet was received (`audio_received`). File sync events are published under the `file.sync.` prefix. |
 | 0.1 (additive) | `image.inventory` lists installed SDK image copies and their device references; destructive `image.remove` removes an unused image from a specified Jidr-owned SDK. |
 | 0.1 (additive) | `sdk.license_details {packages}` returns each applicable licence text and its current `accepted` state without changing consent. Existing `sdk.licenses` continues to return only pending licences. |
 | 0.1 (fix) | `base.create` leaves the source's animation settings unchanged. `pool.get` disables animations on each clone after boot and before delivery; a clone that cannot be configured is removed and reported as a failure. |

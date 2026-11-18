@@ -109,6 +109,15 @@ impl Adb {
         cmd
     }
 
+    /// Spawn a guest command with piped standard input, killed on drop.
+    pub fn spawn_with_stdin(&self, args: &[&str]) -> JidrResult<Child> {
+        self.command(args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .spawn()
+            .map_err(|e| JidrError::sdk(format!("cannot run adb at {}: {e}", self.bin.display())))
+    }
+
     /// Runs adb and returns its output, whatever the exit status.
     pub async fn raw(&self, args: &[&str]) -> JidrResult<Output> {
         let child = self.command(args).spawn().map_err(|e| {
@@ -238,6 +247,26 @@ impl Adb {
         self.run(&["push", &local.to_string_lossy(), remote])
             .await
             .map(|_| ())
+    }
+
+    /// Copy several local sources into one existing device directory.
+    pub async fn push_many(
+        &self,
+        locals: &[PathBuf],
+        remote: &str,
+        newer_only: bool,
+    ) -> JidrResult<()> {
+        let paths: Vec<String> = locals
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect();
+        let mut args = vec!["push"];
+        if newer_only {
+            args.push("--sync");
+        }
+        args.extend(paths.iter().map(String::as_str));
+        args.push(remote);
+        self.run(&args).await.map(|_| ())
     }
 
     pub async fn pull(&self, remote: &str, local: &Path) -> JidrResult<()> {
@@ -382,6 +411,11 @@ impl LogcatStream {
     pub async fn stop(mut self) {
         let _ = self.child.kill().await;
     }
+}
+
+/// Quote one argument for the device shell.
+pub fn shell_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 pub fn parse_devices(text: &str) -> Vec<DeviceEntry> {
