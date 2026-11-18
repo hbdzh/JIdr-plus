@@ -18,10 +18,13 @@ pub mod device;
 pub mod devtools;
 pub mod extras;
 pub mod game_list;
+pub mod gamepad;
 pub mod gps;
+pub mod identity;
 pub mod media;
 pub mod network;
 pub mod phone;
+pub mod running;
 pub mod sensors;
 pub mod snapshots;
 
@@ -35,6 +38,7 @@ pub struct WidgetsProvider {
     routes: gps::Routes,
     recordings: media::Recordings,
     injections: audio::Injections,
+    pads: gamepad::Pads,
 }
 
 #[async_trait]
@@ -53,7 +57,9 @@ impl CommandProvider for WidgetsProvider {
         v.extend(phone::specs());
         v.extend(devtools::specs());
         v.extend(extras::specs());
+        v.extend(gamepad::specs());
         v.extend(gps::specs());
+        v.extend(identity::specs());
         v.extend(media::specs());
         v.extend(snapshots::specs());
         v
@@ -70,9 +76,15 @@ impl CommandProvider for WidgetsProvider {
             "key" | "dev" | "clipboard" => devtools::call(ctx, method, params).await,
             "fingerprint" | "camera" => extras::call(ctx, method, params).await,
             "gps" => gps::call(ctx, &self.routes, method, params).await,
+            "input" => gamepad::call(ctx, &self.pads, method, params).await,
+            "identity" => identity::call(ctx, method, params).await,
             "media" => media::call(ctx, &self.recordings, method, params).await,
             "snapshot" => snapshots::call(ctx, method, params).await,
             _ => Err(JidrError::usage(format!("unknown method {method}"))),
         }
+    }
+
+    async fn on_booted(&self, ctx: &CallCtx, device: &jidr_core::Device) -> JidrResult<()> {
+        network::shaping::on_booted(ctx, device).await
     }
 }

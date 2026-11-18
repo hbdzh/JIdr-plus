@@ -18,6 +18,7 @@ pub use jidr_core::rpc;
 pub mod server;
 pub mod state;
 pub mod store;
+pub mod sync;
 pub mod testing;
 pub mod validate;
 
@@ -99,6 +100,7 @@ impl DaemonBuilder {
         registry.register(core)?;
         registry.register(Arc::new(jobs::JobsProvider::new(jobs.clone())))?;
         registry.register(Arc::new(pool::PoolProvider::new(state.clone())))?;
+        registry.register(Arc::new(sync::SyncProvider::new(state.clone())))?;
         for p in self.providers {
             registry.register(p)?;
         }

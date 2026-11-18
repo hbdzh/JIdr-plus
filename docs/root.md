@@ -64,6 +64,19 @@ sets 10% outgoing packet loss; `jidr network loss <device> 0` clears it.
 center offers the same controls under Device Tools → Network. See
 [on-device helper](on-device-helper.md) for kernel, network and qdisc limits.
 
+`jidr network dns <device> slow --delay-ms 3000` delays DNS queries; `fail`
+drops them and `normal` clears DNS shaping. Requested shaping is restored
+after boot where the device's root mode and kernel support it.
+
+`jidr identity <device>` reads Android ID and IMEI. `--android-id` writes a
+16-digit hexadecimal Android ID for installed apps and restarts Android's
+framework; it needs Shell or Full Root. The IMEI is read-only.
+
+`jidr flash <device> <zip>` inspects the archive before acting. Magisk and
+Zygisk modules install on Full-root devices; on other devices they are copied
+to Download. Recovery, Riru and image archives are refused. Other ZIPs are
+copied to Download; SDK system images are never overwritten.
+
 ## Magisk pool bases
 
 A running Full-root device can be saved as a base for throwaway agent clones:

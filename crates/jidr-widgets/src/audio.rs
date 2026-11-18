@@ -2,10 +2,7 @@
 //! as the device's microphone over gRPC `injectAudio` (a job that runs until
 //! the clip ends, `audio.stop` or a cancel); `audio.stop` ends it.
 
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use jidr_backend::audio::{self, Clip, Playback, Played};
@@ -14,9 +11,9 @@ use jidr_core::{JidrError, JidrResult};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use uuid::Uuid;
 
 use crate::device::target;
+use crate::running::Running;
 
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -38,51 +35,7 @@ pub struct InjectParams {
 }
 
 /// Stop flags of the injections in progress, by device.
-#[derive(Debug, Default)]
-pub struct Injections(Mutex<HashMap<Uuid, Arc<AtomicBool>>>);
-
-impl Injections {
-    fn get(&self, id: Uuid) -> Option<Arc<AtomicBool>> {
-        self.0.lock().ok()?.get(&id).cloned()
-    }
-
-    /// Registers an injection on `id`; `busy` while another one runs.
-    fn start(&self, id: Uuid, name: &str) -> JidrResult<Registered<'_>> {
-        let flag = Arc::new(AtomicBool::new(false));
-        let mut m = self
-            .0
-            .lock()
-            .map_err(|_| JidrError::unexpected("audio injections lock poisoned"))?;
-        if m.contains_key(&id) {
-            return Err(JidrError::busy(format!(
-                "{name} is already playing audio into its microphone; stop it first (audio.stop)"
-            )));
-        }
-        m.insert(id, flag.clone());
-        Ok(Registered {
-            map: self,
-            id,
-            flag,
-        })
-    }
-}
-
-/// Removes its injection from the map when dropped, however the job ends.
-struct Registered<'a> {
-    map: &'a Injections,
-    id: Uuid,
-    flag: Arc<AtomicBool>,
-}
-
-impl Drop for Registered<'_> {
-    fn drop(&mut self) {
-        if let Ok(mut m) = self.map.0.lock()
-            && m.get(&self.id).is_some_and(|f| Arc::ptr_eq(f, &self.flag))
-        {
-            m.remove(&self.id);
-        }
-    }
-}
+pub type Injections = Running;
 
 pub fn specs() -> Vec<CommandSpec> {
     vec![
@@ -157,7 +110,12 @@ pub async fn call(
                 .await
                 .map_err(|e| JidrError::unexpected(format!("reading the audio file: {e}")))??;
             let t = target(ctx, &p.device).await?;
-            let reg = injections.start(t.device.id, &t.device.name)?;
+            let reg = injections.start(t.device.id, || {
+                format!(
+                    "{} is already playing audio into its microphone; stop it first (audio.stop)",
+                    t.device.name
+                )
+            })?;
             let total = clip.duration();
             ctx.report(
                 Some(0.0),
@@ -191,13 +149,7 @@ pub async fn call(
         "audio.stop" => {
             let p: DeviceParams = parse_params(params)?;
             let d = ctx.daemon.device(&p.device).await?;
-            match injections.get(d.id) {
-                Some(f) => {
-                    f.store(true, Ordering::Relaxed);
-                    Ok(json!({ "stopped": true }))
-                }
-                None => Ok(json!({ "stopped": false })),
-            }
+            Ok(json!({ "stopped": injections.stop(d.id) }))
         }
         _ => Err(JidrError::usage(format!("unknown method {method}"))),
     }
@@ -241,24 +193,6 @@ mod tests {
             progress_text(s(0.0), s(5.0), 2, true),
             "pass 3 · 0.0 / 5.0 s"
         );
-    }
-
-    #[test]
-    fn one_injection_per_device() {
-        let inj = Injections::default();
-        let id = Uuid::new_v4();
-        let reg = inj.start(id, "Phone").unwrap();
-        let e = inj.start(id, "Phone").err().unwrap();
-        assert_eq!(e.code, jidr_core::ErrorCode::Busy);
-        // Another device is fine.
-        let other = inj.start(Uuid::new_v4(), "Tablet").unwrap();
-        // audio.stop sets the job's flag.
-        inj.get(id).unwrap().store(true, Ordering::Relaxed);
-        assert!(reg.flag.load(Ordering::Relaxed));
-        drop(reg);
-        assert!(inj.get(id).is_none());
-        assert!(inj.start(id, "Phone").is_ok());
-        drop(other);
     }
 
     #[test]

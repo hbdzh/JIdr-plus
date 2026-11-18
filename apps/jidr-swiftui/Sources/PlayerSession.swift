@@ -109,9 +109,11 @@ enum PlayerStatusText {
     private static let exact: [(String, String)] = [
         ("截图已保存", "Screenshot saved"),
         ("应用已安装", "App installed"),
+        ("模块已安装", "Module installed"),
         ("文件已发送到设备下载目录", "File sent to the device's Downloads folder"),
         ("正在录屏", "Recording"),
         ("录屏已保存", "Recording saved"),
+        ("录屏已保存，但未收到设备音频。", "Recording saved, but no device audio was received"),
         ("录屏路径无效或文件已存在", "Invalid recording path, or the file already exists"),
         ("请选择有效的本地文件路径", "Choose a valid local file path"),
         ("请选择本地文件，不支持文件夹", "Choose a file, not a folder"),

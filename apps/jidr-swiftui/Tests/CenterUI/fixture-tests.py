@@ -27,6 +27,9 @@ class FixtureTests(unittest.TestCase):
 
             with launch() as process:
                 devices = call(process, "device.list")["result"]
+                self.assertEqual(call(process, "network.shaping.set", dns="slow", dns_delay_ms=1000)["result"]["dns"], "slow")
+                self.assertEqual(call(process, "network.shaping.set", loss_pct=20)["result"]["dns_delay_ms"], 1000)
+                self.assertEqual(call(process, "network.shaping.set", dns="normal")["result"]["loss_pct"], 20)
                 self.assertEqual(call(process, "jobs.list")["result"][1]["device"], devices[0]["id"])
                 images = call(process, "image.inventory")["result"]
                 protected = next(image for image in images if not image["can_delete"])

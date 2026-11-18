@@ -126,6 +126,7 @@ const FILE_NOT_A_FILE: Diagnostic =
     Diagnostic::new("file.not_a_file", "Choose a file, not a folder");
 const SCREENSHOT_SAVED: Diagnostic = Diagnostic::new("screenshot.saved", "Screenshot saved");
 const APP_INSTALLED: Diagnostic = Diagnostic::new("app.installed", "App installed");
+const MODULE_INSTALLED: Diagnostic = Diagnostic::new("module.installed", "Module installed");
 const FILE_SENT: Diagnostic =
     Diagnostic::new("file.sent", "File sent to the device's Downloads folder");
 const RECORDING_INVALID_PATH: Diagnostic = Diagnostic::new(
@@ -134,6 +135,10 @@ const RECORDING_INVALID_PATH: Diagnostic = Diagnostic::new(
 );
 const RECORDING_STARTED: Diagnostic = Diagnostic::new("recording.started", "Recording");
 const RECORDING_SAVED: Diagnostic = Diagnostic::new("recording.saved", "Recording saved");
+const RECORDING_SAVED_NO_AUDIO: Diagnostic = Diagnostic::new(
+    "recording.saved_no_audio",
+    "Recording saved, but no device audio was received",
+);
 
 /// Codes for failures whose readable text carries the daemon's own error.
 const FILE_OPERATION_FAILED: &str = "file.operation_failed";
@@ -346,6 +351,19 @@ async fn run_file_operation(
             .await
             .map_err(|error| FileOperationError::Daemon(error.into()))?;
         Ok(APP_INSTALLED)
+    } else if path
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("zip"))
+    {
+        let result = client
+            .run("file.flash", json!({"device":device,"path":path}), |_| {})
+            .await
+            .map_err(|error| FileOperationError::Daemon(error.into()))?;
+        Ok(if result["action"] == "module_installed" {
+            MODULE_INSTALLED
+        } else {
+            FILE_SENT
+        })
     } else {
         client
             .call("file.push", json!({"device":device,"local":path}))
@@ -567,10 +585,19 @@ impl SerialInput for BridgeInputs {
                             }
                         }).await;
                         match result {
-                            Ok(value) => eprintln!(
-                                "JIDR_RECORD:{}",
-                                json!({"state":"finished","code":RECORDING_SAVED.code,"message":RECORDING_SAVED.message,"result":value})
-                            ),
+                            Ok(value) => {
+                                let notice = if value["audio"] == false
+                                    || value["audio_received"] == false
+                                {
+                                    RECORDING_SAVED_NO_AUDIO
+                                } else {
+                                    RECORDING_SAVED
+                                };
+                                eprintln!(
+                                    "JIDR_RECORD:{}",
+                                    json!({"state":"finished","code":notice.code,"message":notice.message,"result":value})
+                                );
+                            }
                             Err(error) => eprintln!(
                                 "JIDR_RECORD:{}",
                                 json!({"state":"failed","code":RECORDING_FAILED,"message":format!("Recording failed: {error}")})
@@ -990,10 +1017,12 @@ mod tests {
             FILE_NOT_A_FILE,
             SCREENSHOT_SAVED,
             APP_INSTALLED,
+            MODULE_INSTALLED,
             FILE_SENT,
             RECORDING_INVALID_PATH,
             RECORDING_STARTED,
             RECORDING_SAVED,
+            RECORDING_SAVED_NO_AUDIO,
             PREVIEW_UNSUPPORTED,
         ] {
             assert!(
