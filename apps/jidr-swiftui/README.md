@@ -1,4 +1,4 @@
-# Native macOS UI — 0.6.0
+# Native macOS UI — 0.7.0
 
 SwiftUI/AppKit is the only desktop UI. `Center/main.swift` owns the device center,
 settings/tool windows and integrated player windows. The Rust bridges in `bridge/`

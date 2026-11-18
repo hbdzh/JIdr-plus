@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.0 — JIdr Plus (2026-11-18)
+
+### 新增
+
+- **双向与单向文件夹同步**：新增 `file.sync.start`（支持 `one_way` 与 `bidirectional`）、`file.sync.stop`、`file.sync.list`、`file.sync.resolve` 协议命令与 `file.sync.*` 事件，CLI 同步新增 `jidr sync start [--bidirectional]`、`list`、`stop` 与 `resolve`。双向模式通过 SHA-256 内容基线与设备端扫描同步两端更改与删除，冲突时保留双方内容供手动选择（`keep_local` / `keep_remote` / `keep_both`）。
+- **独立文件夹同步面板**：在设备概览页操作栏、菜单栏「设备」及命令面板（`⌘K`）新增“文件夹同步”入口，支持在独立面板中切换双向/单向方向、可选自定义设备目录、查看实时 `↑pushed ↓pulled` 计数、在访达中显示目录以及一键处理冲突。
+- **网络丢包与 DNS 模拟增强**：`network.shaping.set` 新增 `dns`（`normal` / `slow` / `fail`）与 `dns_delay_ms` 参数，配置持久化到设备并在重启后恢复；同步更新 CLI（`jidr network dns`）与 SwiftUI 工具页。
+- **设备标识、手柄转发与刷机分类**：新增 `identity.get` / `identity.set`（读取 Android ID / IMEI、Root 修改 Android ID）、`input.gamepad.*`（转发 Mac 游戏手柄到设备）及 `file.flash`（安装受支持的 Magisk 模块或复制普通 ZIP，拒绝 recovery 与分区镜像）。
+- **录屏音频支持**：`media.record` 新增可选 `audio` 参数（默认开启），并回报是否包含音轨及是否接收到有效音频包。
+
+### 修复
+
+- 修复单向同步删除宿主目录时可能误删设备端自有或忽略文件的问题，改为仅移除本次同步记录过的文件；文件状态读取失败不再直接视为删除；首次镜像与增量传输失败后自动重试；监听器在首次扫描前启动以缩小漏变更窗口。
+- 修复文件夹同步面板弹出时与主界面同时闪烁、顶部刷新与添加按钮未对齐及误触发重复选中的问题。
+
+### 优化
+
+- 文件夹同步面板统一采用与“设备设置”一致的原生分组表单、下拉方向选择器与毛玻璃弹窗交互。
+- 同步更新协议文档、CLI 文档、MCP 文档、Agent Skill（`skills/jidr/SKILL.md`）以及同步、网络、标识、手柄和音视频相关测试。
+
+### 已知问题与验证限制
+
+- 延续 0.6.0 已知问题：快速启动快照原地保存失败时，旧快照仍可能受损；`jidr-daemon --test stop_sync` 中的 `failed_save_preserves_previous_quick_boot` 未通过。
+- 本机未安装 `protoc`，`jidr-proto` 重编译与全工作区 `--all-features` 测试未在本地通过；`test-center-ui.sh --interactive` 与真实 Android 模拟器实机端到端验收尚未执行。
+- 本地或未配置 Developer ID 凭据构建的产物仅使用 ad-hoc 签名且未公证。
+
 ## 0.6.0 — JIdr Plus (2026-11-16)
 
 ### 新增
