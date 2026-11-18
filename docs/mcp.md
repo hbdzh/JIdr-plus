@@ -62,7 +62,7 @@ Creating a base preserves the source device's animation settings. Pool clones ha
 
 Everything else goes through `command_run`, e.g. playing a WAV on this Mac as the device's microphone for a voice flow: `command_run {command: "audio.inject", params: {device, path, loop?}, timeout_s: 5}` returns the job while it plays, and `command_run {command: "audio.stop", params: {device}}` ends it.
 
-Packet loss is available through `command_run` with `network.shaping.get` and `network.shaping.set {device, loss_pct}`. It requires Shell or Full Root and netem support; 0 clears it and a cold boot resets it. See [on-device helper](on-device-helper.md) for interface and qdisc limitations.
+Network shaping is available through `command_run` with `network.shaping.get` and `network.shaping.set {device, loss_pct?, dns?, dns_delay_ms?}`. It requires Shell or Full Root and netem support; settings are restored after boot. `identity.get/set`, `input.gamepad.*`, `file.sync.*` and `file.flash` are also available through `command_run`. Folder synchronization supports `one_way` (default; host deletions remove previously synced files while preserving device-only files) and `bidirectional` (two-way sync with `file.sync.resolve` for conflicts). See [on-device helper](on-device-helper.md) for interface and qdisc limitations.
 
 Every tool carries `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint` annotations. Jidr errors come back as tool results with `isError: true` and structured `{code, message, data}` (codes as in docs/control-protocol.md), so an agent can recover, e.g. start a stopped device after `not_found`.
 

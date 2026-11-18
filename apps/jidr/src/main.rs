@@ -12,9 +12,9 @@ use std::time::Duration;
 
 use clap::{CommandFactory, Parser};
 use cli::{
-    AudioCmd, BaseCmd, CacheCmd, CertCmd, Cli, Cmd, DaemonCmd, DeviceCmd, Hardware, ImageCmd,
-    JobsCmd, NetworkCmd, PoolCmd, ProfileCmd, ProxyCmd, RootCmd, SdkCmd, Selection, SettingsCmd,
-    SnapshotCmd,
+    AudioCmd, BaseCmd, CacheCmd, CertCmd, Cli, Cmd, DaemonCmd, DeviceCmd, GamepadCmd, Hardware,
+    ImageCmd, JobsCmd, NetworkCmd, PoolCmd, ProfileCmd, ProxyCmd, RootCmd, SdkCmd, Selection,
+    SettingsCmd, SnapshotCmd, SyncCmd,
 };
 use jidr_client::{Client, SpawnOptions};
 use jidr_core::{ErrorCode, JidrError, JidrPaths, JidrResult, Job, JobState};
@@ -364,11 +364,6 @@ async fn before_connect(paths: &JidrPaths, cmd: &Cmd, out: Out) -> JidrResult<bo
         });
         return Ok(true);
     }
-    if let Cmd::Flash { .. } = cmd {
-        return Err(JidrError::usage(
-            "flash isn't available yet: Genymotion's flash semantics are an open research item",
-        ));
-    }
     Ok(false)
 }
 
@@ -377,7 +372,6 @@ async fn before_connect(paths: &JidrPaths, cmd: &Cmd, out: Out) -> JidrResult<bo
 async fn dispatch(c: &Client, cmd: Cmd, out: Out) -> JidrResult<()> {
     match cmd {
         Cmd::Completions { .. }
-        | Cmd::Flash { .. }
         | Cmd::Uninstall { .. }
         | Cmd::Daemon {
             action: None | Some(DaemonCmd::Run | DaemonCmd::Stop),
@@ -404,6 +398,54 @@ async fn dispatch(c: &Client, cmd: Cmd, out: Out) -> JidrResult<()> {
             });
         }
         Cmd::Device { cmd } => device(c, out, cmd).await?,
+        Cmd::Flash { device, zip } => {
+            let zip = std::path::absolute(&zip).unwrap_or(zip);
+            let v = exec(c, out, "file.flash", json!({"device": device, "path": zip})).await?;
+            out.ok(&v, output::pretty);
+        }
+        Cmd::Sync { cmd } => {
+            let (method, params) = match cmd {
+                SyncCmd::Start {
+                    device,
+                    local,
+                    remote,
+                    bidirectional,
+                } => {
+                    let local = std::path::absolute(&local).unwrap_or(local);
+                    let direction = if bidirectional {
+                        "bidirectional"
+                    } else {
+                        "one_way"
+                    };
+                    (
+                        "file.sync.start",
+                        json!({"device":device,"local":local,"remote":remote,"direction":direction}),
+                    )
+                }
+                SyncCmd::Stop { id } => ("file.sync.stop", json!({"id":id})),
+                SyncCmd::List { device } => ("file.sync.list", json!({"device":device})),
+                SyncCmd::Resolve { id, path, keep } => (
+                    "file.sync.resolve",
+                    json!({"id":id,"path":path,"resolution":keep.as_str()}),
+                ),
+            };
+            let v = c.call(method, params).await?;
+            out.ok(&v, output::pretty);
+        }
+        Cmd::Gamepad { cmd } => {
+            let (method, params) = match cmd {
+                GamepadCmd::List => ("input.gamepad.list", json!({})),
+                GamepadCmd::Connect { device, controller } => (
+                    "input.gamepad.connect",
+                    json!({"device":device,"controller":controller}),
+                ),
+                GamepadCmd::Disconnect { device } => {
+                    ("input.gamepad.disconnect", json!({"device":device}))
+                }
+            };
+            let v = c.call(method, params).await?;
+            out.ok(&v, output::pretty);
+        }
         Cmd::Install {
             device,
             apk,
@@ -747,6 +789,59 @@ async fn dispatch(c: &Client, cmd: Cmd, out: Out) -> JidrResult<()> {
                 }
             };
             out.ok(&v, output::packet_loss);
+        }
+        Cmd::Network {
+            cmd:
+                NetworkCmd::Dns {
+                    device,
+                    mode,
+                    delay_ms,
+                },
+        } => {
+            let v = if mode.is_none() && delay_ms.is_none() {
+                c.call("network.shaping.get", json!({ "device": device }))
+                    .await?
+            } else {
+                let mut p = json!({ "device": device });
+                if let Some(mode) = mode {
+                    p["dns"] = json!(mode.as_str());
+                }
+                if let Some(delay) = delay_ms {
+                    p["dns_delay_ms"] = json!(delay);
+                }
+                c.call("network.shaping.set", p).await?
+            };
+            out.ok(&v, |v| {
+                format!(
+                    "DNS: {}{}",
+                    v["dns"].as_str().unwrap_or("unknown"),
+                    v["dns_delay_ms"]
+                        .as_u64()
+                        .map(|n| format!(" ({n} ms)"))
+                        .unwrap_or_default()
+                )
+            });
+        }
+        Cmd::Identity { device, android_id } => {
+            let v = match android_id {
+                None => c.call("identity.get", json!({ "device": device })).await?,
+                Some(id) => {
+                    exec(
+                        c,
+                        out,
+                        "identity.set",
+                        json!({ "device": device, "android_id": id }),
+                    )
+                    .await?
+                }
+            };
+            out.ok(&v, |v| {
+                format!(
+                    "Android ID: {}\nIMEI: {}",
+                    v["android_id"].as_str().unwrap_or("none"),
+                    v["imei"].as_str().unwrap_or("none")
+                )
+            });
         }
         Cmd::Audio {
             cmd:
@@ -1238,8 +1333,8 @@ fn build_daemon(paths: JidrPaths) -> JidrResult<Arc<jidr_daemon::Daemon>> {
         jidr_daemon::DaemonConfig::new(paths),
         Arc::new(jidr_backend::AospBackend::new()),
     )
-    .provider(jidr_widgets::provider())
     .provider(jidr_root::provider())
+    .provider(jidr_widgets::provider())
     .build()
 }
 
@@ -1287,8 +1382,27 @@ mod tests {
     fn daemon_serves_widget_and_root_commands() {
         let tmp = tempfile::tempdir().unwrap();
         let daemon = build_daemon(JidrPaths::under(tmp.path())).unwrap();
+        let providers: Vec<_> = daemon
+            .registry()
+            .providers()
+            .iter()
+            .map(|p| p.name())
+            .collect();
+        let root = providers.iter().position(|name| *name == "root").unwrap();
+        let widgets = providers
+            .iter()
+            .position(|name| *name == "widgets")
+            .unwrap();
+        assert!(
+            root < widgets,
+            "root boot hooks must run before network restoration"
+        );
         for method in [
             "device.list",
+            "identity.get",
+            "input.gamepad.list",
+            "file.sync.list",
+            "file.flash",
             "gps.set",
             "battery.set",
             "snapshot.save",
@@ -1297,6 +1411,20 @@ mod tests {
         ] {
             assert!(daemon.registry().get(method).is_some(), "{method}");
         }
+    }
+
+    #[test]
+    fn physical_phone_commands_are_not_exposed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let daemon = build_daemon(JidrPaths::under(tmp.path())).unwrap();
+        assert!(
+            daemon
+                .registry()
+                .list()
+                .iter()
+                .all(|spec| !spec.id.starts_with("physical."))
+        );
+        assert!(Cli::try_parse_from(["jidr", "phone", "list"]).is_err());
     }
 
     /// docs/control-protocol.md's command reference must match what

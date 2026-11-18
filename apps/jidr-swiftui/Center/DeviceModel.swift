@@ -126,6 +126,7 @@ enum CenterSheet: String, Identifiable {
     case setupSDK
     case settings
     case snapshots
+    case folderSync
     case edit
     case imageManagement
     var id: String { rawValue }
@@ -593,7 +594,7 @@ final class CenterModel: ObservableObject {
         progressCallbacks[id] = onProgress
         requestMethods[id] = method
         if let device = params["device"] as? String { requestDevices[id] = device }
-        let readOnly = ["host.budget", "device.list", "device.details", "app.list", "app.inspect", "image.list", "image.inventory", "profile.list", "snapshot.list", "sdk.status", "sdk.license_details", "settings.get", "cache.list", "center.about", "center.paths", "center.prefs.get", "center.quit", "battery.get", "gps.get", "network.get", "network.proxy.get", "sensor.get", "logcat.dump", "root.cacert.list", "device.props.get", "dev.get", "clipboard.get", "jobs.list", "jobs.get", "daemon.status"]
+        let readOnly = ["host.budget", "device.list", "device.details", "app.list", "app.inspect", "image.list", "image.inventory", "profile.list", "snapshot.list", "sdk.status", "sdk.license_details", "settings.get", "cache.list", "center.about", "center.paths", "center.prefs.get", "center.quit", "battery.get", "gps.get", "network.get", "network.proxy.get", "network.shaping.get", "identity.get", "file.sync.list", "input.gamepad.list", "input.gamepad.get", "sensor.get", "logcat.dump", "root.cacert.list", "device.props.get", "dev.get", "clipboard.get", "jobs.list", "jobs.get", "daemon.status"]
         if !readOnly.contains(method) { mutations.insert(id) }
         if method == "device.details" || method == "host.budget" {
             let timeout = DispatchWorkItem { [weak self] in
@@ -1859,7 +1860,14 @@ final class CenterModel: ObservableObject {
         call("media.record",["device":device,"path":url.path]) { [weak self] result in
             guard let self else { return }; self.recording.remove(device)
             switch result {
-            case .success: self.showToast(self.text("录屏已保存", "Recording saved"))
+            case .success(let value):
+                if let result = value as? [String: Any], result["audio"] as? Bool == false {
+                    self.showToast(self.text("录屏已保存，但设备音频不可用。", "Recording saved, but device audio was unavailable."))
+                } else if let result = value as? [String: Any], result["audio_received"] as? Bool == false {
+                    self.showToast(self.text("录屏已保存，但未收到设备音频。", "Recording saved, but no device audio was received."))
+                } else {
+                    self.showToast(self.text("录屏已保存", "Recording saved"))
+                }
             case .failure(let error): self.showError(self.readable(error))
             }
         }

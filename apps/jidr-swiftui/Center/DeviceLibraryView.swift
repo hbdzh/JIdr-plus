@@ -153,6 +153,10 @@ struct DeviceOverviewView: View {
                         model.presentDeviceSheet(.edit, device: device.id)
                     }.buttonStyle(.bordered).controlSize(.large)
                         .disabled(details == nil || model.busy.contains(device.id))
+                    Button(t("文件夹同步", "Folder sync"), systemImage: "arrow.triangle.2.circlepath") {
+                        if model.selected != device.id { model.select(device.id) }
+                        model.present(.folderSync)
+                    }.buttonStyle(.bordered).controlSize(.large)
                     Button(t("设备工具", "Device tools"), systemImage: "wrench.and.screwdriver") {
                         model.openAdvanced(device.id, name: device.name)
                     }.buttonStyle(.bordered).controlSize(.large)
@@ -573,7 +577,7 @@ private final class LibraryRowView: NSTableRowView {
     override var isEmphasized: Bool {
         get {
             let panelOpen = model.map { $0.paletteOpen || $0.tasksOpen || $0.sheet == .newDevice ||
-                                       $0.sheet == .snapshots || $0.sheet == .edit || $0.sheet == .imageManagement } ?? false
+                                       $0.sheet == .snapshots || $0.sheet == .folderSync || $0.sheet == .edit || $0.sheet == .imageManagement } ?? false
             return super.isEmphasized || (NSApp.isActive && panelOpen)
         }
         set { super.isEmphasized = newValue }

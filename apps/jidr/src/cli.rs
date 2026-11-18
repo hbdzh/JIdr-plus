@@ -64,8 +64,18 @@ pub enum Cmd {
         remote: String,
         local: PathBuf,
     },
-    /// Flash a zip onto /system (not available yet).
+    /// Install a Magisk module or copy a supported ZIP to the device.
     Flash { device: String, zip: PathBuf },
+    /// Keep a Mac folder synced with a running device.
+    Sync {
+        #[command(subcommand)]
+        cmd: SyncCmd,
+    },
+    /// Forward a connected game controller to a device.
+    Gamepad {
+        #[command(subcommand)]
+        cmd: GamepadCmd,
+    },
     /// Show, follow or clear the device log.
     Logcat {
         device: String,
@@ -121,6 +131,13 @@ pub enum Cmd {
     Network {
         #[command(subcommand)]
         cmd: NetworkCmd,
+    },
+    /// Read device identifiers or change the Android ID.
+    Identity {
+        device: String,
+        /// New Android ID (16 hexadecimal digits); requires root.
+        #[arg(long)]
+        android_id: Option<String>,
     },
     /// Play an audio file as a device's microphone (WAV, or raw 16-bit PCM).
     Audio {
@@ -584,6 +601,87 @@ pub enum NetworkCmd {
         device: String,
         percent: Option<f64>,
     },
+    /// Show or set DNS simulation; slow delays DNS and fail drops queries.
+    Dns {
+        device: String,
+        mode: Option<DnsArg>,
+        /// Delay in milliseconds, from 1 to 30000; implies slow.
+        #[arg(long)]
+        delay_ms: Option<u32>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum DnsArg {
+    Normal,
+    Slow,
+    Fail,
+}
+
+impl DnsArg {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Slow => "slow",
+            Self::Fail => "fail",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum ConflictKeepArg {
+    Local,
+    Remote,
+    Both,
+}
+
+impl ConflictKeepArg {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "keep_local",
+            Self::Remote => "keep_remote",
+            Self::Both => "keep_both",
+        }
+    }
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SyncCmd {
+    /// Start folder sync (one-way by default, or bidirectional with --bidirectional).
+    Start {
+        device: String,
+        local: PathBuf,
+        remote: Option<String>,
+        /// Sync changes and deletions in both directions.
+        #[arg(long)]
+        bidirectional: bool,
+    },
+    /// Stop a sync by its ID or unique prefix.
+    Stop { id: String },
+    /// List active syncs, optionally for one device.
+    List { device: Option<String> },
+    /// Resolve a conflict in a bidirectional folder sync.
+    Resolve {
+        id: String,
+        path: PathBuf,
+        /// Which side to keep: local, remote, or both.
+        #[arg(long, value_enum)]
+        keep: ConflictKeepArg,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GamepadCmd {
+    /// List connected controllers.
+    List,
+    /// Start forwarding a controller; returns a job ID.
+    Connect {
+        device: String,
+        #[arg(long)]
+        controller: Option<usize>,
+    },
+    /// Stop forwarding the controller.
+    Disconnect { device: String },
 }
 
 #[derive(Debug, Subcommand)]

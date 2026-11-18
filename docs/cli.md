@@ -34,11 +34,14 @@ jidr --json device start Phone --timeout 300 || exit $?
 | `install <name> <apk> [--no-replace] [--grant] [--downgrade]` | Install an APK. A signature mismatch fails with `details.signature_mismatch = true`. |
 | `push <name> <local> [remote]`, `pull <name> <remote> <local>` | Copy files (push defaults to `/sdcard/Download/`). |
 | `logcat <name> [-n N] [--filter spec…] [-f] [--clear]` | Dump, follow (`-f`) or clear the log. |
-| `flash <name> <zip>` | Not available yet (open research item). |
+| `flash <name> <zip>` | Install Magisk/Zygisk modules on Full-root devices, or copy other supported ZIPs to Download. Recovery, Riru and partition-image archives are refused. |
+| `sync start <device> <folder> [remote] [--bidirectional]`, `sync list [device]`, `sync resolve <id> <path> --keep local\|remote\|both`, `sync stop <id>` | One-way or bidirectional folder synchronization. One-way copies host changes and deletions to the device while preserving device-only files; `--bidirectional` syncs changes and deletions both ways and preserves conflicts for `sync resolve`. Start returns before the first copy finishes. |
+| `gamepad list`, `gamepad connect <device> [--controller id]`, `gamepad disconnect <device>` | Forward a Mac game controller to a running emulator; connect returns a job ID. |
+| `identity <device> [--android-id ID]` | Read Android ID and IMEI, or set a 16-digit hexadecimal Android ID with root. Setting restarts Android's framework. IMEI is read-only. |
 | `image list [--installed]`, `image install <img> [--accept-licenses]` | System images. |
 | `profile list` | Built-in hardware profiles (D24). `agent-lean` (720×1280, 2 GB, 2 cores, no audio or cameras) costs ~4 GB of host RAM instead of ~7.6 GB. |
 | `budget` | Host RAM, the device budget (`settings set --budget-percent`, 75% by default) and what each running device is expected to use and uses now (D42). |
-| `network loss <device> [percent]` | Show or set outgoing packet loss (0–100%; 0 clears). Requires a running Shell/Full-root device and netem support; a cold boot clears it. See [on-device helper](on-device-helper.md). |
+| `network loss <device> [percent]`, `network dns <device> [normal\|slow\|fail] [--delay-ms N]` | Control outgoing packet loss and DNS simulation. Requires root and netem; stored settings are restored on boot. See [on-device helper](on-device-helper.md). |
 | `root helper <device>` | Start the on-device helper if needed and report its version, protocol, uid and SELinux context. |
 | `sdk status`, `sdk licenses <pkgs…>`, `sdk install <pkgs…> [--accept-licenses]` | The SDK Jidr uses (its private one by default, or a configured writable custom install root; Android Studio's is only read, D3). |
 | `root set <name> none\|adb\|magisk`, `root verify <name>`, `root status <name>`, `root auto-grant <name> on\|off` | Root modes (provided by the root engine). `auto-grant` grants every app root without a prompt on a Full-root device (D22, off by default; `root.auto_grant`). |

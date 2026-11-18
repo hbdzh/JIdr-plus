@@ -48,6 +48,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         case edit
         case delete
         case snapshots
+        case folderSync
         case tools
         case rootTools
         case installAPK
@@ -204,6 +205,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         menu.addItem(.separator())
         add(t("编辑设备…", "Edit Device…"), .edit)
         add(t("管理快照…", "Manage Snapshots…"), .snapshots)
+        add(t("文件夹同步…", "Folder Sync…"), .folderSync)
         add(t("设备工具…", "Device Tools…"), .tools)
         add(t("Root 管理…", "Root Management…"), .rootTools)
         menu.addItem(.separator())
@@ -412,6 +414,9 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         case .snapshots:
             showCenter()
             model?.runPaletteAction(.snapshots(device.id))
+        case .folderSync:
+            showCenter()
+            model?.runPaletteAction(.folderSync(device.id))
         case .tools:
             model?.runPaletteAction(.advancedTools(device.id))
         case .rootTools:
@@ -473,7 +478,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
             guard let command = DeviceCommand(rawValue: item.tag), let id = item.representedObject as? String,
                   let device = model.devices.first(where: { $0.id == id }) else { return false }
             switch command {
-            case .open, .snapshots: return true
+            case .open, .snapshots, .folderSync: return true
             case .start: return device.stopped
             case .stop: return !device.stopped
             case .restart: return device.running

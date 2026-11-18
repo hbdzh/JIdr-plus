@@ -84,6 +84,7 @@ private struct PaletteRow: View {
         case .editDevice: return WbIcon.settings
         case .deleteDevice: return WbIcon.trash
         case .snapshots: return WbIcon.camera
+        case .folderSync: return "arrow.triangle.2.circlepath"
         case .advancedTools: return WbIcon.advancedTools
         case .rootTools: return WbIcon.rootTab
         case .installAPK: return WbIcon.installAPK

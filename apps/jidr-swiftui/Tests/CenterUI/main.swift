@@ -222,7 +222,7 @@ func snapshotRequestCount() -> Int {
         return request["method"] as? String == "snapshot.list"
     }.count
 }
-for sheet: CenterSheet in [.newDevice, .snapshots, .edit, .imageManagement] {
+for sheet: CenterSheet in [.newDevice, .snapshots, .folderSync, .edit, .imageManagement] {
     model.present(sheet)
     eventually("device panel is attached") { model.deviceSheetPanel?.window != nil }
     guard let child = model.deviceSheetPanel?.window else { fatalError("missing device panel") }

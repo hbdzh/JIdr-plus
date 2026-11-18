@@ -2619,7 +2619,7 @@ struct CenterView: View {
         .environment(\.locale, Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
         .preferredColorScheme(model.colorScheme)
         return base
-        .accessibilityHidden(model.sheet == .newDevice || model.sheet == .snapshots || model.sheet == .edit || model.sheet == .imageManagement)
+        .accessibilityHidden(model.sheet == .newDevice || model.sheet == .snapshots || model.sheet == .folderSync || model.sheet == .edit || model.sheet == .imageManagement)
         .onChange(of: model.isEmptyDeviceLibrary) { empty in
             if empty { model.deviceQuery = "" }
         }
