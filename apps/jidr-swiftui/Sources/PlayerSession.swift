@@ -70,7 +70,7 @@ enum PlayerDiagnosis {
             return t("设备不存在或已被删除。", "The device no longer exists.", language)
         }
         if text.contains("Connection refused") || text.contains("No such file or directory") {
-            return t("无法连接到 Jidr 守护进程。", "Cannot reach the Jidr daemon.", language)
+            return t("无法连接到 miko 守护进程。", "Cannot reach the miko daemon.", language)
         }
         return text
     }

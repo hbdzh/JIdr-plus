@@ -127,9 +127,9 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
 
     private func buildAppMenu() -> NSMenu {
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
-            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Jidr"
+            ?? Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "miko simulator"
         let menu = NSMenu(title: appName)
-        menu.addItem(menuItem(t("关于 Jidr", "About Jidr"),
+        menu.addItem(menuItem(t("关于 miko 模拟器", "About miko simulator"),
                               #selector(NSApplication.orderFrontStandardAboutPanel(_:)), target: NSApp))
         menu.addItem(.separator())
         let services = NSMenu(title: t("服务", "Services"))
@@ -140,12 +140,12 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         menu.addItem(.separator())
         menu.addItem(menuItem(t("设置…", "Settings…"), #selector(openSettings), ","))
         menu.addItem(.separator())
-        menu.addItem(menuItem(t("隐藏 Jidr", "Hide Jidr"), #selector(NSApplication.hide(_:)), "h", target: NSApp))
+        menu.addItem(menuItem(t("隐藏 miko 模拟器", "Hide miko simulator"), #selector(NSApplication.hide(_:)), "h", target: NSApp))
         menu.addItem(menuItem(t("隐藏其他", "Hide Others"), #selector(NSApplication.hideOtherApplications(_:)), "h",
                               target: NSApp, modifiers: [.command, .option]))
         menu.addItem(menuItem(t("显示全部", "Show All"), #selector(NSApplication.unhideAllApplications(_:)), target: NSApp))
         menu.addItem(.separator())
-        menu.addItem(menuItem(t("退出 Jidr", "Quit Jidr"), #selector(NSApplication.terminate(_:)), "q", target: NSApp))
+        menu.addItem(menuItem(t("退出 miko 模拟器", "Quit miko simulator"), #selector(NSApplication.terminate(_:)), "q", target: NSApp))
         return menu
     }
 
@@ -267,7 +267,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
 
     private func buildHelpMenu() -> NSMenu {
         let menu = NSMenu(title: t("帮助", "Help"))
-        menu.addItem(menuItem(t("Jidr 文档", "Jidr Documentation"), #selector(openDocumentation)))
+        menu.addItem(menuItem(t("miko 模拟器文档", "miko simulator Documentation"), #selector(openDocumentation)))
         menu.addItem(menuItem(t("GitHub 仓库", "GitHub Repository"), #selector(openRepository)))
         menu.addItem(menuItem(t("报告问题…", "Report an Issue…"), #selector(openIssues)))
         return menu
@@ -279,7 +279,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
     /// device (running devices first) that focuses or opens its window.
     func dockMenu() -> NSMenu? {
         guard let model else { return nil }
-        let menu = NSMenu(title: t("Jidr", "Jidr"))
+        let menu = NSMenu(title: t("miko 模拟器", "miko simulator"))
         menu.addItem(menuItem(t("打开设备中心", "Open Device Center"), #selector(openCenterAction)))
         menu.addItem(menuItem(t("命令面板", "Command Palette"), #selector(openPaletteAction)))
         menu.addItem(menuItem(t("后台任务", "Background Tasks"), #selector(openTasksAction)))
@@ -387,13 +387,13 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         model?.setPreference("appearance", sender.tag)
     }
     @objc private func openDocumentation() {
-        open(URL(string: "https://github.com/hbdzh/JIdr-plus/tree/master/docs"))
+        open(URL(string: "https://github.com/hbdzh/miko-simulator/tree/master/docs"))
     }
     @objc private func openRepository() {
-        open(URL(string: "https://github.com/hbdzh/JIdr-plus"))
+        open(URL(string: "https://github.com/hbdzh/miko-simulator"))
     }
     @objc private func openIssues() {
-        open(URL(string: "https://github.com/hbdzh/JIdr-plus/issues/new"))
+        open(URL(string: "https://github.com/hbdzh/miko-simulator/issues/new"))
     }
     private func open(_ url: URL?) {
         guard let url else { return }

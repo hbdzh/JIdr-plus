@@ -225,7 +225,7 @@ final class CenterToolbarController: NSObject, NSToolbarDelegate {
     }
     private func update() {
         window?.appearance = model.windowAppearance
-        window?.title = model.text("Jidr 设备中心", "Jidr Device Center")
+        window?.title = model.text("miko 模拟器 · 设备中心", "miko simulator · Device Center")
         if let window, window.toolbar !== desiredToolbar { window.toolbar = desiredToolbar }
         if let window {
             window.standardWindowButton(.miniaturizeButton)?.isEnabled = !model.onboardingInstallForegroundRequired

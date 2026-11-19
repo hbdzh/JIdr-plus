@@ -7,7 +7,7 @@ description: "Run, watch and drive Android emulators with Jidr (CLI `jidr`, the 
 
 Jidr (جذر) runs Android emulators, optionally rooted. A daemon owns every device. The desktop app, the `jidr` CLI and the MCP server (`jidr mcp`) are thin clients over the same protocol, so a device started from one shows up in all of them. Today Jidr ships for macOS on Apple Silicon (arm64 images). Docs: https://github.com/AbdurahmanAlmehdi/jidr (`docs/cli.md`, `docs/mcp.md`, `docs/control-protocol.md`).
 
-If `jidr` isn't on the `PATH`, use the CLI bundled in the installed app at `Jidr.app/Contents/Helpers/jidr`, or see https://github.com/hbdzh/JIdr-plus for build and release information.
+If `jidr` isn't on the `PATH`, use the CLI bundled in the installed app at `miko simulator.app/Contents/Helpers/jidr`, or see https://github.com/hbdzh/miko-simulator for build and release information.
 
 **Prefer the CLI.** It covers every command, needs no setup and works in scripts. `jidr call <method> '<json>'` reaches any protocol command that has no subcommand. A Jidr device is not an Android Studio AVD: `emulator -list-avds` doesn't list it. A `.jidr` file is a script for `jidr shell` (one `jidr` command per line, without the `jidr`); `jidr shell file.jidr` runs it and stops at the first failing line. Interactively, prefer one-shot `jidr` commands over the shell.
 

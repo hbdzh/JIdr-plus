@@ -1,7 +1,7 @@
 # SwiftUI packaging
 
 `cargo xtask release` is the sole application packaging implementation. It builds
-`Jidr.app`, an arm64 DMG, the MCP bundle and SHA256SUMS under `target/release-artifacts`.
+`miko simulator.app`, an arm64 DMG, the MCP bundle and SHA256SUMS under `target/release-artifacts`.
 The source template is `Jidr-Info.plist.in` (bundle identity `ly.jidr.Jidr`).
 Workspace version 0.7.0 supplies the CLI version, application plist version and
 artifact filenames. The template deliberately keeps `@VERSION@` placeholders.
@@ -17,7 +17,7 @@ replaces an installed app. `apps/jidr-swiftui/package-test.sh` delegates to it;
 there is no second test-only packaging chain or standalone player application.
 
 ```
-Jidr.app/Contents/
+miko simulator.app/Contents/
   Info.plist, PkgInfo
   MacOS/Jidr                     SwiftUI/AppKit center and player windows (GPL)
   Helpers/jidr                   CLI / daemon / MCP (Apache)

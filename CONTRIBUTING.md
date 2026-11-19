@@ -1,11 +1,11 @@
-# Contributing to JIdr Plus
+# Contributing to miko simulator
 
 Thanks for helping. Bug reports, fixes, features and docs are all welcome. This guide covers setup, project conventions and the pull request process.
 
 ## Before you start
 
 - **Bugs:** open an issue with your macOS version, Mac model, the Android image (for example `35:google_apis`), the command or steps, and what you saw. `jidr --json …` output and the daemon log help.
-- **Features:** check the [JIdr Plus issues](https://github.com/hbdzh/JIdr-plus/issues) first, then open an issue to agree on the approach before writing a large change.
+- **Features:** check the [miko simulator issues](https://github.com/hbdzh/miko-simulator/issues) first, then open an issue to agree on the approach before writing a large change.
 - **Security issues:** don't open a public issue; follow [SECURITY.md](SECURITY.md).
 
 ## Setup
@@ -16,7 +16,7 @@ You need an Apple Silicon Mac with macOS 14 or later for the app and the arm64 e
 brew install protobuf                     # protoc, for the gRPC bindings
 curl https://sh.rustup.rs -sSf | sh       # rustup installs the pinned toolchain on first build
 cargo install cargo-nextest --locked      # the test runner
-git clone https://github.com/hbdzh/JIdr-plus.git && cd JIdr-plus
+git clone https://github.com/hbdzh/miko-simulator.git && cd miko-simulator
 cargo xtask ci                            # fmt, clippy, tests, licence check, skills check
 bash apps/jidr-swiftui/test.sh  # Swift logic tests + localization gate (needs Xcode)
 cargo xtask release --rehearsal           # SwiftUI app + DMG rehearsal (ad-hoc, local)

@@ -3,7 +3,7 @@
 # runs it when JIDR_SIGNING_IDENTITY is set: `app` before the DMG is built,
 # `dmg` after.
 #
-#   packaging/macos/sign.sh app Jidr.app        # hardened runtime, inside-out
+#   packaging/macos/sign.sh app miko simulator.app        # hardened runtime, inside-out
 #   packaging/macos/sign.sh dmg Jidr-X-arm64.dmg # sign, notarize, staple
 #
 # Environment:
@@ -16,7 +16,7 @@ set -euo pipefail
 die() { echo "sign.sh: $*" >&2; exit 1; }
 need() { [ -n "${!1:-}" ] || die "$1 is not set"; }
 
-[ $# -eq 2 ] || die "usage: sign.sh app <Jidr.app> | sign.sh dmg <file.dmg>"
+[ $# -eq 2 ] || die "usage: sign.sh app <miko simulator.app> | sign.sh dmg <file.dmg>"
 kind=$1 target=$2
 [ -e "$target" ] || die "$target does not exist"
 need JIDR_SIGNING_IDENTITY

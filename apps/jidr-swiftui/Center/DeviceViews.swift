@@ -959,7 +959,7 @@ struct NewDeviceView: View {
                 Image(systemName: "square.stack.3d.up")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(WbColor.accentText)
-                Text("Jidr").font(.system(size: 15, weight: .semibold))
+                Text(model.text("miko 模拟器", "miko simulator")).font(.system(size: 15, weight: .semibold))
             }
             Spacer()
             if !standaloneEnvironment && !directDeviceSetup && !resolvingInitialRoute {
@@ -1243,7 +1243,7 @@ struct NewDeviceView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(model.text("模拟器工具与系统镜像", "Emulator tools and system image"))
                             .font(.system(size: 12, weight: .semibold))
-                        Text(model.text("安装到 Jidr 的目录，不修改外部 SDK。", "Install into Jidr’s folder without changing the external SDK."))
+                        Text(model.text("安装到 miko 的目录，不修改外部 SDK。", "Install into the miko folder without changing the external SDK."))
                             .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -1911,7 +1911,7 @@ struct SettingsView: View {
             saving = false
             switch result {
             case .success:
-                message = model.text("Jidr SDK 安装位置已保存。", "Jidr SDK install location saved.")
+                message = model.text("miko SDK 安装位置已保存。", "miko SDK install location saved.")
                 load()
             case .failure(let failure): message = failure.localizedDescription
             }
@@ -1990,7 +1990,7 @@ struct SettingsView: View {
         guard let path, FileManager.default.fileExists(atPath:path), NSWorkspace.shared.open(URL(fileURLWithPath:path)) else { message = model.text("无法打开目录。", "Cannot open the folder."); return }
     }
     func checkUpdate() {
-        guard let about, let url = URL(string:"https://api.github.com/repos/hbdzh/JIdr-plus/releases/latest") else { return }
+        guard let about, let url = URL(string:"https://api.github.com/repos/hbdzh/miko-simulator/releases/latest") else { return }
         checkingUpdate = true; updateMessage = model.text("正在检查更新…", "Checking for updates…"); releaseURL = nil
         var request = URLRequest(url:url); request.timeoutInterval = 8
         request.setValue("JIdr/\(about.version)",forHTTPHeaderField:"User-Agent")
@@ -2002,7 +2002,7 @@ struct SettingsView: View {
                 guard status == 200, let tag = parsed?["tag_name"] as? String,
                       let page = parsed?["html_url"] as? String, let destination = URL(string:page),
                       destination.scheme == "https", destination.host == "github.com",
-                      destination.path.hasPrefix("/hbdzh/JIdr-plus/releases/") else {
+                      destination.path.hasPrefix("/hbdzh/miko-simulator/releases/") else {
                     updateMessage = model.text("无法检查更新，请稍后重试。", "Unable to check for updates. Try again later."); return
                 }
                 let latest = tag.trimmingCharacters(in:CharacterSet(charactersIn:"v"))
@@ -2446,7 +2446,7 @@ struct SettingsView: View {
     // MARK: - Data and tools
 
     @ViewBuilder private var dataPage: some View {
-        SettingsSection(model.text("Jidr SDK（可写安装位置）", "Jidr SDK (writable install location)")) {
+        SettingsSection(model.text("miko SDK（可写安装位置）", "miko SDK (writable install location)")) {
             SettingsPathRow(title: model.text("安装位置", "Install location"),
                             path: installSDKPath ?? model.text("读取中…", "Loading…")) {
                 Button(model.text("更改位置…", "Change location…"), action: chooseJidrSDKLocation)
@@ -2478,8 +2478,8 @@ struct SettingsView: View {
                     showFolder(paths?.tools.android_sdk ?? sdkStatus?.studio_sdk)
                 }
             }
-            Text(model.text("选择路径后立即生效。Jidr 只读取此 SDK，不会修改其中的文件。",
-                            "Jidr only reads this SDK; it never installs into or modifies it."))
+            Text(model.text("选择路径后立即生效。miko 只读取此 SDK，不会修改其中的文件。",
+                            "miko only reads this SDK; it never installs into or modifies it."))
                 .wbFont(WbType.caption)
                 .foregroundStyle(WbColor.textSecondary)
         }
@@ -2744,7 +2744,7 @@ struct SettingsView: View {
         SettingsSection(model.text("关于", "About")) {
             VStack(spacing: WbSpace.xs + 2) {
                 appIcon
-                Text("Jidr")
+                Text(model.text("miko 模拟器", "miko simulator"))
                     .wbFont(WbType.headline)
                     .foregroundStyle(WbColor.textPrimary)
                 Text(model.text("安卓模拟器 · 版本 \(about?.version ?? "—")", "Android emulator · version \(about?.version ?? "—")"))

@@ -320,7 +320,7 @@ fn fixture_result(request: &Request, case: &str) -> Value {
             "tools":{"android_sdk":null,"jidr_sdk":null}
         }}),
         "center.about" => json!({"id":id,"type":"result","result":{
-            "version":env!("CARGO_PKG_VERSION"),"repository":"https://github.com/hbdzh/JIdr-plus"
+            "version":env!("CARGO_PKG_VERSION"),"repository":"https://github.com/hbdzh/miko-simulator"
         }}),
         "center.quit" => json!({"id":id,"type":"result","result":null}),
         "device.list" => {
@@ -488,7 +488,7 @@ async fn main() -> Result<()> {
             if request.method == "center.about" {
                 send(json!({"id":id,"type":"result","result":{
                     "version":env!("CARGO_PKG_VERSION"),
-                    "repository":"https://github.com/hbdzh/JIdr-plus"
+                    "repository":"https://github.com/hbdzh/miko-simulator"
                 }}));
                 return;
             }

@@ -14,7 +14,7 @@ player?.onClose = {
     player = nil
 }
 player?.open(device:"test-device",width:720,height:1280,executable:"/usr/bin/false",displayName:"Test device")
-precondition(player?.window?.title == "Test device — Jidr")
+precondition(player?.window?.title == "Test device — miko simulator")
 precondition(player?.window?.isReleasedWhenClosed == false)
 player?.window?.performClose(nil)
 precondition(closeCount == 1 && player == nil)

@@ -394,8 +394,8 @@ struct SnapshotsView: View {
             let other = Snapshots.modeName(snapshotMode, language: model.language)
             let current = Snapshots.modeName(deviceMode, language: model.language)
             let tag = Snapshots.rootTag(mode: snapshotMode, magisk: magisk, language: model.language)
-            let body = t("保存于：\(tag)\n设备当前：\(current)\n\n恢复会带回 Jidr 尚未在此设备上验证的 Root 状态，因此被拒绝。先设置\(other)，然后再恢复。\(current)下拍摄的快照仍可正常恢复。",
-                         "Taken with: \(tag)\nDevice now: \(current)\n\nRestoring would bring back a root setup Jidr hasn't verified on this device, so it is refused. Set up \(other) first, then restore. Snapshots taken while \(current) restore as usual.")
+            let body = t("保存于：\(tag)\n设备当前：\(current)\n\n恢复会带回 miko 尚未在此设备上验证的 Root 状态，因此被拒绝。先设置\(other)，然后再恢复。\(current)下拍摄的快照仍可正常恢复。",
+                         "Taken with: \(tag)\nDevice now: \(current)\n\nRestoring would bring back a root setup miko hasn't verified on this device, so it is refused. Set up \(other) first, then restore. Snapshots taken while \(current) restore as usual.")
             return Alert(
                 title: Text(t("无法恢复“\(refusal.name)”", "Can't restore “\(refusal.name)”")),
                 message: Text(body),

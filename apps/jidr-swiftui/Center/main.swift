@@ -80,7 +80,7 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let window = NSWindow(contentRect:NSRect(x:0,y:0,width:1280,height:800),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
             // Keep the native resize limit consistent with CenterView's minimum layout.
             window.contentMinSize = NSSize(width:800,height:550)
-            window.title = model.text("Jidr 设备中心", "Jidr Device Center")
+            window.title = model.text("miko 模拟器 · 设备中心", "miko simulator · Device Center")
             window.titlebarAppearsTransparent = true; window.titlebarSeparatorStyle = .none; window.backgroundColor = NSColor(WbColor.surface); window.delegate = self
             window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView:CenterView(model:model)); self.window = window

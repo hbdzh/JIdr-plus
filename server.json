@@ -1,18 +1,18 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.hbdzh/jidr-plus",
-  "title": "JIdr Plus",
+  "title": "miko simulator",
   "description": "See and drive Android emulators on a Mac: screenshot, tap, type, UI tree, logs, root.",
-  "websiteUrl": "https://github.com/hbdzh/JIdr-plus",
+  "websiteUrl": "https://github.com/hbdzh/miko-simulator",
   "repository": {
-    "url": "https://github.com/hbdzh/JIdr-plus",
+    "url": "https://github.com/hbdzh/miko-simulator",
     "source": "github"
   },
   "version": "0.5.1",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/hbdzh/JIdr-plus/releases/download/v0.5.1/jidr-mcp-0.5.1-darwin-arm64.mcpb",
+      "identifier": "https://github.com/hbdzh/miko-simulator/releases/download/v0.5.1/jidr-mcp-0.5.1-darwin-arm64.mcpb",
       "fileSha256": "fc77e42c80eff0453c51a9ad195cd54ca62ae30f1654a842ea9c90b253c63f42",
       "transport": {
         "type": "stdio"

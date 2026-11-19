@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Jidr</string>
+	<string>miko simulator</string>
 	<key>CFBundleExecutable</key>
 	<string>Jidr</string>
 	<key>CFBundleIconFile</key>
@@ -22,7 +22,7 @@
 		<string>zh-Hans</string>
 	</array>
 	<key>CFBundleName</key>
-	<string>Jidr</string>
+	<string>miko simulator</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

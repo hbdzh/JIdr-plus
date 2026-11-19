@@ -1,5 +1,5 @@
 //! `cargo xtask release`: build the sole SwiftUI/AppKit GUI, Rust helpers,
-//! Jidr.app, the arm64 DMG, MCP bundle and checksums.
+//! miko simulator.app, the arm64 DMG, MCP bundle and checksums.
 //!
 //! `--rehearsal` signs ad-hoc, scans and verifies an isolated install, and
 //! writes evidence without publishing or touching real user data. Developer ID
@@ -133,7 +133,7 @@ fn run_swiftui(
         std::fs::remove_dir_all(out).with_context(|| format!("clearing {}", out.display()))?;
     }
     let staging = out.join("staging");
-    let app = staging.join("Jidr.app");
+    let app = staging.join("miko simulator.app");
     assemble_swiftui_app(root, &bin, &center, &app, version)?;
     copy(
         &helper,
@@ -155,7 +155,7 @@ fn run_swiftui(
     )?;
     std::os::unix::fs::symlink("/Applications", staging.join("Applications"))
         .context("linking /Applications into the DMG")?;
-    let dmg_name = format!("Jidr-{version}-arm64.dmg");
+    let dmg_name = format!("miko-simulator-{version}-arm64.dmg");
     let dmg = out.join(&dmg_name);
     create_dmg(&dmg, &staging, version)?;
 
@@ -217,7 +217,7 @@ fn output_dir(root: &Path, target: &Path, opts: &Options) -> PathBuf {
 }
 
 fn create_dmg(dmg: &Path, staging: &Path, version: &str) -> Result<()> {
-    let volume = format!("Jidr {version}");
+    let volume = format!("miko simulator {version}");
     let srcfolder = path_str(staging)?;
     let dmg_path = path_str(dmg)?;
     // `hdiutil create` sometimes fails with "Resource busy" on GitHub's macOS
@@ -326,7 +326,7 @@ fn copy(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `Jidr.app` layout for the SwiftUI device center (ADR-0003). It keeps the
+/// `miko simulator.app` layout for the SwiftUI device center (ADR-0003). It keeps the
 /// existing `ly.jidr.Jidr` bundle identity, puts the device center in
 /// `Contents/MacOS/Jidr`, the three Rust helpers in `Contents/Helpers/`, and
 /// the Workbench fonts (Geist + Noto Kufi Arabic and their OFL texts) in
@@ -395,6 +395,12 @@ fn assemble_swiftui_app(
                 "apps/jidr-swiftui/Resources/{lproj}.lproj/Localizable.strings"
             )),
             &resources.join(format!("{lproj}.lproj/Localizable.strings")),
+        )?;
+        copy(
+            &root.join(format!(
+                "apps/jidr-swiftui/Resources/{lproj}.lproj/InfoPlist.strings"
+            )),
+            &resources.join(format!("{lproj}.lproj/InfoPlist.strings")),
         )?;
     }
     for (from, name) in [
@@ -722,14 +728,14 @@ fn verify_swiftui_dmg(
     );
     attach_dmg(dmg, mountpoint, tool)?;
     let result = (|| -> Result<()> {
-        let app = mountpoint.join("Jidr.app");
+        let app = mountpoint.join("miko simulator.app");
         let applications = mountpoint.join("Applications");
         if std::fs::read_link(&applications).ok().as_deref() != Some(Path::new("/Applications")) {
             bail!("the mounted DMG has no /Applications symlink for drag-and-drop install");
         }
         evidence.line(
             "Bundle structure (mounted DMG)",
-            "- PASS the DMG volume has the `Jidr.app` bundle and an `/Applications` symlink",
+            "- PASS the DMG volume has the `miko simulator.app` bundle and an `/Applications` symlink",
         );
         check_swiftui_bundle(&app, version, &mut evidence)?;
         check_swiftui_signature(&app, &mut evidence)?;
@@ -948,7 +954,7 @@ fn check_swiftui_signature(app: &Path, evidence: &mut Evidence) -> Result<()> {
     )?;
     if !verify.success {
         bail!(
-            "`codesign --verify --strict` failed on the mounted Jidr.app:\n{}",
+            "`codesign --verify --strict` failed on the mounted miko simulator.app:\n{}",
             verify.output
         );
     }
@@ -977,7 +983,7 @@ fn check_swiftui_signature(app: &Path, evidence: &mut Evidence) -> Result<()> {
     evidence.line(
         "Signature (inside-out)",
         "- PASS order: `Helpers/jidr`, `jidr-center-bridge`, `jidr-swiftui-bridge`, \
-         `MacOS/Jidr`, then `Jidr.app`; no `--deep` in the signing step",
+         `MacOS/Jidr`, then `miko simulator.app`; no `--deep` in the signing step",
     );
     evidence.line(
         "Signature (inside-out)",
@@ -1039,7 +1045,7 @@ fn rehearse_install_inner(
     root: &Path,
 ) -> Result<()> {
     std::fs::create_dir_all(root.join("user-home"))?;
-    let install_app = root.join("install/Jidr.app");
+    let install_app = root.join("install/miko simulator.app");
     tool(
         "ditto",
         &[&path_str(mounted_app)?, &path_str(&install_app)?],
@@ -1106,7 +1112,7 @@ fn rehearse_install_inner(
         })
         .unwrap_or_default();
     let before_data = real_data.as_deref().and_then(modified);
-    let before_app = modified(Path::new("/Applications/Jidr.app"));
+    let before_app = modified(Path::new("/Applications/miko simulator.app"));
 
     let log_path = root.join("center.log");
     let log = std::fs::File::create(&log_path)?;
@@ -1217,15 +1223,15 @@ fn rehearse_install_inner(
             "- PASS no real `~/Library/Application Support/Jidr` was created or touched"
         },
     );
-    if before_app != modified(Path::new("/Applications/Jidr.app")) {
-        bail!("/Applications/Jidr.app changed during the rehearsal");
+    if before_app != modified(Path::new("/Applications/miko simulator.app")) {
+        bail!("/Applications/miko simulator.app changed during the rehearsal");
     }
     evidence.line(
         "Isolation",
         if before_app.is_some() {
-            "- PASS `/Applications/Jidr.app` untouched (mtime unchanged)"
+            "- PASS `/Applications/miko simulator.app` untouched (mtime unchanged)"
         } else {
-            "- PASS no `/Applications/Jidr.app` was installed or touched"
+            "- PASS no `/Applications/miko simulator.app` was installed or touched"
         },
     );
     let mcp_changed: Vec<&str> = real_mcp
@@ -1491,7 +1497,7 @@ fn write_rehearsal_report(
     md.push_str(
         "Local rehearsal of the SwiftUI production release chain. It builds, assembles, signs \
          (ad-hoc, because no Developer ID credentials are present), packs, mounts and checks the \
-         same `Jidr.app` + DMG that `cargo xtask release` would produce, then \
+         same `miko simulator.app` + DMG that `cargo xtask release` would produce, then \
          installs, launches and uninstalls it with an isolated `JIDR_HOME`. It writes only under \
          the output directory and `/tmp`, and never touches `/Applications` or the user's real \
          Jidr data.\n\n",
@@ -1957,7 +1963,7 @@ mod tests {
     #[test]
     fn scan_finds_planted_payloads_and_ignores_symlinks() {
         let tmp = std::env::temp_dir().join(format!("jidr-scan-{}", std::process::id()));
-        let app = tmp.join("Jidr.app/Contents");
+        let app = tmp.join("miko simulator.app/Contents");
         std::fs::create_dir_all(app.join("MacOS")).unwrap();
         std::fs::write(app.join("MacOS/Jidr"), [0xcf, 0xfa, 0xed, 0xfe]).unwrap();
         std::fs::write(app.join("Info.plist"), "<?xml").unwrap();
@@ -1980,20 +1986,20 @@ mod tests {
     #[test]
     fn scan_allows_only_the_exact_built_helper_at_its_release_path() {
         let tmp = std::env::temp_dir().join(format!("jidr-helper-scan-{}", std::process::id()));
-        let app = tmp.join("Jidr.app/Contents/Resources/helper/aarch64");
+        let app = tmp.join("miko simulator.app/Contents/Resources/helper/aarch64");
         std::fs::create_dir_all(&app).unwrap();
         let expected = tmp.join("expected-helper");
         std::fs::write(&expected, b"\x7fELF-good").unwrap();
         let shipped = app.join("jidr-helper");
         std::fs::copy(&expected, &shipped).unwrap();
         assert!(
-            scan_tree_with_helper(&tmp.join("Jidr.app"), &expected)
+            scan_tree_with_helper(&tmp.join("miko simulator.app"), &expected)
                 .unwrap()
                 .is_empty()
         );
         std::fs::write(&shipped, b"\x7fELF-other").unwrap();
         assert_eq!(
-            scan_tree_with_helper(&tmp.join("Jidr.app"), &expected)
+            scan_tree_with_helper(&tmp.join("miko simulator.app"), &expected)
                 .unwrap()
                 .len(),
             1
@@ -2085,7 +2091,7 @@ mod tests {
         ] {
             std::fs::write(bin.join(helper), b"test executable").unwrap();
         }
-        let app = temp.join("Jidr.app");
+        let app = temp.join("miko simulator.app");
         assemble_swiftui_app(&root, &bin, &bin.join("center"), &app, "0.3.1").unwrap();
         assert_eq!(
             std::fs::read(app.join("Contents/Resources/device-stopped.png")).unwrap(),

@@ -59,7 +59,7 @@ Requires macOS, Xcode, the pinned Rust toolchain and protoc:
 
 ```bash
 bash apps/jidr-swiftui/build-center.sh
-open target/swiftui-center/Jidr.app
+open target/swiftui-center/miko simulator.app
 ```
 
 The development bundle contains the real CLI, daemon and bridges. A plain launch

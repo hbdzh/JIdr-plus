@@ -262,7 +262,7 @@ func registerBundledFonts(explicitPath: String) {
     var candidates: [String] = []
     if !explicitPath.isEmpty { candidates.append(explicitPath) }
     candidates.append(root.appendingPathComponent("apps/jidr-swiftui/Resources/fonts").path)
-    candidates.append(root.appendingPathComponent("target/swiftui-center/Jidr.app/Contents/Resources/fonts").path)
+    candidates.append(root.appendingPathComponent("target/swiftui-center/miko simulator.app/Contents/Resources/fonts").path)
     for directory in candidates {
         guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory) else { continue }
         let files = names.filter { $0.hasSuffix(".ttf") || $0.hasSuffix(".otf") }.sorted()

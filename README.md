@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="assets/brand/app-icon.svg" width="112" alt="JIdr Plus 图标">
+<img src="assets/brand/app-icon.svg" width="112" alt="miko 模拟器 图标">
 
-# JIdr Plus
+# miko 模拟器
 
 **在 Mac 上运行和管理 Android 设备。**
 
-基于 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr) 开发的开源 Android 模拟器管理工具，面向 Apple Silicon Mac。
+miko simulator 是面向 Apple Silicon Mac 的开源 Android 模拟器管理工具。
 
 <p>
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple%20Silicon-macOS-343A40?style=flat-square&logo=apple&logoColor=white">
@@ -20,7 +20,7 @@
 <p>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/devices-dark.webp">
-    <img src="docs/assets/readme/devices.webp" alt="JIdr Plus 设备中心" width="100%">
+    <img src="docs/assets/readme/devices.webp" alt="miko 模拟器 设备中心" width="100%">
   </picture>
 </p>
 
@@ -73,21 +73,21 @@
 
 需要 **Apple Silicon Mac，macOS 13 或更高版本**。
 
-1. 从 [GitHub Releases](https://github.com/hbdzh/JIdr-plus/releases/latest) 下载 DMG。
+1. 从 [GitHub Releases](https://github.com/hbdzh/miko-simulator/releases/latest) 下载 DMG。
 2. 打开 DMG，将 JIdr 拖入“应用程序”文件夹。
 3. 启动 JIdr，按引导准备 Android SDK 和系统镜像，也可以复用已安装的 Android SDK。
 
 ## AI 与自动化
 
-JIdr Plus 提供 `jidr` 命令行和 MCP 服务。打开「设置 → 智能体」配置 Codex 或 WorkBuddy，命令行和其他客户端的配置方法见 [MCP 使用指南](docs/mcp.md)。
+miko 模拟器 提供 `jidr` 命令行和 MCP 服务。打开「设置 → 智能体」配置 Codex 或 WorkBuddy，命令行和其他客户端的配置方法见 [MCP 使用指南](docs/mcp.md)。
 
 ## 从源码编译
 
 需要 [Rust](https://rustup.rs/)、Xcode 和 `protoc`。
 
 ```bash
-git clone https://github.com/hbdzh/JIdr-plus.git
-cd JIdr-plus
+git clone https://github.com/hbdzh/miko-simulator.git
+cd miko-simulator
 cargo build --release -p jidr
 bash apps/jidr-swiftui/build-center.sh
 ```
@@ -98,4 +98,4 @@ bash apps/jidr-swiftui/build-center.sh
 
 ## 开源与致谢
 
-JIdr Plus 基于 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr) 开发，感谢原项目及其贡献者。Swift/AppKit 界面采用 [GPL-3.0-only](apps/jidr-swiftui/LICENSE-GPL)，Rust 桥、CLI 和后台采用 [Apache-2.0](LICENSE-APACHE)。第三方组件许可见 [NOTICE](NOTICE)。
+miko 模拟器 基于 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr) 开发，感谢原项目及其贡献者。Swift/AppKit 界面采用 [GPL-3.0-only](apps/jidr-swiftui/LICENSE-GPL)，Rust 桥、CLI 和后台采用 [Apache-2.0](LICENSE-APACHE)。第三方组件许可见 [NOTICE](NOTICE)。

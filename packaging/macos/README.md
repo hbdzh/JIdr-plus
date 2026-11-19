@@ -2,7 +2,7 @@
 
 # macOS packaging
 
-`cargo xtask release` (in `xtask/src/release.rs`) builds `Jidr.app`, `Jidr-<version>-arm64.dmg` and the MCP bundle `jidr-mcp-<version>-darwin-arm64.mcpb` from this folder and `../mcp`.
+`cargo xtask release` (in `xtask/src/release.rs`) builds `miko simulator.app`, `miko-simulator-<version>-arm64.dmg` and the MCP bundle `jidr-mcp-<version>-darwin-arm64.mcpb` from this folder and `../mcp`.
 
 | File | What |
 |---|---|
@@ -15,7 +15,7 @@
 Bundle layout:
 
 ```
-Jidr.app/Contents/
+miko simulator.app/Contents/
   Info.plist  PkgInfo
   MacOS/Jidr            GUI (apps/jidr-swiftui, GPL-3.0)
   Helpers/jidr          CLI, daemon and MCP server (apps/jidr, Apache-2.0)

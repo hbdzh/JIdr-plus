@@ -2038,7 +2038,7 @@ final class CenterModel: ObservableObject {
         operation(apk ? "file.install" : "file.push",id:device,params:apk ? ["apk":url.path,"replace":true] : ["local":url.path])
     }
     func screenshot(device:String) {
-        let panel = NSSavePanel(); panel.allowedContentTypes = [.png]; panel.nameFieldStringValue = text("Jidr 截图.png", "Jidr screenshot.png")
+        let panel = NSSavePanel(); panel.allowedContentTypes = [.png]; panel.nameFieldStringValue = text("miko 截图.png", "miko screenshot.png")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         operation("media.screenshot",id:device,params:["path":url.path])
     }
@@ -2060,7 +2060,7 @@ final class CenterModel: ObservableObject {
             }
             return
         }
-        let panel = NSSavePanel(); panel.allowedContentTypes = [.mpeg4Movie]; panel.nameFieldStringValue = text("Jidr 录屏.mp4", "Jidr recording.mp4")
+        let panel = NSSavePanel(); panel.allowedContentTypes = [.mpeg4Movie]; panel.nameFieldStringValue = text("miko 录屏.mp4", "miko recording.mp4")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         guard !FileManager.default.fileExists(atPath:url.path) else { showError(text("录屏文件已存在，请选择新文件名。", "The recording file already exists. Choose a new name.")); return }
         let includeAudio = recordAudio

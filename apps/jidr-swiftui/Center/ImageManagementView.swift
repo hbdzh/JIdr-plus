@@ -67,7 +67,7 @@ struct ImageManagementView: View {
     }
 
     private func sourceLabel(_ image: ManagedSystemImage) -> String {
-        image.source == "external" ? model.text("外部 SDK · 只读", "External SDK · read-only") : model.text("Jidr SDK", "Jidr SDK")
+        image.source == "external" ? model.text("外部 SDK · 只读", "External SDK · read-only") : model.text("miko SDK", "miko SDK")
     }
 
     private func imageRow(_ image: ManagedSystemImage) -> some View {
@@ -177,9 +177,9 @@ struct ImageManagementView: View {
             Button(model.text("取消", "Cancel"), role: .cancel) { target = nil }
             Button(model.text("删除镜像", "Remove image"), role: .destructive) { target = nil; remove(image) }
         } message: { image in
-            Text(model.text("将永久删除此 Jidr SDK 中的镜像：", "Permanently remove this image from the Jidr SDK: ")
+            Text(model.text("将永久删除此 miko SDK 中的镜像：", "Permanently remove this image from the miko SDK: ")
                  + "\nAndroid API \(image.api) · \(Device.imageTagLabel(image.tag)) · \(image.abi)\n\(image.root)\n\n"
-                 + model.text("Jidr 只检查自身设备的使用情况。", "Jidr only checks usage by its own devices."))
+                 + model.text("miko 只检查自身设备的使用情况。", "miko only checks usage by its own devices."))
         }
     }
 }

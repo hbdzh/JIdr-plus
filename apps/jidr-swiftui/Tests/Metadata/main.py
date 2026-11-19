@@ -10,7 +10,7 @@ import tempfile
 root = Path(__file__).resolve().parents[4]
 script = root / "apps/jidr-swiftui/app-metadata.py"
 with tempfile.TemporaryDirectory(prefix="jidr-metadata-test-") as directory:
-    app = Path(directory) / "Jidr.app"
+    app = Path(directory) / "miko simulator.app"
     contents = app / "Contents"
     (contents / "Resources").mkdir(parents=True)
     (contents / "MacOS").mkdir()
@@ -28,7 +28,7 @@ with tempfile.TemporaryDirectory(prefix="jidr-metadata-test-") as directory:
     for mode in [[], ["--development"]]:
         subprocess.run([sys.executable, str(script), str(plist), *mode], check=True)
         original = plistlib.loads(plist.read_bytes())
-        assert original["CFBundleName"] == original["CFBundleDisplayName"] == "Jidr"
+        assert original["CFBundleName"] == original["CFBundleDisplayName"] == "miko simulator"
         assert original["CFBundleExecutable"] == original["CFBundleIconFile"] == "Jidr"
         assert original["CFBundleIdentifier"] == ("local.jidr.swiftui.center" if mode else "ly.jidr.Jidr")
         assert "@VERSION@" not in original.values()
@@ -43,6 +43,10 @@ with tempfile.TemporaryDirectory(prefix="jidr-metadata-test-") as directory:
             plist.write_bytes(plistlib.dumps(broken))
             verify(False)
         plist.write_bytes(plistlib.dumps(original))
+    for locale, name in [("en", "miko simulator"), ("zh-Hans", "miko 模拟器")]:
+        text = (root / f"apps/jidr-swiftui/Resources/{locale}.lproj/InfoPlist.strings").read_text()
+        assert f'"CFBundleName" = "{name}";' in text
+        assert f'"CFBundleDisplayName" = "{name}";' in text
     icon.unlink()
     verify(False)
 print("App name and icon regressions passed")

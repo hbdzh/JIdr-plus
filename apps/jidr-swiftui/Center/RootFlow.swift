@@ -495,11 +495,11 @@ struct FullRootView: View {
             return t("重启设备完成 Root 配置（约 40 秒）。请保持运行；也可以关闭本面板，配置会继续。",
                      "Reboots the device to finish root setup (about 40 s). Leave it running; you can close this sheet.")
         case .grant:
-            return t("Magisk 将要求为 Shell 授予 Root 权限。请在设备窗口中点按“允许”。Jidr 还会等待 \(presentation.grantLeft)；“永久允许”由你决定。",
-                     "Magisk will ask to grant root to Shell. Tap Grant in the device window. Jidr waits \(presentation.grantLeft) more; \"Forever\" is up to you.")
+            return t("Magisk 将要求为 Shell 授予 Root 权限。请在设备窗口中点按“允许”。miko 还会等待 \(presentation.grantLeft)；“永久允许”由你决定。",
+                     "Magisk will ask to grant root to Shell. Tap Grant in the device window. miko waits \(presentation.grantLeft) more; \"Forever\" is up to you.")
         case .success:
-            return t("Jidr 已确认 su 确实以 Root 身份响应，因此才显示“已就绪”。",
-                     "Jidr checked that su really answers as root before saying so.")
+            return t("miko 已确认 su 确实以 Root 身份响应，因此才显示“已就绪”。",
+                     "miko checked that su really answers as root before saying so.")
         case .failed, .unverified, .idle:
             return presentation.detail
         case .stopped:

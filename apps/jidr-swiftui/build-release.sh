@@ -2,7 +2,7 @@
 # Build the SwiftUI device center for the release chain (`cargo xtask release`).
 #
 # The release build is optimised (`swiftc -O`) and writes only the executable:
-# `cargo xtask release` assembles it into Jidr.app next to the release Rust
+# `cargo xtask release` assembles it into miko simulator.app next to the release Rust
 # helpers and the production Resources. Run it directly when you only need to
 # check that the optimised SwiftUI center compiles.
 set -euo pipefail

@@ -148,7 +148,7 @@ struct RootDevToolsView: View {
                         }
                     } else if capabilitiesLoaded {
                         DeviceToolSection {
-                            Label(t("需要更新 Jidr 后台才支持系统 CA 证书。", "Needs a newer Jidr daemon to manage system CA certificates."),
+                            Label(t("需要更新 miko 后台才支持系统 CA 证书。", "Needs a newer miko daemon to manage system CA certificates."),
                                   systemImage: WbIcon.lock)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
@@ -297,7 +297,7 @@ struct RootDevToolsView: View {
     }
 
     private var autoGrantHint: String {
-        if !canAutoGrant { return t("需要更新 Jidr 后台才支持自动授权。", "Needs a newer Jidr daemon.") }
+        if !canAutoGrant { return t("需要更新 miko 后台才支持自动授权。", "Needs a newer miko daemon.") }
         if autoGrant {
             return t("开启：所有请求 Root 的应用都会直接获得权限，不再弹出询问。", "On: every app that asks gets root without a prompt.")
         }
@@ -351,7 +351,7 @@ struct RootDevToolsView: View {
             if !capabilitiesLoaded {
                 HStack { ProgressView().controlSize(.small); Text(t("正在检查后台能力…", "Checking daemon capabilities…")).font(.caption).foregroundStyle(.secondary) }
             } else if !canProps {
-                Text(t("需要更新 Jidr 后台才支持修改构建属性。", "Needs a newer Jidr daemon to edit build props."))
+                Text(t("需要更新 miko 后台才支持修改构建属性。", "Needs a newer miko daemon to edit build props."))
                     .font(.caption).foregroundStyle(.secondary)
             } else if !propsLoaded && props.isEmpty {
                 HStack { ProgressView().controlSize(.small); Text(t("正在读取属性…", "Loading properties…")).font(.caption).foregroundStyle(.secondary) }
@@ -410,7 +410,7 @@ struct RootDevToolsView: View {
                             Button(t("恢复为镜像默认值", "Reset to stock")) {
                                 pending = .init(kind: .saveProps([:], reset: true),
                                                 title: t("恢复镜像默认值？", "Reset to stock values?"),
-                                                detail: t("移除 Jidr 保存的构建属性；下一次启动会冷启动。", "Removes the build props Jidr saved; the next start is a cold boot."))
+                                                detail: t("移除 miko 保存的构建属性；下一次启动会冷启动。", "Removes the build props miko saved; the next start is a cold boot."))
                             }
                             .buttonStyle(.bordered)
                             .disabled(propsSaving)

@@ -439,7 +439,7 @@ final class PlayerTransport: ObservableObject, SyncBridgeTarget {
     func chooseScreenshot() {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
-        panel.nameFieldStringValue = t("Jidr 截图.png", "Jidr screenshot.png", language)
+        panel.nameFieldStringValue = t("miko 截图.png", "miko screenshot.png", language)
         guard panel.runModal() == .OK, let url = panel.url else { return }
         send(["type": "screenshot", "path": url.path])
         onStatus?(t("正在保存截图…", "Saving the screenshot…", language))
@@ -454,7 +454,7 @@ final class PlayerTransport: ObservableObject, SyncBridgeTarget {
         case .idle:
             let panel = NSSavePanel()
             panel.allowedContentTypes = [.mpeg4Movie]
-            panel.nameFieldStringValue = t("Jidr 录屏.mp4", "Jidr recording.mp4", language)
+            panel.nameFieldStringValue = t("miko 录屏.mp4", "miko recording.mp4", language)
             guard panel.runModal() == .OK, let url = panel.url else { return }
             guard !FileManager.default.fileExists(atPath: url.path) else {
                 onStatus?(t("录屏文件已存在，请选择新文件名。", "The recording file already exists. Choose a new name.", language))
@@ -1940,7 +1940,7 @@ final class GameWindowController: NSObject, NSWindowDelegate {
                               styleMask: [.titled, .closable, .miniaturizable, .resizable],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.title = "\(displayName ?? device) — Jidr"
+        window.title = "\(displayName ?? device) — miko simulator"
         window.titleVisibility = .hidden
         window.delegate = self
         // Both chrome regions expose one behind-window native material. The

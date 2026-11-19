@@ -7,7 +7,7 @@ source "$root/apps/jidr-swiftui/swift-target.sh"
 cargo build -p jidr -p jidr-swiftui-bridge
 cargo xtask helper --arch aarch64
 out="${JIDR_CENTER_OUT:-$root/target/swiftui-center}"
-app="$out/Jidr.app"
+app="$out/miko simulator.app"
 mkdir -p "$app/Contents/Resources/helper/aarch64"
 cp "$root/target/jidr-helper/aarch64/jidr-helper" "$app/Contents/Resources/helper/aarch64/jidr-helper"
 mkdir -p "$app/Contents/Resources/licenses" "$app/Contents/MacOS" "$app/Contents/Helpers" "$out/module-cache"
@@ -19,6 +19,8 @@ swiftc -target "$jidr_swift_target" -module-cache-path "$out/module-cache" \
   apps/jidr-swiftui/Center/*.swift \
   -o "$app/Contents/MacOS/Jidr"
 mkdir -p "$app/Contents/Resources/en.lproj" "$app/Contents/Resources/zh-Hans.lproj"
+cp apps/jidr-swiftui/Resources/en.lproj/InfoPlist.strings "$app/Contents/Resources/en.lproj/InfoPlist.strings"
+cp apps/jidr-swiftui/Resources/zh-Hans.lproj/InfoPlist.strings "$app/Contents/Resources/zh-Hans.lproj/InfoPlist.strings"
 cp apps/jidr-swiftui/Resources/en.lproj/Localizable.strings "$app/Contents/Resources/en.lproj/Localizable.strings"
 cp apps/jidr-swiftui/Resources/zh-Hans.lproj/Localizable.strings "$app/Contents/Resources/zh-Hans.lproj/Localizable.strings"
 cp apps/jidr-swiftui/Resources/device-list-generated.png "$app/Contents/Resources/device-list.png"
