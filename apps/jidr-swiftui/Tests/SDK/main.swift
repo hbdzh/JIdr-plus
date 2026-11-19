@@ -167,3 +167,10 @@ precondition(!SDKOnboardingInstallState.shouldDismissAfterSuccess(requested: tru
 precondition(!SDKOnboardingInstallState.shouldDismissAfterSuccess(requested: true, step: 1, succeeded: false, standalone: true))
 precondition(!SDKOnboardingInstallState.shouldDismissAfterSuccess(requested: false, step: 1, succeeded: true, standalone: true))
 precondition(!SDKOnboardingInstallState.shouldDismissAfterSuccess(requested: true, step: 0, succeeded: true, standalone: true))
+
+// Storage errors identify the product while preserving the actual on-disk folder name.
+precondition(OperationMessages.storageError(code: "storage.destination_overlap", message: "", language: 1).contains("miko 模拟器"))
+precondition(OperationMessages.storageError(code: "storage.destination_overlap", message: "", language: 0).contains("miko simulator"))
+precondition(OperationMessages.storageError(code: "storage.destination_exists", message: "", language: 1).contains("Jidr 文件夹"))
+precondition(OperationMessages.error("the Jidr daemon did not start; see /tmp/Jidr/log", language: 0) == "the miko simulator daemon did not start; see /tmp/Jidr/log")
+precondition(OperationMessages.error("Jidr SDK is unavailable", language: 1).contains("miko 模拟器 SDK"))

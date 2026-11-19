@@ -254,7 +254,7 @@ final class RootFlowStore: ObservableObject {
     func copyLog() -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
-        var lines = engine.log.map { "\(formatter.string(from: $0.at))  jidr  \($0.text)" }
+        var lines = engine.log.map { "\(formatter.string(from: $0.at))  miko  \($0.text)" }
         if case .failed(let failure) = engine.outcome {
             lines.append("\(model.text("Root 失败", "Root failed")): \(model.rootFailureReason(failure))")
         }

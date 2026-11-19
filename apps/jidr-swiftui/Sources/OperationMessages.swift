@@ -20,6 +20,13 @@ enum OperationMessages {
         return progress(value,language:language)
     }
     static func error(_ value:String, language:Int) -> String {
+        let product = language == 0 ? "miko simulator" : "miko 模拟器"
+        var value = value
+        for (old, suffix) in [("Jidr daemon", " daemon"), ("Jidr SDK", " SDK"),
+                              ("Jidr storage", " storage"), ("Jidr data directory", " data directory"),
+                              ("Jidr request", " request"), ("Jidr tasks", " tasks")] {
+            value = value.replacingOccurrences(of: old, with: product + suffix)
+        }
         guard language != 0 else { return value }
         let stoppedSuffix = " is not running; start it first"
         if value.hasSuffix(stoppedSuffix) {
@@ -67,8 +74,8 @@ enum OperationMessages {
                     : "所选目录下已存在 Jidr 文件夹，请选择其他位置。"
             case "storage.destination_overlap":
                 return language == 0
-                    ? "The chosen folder cannot overlap the current Jidr storage directory."
-                    : "目标目录不能与当前 Jidr 存储目录重叠。"
+                    ? "The chosen folder cannot overlap the current miko simulator storage directory."
+                    : "目标目录不能与当前 miko 模拟器存储目录重叠。"
             case "storage.insufficient_space":
                 return language == 0
                     ? message

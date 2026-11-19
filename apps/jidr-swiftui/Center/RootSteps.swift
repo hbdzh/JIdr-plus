@@ -248,7 +248,7 @@ enum RootSteps {
             return t("已停止 Root 配置。", "Root setup stopped.")
         case .unverified:
             return t("Shell 未获得 Root 授权，因此无法确认 \(device) 已 Root。请重试并在设备窗口中点按“允许”，或回退到无 Root。数据未受影响。",
-                     "Shell wasn't granted root, so Jidr can't say \(device) is rooted. Try again and tap Grant, or revert to unrooted. Your data is intact.")
+                     "Shell wasn't granted root, so miko simulator can't say \(device) is rooted. Try again and tap Grant, or revert to unrooted. Your data is intact.")
         case .bootTimedOut(let waited):
             if let waited, waited > 0 {
                 return t("\(device) 在重启后未在 \(waited) 秒内完成启动。数据未受影响，原始启动镜像已保留，因此可以回退。",

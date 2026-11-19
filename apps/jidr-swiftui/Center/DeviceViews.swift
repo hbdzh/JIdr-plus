@@ -2038,7 +2038,7 @@ struct SettingsView: View {
                     }
                 }
             }
-        } message: { Text(model.text("将添加或替换 Codex 中的 Jidr MCP 配置，保留其他配置。", "This adds or replaces the Jidr MCP entry in Codex and preserves other settings.")) }
+        } message: { Text(model.text("将添加或替换 Codex 中名为 jidr 的 MCP 配置，保留其他配置。", "This adds or replaces the MCP entry named jidr in Codex and preserves other settings.")) }
         .alert(model.text("配置 WorkBuddy？", "Configure WorkBuddy?"),isPresented:$confirmWorkBuddyConfig) {
             Button(model.text("取消", "Cancel"),role:.cancel) { }
             Button(model.text("配置", "Configure")) {
@@ -2050,7 +2050,7 @@ struct SettingsView: View {
                     message = model.text("无法保存 WorkBuddy 配置：", "Could not save WorkBuddy configuration: ") + OperationMessages.error(error.localizedDescription,language:model.language)
                 }
             }
-        } message: { Text(model.text("将添加或替换 WorkBuddy 中的 Jidr MCP 配置，保留其他配置。", "This adds or replaces the Jidr MCP entry in WorkBuddy and preserves other settings.")) }
+        } message: { Text(model.text("将添加或替换 WorkBuddy 中名为 jidr 的 MCP 配置，保留其他配置。", "This adds or replaces the MCP entry named jidr in WorkBuddy and preserves other settings.")) }
         .alert("清理下载缓存？",isPresented:$confirmCacheClear) {
             Button("取消",role:.cancel) { }
             Button("清理",role:.destructive) {

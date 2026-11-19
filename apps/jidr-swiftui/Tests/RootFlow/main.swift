@@ -82,6 +82,8 @@ assert(failedRows[3] == RootStepRow(kind: .install, state: .skipped, time: ""))
 // Classification of the other endings.
 let grant = RootSteps.failure("root grant to Shell was denied or timed out; tap Grant and try again, or revert", step: .verify, grantSeen: true)
 assert(grant.isUnverified && grant.step == .verify)
+let grantDetail = RootSteps.detail(failure: grant, device: "Test", magisk: "30.7", language: 0)
+assert(grantDetail.contains("miko simulator") && !grantDetail.contains("Jidr"))
 let stopped = RootSteps.failure("cancelled", step: .patch, grantSeen: false)
 assert(stopped.isStopped)
 let su = RootSteps.failure("dev: `su -c id` reported uid 2000, expected 0 (root)", step: .verify, grantSeen: false)
