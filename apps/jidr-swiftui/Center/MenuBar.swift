@@ -206,7 +206,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         add(t("编辑设备…", "Edit Device…"), .edit)
         add(t("管理快照…", "Manage Snapshots…"), .snapshots)
         add(t("文件夹同步…", "Folder Sync…"), .folderSync)
-        add(t("设备工具…", "Device Tools…"), .tools)
+        add(t("工具箱…", "Toolbox…"), .tools)
         add(t("Root 管理…", "Root Management…"), .rootTools)
         menu.addItem(.separator())
         add(t("安装 APK…", "Install APK…"), .installAPK)

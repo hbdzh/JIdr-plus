@@ -228,7 +228,8 @@ struct AllDevicesView: View {
             }
         }
         .padding(12)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+        .background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(WbColor.borderSubtle))
         .accessibilityIdentifier("device-memory-budget")
     }
 
@@ -253,8 +254,8 @@ struct AllDevicesView: View {
             DeviceMoreButton(model: model, device: device).frame(width: 30, height: 28)
         }
         .padding(.horizontal, 14).padding(.vertical, 14)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+        .background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(WbColor.borderSubtle))
         .onAppear { model.loadCardHardware(device.id) }
     }
 
@@ -268,8 +269,8 @@ struct AllDevicesView: View {
             }
         }
         .padding(14).frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+        .background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(WbColor.borderSubtle))
         .onAppear { model.loadCardHardware(device.id) }
     }
 

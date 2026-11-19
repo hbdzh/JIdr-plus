@@ -18,7 +18,7 @@ struct DeviceRootControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: WbSpace.sm) {
-            LabeledContent(t("Root 模式", "Root mode")) {
+            LabeledContent(t("目标模式", "Target mode")) {
                 Picker("", selection: $mode) {
                     Text(t("无", "None")).tag("none")
                     Text("Shell Root").tag("adb")
@@ -28,21 +28,21 @@ struct DeviceRootControls: View {
                 .accessibilityLabel(t("Root 模式", "Root mode"))
                 .disabled(!device.stopped || busy)
             }
-            ActionFlowLayout(spacing: 8) {
-                Button(t("更改模式…", "Change mode…")) { pending = Change(mode: mode) }
-                    .disabled(!device.stopped || busy || mode == device.root.mode)
-                if device.root.mode == "magisk" {
-                    Button(t("设置或修复完整 Root…", "Set up or repair Full Root…")) { pending = Change(mode: nil) }
-                        .disabled(busy)
-                    Button(t("恢复为无 Root…", "Revert to no Root…"), role: .destructive) { pending = Change(mode: "none") }
-                        .disabled(!device.stopped || busy)
-                }
-            }
-            .buttonStyle(.bordered).controlSize(.regular)
             Text(device.stopped
                  ? t("更改模式可能需要冷启动，并影响快照兼容性。", "Changing modes may require a cold boot and affect snapshot compatibility.")
                  : t("停止设备后可更改 Root 模式。", "Stop the device to change its Root mode."))
-                .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            DeviceToolActions {
+                if device.root.mode == "magisk" {
+                    Button(t("恢复为无 Root…", "Revert to no Root…"), role: .destructive) { pending = Change(mode: "none") }
+                        .disabled(!device.stopped || busy)
+                    Button(t("设置或修复完整 Root…", "Set up or repair Full Root…")) { pending = Change(mode: nil) }
+                        .disabled(busy)
+                }
+                Button(t("更改模式…", "Change mode…")) { pending = Change(mode: mode) }
+                    .disabled(!device.stopped || busy || mode == device.root.mode)
+            }
         }
         .onAppear { mode = device.root.mode }
         .onChange(of: device.root.mode) { mode = $0 }

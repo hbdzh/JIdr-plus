@@ -48,7 +48,7 @@ struct MicrophoneToolsView: View {
                        "Plays an audio file. It does not use the Mac's live microphone. Playback continues when this panel closes; reopen it to stop."))
                     .foregroundStyle(WbColor.textSecondary).fixedSize(horizontal: false, vertical: true)
                 if device?.launch.audio == false {
-                    Label(t("设备声音已关闭，请先在设备设置中开启并重启。", "Device audio is disabled. Enable it in device settings and restart first."), systemImage: WbIcon.info)
+                    Label(t("设备声音已关闭，请先在设备配置中开启并重启。", "Device audio is disabled. Enable it in device settings and restart first."), systemImage: WbIcon.info)
                 }
                 if device?.running != true {
                     Text(t("启动设备后可播放音频文件。", "Start the device to play an audio file."))

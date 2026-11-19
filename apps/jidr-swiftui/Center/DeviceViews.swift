@@ -148,7 +148,7 @@ struct EditDeviceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            DeviceSheetHeader(title: model.text("设备设置", "Device settings"),
+            DeviceSheetHeader(title: model.text("设备配置", "Device settings"),
                               subtitle: details.device.name)
             Form {
                 Section {
@@ -239,7 +239,7 @@ struct EditDeviceView: View {
 
                 Section(model.text("外设", "Peripherals")) {
                     LabeledContent(model.text("摄像头", "Cameras")) {
-                        Button(model.text("在设备工具中设置…", "Configure in device tools…")) {
+                        Button(model.text("在工具箱中设置…", "Configure in toolbox…")) {
                             model.openAdvanced(details.device.id, name: details.device.name,
                                                section: 8, relativeTo: NSApp.keyWindow)
                         }.disabled(saving)
@@ -393,7 +393,7 @@ struct EditDeviceView: View {
             case .failure(.quality(let failure)):
                 error = (changes.isEmpty
                     ? model.text("画质未能保存，请重试。", "Quality could not be saved. Try again.")
-                    : model.text("设备设置已保存，但画质未能保存，请重试。", "Device settings were saved, but quality could not be saved. Try again."))
+                    : model.text("设备配置已保存，但画质未能保存，请重试。", "Device settings were saved, but quality could not be saved. Try again."))
                     + "\n" + failure.localizedDescription
             }
         })
@@ -805,7 +805,7 @@ struct NewDeviceView: View {
     private func applyProfile(_ id: String) {
         guard let value = profiles.first(where: { $0.id == id }) else { return }
         ram = String(value.ram_mb); cpus = String(value.cpus)
-        storage = String(max(2, value.data_mb / 1024)); audio = value.audio
+        storage = String(max(2, value.data_mb / 1024))
     }
     private func loadImages(preferredImageID: String? = nil, onComplete: @escaping (Bool) -> Void = { _ in }) {
         imagesLoaded = false
@@ -1964,10 +1964,17 @@ struct SettingsView: View {
             switch result {
             case .success(let info):
                 let sizeText = ByteCountFormatter.string(fromByteCount: Int64(clamping: info.bytes), countStyle: .file)
-                message = model.text(
-                    "设备数据已迁移至 \(info.data)（\(info.files) 个文件，\(sizeText)）。旧位置 \(info.previous_data) 已保留作备份。",
-                    "Device data migrated to \(info.data) (\(info.files) files, \(sizeText)). The previous folder at \(info.previous_data) was kept as a backup."
-                )
+                if info.source_cleaned == false {
+                    message = model.text(
+                        "设备数据已迁移至 \(info.data)（\(info.files) 个文件，\(sizeText)），但未能自动清理旧目录 \(info.previous_data)，请手动删除以释放空间。",
+                        "Device data migrated to \(info.data) (\(info.files) files, \(sizeText)), but the previous folder at \(info.previous_data) could not be removed automatically. Delete it manually to free space."
+                    )
+                } else {
+                    message = model.text(
+                        "设备数据已迁移至 \(info.data)（\(info.files) 个文件，\(sizeText)），原目录 \(info.previous_data) 已清理。",
+                        "Device data migrated to \(info.data) (\(info.files) files, \(sizeText)), and the previous folder at \(info.previous_data) was removed."
+                    )
+                }
                 load()
             case .failure(let error):
                 message = storageErrorMessage(error)
@@ -2067,8 +2074,8 @@ struct SettingsView: View {
             let currentSize = ByteCountFormatter.string(fromByteCount: Int64(clamping: estimate.source_bytes), countStyle: .file)
             let requiredSize = ByteCountFormatter.string(fromByteCount: Int64(clamping: estimate.required_bytes), countStyle: .file)
             Text(model.text(
-                "将把现有设备、镜像数据与设置复制并校验到：\n\(estimate.destination)\n\n当前大小 \(currentSize)，至少需要 \(requiredSize)。原有目录会保留作备份，如有运行中的设备会先停止。",
-                "Existing devices, disk images and settings will be copied and verified to:\n\(estimate.destination)\n\nCurrent size: \(currentSize), required space: \(requiredSize). The original folder is kept as a backup; running devices will be stopped first."
+                "将把现有设备、镜像数据与设置复制并校验到：\n\(estimate.destination)\n\n当前大小 \(currentSize)，至少需要 \(requiredSize)。迁移并校验成功后将删除原目录以释放空间，如有运行中的设备会先停止。",
+                "Existing devices, disk images and settings will be copied and verified to:\n\(estimate.destination)\n\nCurrent size: \(currentSize), required space: \(requiredSize). After copying and verification succeed, the original folder will be removed to free space; running devices will be stopped first."
             ))
         }
     }
@@ -3131,8 +3138,8 @@ struct CenterView: View {
         } detail: {
             libraryDetail
                 .background(centerSurface, ignoresSafeAreaEdges: [.top, .bottom, .trailing])
+                .overlay(alignment: .bottom) { libraryToast }
         }
-        .overlay(alignment: .bottomTrailing) { libraryToast }
     }
 
     private var libraryDetail: some View {
@@ -3154,7 +3161,8 @@ struct CenterView: View {
     @ViewBuilder private var libraryToast: some View {
         if !model.isEmptyDeviceLibrary, let toast = model.toast {
             ToastOverlay(toast: toast) { model.dismissToast() }
-                .frame(maxWidth: 440).padding()
+                .frame(maxWidth: 440)
+                .padding(.horizontal, WbSpace.lg)
         }
     }
 

@@ -119,7 +119,8 @@ enum OperationMessages {
             "Booted":"设备已就绪",
             "Stopping background service":"正在停止后台服务",
             "Copying and verifying device data":"正在复制并校验设备数据",
-            "Switching data location":"正在切换数据目录"
+            "Switching data location":"正在切换数据目录",
+            "Cleaning up previous data":"正在清理原数据目录"
         ]
         if let translated = known[value] { return translated }
         let slowSuffix = "; slow when the Mac is busy)"

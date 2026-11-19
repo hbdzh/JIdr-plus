@@ -361,7 +361,7 @@ struct SnapshotsView: View {
             return
         }
         guard running else {
-            model.notice = t("手动恢复需先启动设备；快速启动遵循设备设置。", "Start the device for manual restore. Quick boot follows device settings.")
+            model.notice = t("手动恢复需先启动设备；快速启动遵循设备配置。", "Start the device for manual restore. Quick boot follows device settings.")
             return
         }
         alertItem = .restore(snapshot)

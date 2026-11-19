@@ -3,11 +3,11 @@
 use jidr_core::{HardwareProfile, JidrError, JidrResult};
 
 const BUILTIN: &[&str] = &[
+    include_str!("../../../assets/profiles/agent-lean.toml"),
+    include_str!("../../../assets/profiles/small-phone-5.toml"),
     include_str!("../../../assets/profiles/phone-6.1-fhd.toml"),
     include_str!("../../../assets/profiles/phone-6.7-qhd.toml"),
-    include_str!("../../../assets/profiles/small-phone-5.toml"),
     include_str!("../../../assets/profiles/tablet-11.toml"),
-    include_str!("../../../assets/profiles/agent-lean.toml"),
 ];
 
 /// The built-in profiles; the first one is the default.
@@ -32,10 +32,12 @@ pub fn find(id: &str) -> JidrResult<HardwareProfile> {
 }
 
 pub fn default_profile() -> JidrResult<HardwareProfile> {
-    builtin()
-        .into_iter()
-        .next()
-        .ok_or_else(|| JidrError::unexpected("no built-in profiles"))
+    find("phone-6.1-fhd").or_else(|_| {
+        builtin()
+            .into_iter()
+            .next()
+            .ok_or_else(|| JidrError::unexpected("no built-in profiles"))
+    })
 }
 
 #[cfg(test)]

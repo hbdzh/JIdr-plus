@@ -723,6 +723,22 @@ async fn main() -> Result<()> {
                             .map_err(classify_storage_io_error)?;
                     let pointer = jidr_core::paths::default_location_file()?;
                     jidr_core::paths::write_location_file(&pointer, &location)?;
+                    drop(barrier);
+                    drop(lease);
+                    send(json!({
+                        "id": id,
+                        "type": "progress",
+                        "job": null,
+                        "message": "Cleaning up previous data",
+                        "progress": 0.95
+                    }));
+                    let cleanup_error = jidr_sdk::migration::cleanup_source_after_activation(
+                        &pre.source,
+                        &location,
+                        &pointer,
+                    )
+                    .err()
+                    .map(|error| error.to_string());
                     let next_paths = JidrPaths::under(&location.root);
                     Ok(json!({
                         "root": location.root,
@@ -733,6 +749,8 @@ async fn main() -> Result<()> {
                         "files": prepared.data.files,
                         "bytes": prepared.data.bytes,
                         "qcow_disks": prepared.qcow_disks,
+                        "source_cleaned": cleanup_error.is_none(),
+                        "cleanup_error": cleanup_error,
                     }))
                 })
                 .await

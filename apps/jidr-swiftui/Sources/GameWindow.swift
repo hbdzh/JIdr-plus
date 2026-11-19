@@ -3,6 +3,7 @@ import AppKit
 import Combine
 import CoreGraphics
 import Foundation
+import QuartzCore
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -45,6 +46,10 @@ final class PlayerTransport: ObservableObject, SyncBridgeTarget {
     // MARK: Operation recordings (docs/player-scripts.md)
     enum ScriptRecordingState: Equatable { case idle, recording, paused }
     enum ScriptPlaybackState: Equatable { case idle, playing, paused }
+    enum GamepadState: Equatable { case disconnected, connecting, connected }
+
+    @Published var gamepadState: GamepadState = .disconnected
+    var onToggleGamepad: (() -> Void)?
 
     /// Scripts listed by the bridge (`script_list` / `saved` notifications).
     @Published private(set) var scripts: [PlayerScriptSummary] = []
@@ -986,10 +991,17 @@ final class PlayerTransport: ObservableObject, SyncBridgeTarget {
 final class ScreenView: NSView, NSTextInputClient {
     var transport: PlayerTransport?
     var image: CGImage? { didSet { needsDisplay = true } }
+    private enum EditingDrag {
+        case binding(key: String, rotation: Int, start: NSPoint, moved: Bool)
+        case joystick(index: Int, start: NSPoint, moved: Bool)
+    }
     private var rotation = 0
     private var mappedKeys: [UInt16: (id: Int, x: Double, y: Double)] = [:]
+    private var activeJoysticks: [Int: (id: Int, x: Double, y: Double, held: Set<JoystickDirection>)] = [:]
+    private var activeJoystickKeys: [UInt16: (index: Int, direction: JoystickDirection)] = [:]
+    private var editingDrag: EditingDrag?
     func present(_ frame: CGImage, rotation next: Int) {
-        if rotation != next { releaseMappedKeys(); transport?.mapping.rotationChanged(); rotation = next }
+        if rotation != next { releaseMappedKeys(); rotation = next; transport?.mapping.rotationChanged(to: next) }
         image = frame
     }
     private var marked = NSMutableAttributedString(string: "")
@@ -1042,7 +1054,12 @@ final class ScreenView: NSView, NSTextInputClient {
     deinit { if let windowObserver { NotificationCenter.default.removeObserver(windowObserver) } }
 
     private var imageRect: NSRect {
-        guard let image, image.width > 0, image.height > 0 else { return .zero }
+        guard let image, image.width > 0, image.height > 0, bounds.width > 0, bounds.height > 0 else { return .zero }
+        let imageAspect = CGFloat(image.width) / CGFloat(image.height)
+        let boundsAspect = bounds.width / bounds.height
+        if abs(boundsAspect - imageAspect) / imageAspect < 0.01 {
+            return bounds
+        }
         let scale = min(bounds.width / CGFloat(image.width), bounds.height / CGFloat(image.height))
         let size = NSSize(width: CGFloat(image.width) * scale, height: CGFloat(image.height) * scale)
         return NSRect(x: (bounds.width - size.width) / 2, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
@@ -1063,14 +1080,78 @@ final class ScreenView: NSView, NSTextInputClient {
             transport?.onFrameDrawn?()
         }
         if let mapping = transport?.mapping {
+            let markerFont = WbFontResolver.nsFont(family: WbType.label.family, weight: .semibold, size: WbType.label.size)
+            let joystickFont = WbFontResolver.nsFont(family: WbType.caption.family, weight: .semibold, size: WbType.caption.size)
+            let markerAlpha = CGFloat(mapping.editing ? max(0.75, mapping.markerOpacity) : mapping.markerOpacity)
+            let labelAlpha = min(1.0, markerAlpha + 0.15)
+            let rect = imageRect
+            let shortSide = min(rect.width, rect.height)
+            for (index, joystick) in mapping.visibleJoysticks.enumerated() where joystick.rotation == rotation {
+                let c = NSPoint(x: rect.minX + rect.width * joystick.x, y: rect.minY + rect.height * joystick.y)
+                let r = max(20, shortSide * joystick.radius)
+                let circle = NSRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
+                NSColor(white: 0.14, alpha: markerAlpha * 0.56).setFill()
+                let ringPath = NSBezierPath(ovalIn: circle)
+                ringPath.fill()
+                ringPath.lineWidth = 1.5
+                NSColor.white.withAlphaComponent(markerAlpha * 0.78).setStroke()
+                ringPath.stroke()
+                if mapping.editing && mapping.selectedJoystickIndex == index {
+                    let selectedRing = NSBezierPath(ovalIn: circle.insetBy(dx: -2, dy: -2))
+                    selectedRing.lineWidth = 2.5
+                    NSColor(WbColor.accent).setStroke()
+                    selectedRing.stroke()
+                }
+                let centerDot = NSRect(x: c.x - 4, y: c.y - 4, width: 8, height: 8)
+                NSColor.white.withAlphaComponent(min(1.0, markerAlpha * 0.9)).setFill()
+                NSBezierPath(ovalIn: centerDot).fill()
+                let offset = r * 0.62
+                let labels: [(String, NSPoint)] = [
+                    (joystick.up, NSPoint(x: c.x, y: c.y - offset)),
+                    (joystick.down, NSPoint(x: c.x, y: c.y + offset)),
+                    (joystick.left, NSPoint(x: c.x - offset, y: c.y)),
+                    (joystick.right, NSPoint(x: c.x + offset, y: c.y)),
+                ]
+                let attrs: [NSAttributedString.Key: Any] = [.font: joystickFont, .foregroundColor: NSColor.white.withAlphaComponent(labelAlpha)]
+                for (rawKey, pos) in labels {
+                    let label = MappingKey.displayLabel(rawKey)
+                    let size = label.size(withAttributes: attrs)
+                    label.draw(at: NSPoint(x: pos.x - size.width / 2, y: pos.y - size.height / 2), withAttributes: attrs)
+                }
+            }
             for binding in mapping.visibleBindings where binding.rotation == rotation {
-                let p = NSPoint(x: imageRect.minX + imageRect.width * binding.x, y: imageRect.minY + imageRect.height * binding.y)
+                let p = NSPoint(x: rect.minX + rect.width * binding.x, y: rect.minY + rect.height * binding.y)
                 let circle = NSRect(x: p.x - 17, y: p.y - 17, width: 34, height: 34)
-                NSColor(WbColor.accentContainer).withAlphaComponent(0.85).setFill()
-                NSBezierPath(ovalIn: circle).fill()
-                let label = binding.key == "SPACE" ? "SPC" : binding.key
-                let markerFont = WbFontResolver.nsFont(family: WbType.label.family, weight: .semibold, size: WbType.label.size)
+                NSColor(white: 0.14, alpha: markerAlpha * 0.78).setFill()
+                let oval = NSBezierPath(ovalIn: circle)
+                oval.fill()
+                oval.lineWidth = 1.5
+                NSColor.white.withAlphaComponent(markerAlpha * 0.85).setStroke()
+                oval.stroke()
+                if mapping.editing && mapping.selectedKey == binding.key {
+                    let ring = NSBezierPath(ovalIn: circle.insetBy(dx: -2, dy: -2))
+                    ring.lineWidth = 2.5
+                    NSColor(WbColor.accent).setStroke()
+                    ring.stroke()
+                }
+                let label = MappingKey.displayLabel(binding.key)
+                let attrs: [NSAttributedString.Key: Any] = [.font: markerFont, .foregroundColor: NSColor.white.withAlphaComponent(labelAlpha)]
+                let size = label.size(withAttributes: attrs)
+                label.draw(at: NSPoint(x: p.x - size.width / 2, y: p.y - size.height / 2), withAttributes: attrs)
+            }
+            if mapping.editing, let pending = mapping.pendingPoint, pending.rotation == rotation {
+                let p = NSPoint(x: rect.minX + rect.width * pending.x, y: rect.minY + rect.height * pending.y)
+                let circle = NSRect(x: p.x - 17, y: p.y - 17, width: 34, height: 34)
+                NSColor(WbColor.accent).withAlphaComponent(0.28).setFill()
+                let path = NSBezierPath(ovalIn: circle)
+                path.fill()
+                path.lineWidth = 2
+                let dashes: [CGFloat] = [4, 3]
+                path.setLineDash(dashes, count: dashes.count, phase: 0)
+                NSColor(WbColor.accent).setStroke()
+                path.stroke()
                 let attrs: [NSAttributedString.Key: Any] = [.font: markerFont, .foregroundColor: NSColor(WbColor.textOnAccent)]
+                let label = "?"
                 let size = label.size(withAttributes: attrs)
                 label.draw(at: NSPoint(x: p.x - size.width / 2, y: p.y - size.height / 2), withAttributes: attrs)
             }
@@ -1111,6 +1192,43 @@ final class ScreenView: NSView, NSTextInputClient {
         transport?.send(["type": "mapped_touch", "id": PlayerTouch.secondFingerID,
                          "x": point.x, "y": point.y, "down": down])
     }
+    private func clampedNormalizedPoint(_ point: NSPoint) -> (Double, Double)? {
+        let rect = imageRect
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        return (Double(min(1, max(0, (point.x - rect.minX) / rect.width))),
+                Double(min(1, max(0, (point.y - rect.minY) / rect.height))))
+    }
+    private func bindingHit(at point: NSPoint) -> MappingBinding? {
+        let rect = imageRect
+        guard rect.width > 0, rect.height > 0, let mapping = transport?.mapping else { return nil }
+        return mapping.visibleBindings.reversed().first { binding in
+            guard binding.rotation == rotation else { return false }
+            let center = NSPoint(x: rect.minX + rect.width * binding.x, y: rect.minY + rect.height * binding.y)
+            return hypot(point.x - center.x, point.y - center.y) <= 19
+        }
+    }
+    private func joystickHit(at point: NSPoint) -> Int? {
+        let rect = imageRect
+        let shortSide = min(rect.width, rect.height)
+        guard rect.width > 0, rect.height > 0, let mapping = transport?.mapping else { return nil }
+        for (index, joystick) in mapping.visibleJoysticks.enumerated().reversed() where joystick.rotation == rotation {
+            let center = NSPoint(x: rect.minX + rect.width * joystick.x, y: rect.minY + rect.height * joystick.y)
+            let r = max(20, shortSide * joystick.radius)
+            if hypot(point.x - center.x, point.y - center.y) <= r + 6 {
+                return index
+            }
+        }
+        return nil
+    }
+    private func nextTouchID() -> Int? {
+        let used = Set(mappedKeys.values.map(\.id)).union(activeJoysticks.values.map(\.id))
+        return (3...9).first { !used.contains($0) }
+    }
+    private var imageAspect: Double {
+        if let image, image.height > 0 { return Double(image.width) / Double(image.height) }
+        let rect = imageRect
+        return rect.height > 0 ? Double(rect.width / rect.height) : 1.0
+    }
     override func mouseDown(with event: NSEvent) {
         guard !scriptPlaybackActive else { return }
         if syncFollowerLocked {
@@ -1121,8 +1239,24 @@ final class ScreenView: NSView, NSTextInputClient {
         let point = convert(event.locationInWindow, from: nil)
         guard imageRect.contains(point) else { return }
         if let mapping = transport?.mapping, mapping.editing {
-            mapping.place(x: Double((point.x - imageRect.minX) / imageRect.width), y: Double((point.y - imageRect.minY) / imageRect.height), rotation: rotation)
-            transport?.onStatus?("请按一个字母、数字或空格绑定")
+            let lang = transport?.language ?? 1
+            if let hit = bindingHit(at: point), mapping.select(key: hit.key, rotation: rotation) {
+                editingDrag = .binding(key: hit.key, rotation: rotation, start: point, moved: false)
+            } else if let idx = joystickHit(at: point), mapping.selectJoystick(at: idx) {
+                editingDrag = .joystick(index: idx, start: point, moved: false)
+            } else if let (nx, ny) = clampedNormalizedPoint(point) {
+                editingDrag = nil
+                if mapping.placementMode == .joystick {
+                    if mapping.addJoystick(x: nx, y: ny, rotation: rotation, preset: .wasd)
+                        || mapping.addJoystick(x: nx, y: ny, rotation: rotation, preset: .arrows) {
+                        mapping.placementMode = .tap
+                    } else {
+                        transport?.onStatus?(t("WASD 和方向键均已被占用", "WASD and arrow keys are already bound", lang))
+                    }
+                } else {
+                    mapping.place(x: nx, y: ny, rotation: rotation)
+                }
+            }
             return
         }
         gesture = PlayerGesture.from(option: event.modifierFlags.contains(.option),
@@ -1136,6 +1270,28 @@ final class ScreenView: NSView, NSTextInputClient {
         sendTouch(event, down: true)
     }
     override func mouseDragged(with event: NSEvent) {
+        if let mapping = transport?.mapping, mapping.editing, let drag = editingDrag {
+            let point = convert(event.locationInWindow, from: nil)
+            switch drag {
+            case .binding(let key, let rot, let start, var moved):
+                if moved || hypot(point.x - start.x, point.y - start.y) >= 3 {
+                    moved = true
+                    editingDrag = .binding(key: key, rotation: rot, start: start, moved: moved)
+                    if let (nx, ny) = clampedNormalizedPoint(point) {
+                        _ = mapping.move(key: key, rotation: rot, x: nx, y: ny)
+                    }
+                }
+            case .joystick(let idx, let start, var moved):
+                if moved || hypot(point.x - start.x, point.y - start.y) >= 3 {
+                    moved = true
+                    editingDrag = .joystick(index: idx, start: start, moved: moved)
+                    if let (nx, ny) = clampedNormalizedPoint(point) {
+                        _ = mapping.moveJoystick(at: idx, x: nx, y: ny)
+                    }
+                }
+            }
+            return
+        }
         guard dragging, !inputBlocked else { return }
         if secondFingerDown, let second = secondFingerPoint(event) {
             secondFinger = second
@@ -1144,6 +1300,10 @@ final class ScreenView: NSView, NSTextInputClient {
         sendTouch(event, down: true)
     }
     override func mouseUp(with event: NSEvent) {
+        if let mapping = transport?.mapping, mapping.editing, editingDrag != nil {
+            editingDrag = nil
+            return
+        }
         if inputBlocked { clearHeldInputState(); return }
         guard dragging else { return }
         if secondFingerDown, let second = secondFinger {
@@ -1155,9 +1315,30 @@ final class ScreenView: NSView, NSTextInputClient {
         secondFinger = nil
         gesture = .single
     }
+    override func rightMouseDown(with event: NSEvent) {
+        guard let mapping = transport?.mapping, mapping.editing else {
+            super.rightMouseDown(with: event)
+            return
+        }
+        window?.makeFirstResponder(self)
+        let point = convert(event.locationInWindow, from: nil)
+        let lang = transport?.language ?? 1
+        if let hit = bindingHit(at: point) {
+            if mapping.remove(key: hit.key, rotation: rotation) {
+                transport?.onStatus?(t("已删除键位 ", "Removed ", lang) + MappingKey.displayLabel(hit.key))
+            }
+            return
+        }
+        if let idx = joystickHit(at: point), mapping.removeJoystick(at: idx) {
+            transport?.onStatus?(t("已删除摇杆", "Removed joystick", lang))
+        }
+    }
     private func releaseMappedKeys() {
         for value in mappedKeys.values { transport?.send(["type": "mapped_touch", "id": value.id, "x": value.x, "y": value.y, "down": false]) }
         mappedKeys.removeAll()
+        for state in activeJoysticks.values { transport?.send(["type": "mapped_touch", "id": state.id, "x": state.x, "y": state.y, "down": false]) }
+        activeJoysticks.removeAll()
+        activeJoystickKeys.removeAll()
     }
     /// Playback owns input in the bridge. The view stops sending ordinary input
     /// while a script plays; held state is dropped locally without sending
@@ -1181,6 +1362,9 @@ final class ScreenView: NSView, NSTextInputClient {
 
     private func clearHeldInputState() {
         mappedKeys.removeAll()
+        activeJoysticks.removeAll()
+        activeJoystickKeys.removeAll()
+        editingDrag = nil
         dragging = false
         secondFingerDown = false
         secondFinger = nil
@@ -1236,21 +1420,48 @@ final class ScreenView: NSView, NSTextInputClient {
             transport?.showSyncLockedHint()
             return
         }
-        if let mapping = transport?.mapping, !event.modifierFlags.contains(.command), !event.modifierFlags.contains(.control), !event.modifierFlags.contains(.option) {
-            let raw = event.charactersIgnoringModifiers ?? ""
-            let key = raw == " " ? "SPACE" : raw.uppercased()
-            if mapping.editing {
-                if mapping.pending && mapping.assign(key) { transport?.onStatus?("已绑定 \(key)") }
-                else if mapping.pending { transport?.onStatus?("请使用字母、数字或空格") }
+        if let mapping = transport?.mapping, mapping.editing {
+            let lang = transport?.language ?? 1
+            if event.keyCode == 53 {
+                mapping.clearSelection()
                 return
             }
-            if mappedKeys[event.keyCode] != nil { return }
-            if mapping.enabled, let binding = mapping.scheme.bindings.first(where: { $0.key == key && $0.rotation == rotation }) {
-                guard let id = (3...9).first(where: { id in !mappedKeys.values.contains(where: { $0.id == id }) }) else { return }
-                mappedKeys[event.keyCode] = (id, binding.x, binding.y)
-                transport?.noteInput()
-                transport?.send(["type": "mapped_touch", "id": id, "x": binding.x, "y": binding.y, "down": true])
+            if event.keyCode == 51 || event.keyCode == 117 {
+                if let selected = mapping.selectedKey, mapping.remove(key: selected, rotation: rotation) {
+                    transport?.onStatus?(t("已删除键位 ", "Removed ", lang) + MappingKey.displayLabel(selected))
+                } else if let idx = mapping.selectedJoystickIndex, mapping.removeJoystick(at: idx) {
+                    transport?.onStatus?(t("已删除摇杆", "Removed joystick", lang))
+                }
                 return
+            }
+            if !event.modifierFlags.contains(.command), !event.modifierFlags.contains(.control), !event.modifierFlags.contains(.option) {
+                if mapping.pending || mapping.selectedKey != nil {
+                    if let key = MappingKey.normalize(keyCode: event.keyCode, charactersIgnoringModifiers: event.charactersIgnoringModifiers),
+                       mapping.assign(key) {
+                        transport?.onStatus?(t("已绑定 ", "Bound ", lang) + MappingKey.displayLabel(key))
+                    } else {
+                        transport?.onStatus?(t("请使用字母、数字、方向键或常用按键", "Use a letter, digit, arrow, or standard key", lang))
+                    }
+                }
+                return
+            }
+        }
+        if let mapping = transport?.mapping, !event.modifierFlags.contains(.command), !event.modifierFlags.contains(.control), !event.modifierFlags.contains(.option) {
+            if mappedKeys[event.keyCode] != nil || activeJoystickKeys[event.keyCode] != nil { return }
+            if mapping.enabled,
+               let key = MappingKey.normalize(keyCode: event.keyCode, charactersIgnoringModifiers: event.charactersIgnoringModifiers) {
+                if let binding = mapping.scheme.bindings.first(where: { $0.key == key && $0.rotation == rotation }) {
+                    guard let id = nextTouchID() else { return }
+                    mappedKeys[event.keyCode] = (id, binding.x, binding.y)
+                    transport?.noteInput()
+                    transport?.send(["type": "mapped_touch", "id": id, "x": binding.x, "y": binding.y, "down": true])
+                    return
+                }
+                for (index, joystick) in mapping.scheme.joysticks.enumerated() where joystick.rotation == rotation {
+                    guard let direction = joystick.direction(for: key) else { continue }
+                    handleJoystickKeyDown(keyCode: event.keyCode, index: index, joystick: joystick, direction: direction)
+                    return
+                }
             }
         }
         if event.isARepeat && pressedKeys[event.keyCode] != nil { return }
@@ -1276,9 +1487,51 @@ final class ScreenView: NSView, NSTextInputClient {
         interpretKeyEvents([event])
         pendingKey = nil
     }
+    private func handleJoystickKeyDown(keyCode: UInt16, index: Int, joystick: JoystickBinding, direction: JoystickDirection) {
+        if var state = activeJoysticks[index] {
+            state.held.insert(direction)
+            let target = joystick.target(for: state.held, aspectWidthOverHeight: imageAspect)
+            state.x = target.x
+            state.y = target.y
+            activeJoysticks[index] = state
+            activeJoystickKeys[keyCode] = (index, direction)
+            transport?.noteInput()
+            transport?.send(["type": "mapped_touch", "id": state.id, "x": target.x, "y": target.y, "down": true])
+            return
+        }
+        guard let id = nextTouchID() else { return }
+        let held: Set<JoystickDirection> = [direction]
+        let target = joystick.target(for: held, aspectWidthOverHeight: imageAspect)
+        activeJoysticks[index] = (id, target.x, target.y, held)
+        activeJoystickKeys[keyCode] = (index, direction)
+        transport?.noteInput()
+        // Touch down at center first so dynamic/floating joysticks anchor cleanly.
+        transport?.send(["type": "mapped_touch", "id": id, "x": joystick.x, "y": joystick.y, "down": true])
+        if target.x != joystick.x || target.y != joystick.y {
+            transport?.send(["type": "mapped_touch", "id": id, "x": target.x, "y": target.y, "down": true])
+        }
+    }
+    private func handleJoystickKeyUp(keyCode: UInt16) -> Bool {
+        guard let entry = activeJoystickKeys.removeValue(forKey: keyCode) else { return false }
+        guard var state = activeJoysticks[entry.index] else { return true }
+        state.held.remove(entry.direction)
+        if state.held.isEmpty {
+            activeJoysticks.removeValue(forKey: entry.index)
+            transport?.send(["type": "mapped_touch", "id": state.id, "x": state.x, "y": state.y, "down": false])
+        } else if let mapping = transport?.mapping, mapping.scheme.joysticks.indices.contains(entry.index) {
+            let joystick = mapping.scheme.joysticks[entry.index]
+            let target = joystick.target(for: state.held, aspectWidthOverHeight: imageAspect)
+            state.x = target.x
+            state.y = target.y
+            activeJoysticks[entry.index] = state
+            transport?.send(["type": "mapped_touch", "id": state.id, "x": target.x, "y": target.y, "down": true])
+        }
+        return true
+    }
     override func keyUp(with event: NSEvent) {
         if inputBlocked {
             _ = mappedKeys.removeValue(forKey: event.keyCode)
+            _ = activeJoystickKeys.removeValue(forKey: event.keyCode)
             _ = pressedKeys.removeValue(forKey: event.keyCode)
             return
         }
@@ -1286,6 +1539,7 @@ final class ScreenView: NSView, NSTextInputClient {
             transport?.send(["type": "mapped_touch", "id": value.id, "x": value.x, "y": value.y, "down": false])
             return
         }
+        if handleJoystickKeyUp(keyCode: event.keyCode) { return }
         if let key = pressedKeys.removeValue(forKey: event.keyCode) { transport?.send(["type": "key", "key": key, "down": false]) }
     }
     func insertText(_ string: Any, replacementRange: NSRange) {
@@ -1354,6 +1608,7 @@ struct PlayerView: NSViewRepresentable {
 }
 
 private let sidebarWidth: CGFloat = WbLayout.windowDeviceToolbarWidth
+private let mappingPanelWidth: CGFloat = 288
 private let playerTitlebarHeight: CGFloat = sidebarWidth
 
 final class SidebarState: ObservableObject {
@@ -1393,22 +1648,147 @@ final class GameWindowController: NSObject, NSWindowDelegate {
     private var frameHeight = 0
     private var keyMonitor: Any?
     private var languageCancellable: AnyCancellable?
+    private var mappingEditingCancellable: AnyCancellable?
     private var fullscreenObservers: [NSObjectProtocol] = []
     /// Re-clamps the window when displays are plugged in, unplugged or resized.
     private var screenChangeObserver: NSObjectProtocol?
+    private weak var hostingView: NSView?
+    private var panelAnimation: PanelSlideAnimation?
 
-    private func fitWindow() {
-        guard let window else { return }
+    private final class PanelSlideAnimation: NSAnimation {
+        private let onStep: (CGFloat) -> Void
+        private let onFinish: () -> Void
+        private var finished = false
+
+        init(duration: TimeInterval = 0.22, onStep: @escaping (CGFloat) -> Void, onFinish: @escaping () -> Void) {
+            self.onStep = onStep
+            self.onFinish = onFinish
+            super.init(duration: duration, animationCurve: .easeInOut)
+            animationBlockingMode = .nonblocking
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override var currentProgress: NSAnimation.Progress {
+            didSet {
+                onStep(CGFloat(currentValue))
+                if currentProgress >= 1, !finished {
+                    finished = true
+                    onFinish()
+                }
+            }
+        }
+
+        func cancel() {
+            finished = true
+            stop()
+        }
+    }
+
+    private func updateSideWidth(fit: Bool) {
+        let base = sidebar.visible ? sidebarWidth : 0
+        let panel = (chrome.mappingPanelMounted && !chrome.fullscreen) ? chrome.mappingPanelWidth : 0
+        side = base + panel
+        if fit, let window, !window.styleMask.contains(.fullScreen) {
+            fitWindow()
+        }
+    }
+
+    private func fittedWindowFrame(forSide nextSide: CGFloat) -> NSRect? {
+        guard let window else { return nil }
         let current = NSSize(width: window.contentLayoutRect.width, height: window.contentLayoutRect.height - titlebarInset)
         let visible = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
         let maxHeight = max(200, visible.height - (window.frame.height - current.height) - 24)
         let maxWidth = max(200, visible.width - 24)
-        let height = min(current.height, maxHeight, (maxWidth - side) / aspect)
-        setPlayerContentSize(NSSize(width: height * aspect + side, height: height))
-        let frame = window.frame
-        let x = min(max(frame.minX, visible.minX), visible.maxX - frame.width)
-        let y = min(max(frame.minY, visible.minY), visible.maxY - frame.height)
-        window.setFrameOrigin(NSPoint(x: x, y: y))
+        let height = floor(min(current.height, maxHeight, (maxWidth - nextSide) / aspect))
+        let contentSize = NSSize(width: round(height * aspect) + nextSide, height: height)
+        var frame = window.frame
+        frame.size = NSSize(
+            width: contentSize.width,
+            height: contentSize.height + titlebarInset + window.frame.height - window.contentLayoutRect.height
+        )
+        frame.origin.x = min(max(frame.minX, visible.minX), visible.maxX - frame.width)
+        frame.origin.y = min(max(frame.minY, visible.minY), visible.maxY - frame.height)
+        return frame
+    }
+
+    private func fitWindow() {
+        guard let window, let frame = fittedWindowFrame(forSide: side) else { return }
+        window.setFrame(frame, display: true)
+    }
+
+    private func animateMappingPanel(editing: Bool) {
+        panelAnimation?.cancel()
+        panelAnimation = nil
+
+        let base = sidebar.visible ? sidebarWidth : 0
+        let targetPanel: CGFloat = (editing && !chrome.fullscreen) ? mappingPanelWidth : 0
+        let targetSide = base + targetPanel
+
+        guard !chrome.fullscreen, let window, window.isVisible, !window.styleMask.contains(.fullScreen) else {
+            chrome.mappingPanelMounted = !chrome.fullscreen && editing
+            chrome.mappingPanelWidth = targetPanel
+            side = targetSide
+            if !chrome.fullscreen { fitWindow() }
+            return
+        }
+
+        let startPanel = chrome.mappingPanelWidth
+        let startFrame = window.frame
+        guard abs(targetPanel - startPanel) > 0.5, let endFrame = fittedWindowFrame(forSide: targetSide) else {
+            chrome.mappingPanelMounted = editing
+            chrome.mappingPanelWidth = targetPanel
+            side = targetSide
+            return
+        }
+
+        chrome.mappingPanelMounted = true
+        let animation = PanelSlideAnimation(
+            duration: 0.22,
+            onStep: { [weak self] eased in
+                guard let self, let window = self.window else { return }
+                let panel = startPanel + (targetPanel - startPanel) * eased
+                let frame = NSRect(
+                    x: startFrame.origin.x + (endFrame.origin.x - startFrame.origin.x) * eased,
+                    y: startFrame.origin.y + (endFrame.origin.y - startFrame.origin.y) * eased,
+                    width: startFrame.width + (endFrame.width - startFrame.width) * eased,
+                    height: startFrame.height + (endFrame.height - startFrame.height) * eased
+                )
+                NSAnimationContext.beginGrouping()
+                NSAnimationContext.current.duration = 0
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                self.side = base + panel
+                self.chrome.mappingPanelWidth = panel
+                window.setFrame(frame, display: false)
+                self.hostingView?.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+                CATransaction.commit()
+                NSAnimationContext.endGrouping()
+            },
+            onFinish: { [weak self] in
+                guard let self else { return }
+                self.panelAnimation = nil
+                NSAnimationContext.beginGrouping()
+                NSAnimationContext.current.duration = 0
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                self.side = targetSide
+                self.chrome.mappingPanelWidth = targetPanel
+                if !editing {
+                    self.chrome.mappingPanelMounted = false
+                }
+                self.window?.setFrame(endFrame, display: true)
+                self.hostingView?.layoutSubtreeIfNeeded()
+                CATransaction.commit()
+                NSAnimationContext.endGrouping()
+            }
+        )
+        panelAnimation = animation
+        animation.start()
     }
 
     /// contentLayoutRect excludes the titlebar even with fullSizeContentView.
@@ -1426,15 +1806,19 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         let old = NSSize(width: sender.contentLayoutRect.width, height: sender.contentLayoutRect.height - titlebarInset)
         let proposedHeight = max(180, frameSize.height - decorations)
         let widthHeight = max(180, (frameSize.width - side) / aspect)
-        let height = abs(proposedHeight - old.height) >= abs(widthHeight - old.height) ? proposedHeight : widthHeight
-        return NSSize(width: height * aspect + side, height: height + decorations)
+        let height = round(abs(proposedHeight - old.height) >= abs(widthHeight - old.height) ? proposedHeight : widthHeight)
+        return NSSize(width: round(height * aspect) + side, height: height + decorations)
     }
 
     @objc private func toggleSidebar() {
+        panelAnimation?.cancel()
+        panelAnimation = nil
+        let editing = transport.mapping.editing
+        chrome.mappingPanelMounted = !chrome.fullscreen && editing
+        chrome.mappingPanelWidth = (!chrome.fullscreen && editing) ? mappingPanelWidth : 0
         sidebar.visible.toggle()
-        side = sidebar.visible ? sidebarWidth : 0
         updateSidebarButton()
-        fitWindow()
+        updateSideWidth(fit: true)
     }
 
     /// The native titlebar accessory symbols follow the effective appearance.
@@ -1486,7 +1870,7 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         let accessory = NSTitlebarAccessoryViewController()
         accessory.layoutAttribute = .right
         let view = NSHostingView(rootView: PlayerTitlebarActions(transport: transport, mapping: transport.mapping, chrome: chrome))
-        view.frame = NSRect(x: 0, y: 0, width: 72, height: 28)
+        view.frame = NSRect(x: 0, y: 0, width: 108, height: 28)
         accessory.view = view
         window.addTitlebarAccessoryViewController(accessory)
     }
@@ -1494,7 +1878,8 @@ final class GameWindowController: NSObject, NSWindowDelegate {
     private func saveState() {
         guard let window, let stateStore, !window.styleMask.contains(.fullScreen), !window.isMiniaturized else { return }
         let frame = window.frame
-        let state = GameWindowState(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height,
+        let savedWidth = frame.width - (chrome.fullscreen ? 0 : chrome.mappingPanelWidth)
+        let state = GameWindowState(x: frame.minX, y: frame.minY, width: savedWidth, height: frame.height,
                                     sidebar: sidebar.visible, onTop: window.level == .floating, landscape: aspect > 1,
                                     screen: displayIdentifier(window.screen))
         do { try stateStore.save(state) } catch { onWarning?(windowStateMessage(error)) }
@@ -1569,6 +1954,7 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         window.toolbarStyle = .unifiedCompact
         let background = PlayerWindowBackgroundView()
         let hosting = NSHostingView(rootView: ContentView(transport: transport, mapping: transport.mapping, sidebar: sidebar, chrome: chrome))
+        hostingView = hosting
         window.contentView = background
         hosting.translatesAutoresizingMaskIntoConstraints = false
         background.addSubview(hosting)
@@ -1607,6 +1993,12 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         languageCancellable = transport.$language.sink { [weak self] _ in
             self?.updateSidebarButton()
         }
+        mappingEditingCancellable = transport.mapping.$editing
+            .dropFirst()
+            .removeDuplicates()
+            .sink { [weak self] editing in
+                self?.animateMappingPanel(editing: editing)
+            }
         wireChrome()
         transport.onPixelPerfect = { [weak self] in self?.applyPixelPerfectSize() }
         transport.onFitScreen = { [weak self] in self?.fitScreen() }
@@ -1798,19 +2190,29 @@ final class GameWindowController: NSObject, NSWindowDelegate {
     private func observeFullscreen(_ window: NSWindow) {
         let center = NotificationCenter.default
         fullscreenObservers.append(center.addObserver(forName: NSWindow.didEnterFullScreenNotification, object: window, queue: .main) { [weak self] _ in
-            self?.chrome.fullscreen = true
-            self?.titleLabel?.isHidden = true
-            self?.contentTopConstraint?.constant = 0
-            self?.chrome.reveal = false
+            guard let self else { return }
+            self.panelAnimation?.cancel()
+            self.panelAnimation = nil
+            self.chrome.fullscreen = true
+            self.chrome.mappingPanelMounted = false
+            self.chrome.mappingPanelWidth = 0
+            self.titleLabel?.isHidden = true
+            self.contentTopConstraint?.constant = 0
+            self.chrome.reveal = false
+            self.updateSideWidth(fit: false)
         })
         fullscreenObservers.append(center.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { [weak self] _ in
             guard let self else { return }
+            self.panelAnimation?.cancel()
+            self.panelAnimation = nil
             self.chrome.fullscreen = false
+            let editing = self.transport.mapping.editing
+            self.chrome.mappingPanelMounted = editing
+            self.chrome.mappingPanelWidth = editing ? mappingPanelWidth : 0
             self.titleLabel?.isHidden = false
             self.contentTopConstraint?.constant = self.titlebarInset
             self.chrome.reveal = false
-            self.side = self.sidebar.visible ? sidebarWidth : 0
-            self.fitWindow()
+            self.updateSideWidth(fit: true)
         })
     }
 
@@ -1824,8 +2226,12 @@ final class GameWindowController: NSObject, NSWindowDelegate {
     }
 
     private func removeMonitors() {
+        panelAnimation?.cancel()
+        panelAnimation = nil
         languageCancellable?.cancel()
         languageCancellable = nil
+        mappingEditingCancellable?.cancel()
+        mappingEditingCancellable = nil
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil
@@ -1888,6 +2294,17 @@ final class GameWindowController: NSObject, NSWindowDelegate {
             perform(action)
             return true
         }
+        if flags == [.command, .option], key == "k", !transport.mapping.editing {
+            if transport.mapping.scheme.isEmpty {
+                onStatusNotice(t("当前没有已保存的键位方案", "No saved key mapping", language))
+            } else {
+                transport.mapping.enabled.toggle()
+                onStatusNotice(transport.mapping.enabled
+                    ? t("已启用键位 (⌥⌘K)", "Key mapping enabled (⌥⌘K)", language)
+                    : t("已停用键位 (⌥⌘K)", "Key mapping disabled (⌥⌘K)", language))
+            }
+            return true
+        }
         return false
     }
 
@@ -1909,6 +2326,21 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         guard transport.recording == .idle else {
             transport.onStatus?(t("请先停止录屏并等待保存完成", "Stop recording and wait for it to finish saving first", transport.language))
             return false
+        }
+        if transport.mapping.hasUnsavedChanges {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = t("放弃未保存的键位修改？", "Discard unsaved key mapping changes?", transport.language)
+            alert.informativeText = t("当前键位编辑尚未保存，关闭窗口将丢失这些修改。",
+                                      "Your key mapping edits have not been saved and will be lost if you close the window.",
+                                      transport.language)
+            alert.addButton(withTitle: t("继续编辑", "Keep Editing", transport.language))
+            let discard = alert.addButton(withTitle: t("放弃并关闭", "Discard & Close", transport.language))
+            discard.hasDestructiveAction = true
+            guard alert.runModal() == .alertSecondButtonReturn else { return false }
+            transport.mapping.cancel()
+        } else if transport.mapping.editing {
+            transport.mapping.cancel()
         }
         guard canClose?() ?? true else { return false }
         if stopDeviceOnClose, let onStopRequested {

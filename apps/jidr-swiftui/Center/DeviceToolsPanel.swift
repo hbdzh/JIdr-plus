@@ -110,7 +110,7 @@ final class DeviceToolsPanelController: NSWindowController, NSWindowDelegate {
     private func updateChrome() {
         window?.appearance = model.windowAppearance
         let name = model.devices.first(where: { $0.id == deviceID })?.name ?? ""
-        window?.title = model.text("设备工具 — \(name)", "Device tools — \(name)")
+        window?.title = model.text("工具箱 — \(name)", "Toolbox — \(name)")
     }
     func windowWillClose(_ notification: Notification) {
         let keepAlive = self

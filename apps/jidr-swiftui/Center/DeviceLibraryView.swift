@@ -137,7 +137,7 @@ struct DeviceOverviewView: View {
                 ActionFlowLayout(spacing: 8) {
                     overviewBadge(device.statusText(language: model.language),
                                   symbol: "circle.fill", color: .secondary)
-                    Text(device.androidVersion).font(.system(size: 12, weight: .medium))
+                    Text(device.androidVersionShort).font(.system(size: 12, weight: .medium))
                         .padding(.horizontal, 10).padding(.vertical, 5)
                         .background(Color.primary.opacity(0.05), in: Capsule())
                     if device.root.mode != "none" {
@@ -149,7 +149,7 @@ struct DeviceOverviewView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 ActionFlowLayout(spacing: 8) {
                     primaryAction
-                    Button(t("设备设置", "Device settings"), systemImage: "slider.horizontal.3") {
+                    Button(t("设备配置", "Device settings"), systemImage: "slider.horizontal.3") {
                         model.presentDeviceSheet(.edit, device: device.id)
                     }.buttonStyle(.bordered).controlSize(.large)
                         .disabled(details == nil || model.busy.contains(device.id))
@@ -157,7 +157,7 @@ struct DeviceOverviewView: View {
                         if model.selected != device.id { model.select(device.id) }
                         model.present(.folderSync)
                     }.buttonStyle(.bordered).controlSize(.large)
-                    Button(t("设备工具", "Device tools"), systemImage: "wrench.and.screwdriver") {
+                    Button(t("工具箱", "Toolbox"), systemImage: "wrench.and.screwdriver") {
                         model.openAdvanced(device.id, name: device.name)
                     }.buttonStyle(.bordered).controlSize(.large)
                     DeviceMoreButton(model: model, device: device)
@@ -453,9 +453,8 @@ private struct OverviewInfoCard<Content: View>: View {
         }
         .padding(compact ? 12 : 16)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 12))
-        .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(WbColor.borderSubtle, lineWidth: 1) }
-        .shadow(color: .black.opacity(0.035), radius: 2, y: 1)
+        .background(Color.primary.opacity(0.025), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(WbColor.borderSubtle))
     }
 }
 

@@ -1,9 +1,9 @@
 id = "small-phone-5"
-name = "Small phone 5″"
+name = "Phone 5.5″ FHD"
 form_factor = "phone"
-width = 720
-height = 1280
-density = 320
+width = 1080
+height = 1920
+density = 420
 ram_mb = 2048
 cpus = 2
 data_mb = 4096

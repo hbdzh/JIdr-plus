@@ -340,19 +340,16 @@ struct WbProgressLine: View {
     var value: Double?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: WbSpace.xs) {
-            HStack(spacing: WbSpace.xs) {
-                if value != nil {
-                    ProgressView().controlSize(.small)
-                }
-                Text(text)
-                    .wbFont(WbType.caption)
-                    .foregroundStyle(WbColor.textSecondary)
-                    .lineLimit(1)
-            }
+        HStack(alignment: .center, spacing: WbSpace.sm) {
+            Text(text)
+                .wbFont(WbType.caption)
+                .monospacedDigit()
+                .foregroundStyle(WbColor.textSecondary)
+                .lineLimit(1)
             if let value {
                 ProgressView(value: min(max(value, 0), 1))
                     .progressViewStyle(.linear)
+                    .frame(minWidth: 120)
             }
         }
     }

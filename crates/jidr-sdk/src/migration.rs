@@ -886,6 +886,114 @@ pub fn publish_copy(
     }
 }
 
+/// Removes the previous storage directories after `pointer` has been written
+/// and verified to point to `active_location`.
+///
+/// Refuses to delete anything unless `pointer` resolves to `active_location`
+/// and none of the source directories overlap with `active_location` or contain
+/// `pointer`. When `source` was itself a portable root (`<root>/{data,cache,logs}`
+/// with `.jidr-storage-id`), the old marker and empty root directory are also
+/// cleaned up.
+pub fn cleanup_source_after_activation(
+    source: &jidr_core::JidrPaths,
+    active_location: &jidr_core::paths::PortableLocation,
+    pointer: &Path,
+) -> io::Result<()> {
+    let resolved = jidr_core::paths::read_location_file(pointer)
+        .map_err(|e| io::Error::other(e.to_string()))?
+        .ok_or_else(|| invalid("active storage location pointer is missing"))?;
+    if resolved != *active_location {
+        return Err(invalid("active storage location pointer does not match"));
+    }
+    let active_paths = active_location
+        .resolve()
+        .map_err(|e| io::Error::other(e.to_string()))?;
+    let active_root = active_location.root.canonicalize()?;
+    let pointer_canon = pointer.canonicalize()?;
+
+    let protected = [
+        active_root.clone(),
+        active_paths.data.canonicalize()?,
+        active_paths.cache.canonicalize()?,
+        active_paths.logs.canonicalize()?,
+    ];
+
+    let mut to_remove = Vec::new();
+    for dir in [&source.data, &source.cache, &source.logs] {
+        if !dir.exists() {
+            continue;
+        }
+        let canon = dir.canonicalize()?;
+        if pointer_canon.starts_with(&canon) || canon.starts_with(&pointer_canon) {
+            return Err(invalid(
+                "refusing to remove directory containing location pointer",
+            ));
+        }
+        for keep in &protected {
+            if canon.starts_with(keep) || keep.starts_with(&canon) {
+                return Err(invalid(
+                    "refusing to remove directory overlapping active storage",
+                ));
+            }
+        }
+        if !to_remove.contains(&canon) {
+            to_remove.push(canon);
+        }
+    }
+
+    let portable_root = portable_root_for_paths(source, &protected, &pointer_canon);
+    let mut first_err: Option<io::Error> = None;
+    for dir in &to_remove {
+        if let Err(err) = fs::remove_dir_all(dir)
+            && first_err.is_none()
+        {
+            first_err = Some(err);
+        }
+    }
+
+    if let Some(old_root) = portable_root {
+        let marker = old_root.join(jidr_core::paths::PortableLocation::MARKER_FILE);
+        if marker.is_file() {
+            let _ = fs::remove_file(&marker);
+        }
+        let _ = fs::remove_dir(&old_root);
+    }
+
+    match first_err {
+        Some(err) => Err(err),
+        None => Ok(()),
+    }
+}
+
+fn portable_root_for_paths(
+    source: &jidr_core::JidrPaths,
+    protected: &[PathBuf],
+    pointer_canon: &Path,
+) -> Option<PathBuf> {
+    let data_parent = source.data.parent()?;
+    if source.data.file_name().and_then(|n| n.to_str()) != Some("data")
+        || source.cache.file_name().and_then(|n| n.to_str()) != Some("cache")
+        || source.logs.file_name().and_then(|n| n.to_str()) != Some("logs")
+        || source.cache.parent() != Some(data_parent)
+        || source.logs.parent() != Some(data_parent)
+    {
+        return None;
+    }
+    let marker = data_parent.join(jidr_core::paths::PortableLocation::MARKER_FILE);
+    if !marker.is_file() {
+        return None;
+    }
+    let root_canon = data_parent.canonicalize().ok()?;
+    if pointer_canon.starts_with(&root_canon)
+        || protected
+            .iter()
+            .any(|keep| root_canon.starts_with(keep) || keep.starts_with(&root_canon))
+    {
+        return None;
+    }
+    Some(root_canon)
+}
+
 /// Fail closed if known metadata formats still contain an old absolute data
 /// path. Binary snapshot metadata is inspected, never modified blindly.
 pub fn reject_stale_metadata(staging: &Path, old: &Path) -> io::Result<()> {
@@ -1776,5 +1884,136 @@ mod tests {
         fs::write(source.data.join("disk.qcow2"), b"QFI\xfb").unwrap();
         let dest2 = root.path().join("dst2");
         assert!(prepare_copy_flexible(&source, &dest2, None, &lease, &barrier).is_err());
+    }
+
+    #[test]
+    fn cleanup_source_after_activation_removes_source_only_when_pointer_matches() {
+        let root = tempfile::tempdir().unwrap();
+        let app_support = root.path().join("app_support");
+        let caches = root.path().join("caches");
+        let logs = root.path().join("logs");
+        let source = jidr_core::JidrPaths {
+            data: app_support.join("Jidr"),
+            cache: caches.join("Jidr"),
+            logs: logs.join("Jidr"),
+        };
+        fs::create_dir_all(source.data.join("avd/dev.avd")).unwrap();
+        fs::write(source.data.join("avd/dev.avd/userdata.img"), b"disk").unwrap();
+        fs::create_dir_all(&source.cache).unwrap();
+        fs::write(source.cache.join("archive.zip"), b"zip").unwrap();
+        fs::create_dir_all(&source.logs).unwrap();
+        fs::write(source.logs.join("daemon.log"), b"log").unwrap();
+
+        let dest = root.path().join("external/Jidr");
+        fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        let lease = jidr_core::storage_lease::StorageLease::acquire(&source.data).unwrap();
+        #[cfg(unix)]
+        let barrier =
+            crate::legacy_barrier::LegacySocketBarrier::acquire(&source.socket()).unwrap();
+        let prepared = prepare_copy_flexible(
+            &source,
+            &dest,
+            None,
+            &lease,
+            #[cfg(unix)]
+            &barrier,
+        )
+        .unwrap();
+        let location = publish_copy(
+            &prepared,
+            &source,
+            &lease,
+            #[cfg(unix)]
+            &barrier,
+        )
+        .unwrap();
+        let pointer = app_support.join("Jidr-storage-location.json");
+
+        // Refuses cleanup before the location pointer points to `location`.
+        assert!(cleanup_source_after_activation(&source, &location, &pointer).is_err());
+        assert!(source.data.exists());
+
+        jidr_core::paths::write_location_file(&pointer, &location).unwrap();
+        #[cfg(unix)]
+        drop(barrier);
+        drop(lease);
+
+        cleanup_source_after_activation(&source, &location, &pointer).unwrap();
+        assert!(!source.data.exists());
+        assert!(!source.cache.exists());
+        assert!(!source.logs.exists());
+        assert!(pointer.is_file());
+        assert!(dest.join("data/avd/dev.avd/userdata.img").is_file());
+        assert!(dest.join("cache/archive.zip").is_file());
+        assert!(dest.join("logs/daemon.log").is_file());
+    }
+
+    #[test]
+    fn cleanup_source_after_activation_removes_portable_root_marker_and_empty_dir() {
+        let root = tempfile::tempdir().unwrap();
+        let old_root = root.path().join("old_ext/Jidr");
+        let source = jidr_core::JidrPaths::under(&old_root);
+        fs::create_dir_all(&source.data).unwrap();
+        fs::create_dir_all(&source.cache).unwrap();
+        fs::create_dir_all(&source.logs).unwrap();
+        jidr_core::paths::PortableLocation {
+            root: old_root.clone(),
+            marker: uuid::Uuid::new_v4(),
+        }
+        .write_marker()
+        .unwrap();
+
+        let dest = root.path().join("new_ext/Jidr");
+        fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        let lease = jidr_core::storage_lease::StorageLease::acquire(&source.data).unwrap();
+        #[cfg(unix)]
+        let barrier =
+            crate::legacy_barrier::LegacySocketBarrier::acquire(&source.socket()).unwrap();
+        let prepared = prepare_copy_flexible(
+            &source,
+            &dest,
+            None,
+            &lease,
+            #[cfg(unix)]
+            &barrier,
+        )
+        .unwrap();
+        let location = publish_copy(
+            &prepared,
+            &source,
+            &lease,
+            #[cfg(unix)]
+            &barrier,
+        )
+        .unwrap();
+        let pointer = root.path().join("Jidr-storage-location.json");
+        jidr_core::paths::write_location_file(&pointer, &location).unwrap();
+        #[cfg(unix)]
+        drop(barrier);
+        drop(lease);
+
+        cleanup_source_after_activation(&source, &location, &pointer).unwrap();
+        assert!(!old_root.exists());
+        assert!(dest.join("data").is_dir());
+    }
+
+    #[test]
+    fn cleanup_source_after_activation_refuses_overlapping_active_storage() {
+        let root = tempfile::tempdir().unwrap();
+        let dest = root.path().join("ext/Jidr");
+        let active = jidr_core::JidrPaths::under(&dest);
+        fs::create_dir_all(&active.data).unwrap();
+        fs::create_dir_all(&active.cache).unwrap();
+        fs::create_dir_all(&active.logs).unwrap();
+        let location = jidr_core::paths::PortableLocation {
+            root: dest.clone(),
+            marker: uuid::Uuid::new_v4(),
+        };
+        location.write_marker().unwrap();
+        let pointer = root.path().join("Jidr-storage-location.json");
+        jidr_core::paths::write_location_file(&pointer, &location).unwrap();
+
+        assert!(cleanup_source_after_activation(&active, &location, &pointer).is_err());
+        assert!(active.data.is_dir());
     }
 }

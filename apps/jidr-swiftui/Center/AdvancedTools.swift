@@ -28,10 +28,6 @@ struct AdvancedToolsView: View {
     @State private var dnsDelay = "3000"
     @State private var androidID = ""
     @State private var imei = ""
-    @State private var folderSyncs: [[String: Any]] = []
-    @State private var gamepadActive = false
-    @State private var gamepadReady = false
-    private let syncTimer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
     @State private var proxyHost = ""
     @State private var proxyPort = ""
     @State private var sensor = "acceleration"
@@ -118,9 +114,6 @@ struct AdvancedToolsView: View {
         packetLossStatus = ""
         call("network.shaping.get") { value in showPacketLoss(value) }
     }
-    private func refreshFolderSyncs() {
-        readState("file.sync.list") { value in folderSyncs = value as? [[String: Any]] ?? [] }
-    }
     private func showPacketLoss(_ value: Any) {
         guard let result = value as? [String: Any], let interfaces = result["interfaces"] as? [[String: Any]] else {
             packetLossStatus = ""
@@ -141,7 +134,7 @@ struct AdvancedToolsView: View {
         NavigationSplitView {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(t("设备工具", "Device tools")).font(.system(size: 15, weight: .medium))
+                    Text(t("工具箱", "Toolbox")).font(.system(size: 15, weight: .medium))
                         .foregroundStyle(WbColor.textPrimary)
                     Text(model.devices.first(where: { $0.id == id })?.name ?? "—")
                         .font(.system(size: 12)).foregroundStyle(WbColor.textSecondary)
@@ -180,9 +173,6 @@ struct AdvancedToolsView: View {
         .textFieldStyle(.roundedBorder)
         .environment(\.locale,Locale(identifier:model.language == 0 ? "en" : "zh-Hans"))
         .onAppear { loadInitialState() }
-        .onReceive(syncTimer) { _ in
-            if selection.section == 2 && running { refreshFolderSyncs() }
-        }
         .onChange(of: selection.section) { section in
             message = ""
             if section != 3 { stopLogStream() }
@@ -240,7 +230,7 @@ struct AdvancedToolsView: View {
             .init(section: 3, title: toolTitles[3], symbol: WbIcon.logcat),
             .init(section: 4, title: toolTitles[4], symbol: WbIcon.rootTab),
             .init(section: 9, title: toolTitles[9], symbol: "hammer")
-        ], selection: $selection.section, label: t("设备工具分类", "Device tool categories"))
+        ], selection: $selection.section, label: t("工具箱分类", "Toolbox categories"))
     }
 
     private var toolPage: some View {
@@ -523,46 +513,6 @@ struct AdvancedToolsView: View {
                         }
                     }.disabled(androidID.isEmpty)
                 }.disabled(!running || working)
-            }
-            DeviceToolPageGroup(t("文件夹同步", "Folder sync")) {
-                Group {
-                    Text(folderSyncs.isEmpty
-                         ? t("使用独立的文件夹同步面板配置单向或双向同步、查看进度并处理冲突。",
-                             "Use the dedicated Folder Sync panel to configure one-way or two-way sync, view progress, and resolve conflicts.")
-                         : t("当前有 \(folderSyncs.count) 个活动同步；可在文件夹同步面板中管理或解决冲突。",
-                             "\(folderSyncs.count) active sync\(folderSyncs.count == 1 ? "" : "s"). Open the Folder Sync panel to manage or resolve conflicts."))
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                DeviceToolActions {
-                    Button(t("打开文件夹同步面板…", "Open folder sync…")) {
-                        model.closeDeviceTools(id)
-                        if model.selected != id { model.select(id) }
-                        model.present(.folderSync)
-                    }
-                    Button(t("刷新", "Refresh"), action: refreshFolderSyncs).disabled(!running || working)
-                }
-            }
-            DeviceToolPageGroup(t("游戏手柄", "Game controller")) {
-                Text(t("连接 Mac 上的第一个手柄并转发到此设备。", "Forward the first controller connected to this Mac to this device."))
-                    .font(.caption).foregroundStyle(.secondary)
-                DeviceToolActions {
-                    Button(t("连接手柄", "Connect controller")) {
-                        gamepadActive = true
-                        model.call("input.gamepad.connect", ["device": id], onProgress: { _, progressMessage, _ in
-                            if let progressMessage, !progressMessage.isEmpty { gamepadReady = true }
-                        }) { result in
-                            gamepadActive = false
-                            gamepadReady = false
-                            if case .failure(let error) = result { message = OperationMessages.error(error.localizedDescription, language: model.language) }
-                        }
-                    }.disabled(gamepadActive)
-                    Button(t("断开手柄", "Disconnect controller")) {
-                        gamepadReady = false
-                        model.call("input.gamepad.disconnect", ["device": id]) { result in
-                            if case .failure(let error) = result { gamepadReady = true; message = OperationMessages.error(error.localizedDescription, language: model.language) }
-                        }
-                    }.disabled(!gamepadActive || !gamepadReady)
-                }.disabled(!running)
             }
             DeviceToolPageGroup(t("设备 HTTP 代理", "Device HTTP proxy")) {
                 Group {

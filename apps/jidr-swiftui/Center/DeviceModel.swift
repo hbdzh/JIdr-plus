@@ -164,6 +164,8 @@ struct StorageMigrationInfo: Decodable {
     let files: UInt64
     let bytes: UInt64
     let qcow_disks: Int
+    let source_cleaned: Bool?
+    let cleanup_error: String?
 }
 
 struct CenterMessageError: LocalizedError {
@@ -1709,6 +1711,19 @@ final class CenterModel: ObservableObject {
                 }
                 player.transport.onSyncTakeOver = { [weak self] in self?.setSyncLeader(id) }
                 player.transport.onOpenSyncPanel = { [weak self] in self?.openSyncPanel() }
+                player.transport.onToggleGamepad = { [weak self, weak transport = player.transport] in
+                    guard let self, let transport else { return }
+                    self.toggleGamepad(for: id, transport: transport)
+                }
+                if details.device.running {
+                    self.call("input.gamepad.get", ["device": id]) { result in
+                        if case .success(let value) = result,
+                           let dict = value as? [String: Any],
+                           let connected = dict["connected"] as? Bool {
+                            player.transport.gamepadState = connected ? .connected : .disconnected
+                        }
+                    }
+                }
                 player.onWarning = { [weak self] message in self?.showError(message) }
                 player.canClose = { [weak self] in
                     guard let self, self.recording.contains(id) else { return true }
@@ -1734,6 +1749,44 @@ final class CenterModel: ObservableObject {
                 if effectiveHidden { self.backgroundSyncPlayers.remove(id) }
                 self.showError(self.readable(error))
             }
+        }
+    }
+
+    private func toggleGamepad(for id: String, transport: PlayerTransport) {
+        switch transport.gamepadState {
+        case .disconnected:
+            transport.gamepadState = .connecting
+            call("input.gamepad.connect", ["device": id], onProgress: { [weak self, weak transport] _, progressMessage, _ in
+                guard let self, let transport else { return }
+                if let progressMessage, !progressMessage.isEmpty, transport.gamepadState != .connected {
+                    transport.gamepadState = .connected
+                    transport.onStatus?(self.text("已连接游戏手柄", "Game controller connected"))
+                }
+            }) { [weak self, weak transport] result in
+                guard let self, let transport else { return }
+                transport.gamepadState = .disconnected
+                if case .failure(let error) = result {
+                    let message = OperationMessages.error(error.localizedDescription, language: self.language)
+                    transport.onStatus?(message)
+                    self.showError(message)
+                }
+            }
+        case .connected:
+            transport.gamepadState = .disconnected
+            call("input.gamepad.disconnect", ["device": id]) { [weak self, weak transport] result in
+                guard let self, let transport else { return }
+                switch result {
+                case .success:
+                    transport.onStatus?(self.text("已断开游戏手柄", "Game controller disconnected"))
+                case .failure(let error):
+                    transport.gamepadState = .connected
+                    let message = OperationMessages.error(error.localizedDescription, language: self.language)
+                    transport.onStatus?(message)
+                    self.showError(message)
+                }
+            }
+        case .connecting:
+            break
         }
     }
     /// A recording list can target any running device, including one whose
