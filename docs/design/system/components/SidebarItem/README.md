@@ -4,6 +4,6 @@ One device in the sidebar: name and short root badge on line one, status glyph a
 
 **Consumer provides:** the device (name, status, root mode), selection and focus.
 
-- Selected: `jidr-color-surface-selected`. Hover: `jidr-color-surface-control`. Keyboard focus: 2 px inset `jidr-color-focus-ring`.
-- Status text colour follows the status meaning (`jidr-color-positive`, `-info`, `-warning`, `-negative`, else `jidr-color-text-secondary`) and always has its icon.
+- Selected: `miko-color-surface-selected`. Hover: `miko-color-surface-control`. Keyboard focus: 2 px inset `miko-color-focus-ring`.
+- Status text colour follows the status meaning (`miko-color-positive`, `-info`, `-warning`, `-negative`, else `miko-color-text-secondary`) and always has its icon.
 - Disabled means the system image is missing; the row stays visible so the user can re-download it.

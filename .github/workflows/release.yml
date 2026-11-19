@@ -72,7 +72,7 @@ jobs:
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           identity="$(security find-identity -v -p codesigning "$keychain" | grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')"
           [ -n "$identity" ] || { echo "::error::no Developer ID Application identity in the certificate"; exit 1; }
-          echo "JIDR_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
+          echo "MIKO_SIGNING_IDENTITY=$identity" >> "$GITHUB_ENV"
           echo "$NOTARY_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/notary-key.p8"
           echo "NOTARY_KEY_PATH=$RUNNER_TEMP/notary-key.p8" >> "$GITHUB_ENV"
 
@@ -106,12 +106,12 @@ jobs:
 
       - name: Gatekeeper check
         if: env.HAVE_SIGNING == 'true'
-        run: packaging/macos/verify.sh dist/Jidr-*-arm64.dmg
+        run: packaging/macos/verify.sh dist/Miko-*-arm64.dmg
 
       - name: Upload to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ inputs.tag }}" dist/Jidr-*-arm64.dmg dist/jidr-mcp-*.mcpb dist/SHA256SUMS.txt dist/mcp-registry.json --clobber
+        run: gh release upload "${{ inputs.tag }}" dist/Miko-*-arm64.dmg dist/miko-mcp-*.mcpb dist/SHA256SUMS.txt dist/mcp-registry.json --clobber
 
       - name: Remove the signing keychain and the API key
         if: always() && env.HAVE_SIGNING == 'true'

@@ -1,15 +1,15 @@
-# Jidr control protocol (v0.1)
+# Miko control protocol (v0.1)
 
-The daemon (`jidr daemon`) owns every device. The GUI, the CLI (`jidr`) and the MCP server (`jidr mcp`) are clients of this protocol and nothing else, so anything one client can do, all can. Reference client: `crates/jidr-client`.
+The daemon (`miko daemon`) owns every device. The GUI, the CLI (`miko`) and the MCP server (`miko mcp`) are clients of this protocol and nothing else, so anything one client can do, all can. Reference client: `crates/miko-client`.
 
 Frozen as **v0.1** at the git tag `protocol-v0.1`. A change after the tag needs an entry in the [changelog](#changelog).
 
 ## Transport
 
-- **Socket:** a Unix domain socket at `~/Library/Application Support/Jidr/daemon.sock` (`$JIDR_HOME/data/daemon.sock` when `JIDR_HOME` is set), mode `0600`. One daemon per user; a second one refuses to start.
+- **Socket:** a Unix domain socket at `~/Library/Application Support/miko/daemon.sock` (`$MIKO_HOME/data/daemon.sock` when `MIKO_HOME` is set), mode `0600`. One daemon per user; a second one refuses to start.
 - **Framing:** [JSON-RPC 2.0](https://www.jsonrpc.org/specification), one JSON object per line (newline-delimited JSON, as in MCP's stdio transport). Lines are at most 4 MB.
 - **Concurrency:** requests on one connection run concurrently; match answers by `id`. Notifications from the daemon have no `id`.
-- **Lifetime (D4):** clients start the daemon on demand (`jidr daemon`, detached). It exits after 10 minutes with no running device, no connected client, no active job and no pool lease. Emulators that outlive a daemon are re-adopted by the next one.
+- **Lifetime (D4):** clients start the daemon on demand (`miko daemon`, detached). It exits after 10 minutes with no running device, no connected client, no active job and no pool lease. Emulators that outlive a daemon are re-adopted by the next one.
 
 ## Handshake
 
@@ -30,7 +30,7 @@ Clients ship with the daemon, so versions must be equal; there's no negotiation.
 
 ## Errors
 
-Protocol errors use the standard JSON-RPC codes. Jidr errors carry one of nine codes, which are also the CLI's exit codes, in `error.data.code`; `error.data.details` holds structured extras.
+Protocol errors use the standard JSON-RPC codes. Miko errors carry one of nine codes, which are also the CLI's exit codes, in `error.data.code`; `error.data.details` holds structured extras.
 
 | `data.code` | JSON-RPC code | CLI exit | Meaning |
 |---|---|---|---|
@@ -78,6 +78,7 @@ Subscribing again replaces the filter. Topics:
 | `device.status` | `{device, name, status}`: status is `{state: stopped\|starting\|booting\|running\|stopping\|hibernated\|crashed, …}` |
 | `device.boot` | `{device, stage: spawned\|grpc_ready\|adb_online\|booted, progress}` |
 | `device.boot_failed` | `{device, error}` |
+| `device.snapshot_warning` | `{device, reason, low_disk?, low_memory?}`: low resources, an incomplete quick-boot snapshot, or a previous unclean exit. |
 | `device.crashed` | `{device, report: {kind, reason, exit_code, log, …}}`; never restarted (D9) |
 | `device.created`, `device.deleted`, `device.updated` | `{device, name}` |
 | `device.hibernated` | `{device, name}`: saved and stopped by `device.hibernate` or auto-hibernate |
@@ -107,9 +108,9 @@ These act on the calling connection and aren't in `commands.list`:
 
 ## Commands
 
-Providers register commands with an id, a label, a params JSON Schema and three flags: `destructive` (MCP refuses it unless allowed, D5), `longRunning` and `locksDevice`. The daemon core provides the commands below; `jidr-widgets` (sensors, phone, network, media, microphone, snapshots) and `jidr-root` (root modes) add theirs when they land. `commands.list` is always the source of truth.
+Providers register commands with an id, a label, a params JSON Schema and three flags: `destructive` (MCP refuses it unless allowed, D5), `longRunning` and `locksDevice`. The daemon core provides the commands below; `miko-widgets` (sensors, phone, network, media, microphone, snapshots) and `miko-root` (root modes) add theirs when they land. `commands.list` is always the source of truth.
 
-<!-- commands:begin (generated from commands.list; JIDR_UPDATE_DOCS=1 cargo nextest run -p jidr protocol_doc) -->
+<!-- commands:begin (generated from commands.list; MIKO_UPDATE_DOCS=1 cargo nextest run -p miko protocol_doc) -->
 
 ### `app.*`
 
@@ -174,7 +175,7 @@ Stop the audio playing into the microphone
 
 #### `base.create`
 
-Save a running device as a read-only base for pool clones (snapshot jidr-base; clone animations off) · long-running (job)
+Save a running device as a read-only base for pool clones (snapshot miko-base; clone animations off) · long-running (job)
 
 | Param | Type | Required | Description |
 |---|---|---|---|
@@ -407,7 +408,7 @@ Zip a device's settings, emulator and crash logs and logcat for a bug report
 | Param | Type | Required | Description |
 |---|---|---|---|
 | `device` | string | yes |  |
-| `output` | string |  | Where to write the zip (default: Jidr's logs folder). |
+| `output` | string |  | Where to write the zip (default: Miko's logs folder). |
 
 #### `device.props.get`
 
@@ -661,7 +662,7 @@ System images for this host, installed or available
 
 #### `image.remove`
 
-Remove an unused image from a Jidr-owned SDK · **destructive**
+Remove an unused image from a Miko-owned SDK · **destructive**
 
 | Param | Type | Required | Description |
 |---|---|---|---|
@@ -777,7 +778,7 @@ Record the screen and the device's audio to MP4 (H.264, AAC) until media.record_
 | Param | Type | Required | Description |
 |---|---|---|---|
 | `device` | string | yes |  |
-| `path` | string |  | Where to save the MP4 (default `~/Movies/Jidr/<device> <time>.mp4`). |
+| `path` | string |  | Where to save the MP4 (default `~/Movies/Miko/<device> <time>.mp4`). |
 | `max_seconds` | integer |  | Stop on its own after this many seconds (default 3600). |
 | `fps` | integer |  | Frames per second (default 30). |
 | `audio` | boolean |  | Also record the device's audio (AAC; default true). If the emulator's audio stream fails, the recording goes on without it. |
@@ -797,7 +798,7 @@ Save a PNG of the screen
 | Param | Type | Required | Description |
 |---|---|---|---|
 | `device` | string | yes |  |
-| `path` | string |  | Where to save the PNG (default `~/Pictures/Jidr/<device> <time>.png`). |
+| `path` | string |  | Where to save the PNG (default `~/Pictures/Miko/<device> <time>.png`). |
 
 ### `network.*`
 
@@ -964,7 +965,7 @@ Trust a CA certificate (PEM or DER, e.g. Burp's) as a system cert on a running F
 
 #### `root.cacert.list`
 
-The CA certificates Jidr added to a running Full-root device and whether each is trusted
+The CA certificates Miko added to a running Full-root device and whether each is trusted
 
 | Param | Type | Required | Description |
 |---|---|---|---|
@@ -972,17 +973,17 @@ The CA certificates Jidr added to a running Full-root device and whether each is
 
 #### `root.cacert.remove`
 
-Remove a CA certificate Jidr added (or all of them); restarts the device · long-running (job) · locks the device
+Remove a CA certificate Miko added (or all of them); restarts the device · long-running (job) · locks the device
 
 | Param | Type | Required | Description |
 |---|---|---|---|
 | `device` | string | yes | Device name or id (must be in `magisk` mode and running). |
-| `cert` | string |  | The certificate: its store file name (`a4ac454c.0`), subject hash or SHA-256 (or a unique prefix of 8+ hex digits). Leave out with `all`. |
-| `all` | boolean |  | Remove every certificate Jidr installed (and the module). |
+| `cert` | string |  | The certificate: its store file name (`e3d33b06.0`), subject hash or SHA-256 (or a unique prefix of 8+ hex digits). Leave out with `all`. |
+| `all` | boolean |  | Remove every certificate Miko installed (and the module). |
 
 #### `root.cacert.verify`
 
-Check that every CA certificate Jidr added is in the system store apps read · locks the device
+Check that every CA certificate Miko added is in the system store apps read · locks the device
 
 | Param | Type | Required | Description |
 |---|---|---|---|
@@ -1250,12 +1251,16 @@ reported as errors.
 
 ## Changelog
 
+Snapshot save failures report resource observations; `device.snapshot_warning` signals low resources and prior incomplete or unclean sessions.
+
 | Version | Change |
 |---|---|
+| 0.1 (breaking) | Reserved pool and hibernation snapshot identifiers change to `miko-base` and `miko-hibernate`; operation recordings use format `miko.operation-recording`, version 2. CLI JSON envelopes use `miko_json` version 2. Existing data and older clients require an update. |
+| 0.1 (deployment) | The default socket moves to the miko data directory; `MIKO_HOME` replaces `MIKO_HOME` for isolated roots. The local GUI bridge uses `miko_sdk` for the writable SDK configuration; existing daemon protocol methods and payloads are unchanged. |
 | 0.1 (additive) | Input synchronizer (D45): `sync.start`, `sync.stop`, `sync.status`, `sync.add_follower`, `sync.remove_follower`, `sync.set_leader`, `sync.set_options` and `sync.report` manage one session in which a leader device's input is mirrored on running follower devices; events `sync.state` and `sync.follower_error`. No new error codes: `usage`, `not_found` and `busy` are used. The session ends when the leader stops, crashes, hibernates or is deleted, or no follower is left. See [sync.md](sync.md). |
 | 0.1 (additive) | `file.sync.start` gains optional `direction` (`one_way` default, or `bidirectional`); `SyncInfo` and `file.sync.synced` gain `direction`, `pulled`, `removed_local`, and `conflicts`; new `file.sync.resolve {id, path, resolution}` resolves bidirectional conflicts and `file.sync.conflict` reports active conflicts. |
 | 0.1 (additive/change) | `network.shaping.set` accepts optional `dns` and `dns_delay_ms`, and shaping is stored on `Device` and restored on boot. `identity.get/set`, `input.gamepad.*`, `file.sync.*`, and `file.flash` add device identifiers, controller forwarding, one-way folder sync and ZIP classification. `media.record` gains optional `audio` (default true) and reports whether an audio track was included (`audio`) and any valid audio packet was received (`audio_received`). File sync events are published under the `file.sync.` prefix. |
-| 0.1 (additive) | `image.inventory` lists installed SDK image copies and their device references; destructive `image.remove` removes an unused image from a specified Jidr-owned SDK. |
+| 0.1 (additive) | `image.inventory` lists installed SDK image copies and their device references; destructive `image.remove` removes an unused image from a specified Miko-owned SDK. |
 | 0.1 (additive) | `sdk.license_details {packages}` returns each applicable licence text and its current `accepted` state without changing consent. Existing `sdk.licenses` continues to return only pending licences. |
 | 0.1 (fix) | `base.create` leaves the source's animation settings unchanged. `pool.get` disables animations on each clone after boot and before delivery; a clone that cannot be configured is removed and reported as a failure. |
 | 0.1 (fix) | `pool.get` starts TTL at delivery and protects pending clones from expiry. TTL lease IDs and deadlines survive daemon restarts; connection leases enter grace on restart without extending an existing grace deadline. `pool.renew` returns `busy` when release has begun, and expiry rechecks the deadline under the device lock. |
@@ -1265,13 +1270,13 @@ reported as errors.
 | 0.1 (additive) | Phase 5b: `cache.list`, `cache.import`, `cache.prune`, `device.logs`. No existing command changed. |
 | 0.1 (additive) | G15: `root.auto_grant` (D22 "auto-grant all", from the root provider). No existing command changed. |
 | 0.1 (additive) | B4: `settings.get` / `settings.set {default_root_mode?, quick_boot?}` (daemon-wide, `settings.json`). `device.create` without `root_mode` uses `default_root_mode` (still `adb` by default, `none` where adb root isn't allowed); `quick_boot: false` launches with `-no-snapshot-save` from a device's next start. |
-| 0.1 (additive) | B5: `Job.bytes {done, total}` and a `bytes` field on `job.progress` while a job downloads (`image.install`, `sdk.install`); absent otherwise. G14: `image.list` fills `pristine_ramdisk_sha256` for installed images, and `device.details` gains `pristine_ramdisk_sha256`. G16: the command reference now lists every provider's commands (widgets, root), generated by `cargo nextest run -p jidr protocol_doc`. No existing field changed meaning. |
+| 0.1 (additive) | B5: `Job.bytes {done, total}` and a `bytes` field on `job.progress` while a job downloads (`image.install`, `sdk.install`); absent otherwise. G14: `image.list` fills `pristine_ramdisk_sha256` for installed images, and `device.details` gains `pristine_ramdisk_sha256`. G16: the command reference now lists every provider's commands (widgets, root), generated by `cargo nextest run -p miko protocol_doc`. No existing field changed meaning. |
 | 0.1 (additive) | Phase 9f: `device.props.get`, `device.props.set` (a Full-root device's build props, from the root provider). No existing command changed. |
 | 0.1 (additive) | `network.proxy.get`, `network.proxy.set {host, port}`, `network.proxy.clear` (the device's global HTTP proxy, from the widgets provider). No existing command changed. |
 | 0.1 (additive) | `root.cacert.install {path}`, `root.cacert.list`, `root.cacert.verify`, `root.cacert.remove {cert?, all?}` (CA certificates in a Full-root device's system store, from the root provider). No existing command changed. |
 | 0.1 (additive) | Phase 13a (D42): new error code `resource_exhausted` (-32009, CLI exit 9) from `device.start` past the host RAM budget; `device.start` gains `force`. New `host.budget` → `{total_mb, available_mb, budget_percent, budget_mb, used_mb, devices: [{id, name, expected_mb, measured_mb?}]}`. `settings` gains `budget_percent` (default 75, 10–100). `Device` gains `footprint_mb` (peak of its last run); `HardwareProfile` gains `audio`, `camera_back`, `camera_front`; `LaunchPrefs` gains `audio`. New profile `agent-lean`. No existing field changed meaning. |
 | 0.1 (additive) | Phase 13b (D42): `device.clone` gains `keep_snapshot` (a snapshot name or id with a non-empty `ram.bin`): a copy-on-write clone that keeps only that snapshot (and its root-mode tag), drops `default_boot` and the locks, and rewrites the AVD name and folder in its ini files. `LaunchPrefs` gains `resume_snapshot`: the next start launches with `-snapshot <id>` (and no exit save into it), then it is cleared. Without `keep_snapshot`, `device.clone` is unchanged. |
-| 0.1 (additive) | Phase 13c (D42): new device state `hibernated` (not active; uses no RAM) and event `device.hibernated`. New `device.hibernate` (long-running, locks the device): a named snapshot `jidr-hibernate` via SnapshotService, refused with `sdk` (the device keeps running) when its `ram.bin` is empty, then an exit without the quick-boot save; `device.start` resumes it (`-snapshot jidr-hibernate`) and the snapshot's root tag is kept (D29); `device.stop` leaves it hibernated, `device.reset` discards it. `settings` gains `auto_hibernate_minutes` (0 = off, the default); `Device` and `device.edit` gain `auto_hibernate_minutes` (`0` = never, `null` = the setting). `resource_exhausted` details gain `hibernate_candidates: [{id, name, idle_s}]`, the longest-idle running devices first. |
+| 0.1 (additive) | Phase 13c (D42): new device state `hibernated` (not active; uses no RAM) and event `device.hibernated`. New `device.hibernate` (long-running, locks the device): a named snapshot `miko-hibernate` via SnapshotService, refused with `sdk` (the device keeps running) when its `ram.bin` is empty, then an exit without the quick-boot save; `device.start` resumes it (`-snapshot miko-hibernate`) and the snapshot's root tag is kept (D29); `device.stop` leaves it hibernated, `device.reset` discards it. `settings` gains `auto_hibernate_minutes` (0 = off, the default); `Device` and `device.edit` gain `auto_hibernate_minutes` (`0` = never, `null` = the setting). `resource_exhausted` details gain `hibernate_candidates: [{id, name, idle_s}]`, the longest-idle running devices first. |
 | 0.1 (additive) | Phase 13d (D42): new commands from the pool provider: `base.create {from_device, name}` (long-running), `base.list`, `base.delete {base}` (destructive), `pool.get {base, ttl_s?, timeout_s?}` (long-running) → `{lease, device, serial, connect}`, `pool.release {lease \| device}`, `pool.renew {lease, ttl_s?}`, `pool.list`. A lease without `ttl_s` is tied to the calling connection and expires 2 minutes after it closes; the daemon reaps expired leases every 30 s and stays up while any exist (D4). `Device` gains `base` (read-only; `device.start` refuses it) and `pool_base`. Events `pool.leased`, `pool.released`. A full budget makes `pool.get` wait, then fail with `resource_exhausted`. |
 | 0.1 (additive) | Phase 13f (D42): `base.create` accepts Magisk sources with a valid per-device patched ramdisk and an existing shell `su` grant. Bases and clones use separate ramdisk copies; clones preserve the base's Magisk version and snapshot settings. Existing parameters and result fields are unchanged. |
 | 0.1 (fix) | `snapshot.list` marks snapshots with missing or empty metadata or memory files as not restorable; `snapshot.load` refuses them before contacting the emulator. |
@@ -1281,5 +1286,5 @@ reported as errors.
 | 0.1 (additive) | `device.create` and `device.edit` accept optional `audio` to control host audio from the next start. Omitted values preserve the profile or existing device setting. |
 | 0.1 (additive) | `device.edit` accepts `quick_boot`: `true` or `false` overrides the global setting for this device; `null` restores the global setting. Changes require a stopped device. Disabled quick boot skips automatic snapshot loading and saving; named hibernation resumes are preserved. |
 | 0.1 (additive) | `app.list` lists launchable third-party applications for a running device, returning the package name, display name and an optional path to a cached icon. |
-| 0.1 (additive) | Custom SDK install root: `sdk.status` gains `install_sdk` (the writable SDK root installations go to: the user-configured `jidr_sdk` root or the private SDK) and `custom_sdk` (the configured custom root, or `null`). `sdk.install` and `image.install` install into that root; `image.install` also installs `emulator` and `platform-tools` into it when they are missing. No existing field changed meaning. |
+| 0.1 (additive) | Custom SDK install root: `sdk.status` gains `install_sdk` (the writable SDK root installations go to: the user-configured `miko_sdk` root or the private SDK) and `custom_sdk` (the configured custom root, or `null`). `sdk.install` and `image.install` install into that root; `image.install` also installs `emulator` and `platform-tools` into it when they are missing. No existing field changed meaning. |
 | 0.1 (additive) | Quick-boot save failures during `device.stop` and `daemon.quit` carry `data.details.operation = "quick_boot_save"`; the device remains running and the original error details are retained under `cause`. |

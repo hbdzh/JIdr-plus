@@ -5,7 +5,7 @@
 > M0 的本地化走查记录。三条机制、缺口清单、CI 规则建议与英文模式 top 10 见正文；摘要见 [swiftui-migration.md](swiftui-migration.md) 的 M0 一节。
 
 - 基线：`master@b46a2f3`。
-- 范围：`apps/jidr-swiftui` 的 `Center/*.swift`、`Sources/*.swift`、`Player/*.swift`、`Resources/{en,zh-Hans}.lproj/Localizable.strings`，以及 `apps/jidr-swiftui/bridge` 的 Rust 诊断消息
+- 范围：`apps/miko-swiftui` 的 `Center/*.swift`、`Sources/*.swift`、`Player/*.swift`、`Resources/{en,zh-Hans}.lproj/Localizable.strings`，以及 `apps/miko-swiftui/bridge` 的 Rust 诊断消息
 - 方法：只读代码分析；辅助脚本 `target/m0/scan_localization.py`（输出 `target/m0/scan_raw2.txt`）做字面量扫描与分类，行号对应上述基线；未启动 GUI 或运行构建
 - 非测试 Swift 中 CJK 字面量：**629 处 / 去重 514 个**；`en.lproj` 214 个唯一 key（215 行，1 个重复键），`zh-Hans.lproj` 193 个唯一 key（194 行，同样重复 `"系统镜像"`）
 - 结论先行：**去重后约 43 个中文 UI 串未走任何机制；扣除 3 个被英文固定文案临时遮住的日志错误和 4 个当前调用点不可达的桥接参数错误，英文模式可达路径上约 36 个**
@@ -47,7 +47,7 @@
 
 - 中心：`Center/DeviceModel.swift:70` `@Published var language = 1`（默认中文），`:123` 从 `center.prefs.get` 读回，`:409-418` 通过 `center.prefs.set` 持久化并同步给已打开的播放器。
 - 播放器：`Sources/GameWindow.swift:202` 从 `gui-prefs.json` 读 `language`；中心打开播放器时 `DeviceModel.swift:354` 注入 `player.transport.language = self.language`。
-- 现有自动检查：`apps/jidr-swiftui/Tests/localization_coverage.py`（由 `test.sh:45` 调用），只扫 `Center/*.swift` 且只认 `Text|Button|Section|Picker|TextField|Label|LabeledContent|Toggle|.help` + 首参中文字面量；在当前基线**通过**。它覆盖不到 §2 的任何一条缺口（见 §4.1）。
+- 现有自动检查：`apps/miko-swiftui/Tests/localization_coverage.py`（由 `test.sh:45` 调用），只扫 `Center/*.swift` 且只认 `Text|Button|Section|Picker|TextField|Label|LabeledContent|Toggle|.help` + 首参中文字面量；在当前基线**通过**。它覆盖不到 §2 的任何一条缺口（见 §4.1）。
 - README 自述：`README.md:38` 已承认 “its language coverage is partial”。
 
 ---
@@ -65,8 +65,8 @@
 | A3 | `Center/DeviceViews.swift:268`（显示 `:250`） | `自动休眠时间必须介于 0 到 1440 分钟。` | 同上 | `model.text(…)` |
 | A4 | `Center/DeviceViews.swift:286`（显示 `:246`） | `无法读取数据目录` | 同上；同类文案在 `DeviceModel.swift:351` 已有 `self.text("无法读取数据目录","Cannot read the data directory")` 版本，此处未复用 | 复用 `model.text("无法读取数据目录","Cannot read the data directory")`（建议抽常量） |
 | A5 | `Center/DeviceViews.swift:921` | `Text(snapshot.quick_boot ? "快速启动快照" : "Root：\(snapshot.root_mode ?? "未知")")` | 三元第一支有 en 键（`"快速启动快照"` → “Quick-boot snapshot”），第二支是带插值的 LocalizedStringKey，查的是 `"Root：%@"`，en.lproj 没有 → 只有**非快启动快照行**露中文 `Root：`；`root_mode` 为空时还露 `未知` | 改成 `model.text("Root：\(mode)","Root: \(mode)")` 的字符串分支（或给 `"Root：%@"`/`未知` 补 en 条目） |
-| A6 | `Center/main.swift:18` | `window.title = "Jidr SwiftUI 设备中心预览"` | `NSWindow.title` 是 AppKit String，不参与 LocalizedStringKey；`titleVisibility = .hidden` 只隐藏标题栏，Mission Control / Window 菜单 / 无障碍仍取该标题 | `model.text("Jidr SwiftUI 设备中心预览","Jidr SwiftUI Device Center Preview")` |
-| A7 | `Center/DeviceModel.swift:426`、`:444`；`Sources/GameWindow.swift:89`、`:100` | `Jidr 截图.png`、`Jidr 录屏.mp4` | `NSSavePanel.nameFieldStringValue` 是 AppKit 字符串，完全绕开 SwiftUI 机制；且同一文案在两处重复 | 按 `language` 生成：英文模式 `Jidr screenshot.png` / `Jidr recording.mp4`（或中文文件名也保留为“Jidr screenshot”+时间戳） |
+| A6 | `Center/main.swift:18` | `window.title = "Miko SwiftUI 设备中心预览"` | `NSWindow.title` 是 AppKit String，不参与 LocalizedStringKey；`titleVisibility = .hidden` 只隐藏标题栏，Mission Control / Window 菜单 / 无障碍仍取该标题 | `model.text("Miko SwiftUI 设备中心预览","Miko SwiftUI Device Center Preview")` |
+| A7 | `Center/DeviceModel.swift:426`、`:444`；`Sources/GameWindow.swift:89`、`:100` | `Miko 截图.png`、`Miko 录屏.mp4` | `NSSavePanel.nameFieldStringValue` 是 AppKit 字符串，完全绕开 SwiftUI 机制；且同一文案在两处重复 | 按 `language` 生成：英文模式 `Miko screenshot.png` / `Miko recording.mp4`（或中文文件名也保留为“Miko screenshot”+时间戳） |
 | A8 | `Sources/GameWindow.swift:630/632/633` | `隐藏侧边栏`（`NSImage` 的 accessibilityDescription、初始 toolTip、初始 accessibilityLabel） | AppKit 硬编码中文；`updateSidebarButton()` 之后会覆盖 toolTip/label（`:698`/`:613`），但 `image` 的 accessibilityDescription 不再更新，VoiceOver 仍可能读到中文 | 在 `addSidebarButton` 里用 `transport.language == 0 ? "Hide sidebar" : "隐藏侧边栏"`，或先调 `updateSidebarButton()` 再挂载 |
 | A9 | `Center/DeviceModel.swift:65`（显示 `Center/DeviceViews.swift:1118`） | `@Published var notice = "正在连接…"` | 启动初始值；`displayNotice` → `OperationMessages.notice` 的 7 组 pair 里没有它，EN 模式下退回原值 → **每次启动中心都会短暂露中文**，直到首个 `device.list` 返回（`DeviceModel.swift:255` 才清空） | 初始值改为 `text("正在连接…","Connecting…")`，或让 `OperationMessages.notice` 覆盖它 |
 
@@ -74,27 +74,27 @@
 
 | # | 文件:行 | 原文 | 为什么可能漏 | 建议修法 |
 |---|---|---|---|---|
-| B1 | `Sources/GameWindow.swift:226`（显示 `:545`） | `安装失败：模拟器存储空间不足，请先释放空间。` | `JIDR_OPERATION` 诊断 → `readable` → `onStatus` → `Text(localized(status))`；`localized()` 只做 en.lproj 精确查键，键不存在 → 原样返回中文 | 加 en.lproj 条目（如 `"安装失败：模拟器存储空间不足，请先释放空间。" = "Install failed: the emulator is out of storage. Free some space first.";`）或把这条并入 `localized()` 前缀映射/统一消息目录 |
+| B1 | `Sources/GameWindow.swift:226`（显示 `:545`） | `安装失败：模拟器存储空间不足，请先释放空间。` | `MIKO_OPERATION` 诊断 → `readable` → `onStatus` → `Text(localized(status))`；`localized()` 只做 en.lproj 精确查键，键不存在 → 原样返回中文 | 加 en.lproj 条目（如 `"安装失败：模拟器存储空间不足，请先释放空间。" = "Install failed: the emulator is out of storage. Free some space first.";`）或把这条并入 `localized()` 前缀映射/统一消息目录 |
 | B2 | `Sources/GameWindow.swift:228`（显示 `:545`） | `安装失败：应用签名不匹配，原应用及数据未删除。` | 同上；对应 APK 签名冲突重装流程 | 同上（`"Install failed: app signature mismatch; the existing app and data were not removed."`） |
 | B3 | `Sources/GameWindow.swift:566` | `.accessibilityValue(status)` | 状态气泡的可见文本已 `localized(status)`，但无障碍值直接传原始中文 `status`；EN 模式 VoiceOver 会读中文（`"已连接"`/`"准备中"` 等也包含在内） | `.accessibilityValue(localized(status))`，并把 `"已连接"`/`"准备中"` 哨兵映射为英文/空值 |
 
-### 2-C 播放器侧 bridge 的 Rust 中文诊断（3 组协议来源 / 10 个串；JIDR_* 协议 → `onStatus` → `localized()` 无键）
+### 2-C 播放器侧 bridge 的 Rust 中文诊断（3 组协议来源 / 10 个串；MIKO_* 协议 → `onStatus` → `localized()` 无键）
 
 | # | 文件:行 | 原文 | 为什么可能漏 | 建议修法 |
 |---|---|---|---|---|
-| C1 | `bridge/src/main.rs:559`（消费于 `GameWindow.swift:219-232`） | `截图已保存` / `应用已安装` / `文件已发送到设备下载目录` | bridge 把成功文案直接塞进 `JIDR_OPERATION.message`；Swift 侧只滤 `INSTALL_FAILED_*`，其余原样进状态气泡；en.lproj 无这些键 | 二选一：bridge 改发稳定 code（`{"code":"screenshot.saved"}`）由 Swift 查表；或给 `localized()` 增加这些精确键 |
-| C2 | `bridge/src/main.rs:396`、`:404` | `请选择有效的本地文件路径` / `请选择本地文件，不支持文件夹` | `run_file_operation` 的 `bail!` → `JIDR_OPERATION {"ok":false,...}` → 同 C1 路径 | 同上（bridge 侧用英文 + code，Swift 侧映射中文） |
-| C3 | `bridge/src/main.rs:526/534/538/539/547` | `录屏路径无效或文件已存在` / `正在录屏` / `录屏已保存` / `录屏失败：{error}` / `停止录屏失败：{error}` | `JIDR_RECORD.message` → `GameWindow.swift:205-217` → `onStatus` → `localized()` 无键；**每次开始/结束录屏都会露** | 同 C1；至少把 5 条加入 `localized()` 的精确键/前缀映射并补 en.lproj 条目 |
+| C1 | `bridge/src/main.rs:559`（消费于 `GameWindow.swift:219-232`） | `截图已保存` / `应用已安装` / `文件已发送到设备下载目录` | bridge 把成功文案直接塞进 `MIKO_OPERATION.message`；Swift 侧只滤 `INSTALL_FAILED_*`，其余原样进状态气泡；en.lproj 无这些键 | 二选一：bridge 改发稳定 code（`{"code":"screenshot.saved"}`）由 Swift 查表；或给 `localized()` 增加这些精确键 |
+| C2 | `bridge/src/main.rs:396`、`:404` | `请选择有效的本地文件路径` / `请选择本地文件，不支持文件夹` | `run_file_operation` 的 `bail!` → `MIKO_OPERATION {"ok":false,...}` → 同 C1 路径 | 同上（bridge 侧用英文 + code，Swift 侧映射中文） |
+| C3 | `bridge/src/main.rs:526/534/538/539/547` | `录屏路径无效或文件已存在` / `正在录屏` / `录屏已保存` / `录屏失败：{error}` / `停止录屏失败：{error}` | `MIKO_RECORD.message` → `GameWindow.swift:205-217` → `onStatus` → `localized()` 无键；**每次开始/结束录屏都会露** | 同 C1；至少把 5 条加入 `localized()` 的精确键/前缀映射并补 en.lproj 条目 |
 | C4 | 同上文件，其余英文诊断（如 `Frame stream failed: …`、`Input failed: …`） | 英文 | 不含中文，EN 模式无问题；但它们反向说明 bridge 诊断没有语言契约：英文行原样进中文 UI（见 §3.4） | 统一走 code + 参数，而不是预制显示文案 |
 
 ### 2-D 中心侧 bridge 的 Rust 中文诊断（4 处来源 / 7 个串）
 
 | # | 文件:行 | 原文 | 为什么可能漏 | 建议修法 |
 |---|---|---|---|---|
-| D1 | `bridge/src/bin/jidr-center-bridge.rs:121` | `偏好设置格式错误` | `gui-prefs.json` 内容不是 JSON object 时 `center.prefs.get/set` 返回该 message → `NSError.localizedDescription` → `notice`/`message` → `displayNotice`（`OperationMessages.notice` 无此 pair）或 `Text(message)` 原样中文；对应“配置损坏”流程 | bridge 返回 `code:"prefs.invalid"`，Swift 查表；或扩展 `OperationMessages` 双向词表 |
-| D2 | `jidr-center-bridge.rs:150` | `数据目录不可用` | `center.prefs.set` 时数据目录不存在 → 同上（数据目录被删/迁移失败后） | 同上 |
-| D3 | `jidr-center-bridge.rs:269` | `后台进程没有正常退出` | `center.quit` 100×100ms 未退出 → `main.swift:44` 拼“无法安全退出：”+该中文，EN 模式得到 `Unable to quit safely: 后台进程没有正常退出` | 同上（安全退出主流程，建议优先修） |
-| D4 | `jidr-center-bridge.rs:128/220/224/237` | `无效的界面设置` / `缺少工具类型` / `缺少路径` / `未知工具类型` | 当前 UI 参数固定（语言/外观 0-2、kind `"sdk"/"jdk"`），实际不可达；但同属“桥接层直出中文”的隐患 | 同 D1，改 code；或在 Rust 侧直接改成英文常量（中心已有 ZH 翻译层） |
+| D1 | `bridge/src/bin/miko-center-bridge.rs:121` | `偏好设置格式错误` | `gui-prefs.json` 内容不是 JSON object 时 `center.prefs.get/set` 返回该 message → `NSError.localizedDescription` → `notice`/`message` → `displayNotice`（`OperationMessages.notice` 无此 pair）或 `Text(message)` 原样中文；对应“配置损坏”流程 | bridge 返回 `code:"prefs.invalid"`，Swift 查表；或扩展 `OperationMessages` 双向词表 |
+| D2 | `miko-center-bridge.rs:150` | `数据目录不可用` | `center.prefs.set` 时数据目录不存在 → 同上（数据目录被删/迁移失败后） | 同上 |
+| D3 | `miko-center-bridge.rs:269` | `后台进程没有正常退出` | `center.quit` 100×100ms 未退出 → `main.swift:44` 拼“无法安全退出：”+该中文，EN 模式得到 `Unable to quit safely: 后台进程没有正常退出` | 同上（安全退出主流程，建议优先修） |
+| D4 | `miko-center-bridge.rs:128/220/224/237` | `无效的界面设置` / `缺少工具类型` / `缺少路径` / `未知工具类型` | 当前 UI 参数固定（语言/外观 0-2、kind `"sdk"/"jdk"`），实际不可达；但同属“桥接层直出中文”的隐患 | 同 D1，改 code；或在 Rust 侧直接改成英文常量（中心已有 ZH 翻译层） |
 
 ### 2-E Swift 动态错误（LocalizedError / NSError，中文 message 进入 UI 文案）
 
@@ -134,17 +134,17 @@
 
 ### 3.2 数据源语言现状（已抽查全仓库 Rust）
 
-- `crates/jidr-core`、`jidr-daemon`、`jidr-client`、`jidr-widgets`、`jidr-root`、`jidr-sdk` 的**用户可见错误/进度串均为英文**（唯一中文出现在 `jidr-widgets/src/game_list.rs:256-257` 的测试夹具）。→ EN 模式下 daemon 侧诊断不构成中文泄漏；反之 **ZH 模式下未列入 `OperationMessages.error` 的英文错误会直接露英文**（`error()` 未知分支加 `"操作失败："` 后缀，UI 里即中文前缀 + 英文正文）。
-- 同仓库的 Slint GUI（`crates/jidr-ui`）已有成熟方案可参考：`crates/jidr-ui/src/i18n.rs` 的 `i18n::text(en, zh)` + Slint bundled translation（`translations/zh_CN/LC_MESSAGES/jidr-ui.po`），且动态状态用 `device_label()` 做替换式翻译——本原型的两套机制（t/text 与 .strings）本质上重复又割裂。
+- `crates/miko-core`、`miko-daemon`、`miko-client`、`miko-widgets`、`miko-root`、`miko-sdk` 的**用户可见错误/进度串均为英文**（唯一中文出现在 `miko-widgets/src/game_list.rs:256-257` 的测试夹具）。→ EN 模式下 daemon 侧诊断不构成中文泄漏；反之 **ZH 模式下未列入 `OperationMessages.error` 的英文错误会直接露英文**（`error()` 未知分支加 `"操作失败："` 后缀，UI 里即中文前缀 + 英文正文）。
+- 同仓库的 Slint GUI（`crates/miko-ui`）已有成熟方案可参考：`crates/miko-ui/src/i18n.rs` 的 `i18n::text(en, zh)` + Slint bundled translation（`translations/zh_CN/LC_MESSAGES/miko-ui.po`），且动态状态用 `device_label()` 做替换式翻译——本原型的两套机制（t/text 与 .strings）本质上重复又割裂。
 
 ### 3.3 两条桥接链路的诊断契约现状
 
-1. **中心链路**：`jidr-center-bridge` 把 `json!({"type":"error","message":…})` 发回 Swift；`DeviceModel.receive`（`:176`）转 `NSError`；各视图用 `failure.localizedDescription` 展示。bridge 里中文错误 7 条、英文错误若干（`missing device`、`Invalid map tile URL`、`Map tile URL must use HTTPS…`、`missing destination` 等）——语言不统一，无 code 字段。
+1. **中心链路**：`miko-center-bridge` 把 `json!({"type":"error","message":…})` 发回 Swift；`DeviceModel.receive`（`:176`）转 `NSError`；各视图用 `failure.localizedDescription` 展示。bridge 里中文错误 7 条、英文错误若干（`missing device`、`Invalid map tile URL`、`Map tile URL must use HTTPS…`、`missing destination` 等）——语言不统一，无 code 字段。
    - 特例：`SettingsView` 对 `"Map tile URL must"` 做了字符串包含判断再翻中文（`DeviceViews.swift:763`），属于“按英文原文匹配”的脆弱耦合；若 Rust 改文案，中文提示静默失效。
    - 移民预检的 4 条英文 reason（`migration_preflight.rs:18/25/33/46`）与 `Center/DeviceViews.swift:696-701`（`SettingsView.checkMigration`）的 switch 精确匹配，同样脆弱（好处是 ZH 模式有中文）。
-2. **播放器链路**：`jidr-swiftui-bridge` 用 `JIDR_CLIPBOARD:` / `JIDR_MAPPING_PATH:` / `JIDR_RECORD:` / `JIDR_OPERATION:` 四个前缀 + `eprintln!` 文本协议；payload 里的 `message` 既有中文（§2-C）也有英文（`Frame stream failed: …`），Swift 侧 `GameWindow.swift:184-235` 分前缀解析、其余行直接 `onStatus`。
-   - 好消息：`JIDR_CLIPBOARD` 的 `"Mac 剪贴板已变化，请重新复制"` 在 en.lproj 有键（`:213`），是“中文串 + en 键”路径的正确示范；其余三条前缀没跟上。
-   - `JIDR_MAPPING_PATH` 只传路径，无显示文案，安全。
+2. **播放器链路**：`miko-swiftui-bridge` 用 `MIKO_CLIPBOARD:` / `MIKO_MAPPING_PATH:` / `MIKO_RECORD:` / `MIKO_OPERATION:` 四个前缀 + `eprintln!` 文本协议；payload 里的 `message` 既有中文（§2-C）也有英文（`Frame stream failed: …`），Swift 侧 `GameWindow.swift:184-235` 分前缀解析、其余行直接 `onStatus`。
+   - 好消息：`MIKO_CLIPBOARD` 的 `"Mac 剪贴板已变化，请重新复制"` 在 en.lproj 有键（`:213`），是“中文串 + en 键”路径的正确示范；其余三条前缀没跟上。
+   - `MIKO_MAPPING_PATH` 只传路径，无显示文案，安全。
 
 ### 3.4 缺口归纳（按严重度）
 
@@ -172,7 +172,7 @@
 1. **扩大机制 (a) 扫描到全部非测试 Swift**：`Center` + `Sources` + `Player`；初始化器名单补齐 `Text/Button/Label/Section/Picker/TextField/Toggle/LabeledContent/Stepper/GroupBox/Menu/help/alert/confirmationDialog/navigationTitle/label`；并支持“首参表达式里含中文字面量”（如 `Text(cond ? "中文" : …)`）的检测。
 2. **String 显示汇检查（新增，最有价值）**：先按语法近似列出所有 UI 汇：`Text(...)`/`Label(...)`/`LabeledContent(...)`/`.help(...)`/`.alert(...)`/`NSSavePanel.nameFieldStringValue`/`panel.prompt`/`NSWindow.title`/`NSImage.accessibilityDescription`/`toolTip`/`setAccessibilityLabel`/`.accessibilityValue`。规则：**含中文的字符串不得以 String 变量/字面量直接进入 UI 汇**，除非：(i) 由 `t()/model.text()` 产生；(ii) 由 `localized()`/`OperationMessages` 产生；(iii) 显式 `// i18n: ok` 白名单（并说明原因）。这能覆盖 §2-A/B 整类。
 3. **动态错误汇检查**：扫 `.swift` 中 `NSLocalizedDescriptionKey:`/`errorDescription` 返回的中文字面量，要求同文件存在 `model.text`/`OperationMessages` 映射或白名单；同时对 `error.localizedDescription` 的展示点做人工评审清单（脚本输出，人工确认）。
-4. **Rust 诊断契约检查**（bridge 两个 crate）：禁止 `JIDR_*`/JSON-RPC `message` 直接携带中文字面量；要求以 `code`（+ 参数）表达，或在 Rust 里用英文常量；对 `eprintln!` 日志类中文加白名单。另外加一条 Rust 测试：bridge 发出的用户消息集合非空且全部为 ASCII/code。
+4. **Rust 诊断契约检查**（bridge 两个 crate）：禁止 `MIKO_*`/JSON-RPC `message` 直接携带中文字面量；要求以 `code`（+ 参数）表达，或在 Rust 里用英文常量；对 `eprintln!` 日志类中文加白名单。另外加一条 Rust 测试：bridge 发出的用户消息集合非空且全部为 ASCII/code。
 5. **英文模式输出回归**（最直接的防漏网）：用现有 `Tests/SDK/main.swift` 的模式扩展——
    - `OperationMessages.error/notice/progress` 语料测试：一组 bridge/daemon 真实消息（含中文样例）在 `language: 0` 时断言 `无 CJK`；
    - `localized()` 不可直接测（私有函数），建议抽出 `PlayerMessages.localize(_:language:)` 纯函数后用同样语料测试；
@@ -182,10 +182,10 @@
 
 ### 4.3 不建议做的过度检查
 
-- **不要禁止注释/测试/日志里的中文**：`Tests/**` 断言、`eprintln!` 日志、`fputs` usage、测试夹具（如 `jidr-widgets` 的 `'游戏'`）不是 UI，机械全仓库 grep 只会制造噪声。
+- **不要禁止注释/测试/日志里的中文**：`Tests/**` 断言、`eprintln!` 日志、`fputs` usage、测试夹具（如 `miko-widgets` 的 `'游戏'`）不是 UI，机械全仓库 grep 只会制造噪声。
 - **不要禁止 `.strings` 的 zh 值、翻译表数据**：`OperationMessages` 表、`DeviceModel.creationError` 表、`zh-Hans.lproj` 的中文是机制本身。
 - **不要要求所有 UI 串都走 `t()`**：机制 (a) `LocalizedStringKey` + en.lproj 已经是有效路径（当前 154 key 全覆盖），强制改 `t()` 是纯噪音；反之也不要因为某处用 `t()` 就要求 en.lproj 里有对应键。
-- **不要对 Rust 全仓库“无中文”**：`crates/jidr-ui` 是 GPL Slint GUI，中文在 `zh_CN` 翻译目录与 `i18n::text` 里是合法设计；只约束 `bridge` 这两个 crate 的**用户可见诊断**。
+- **不要对 Rust 全仓库“无中文”**：`crates/miko-ui` 是 GPL Slint GUI，中文在 `zh_CN` 翻译目录与 `i18n::text` 里是合法设计；只约束 `bridge` 这两个 crate 的**用户可见诊断**。
 - **不要逐字匹配英文原文做翻译**（类似 `SettingsView` 的 `contains("Map tile URL must")`）：应当做结构化 code；CI 不应鼓励这种耦合，也不应断言“中文文案字符串在 Rust 与 Swift 两端逐字一致”。
 - **不要对第三方/系统文本做检查**：Google licence 正文、`© OpenStreetMap contributors`、`ByteCountFormatter`、NSSavePanel 系统按钮、Android 镜像 tag、设备/app/快照名。
 - **不要强制“en 与 zh 键集合完全相等”为阻断错误**：当前 21 条 en-only 是中文 key 回落到中文（显示正确），应为“警告 + 待补”而非 fail；同理死键检查应是警告（含 `%` 占位的动态键）。
@@ -197,8 +197,8 @@
 
 | # | 位置 | 露中文的原文 | 触发场景（英文模式） |
 |---|---|---|---|
-| 1 | `Center/DeviceModel.swift:426`、`Sources/GameWindow.swift:89` | `Jidr 截图.png` | 每次截图保存对话框（中心“常用操作→截图”与播放器侧栏“截图”）——默认文件名中文 |
-| 2 | `Center/DeviceModel.swift:444`、`Sources/GameWindow.swift:100` | `Jidr 录屏.mp4` | 每次录屏保存对话框的默认文件名 |
+| 1 | `Center/DeviceModel.swift:426`、`Sources/GameWindow.swift:89` | `Miko 截图.png` | 每次截图保存对话框（中心“常用操作→截图”与播放器侧栏“截图”）——默认文件名中文 |
+| 2 | `Center/DeviceModel.swift:444`、`Sources/GameWindow.swift:100` | `Miko 录屏.mp4` | 每次录屏保存对话框的默认文件名 |
 | 3 | `bridge/src/main.rs:559` → `GameWindow.swift:219-232` | `截图已保存` / `应用已安装` / `文件已发送到设备下载目录` | 播放器窗口里每次截图、装 APK、发文件后的状态气泡（约 6 秒） |
 | 4 | `bridge/src/main.rs:526-547` → `GameWindow.swift:205-217` | `正在录屏` / `录屏已保存` / `录屏失败：…` / `停止录屏失败：…` / `录屏路径无效或文件已存在` | 每次开始/结束录屏的状态气泡 |
 | 5 | `Center/DeviceViews.swift:921` | `Root：<mode>` / `Root：未知` | 打开“管理快照”，任意非快速启动快照行（第一支“快速启动快照”有翻译，第二支没有） |
@@ -210,9 +210,9 @@
 
 接近 Top 10（按可达性次之）：
 
-- `Center/main.swift:18` `Jidr SwiftUI 设备中心预览`（Mission Control/Window 菜单可见；标题栏已隐藏）
+- `Center/main.swift:18` `Miko SwiftUI 设备中心预览`（Mission Control/Window 菜单可见；标题栏已隐藏）
 - `Sources/WindowQuality.swift:52`、`Sources/GameWindowState.swift:77`（画质/窗口设置文件损坏时，经中心 notice 或 `qualityMessage` 露中文）
-- `bridge/src/bin/jidr-center-bridge.rs:121/150/269`（`gui-prefs.json` 损坏、数据目录被删、退出时后台未结束 → `偏好设置格式错误` / `数据目录不可用` / `后台进程没有正常退出`）
+- `bridge/src/bin/miko-center-bridge.rs:121/150/269`（`gui-prefs.json` 损坏、数据目录被删、退出时后台未结束 → `偏好设置格式错误` / `数据目录不可用` / `后台进程没有正常退出`）
 - `Center/DeviceViews.swift:286` `无法读取数据目录`、`:242/289` 的 `error.localizedDescription`（画质存储失败时）
 - `Sources/GameWindow.swift:630` `隐藏侧边栏`（VoiceOver 可能读到；toolTip/标签随后被覆盖）
 
@@ -228,4 +228,4 @@
 
 ## 附录 B：可参考的既有设计
 
-- Slint GUI 的双语路径：`crates/jidr-ui/src/i18n.rs`（`text(en,zh)`、`select(chinese)`、动态状态 `device_label()` 替换表）与 `translations/zh_CN/LC_MESSAGES/jidr-ui.po`；M1 迁移时可直接复用“英文 source + zh 目录”的方向，避免本原型的“中文 key 反向表”割裂与 en-only/zh-only 漂移。
+- Slint GUI 的双语路径：`crates/miko-ui/src/i18n.rs`（`text(en,zh)`、`select(chinese)`、动态状态 `device_label()` 替换表）与 `translations/zh_CN/LC_MESSAGES/miko-ui.po`；M1 迁移时可直接复用“英文 source + zh 目录”的方向，避免本原型的“中文 key 反向表”割裂与 en-only/zh-only 漂移。

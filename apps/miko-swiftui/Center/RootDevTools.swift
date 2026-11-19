@@ -1,0 +1,706 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// The "Root" tab of the advanced-tools window: root status + Verify/Revert,
+// the opt-in auto-grant toggle (D22), Magisk modules, build props (Phase 9f)
+// writable /system and system CA certificates. Slint reference: crates/miko-ui/src/root/mod.rs,
+// ui/root/root.slint (RootDevTools), props/props.slint and cacerts/cacerts.slint.
+import AppKit
+import SwiftUI
+import UniformTypeIdentifiers
+
+/// `root.status` (crates/miko-root/src/lib.rs:status).
+struct RootStatus: Decodable {
+    struct Root: Decodable {
+        let mode: String
+        let health: String?
+        let magisk_version: String?
+        let verified_at: String?
+        let auto_grant_all: Bool?
+        let writable_system: Bool?
+    }
+    let root: Root
+    let adb_root_allowed: Bool?
+    let play_integrity: String?
+}
+
+/// One `root.cacert.list` row (cacerts/mod.rs:rows_of).
+struct CertRow: Decodable, Identifiable {
+    var id: String { file }
+    let file: String
+    let subject: String?
+    let trusted: Bool?
+}
+
+struct CertList: Decodable { let certs: [CertRow] }
+
+struct RootDevToolsView: View {
+    @ObservedObject var model: CenterModel
+    let id: String
+    let running: Bool
+    var embedded = false
+
+    @State private var status: RootStatus?
+    @State private var capabilities: Set<String> = []
+    @State private var capabilitiesLoaded = false
+    @State private var statusError = ""
+    @State private var statusLoading = true
+
+    @State private var autoGrant = false
+    @State private var autoGrantSaving = false
+
+    @State private var props: [String: String] = [:]
+    @State private var propsLoaded = false
+    @State private var propsEditing = false
+    @State private var propsDraft: [String: String] = [:]
+    @State private var propsSaving = false
+    @State private var propsPendingRestart = false
+    @State private var propsError = ""
+
+    @State private var certs: [CertRow] = []
+    @State private var certsError = ""
+    @State private var certsBusy = false
+
+    @State private var working = false
+    @State private var statusText = ""
+    @State private var errorText = ""
+    @State private var pending: PendingRootAction?
+
+    /// The six build props in form order (props/mod.rs:FIELDS).
+    private static let propFields = ["model", "brand", "manufacturer", "device", "fingerprint", "security_patch"]
+
+    struct PendingRootAction: Identifiable {
+        enum Kind {
+            case installModule(URL)
+            case installCert(URL)
+            case removeCert(String)
+            case saveProps([String: String], reset: Bool)
+            case writableSystem(Bool)
+        }
+        let id = UUID()
+        let kind: Kind
+        let title: String
+        let detail: String
+    }
+
+    private func t(_ chinese: String, _ english: String) -> String { model.text(chinese, english) }
+    private var device: Device? { model.devices.first(where: { $0.id == id }) }
+    private var fullRoot: Bool { (status?.root.mode ?? device?.root.mode) == "magisk" }
+    private var playStore: Bool { device?.image.tag.contains("playstore") ?? false }
+    private var canAutoGrant: Bool { capabilities.contains("root.auto_grant") }
+    private var canProps: Bool { capabilities.contains("device.props.get") }
+    private var canCerts: Bool { capabilities.contains("root.cacert.install") }
+
+    var body: some View {
+        if embedded {
+            sections
+        } else {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) { sections }
+                    .frame(maxWidth: 430, alignment: .leading).padding(24)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }.background(WbColor.raised)
+        }
+    }
+
+    private var sections: some View {
+        Group {
+            DeviceToolPageGroup(t("Root 状态", "Root status")) {
+                statusCard
+            }
+            .onAppear(perform: load)
+            .onChange(of: running) { value in
+                certsError = ""
+                load()
+                if !value { certs = [] }
+            }
+            .onChange(of: device?.root.mode) { _ in load() }
+            .alert(item: $pending) { action in confirmAlert(action) }
+            if let device {
+                DeviceToolPageGroup(t("Root 模式", "Root mode")) {
+                    DeviceRootControls(model: model, device: device)
+                }
+            }
+            DeviceToolPageGroup(t("系统分区", "System partition")) {
+                writableSystemBlock
+            }
+            if !fullRoot {
+                DeviceToolPageGroup(t("完整 Root 功能", "Full Root tools")) {
+                    Label(t("以下功能需要完整 Root（Magisk）：自动授权、Magisk 模块、设备标识（构建属性）和系统 CA 证书。请在上方选择并设置完整 Root。",
+                            "These tools require Full Root (Magisk): auto-grant, Magisk modules, build identity, and system CA certificates. Choose and set up Full Root above."),
+                          systemImage: WbIcon.rootTab)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Group {
+                if fullRoot {
+                    DeviceToolPageGroup(t("Root 授权", "Root permissions")) {
+                        autoGrantRow
+                    }
+                    DeviceToolPageGroup(t("Magisk 模块", "Magisk modules")) {
+                        modulesBlock
+                    }
+                    DeviceToolPageGroup(t("设备标识（构建属性）", "Build identity")) {
+                        propsBlock
+                    }
+                    if canCerts {
+                        DeviceToolPageGroup(t("系统 CA 证书", "System CA certificates")) {
+                            certsBlock
+                        }
+                    } else if capabilitiesLoaded {
+                        DeviceToolSection {
+                            Label(t("需要更新 miko 后台才支持系统 CA 证书。", "Needs a newer miko daemon to manage system CA certificates."),
+                                  systemImage: WbIcon.lock)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }.disabled(!fullRoot || !running || working)
+            if !statusText.isEmpty {
+                Label(statusText, systemImage: WbIcon.info).wbFont(WbType.label)
+                    .foregroundStyle(WbColor.textSecondary).textSelection(.enabled)
+            }
+            if !errorText.isEmpty {
+                Label(errorText, systemImage: WbIcon.warning).wbFont(WbType.label)
+                    .foregroundStyle(WbColor.negative).textSelection(.enabled)
+            }
+        }
+    }
+
+    // MARK: status
+
+    private var statusCard: some View {
+        VStack(alignment: .leading, spacing: WbSpace.sm) {
+            if !statusError.isEmpty {
+                Label(statusError, systemImage: WbIcon.warning).wbFont(WbType.label).foregroundStyle(WbColor.negative)
+            }
+            LabeledContent(t("当前模式", "Mode")) {
+                HStack(spacing: WbSpace.sm) {
+                    if playStore, fullRoot {
+                        Label(t("Beta · Play 商店镜像", "Beta · Play Store image"), systemImage: WbIcon.warning)
+                            .font(.caption)
+                            .foregroundStyle(WbColor.warning)
+                    }
+                    Text(modeLabel).fontWeight(.medium)
+                }
+            }
+            LabeledContent(t("健康状态", "Health"), value: healthLabel)
+            if fullRoot || status?.root.magisk_version != nil {
+                LabeledContent("Magisk", value: status?.root.magisk_version ?? "—")
+            }
+            LabeledContent(t("上次验证", "Verified"), value: verifiedLabel)
+            if playStore, fullRoot, let notice = status?.play_integrity, !notice.isEmpty {
+                Label(t("已 Root 的模拟器无法通过 Play Integrity。银行应用和部分 Play 商店游戏会拒绝运行。",
+                        "Rooted emulators can't pass Play Integrity. Banking apps and some Play Store games will refuse to run."),
+                      systemImage: WbIcon.integrity)
+                    .font(.caption)
+                    .foregroundStyle(WbColor.warning)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            DeviceToolActions {
+                if statusLoading {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button(t("刷新", "Refresh")) { load() }
+                        .disabled(working)
+                }
+                if fullRoot {
+                    Button(t("再次验证", "Verify again")) { verify() }
+                        .disabled(!running || working)
+                }
+            }
+        }
+    }
+
+    private var modeLabel: String {
+        switch status?.root.mode ?? device?.root.mode {
+        case "magisk": return t("完整 Root", "Full Root")
+        case "adb": return "Shell Root"
+        default: return t("无 Root", "Not rooted")
+        }
+    }
+
+    private var healthLabel: String {
+        switch status?.root.health ?? device?.root.health {
+        case "ok": return t("正常", "OK")
+        case "failed": return t("失败", "Failed")
+        case "unverified", nil: return t("未验证", "Unverified")
+        default: return status?.root.health ?? "—"
+        }
+    }
+
+    private var verifiedLabel: String {
+        guard let raw = status?.root.verified_at, let date = Snapshots.created(raw) else {
+            return t("尚未验证", "Not verified yet")
+        }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: model.language == 0 ? "en_US_POSIX" : "zh_CN")
+        formatter.dateFormat = model.language == 0 ? "MMM d, HH:mm" : "M月d日 HH:mm"
+        return formatter.string(from: date)
+    }
+
+    // MARK: writable system
+
+    private var writableSystem: Bool { status?.root.writable_system ?? false }
+    private var canChangeSystem: Bool {
+        guard let device, status != nil, statusError.isEmpty else { return false }
+        return WritableSystemPolicy.canChange(enabled: writableSystem,
+            mode: status?.root.mode ?? device.root.mode, api: device.image.api,
+            adbAllowed: status?.adb_root_allowed ?? !playStore,
+            available: capabilities.contains("root.writable_system"),
+            idle: !working && !statusLoading && (device.stopped || running)
+                && !model.activeJobs.contains { $0.device == id && $0.kind != "audio.inject" })
+    }
+
+    private var writableSystemBlock: some View {
+        VStack(alignment: .leading, spacing: WbSpace.sm) {
+            LabeledContent(t("分区状态", "Status"),
+                           value: status == nil || !statusError.isEmpty
+                           ? t("状态未知", "Status unknown")
+                           : (writableSystem ? t("已启用写入", "Write access enabled") : t("只读", "Read-only")))
+            Text(t("Shell Root 设备可启用 /system 写入，需要 Android 12（API 31）及以上且镜像支持 adb root。Magisk 设备请通过模块修改系统文件。",
+                   "Enable /system writes on Shell Root devices with Android 12 (API 31) or later and an image that supports adb root. Use modules for system changes on Magisk devices."))
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if capabilitiesLoaded && !capabilities.contains("root.writable_system") {
+                Text(t("当前后台不支持系统分区写入，请更新后台。", "Update the daemon to manage system write access."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            DeviceToolActions {
+                Button(writableSystem ? t("恢复只读…", "Restore read-only…") : t("启用系统写入…", "Enable system writes…")) {
+                    let enable = !writableSystem
+                    let effect = running
+                        ? t("设备将立即冷启动。请先保存应用和游戏进度。", "The device will cold boot now. Save app and game progress first.")
+                        : t("更改会在下次启动时生效，并使用冷启动。", "The change applies on the next start, using a cold boot.")
+                    pending = .init(kind: .writableSystem(enable),
+                        title: enable ? t("启用系统写入？", "Enable system writes?") : t("恢复系统分区只读？", "Restore read-only system?"),
+                        detail: (enable
+                            ? t("允许修改 /system 中的文件。", "Allow changes to files in /system.")
+                            : t("将移除系统写入覆盖层，恢复原始只读系统；覆盖层中的系统修改将丢弃。", "Remove the system overlay and restore the stock read-only system. System changes in the overlay will be discarded.")) + " " + effect)
+                }
+                .disabled(!canChangeSystem)
+                .accessibilityIdentifier("root-writable-system")
+            }
+        }
+    }
+
+    // MARK: auto-grant (D22)
+
+    private var autoGrantRow: some View {
+        VStack(alignment: .leading, spacing: WbSpace.xxs) {
+            Toggle(t("自动授权所有应用（无需询问）", "Auto-grant root to all apps"), isOn: Binding(
+                get: { autoGrant },
+                set: { value in setAutoGrant(value) }))
+                .disabled(!canAutoGrant || !running || autoGrantSaving || working)
+            Text(autoGrantHint).wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var autoGrantHint: String {
+        if !canAutoGrant { return t("需要更新 miko 后台才支持自动授权。", "Needs a newer miko daemon.") }
+        if autoGrant {
+            return t("开启：所有请求 Root 的应用都会直接获得权限，不再弹出询问。", "On: every app that asks gets root without a prompt.")
+        }
+        return t("关闭：应用请求 Root 时会弹出询问。adb shell 始终已授权。", "Off: apps ask and you tap Grant. adb shell is always granted.")
+    }
+
+    private func setAutoGrant(_ value: Bool) {
+        guard canAutoGrant else { return }
+        autoGrant = value
+        autoGrantSaving = true
+        model.call("root.auto_grant", ["device": id, "enabled": value]) { result in
+            autoGrantSaving = false
+            switch result {
+            case .success:
+                statusText = value
+                    ? t("已开启自动授权。", "Apps now get root without asking.")
+                    : t("已关闭自动授权。", "Apps ask before they get root.")
+            case .failure(let error):
+                autoGrant = !value
+                errorText = OperationMessages.error(error.localizedDescription, language: model.language)
+            }
+        }
+    }
+
+    // MARK: modules
+
+    private var modulesBlock: some View {
+        VStack(alignment: .leading, spacing: WbSpace.sm) {
+            Text(t("卸载模块请在 Magisk 应用中操作，然后重启设备。", "Remove modules in the Magisk app, then restart the device."))
+                .font(.caption).foregroundStyle(.secondary)
+            DeviceToolActions {
+                Button(t("在 Magisk 中管理模块", "Manage modules in Magisk")) {
+                    model.call("app.launch", ["device": id, "package": "com.topjohnwu.magisk"]) { result in
+                        if case .failure(let error) = result {
+                            errorText = OperationMessages.error(error.localizedDescription, language: model.language)
+                        }
+                    }
+                    model.openGame(id)
+                }
+                .disabled(!running || working)
+                Button(t("安装模块…", "Install module…")) { choose(["zip"]) { pending = .init(kind: .installModule($0), title: t("安装模块？", "Install module?"), detail: t("将安装 \($0.lastPathComponent) 并重启设备。请先保存游戏进度。", "Install \($0.lastPathComponent) and reboot the device. Save your game first.")) } }
+                    .disabled(!running || working)
+            }
+        }
+    }
+
+    // MARK: build props (Phase 9f)
+
+    private var propsBlock: some View {
+        VStack(alignment: .leading, spacing: WbSpace.sm) {
+            if !capabilitiesLoaded {
+                HStack { ProgressView().controlSize(.small); Text(t("正在检查后台能力…", "Checking daemon capabilities…")).font(.caption).foregroundStyle(.secondary) }
+            } else if !canProps {
+                Text(t("需要更新 miko 后台才支持修改构建属性。", "Needs a newer miko daemon to edit build props."))
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if !propsLoaded && props.isEmpty {
+                HStack { ProgressView().controlSize(.small); Text(t("正在读取属性…", "Loading properties…")).font(.caption).foregroundStyle(.secondary) }
+            } else if !propsEditing {
+                Text(propsSummary).wbFont(WbType.body).lineLimit(2).textSelection(.enabled)
+                if propsPendingRestart {
+                    HStack(spacing: WbSpace.sm) {
+                        Label(t("已保存，下次启动（冷启动）时生效。", "Saved; applies on the next start (a cold boot)."),
+                              systemImage: WbIcon.clock).font(.caption).foregroundStyle(WbColor.warning)
+                        Button(t("立即重启", "Restart now")) { model.restart(id) }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                            .disabled(!running || working)
+                    }
+                }
+                DeviceToolActions {
+                    Button(t("编辑…", "Edit…")) {
+                        propsDraft = props
+                        propsEditing = true
+                        propsError = ""
+                    }
+                    .disabled(working)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: WbSpace.sm) {
+                    DeviceToolForm {
+                        ForEach(Self.propFields, id: \.self) { field in
+                            TextField(propLabel(field), text: Binding(
+                                get: { propsDraft[field] ?? "" },
+                                set: { propsDraft[field] = $0 }), prompt: Text(propPlaceholder(field)))
+                                .textFieldStyle(.roundedBorder)
+                                .accessibilityLabel(propLabel(field))
+                                .disabled(propsSaving)
+                        }
+                    }
+                    Text(t("留空则使用镜像自带的值。更改在下次启动时生效（冷启动）。",
+                           "Empty fields keep the image's value. Changes apply on the next start, which is a cold boot."))
+                        .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if !propsError.isEmpty {
+                        Text(propsError).wbFont(WbType.caption).foregroundStyle(WbColor.negative)
+                    }
+                    HStack(spacing: WbSpace.sm) {
+                        Button(propsSaving ? t("正在保存…", "Saving…") : t("保存", "Save")) {
+                            pending = .init(kind: .saveProps(trimmedProps(propsDraft), reset: false),
+                                            title: t("保存设备标识？", "Save build identity?"),
+                                            detail: t("之后的下一次启动会执行冷启动。请先保存游戏进度。",
+                                                      "The next start will be a cold boot. Save your game first."))
+                        }
+                        .buttonStyle(.borderedProminent).tint(WbColor.accent).disabled(propsSaving)
+                        Button(t("取消", "Cancel")) { propsEditing = false; propsError = "" }
+                            .buttonStyle(.bordered)
+                            .disabled(propsSaving)
+                        Spacer()
+                        if !props.isEmpty {
+                            Button(t("恢复为镜像默认值", "Reset to stock")) {
+                                pending = .init(kind: .saveProps([:], reset: true),
+                                                title: t("恢复镜像默认值？", "Reset to stock values?"),
+                                                detail: t("移除 miko 保存的构建属性；下一次启动会冷启动。", "Removes the build props miko saved; the next start is a cold boot."))
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(propsSaving)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var propsSummary: String {
+        let parts = Self.propFields.filter { $0 != "security_patch" }.compactMap { field -> String? in
+            let value = (props[field] ?? "").trimmingCharacters(in: .whitespaces)
+            return value.isEmpty ? nil : value
+        }
+        let patch = (props["security_patch"] ?? "").trimmingCharacters(in: .whitespaces)
+        if parts.isEmpty && patch.isEmpty { return t("镜像默认值", "Stock values") }
+        return parts.joined(separator: " · ") + (patch.isEmpty ? "" : " · \(t("补丁", "patch")) \(patch)")
+    }
+
+    private func propLabel(_ field: String) -> String {
+        switch field {
+        case "model": return t("型号", "Model")
+        case "brand": return t("品牌", "Brand")
+        case "manufacturer": return t("制造商", "Manufacturer")
+        case "device": return t("设备代号", "Device")
+        case "fingerprint": return t("指纹", "Fingerprint")
+        default: return t("安全补丁", "Security patch")
+        }
+    }
+
+    private func propPlaceholder(_ field: String) -> String {
+        field == "security_patch" ? "YYYY-MM-DD" : t("镜像默认", "Stock")
+    }
+
+    private func trimmedProps(_ values: [String: String]) -> [String: String] {
+        var out: [String: String] = [:]
+        for (key, value) in values {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { out[key] = trimmed }
+        }
+        return out
+    }
+
+    // MARK: CA certificates
+
+    private var certsBlock: some View {
+        VStack(alignment: .leading, spacing: WbSpace.sm) {
+            if !certs.isEmpty {
+                ForEach(certs) { cert in
+                    HStack(spacing: WbSpace.sm) {
+                        VStack(alignment: .leading, spacing: WbSpace.xxs) {
+                            Text(certSubject(cert)).wbFont(WbType.body).lineLimit(1)
+                            Text(cert.file).wbFont(WbType.code).foregroundStyle(WbColor.textSecondary)
+                        }
+                        Spacer()
+                        WbStatusLabel(text: cert.trusted == false ? t("重启后生效", "After restart") : t("已信任", "Trusted"),
+                                      tone: cert.trusted == false ? .starting : .running)
+                        Button(t("移除", "Remove")) {
+                            pending = .init(kind: .removeCert(cert.file),
+                                            title: t("移除证书？", "Remove certificate?"),
+                                            detail: t("将移除 \(cert.file) 并重启设备。请先保存游戏进度。",
+                                                      "Remove \(cert.file) and reboot the device. Save your game first."))
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(!running || working || certsBusy)
+                    }
+                    .padding(.vertical, WbSpace.xxs)
+                }
+            }
+            Text(certsHint).font(.caption).foregroundStyle(.secondary)
+            if certsBusy {
+                HStack(spacing: WbSpace.sm) {
+                    ProgressView().controlSize(.small)
+                    Text(statusText.isEmpty ? t("正在处理…", "Working…") : statusText).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if !certsError.isEmpty {
+                Text(certsError).font(.caption).foregroundStyle(WbColor.negative)
+            }
+            DeviceToolActions {
+                Button(t("验证", "Verify")) { verifyCerts() }
+                    .disabled(!running || working || certsBusy || certs.isEmpty)
+                Button(t("添加…", "Add…")) { choose(["pem", "crt", "cer", "der"]) { url in
+                    pending = .init(kind: .installCert(url),
+                                    title: t("信任此证书？", "Trust this certificate?"),
+                                    detail: t("将信任 \(url.lastPathComponent) 并重启设备。请先保存游戏进度。",
+                                              "Trust \(url.lastPathComponent) and reboot the device. Save your game first."))
+                } }
+                .disabled(!running || working || certsBusy)
+            }
+        }
+    }
+
+    private func certSubject(_ cert: CertRow) -> String {
+        if let subject = cert.subject, !subject.isEmpty { return subject }
+        return cert.file
+    }
+
+    private var certsHint: String {
+        if !running { return t("启动设备后才能添加或移除 CA 证书。", "Start the device to add or remove CA certificates.") }
+        if certs.isEmpty {
+            return t("把 Burp 或 mitmproxy 的 CA 证书信任为系统证书。添加或移除会重启设备。",
+                     "Trust Burp's or mitmproxy's CA as a system certificate. Adding or removing one restarts the device.")
+        }
+        return t("应用会把这些证书当作系统证书信任。添加或移除会重启设备。",
+                 "Apps trust these as system certificates. Adding or removing one restarts the device.")
+    }
+
+    // MARK: actions
+
+    private func load() {
+        statusLoading = true
+        model.call("root.status", ["device": id]) { result in
+            statusLoading = false
+            switch result {
+            case .success(let value):
+                if let decoded = try? model.decode(value, as: RootStatus.self) {
+                    status = decoded
+                    autoGrant = decoded.root.auto_grant_all ?? false
+                    statusError = ""
+                    if running, decoded.root.mode == "magisk" { loadCerts() }
+                } else {
+                    statusError = t("Root 状态格式无效。", "Invalid root status response.")
+                }
+            case .failure(let error):
+                statusError = OperationMessages.error(error.localizedDescription, language: model.language)
+            }
+        }
+        model.call("commands.list") { result in
+            capabilitiesLoaded = true
+            if case .success(let value) = result {
+                capabilities = Self.commandIDs(value)
+                if canCerts, running, fullRoot { loadCerts() }
+            }
+        }
+        model.call("device.props.get", ["device": id]) { result in
+            switch result {
+            case .success(let value):
+                if let object = value as? [String: Any], let raw = object["props"] as? [String: Any] {
+                    props = raw.reduce(into: [:]) { out, item in
+                        if let text = item.value as? String { out[item.key] = text }
+                    }
+                }
+                propsLoaded = true
+            case .failure:
+                propsLoaded = true
+            }
+        }
+    }
+
+    /// `commands.list` is `["commands": [{"id": …}]]` on this daemon and a
+    /// bare array on newer ones (root/mod.rs:117-133).
+    static func commandIDs(_ value: Any) -> Set<String> {
+        let list = (value as? [String: Any])?["commands"] ?? value
+        guard let entries = list as? [[String: Any]] else { return [] }
+        return Set(entries.compactMap { $0["id"] as? String })
+    }
+
+    private func loadCerts() {
+        guard canCerts, running, fullRoot, !certsBusy else { return }
+        certsBusy = true
+        model.call("root.cacert.list", ["device": id]) { result in
+            certsBusy = false
+            guard model.devices.contains(where: { $0.id == id && $0.running }) else { certsError = ""; return }
+            switch result {
+            case .success(let value):
+                if let list = try? model.decode(value, as: CertList.self) {
+                    certs = list.certs
+                    certsError = ""
+                }
+            case .failure(let error):
+                certsError = OperationMessages.error(error.localizedDescription, language: model.language)
+            }
+        }
+    }
+
+    private func verify() {
+        guard !working else { return }
+        working = true
+        statusText = t("正在验证 Root…", "Verifying root…")
+        model.call("root.verify", ["device": id]) { result in
+            working = false
+            switch result {
+            case .success:
+                statusText = t("Root 验证通过。", "Root verified.")
+                model.refresh()
+                load()
+            case .failure(let error):
+                statusText = ""
+                errorText = OperationMessages.error(error.localizedDescription, language: model.language)
+            }
+        }
+    }
+
+    private func verifyCerts() {
+        guard !certsBusy else { return }
+        certsBusy = true
+        statusText = t("正在验证证书…", "Verifying certificates…")
+        model.call("root.cacert.verify", ["device": id]) { result in
+            certsBusy = false
+            switch result {
+            case .success:
+                statusText = t("证书已位于系统证书库中。", "The certificates are in the system store.")
+                loadCerts()
+            case .failure(let error):
+                statusText = ""
+                certsError = OperationMessages.error(error.localizedDescription, language: model.language)
+            }
+        }
+    }
+
+    private func confirmAlert(_ action: PendingRootAction) -> Alert {
+        Alert(
+            title: Text(action.title),
+            message: Text(action.detail),
+            primaryButton: .destructive(Text(t("继续", "Continue"))) { perform(action) },
+            secondaryButton: .cancel(Text(t("取消", "Cancel"))))
+    }
+
+    private func perform(_ action: PendingRootAction) {
+        switch action.kind {
+        case .writableSystem(let enabled):
+            guard canChangeSystem else { return }
+            let restart = running
+            run("root.writable_system", ["enabled": enabled], restart: restart)
+        case .installModule(let url):
+            run("root.module.install", ["device": id, "path": url.path], restart: true)
+        case .installCert(let url):
+            run("root.cacert.install", ["device": id, "path": url.path], restart: true) { loadCerts() }
+        case .removeCert(let file):
+            run("root.cacert.remove", ["device": id, "cert": file], restart: true) { loadCerts() }
+        case .saveProps(let values, let reset):
+            propsSaving = true
+            propsError = ""
+            model.call("device.props.set", ["device": id, "props": values]) { result in
+                propsSaving = false
+                switch result {
+                case .success:
+                    props = values
+                    propsEditing = false
+                    propsPendingRestart = running
+                    statusText = reset
+                        ? t("已恢复镜像默认值。", "Restored the stock values.")
+                        : t("设备标识已保存。", "Build identity saved.")
+                    if propsPendingRestart {
+                        statusText += t("重启后生效。", " Restart to apply it.")
+                    }
+                case .failure(let error):
+                    propsError = OperationMessages.error(error.localizedDescription, language: model.language)
+                }
+            }
+        }
+    }
+
+    private func run(_ method: String, _ params: [String: Any], restart: Bool = false, then: (() -> Void)? = nil) {
+        guard !working else { return }
+        working = true
+        statusText = t("正在处理…", "Working…")
+        errorText = ""
+        var args = params
+        args["device"] = id
+        model.call(method, args, onProgress: { message, _, _ in
+            if !message.isEmpty {
+                statusText = OperationMessages.progress(message, language: model.language)
+            }
+        }) { result in
+            working = false
+            switch result {
+            case .success:
+                statusText = t("操作完成。", "Completed.")
+                model.refresh()
+                load()
+                then?()
+                if restart { model.reconnectAfterRestart(id) }
+            case .failure(let error):
+                statusText = ""
+                errorText = OperationMessages.error(error.localizedDescription, language: model.language)
+                // The daemon can persist the flag before a reboot/remount fails.
+                // Reload its actual state so the user can still revert it.
+                if method == "root.writable_system" { model.refresh(); load() }
+            }
+        }
+    }
+
+    private func choose(_ types: [String], done: @escaping (URL) -> Void) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = types.compactMap { UTType(filenameExtension: $0) }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        done(url)
+    }
+}

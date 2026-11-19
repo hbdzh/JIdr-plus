@@ -1,3 +1,0 @@
-# SPDX-License-Identifier: Apache-2.0
-# Magisk sets these with resetprop at boot while the module is on.
-debug.jidrtest.module=1

@@ -13,7 +13,7 @@ script), so the two UIs share colour, radius and type roles even while their lay
   6pt dot plus a label (no coloured pills), and secondary text is quieter than the primary action.
 - Tokens stay the single source (D41): the refresh edits `docs/design/tokens.json` and both UIs
   regenerate from it. The SwiftUI-only component layer is
-  `apps/jidr-swiftui/Center/DesignKit.swift` (cards, form rows, status labels,
+  `apps/miko-swiftui/Center/DesignKit.swift` (cards, form rows, status labels,
   thumbnails, buttons, sidebar rows).
 - The design references and full-page mockups live in `outputs/redesign/` (not tracked); the
   implementation screenshots below are rendered from the product views against the bridge
@@ -114,12 +114,12 @@ real behaviour instead of inventing features:
 
 ## Verification
 
-- `bash apps/jidr-swiftui/test.sh` — PASS (logic suites + localization gate; 0 new
+- `bash apps/miko-swiftui/test.sh` — PASS (logic suites + localization gate; 0 new
   English-mode leaks; the gate reports 12 non-blocking stale `.strings` keys that the rewritten
   views now call through `model.text`).
-- `bash apps/jidr-swiftui/test-window.sh` — game-window lifecycle PASS.
-- `bash apps/jidr-swiftui/snapshot.sh --check` — 11/11 baselines PASS after regeneration.
-- `bash apps/jidr-swiftui/generate-tokens.sh --check` — token files in sync.
+- `bash apps/miko-swiftui/test-window.sh` — game-window lifecycle PASS.
+- `bash apps/miko-swiftui/snapshot.sh --check` — 11/11 baselines PASS after regeneration.
+- `bash apps/miko-swiftui/generate-tokens.sh --check` — token files in sync.
 - `cargo xtask ci` — 605 tests passed, 1 skipped; licence and skills checks pass.
 - Product-view renders against the fixture bridges are in `target/impl-shots/` (untracked) and were
   reviewed page by page; the screenshots above come from them.

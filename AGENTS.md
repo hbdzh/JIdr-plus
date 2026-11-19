@@ -1,28 +1,28 @@
-# Jidr (جذر): rules for AI coding agents
+# Miko (جذر): rules for AI coding agents
 
-Jidr is an open-source Genymotion Desktop alternative in Rust with one-click rooted Android devices. These are the rules an agent (and any contributor) follows when changing it. [CONTRIBUTING.md](CONTRIBUTING.md) has the human-facing version with setup steps. Product and architecture decisions are in [docs/decisions/log.md](docs/decisions/log.md) (cited as `D<n>`) and the ADRs next to it. Don't change a decision as a side effect of other work: propose it in an issue first.
+Miko is an open-source Genymotion Desktop alternative in Rust with one-click rooted Android devices. These are the rules an agent (and any contributor) follows when changing it. [CONTRIBUTING.md](CONTRIBUTING.md) has the human-facing version with setup steps. Product and architecture decisions are in [docs/decisions/log.md](docs/decisions/log.md) (cited as `D<n>`) and the ADRs next to it. Don't change a decision as a side effect of other work: propose it in an issue first.
 
 ## Architecture in one paragraph
 
-`jidr daemon` owns all device state and drives the AOSP emulator (gRPC `EmulatorController`, the telnet console, `adb`). The GUI (`apps/jidr-swiftui`, the sole SwiftUI/AppKit client), the CLI (`apps/jidr`) and the MCP server (`jidr mcp`) are thin clients over JSON-RPC 2.0 / NDJSON on a Unix socket. Every user action is a protocol command; UI-only view state (window size, zoom, panel layout) stays in the GUI. Providers (`jidr-daemon` core, `jidr-widgets`, `jidr-root`) register commands through the `CommandProvider` trait in `jidr-core`.
+`miko daemon` owns all device state and drives the AOSP emulator (gRPC `EmulatorController`, the telnet console, `adb`). The GUI (`apps/miko-swiftui`, the sole SwiftUI/AppKit client), the CLI (`apps/miko`) and the MCP server (`miko mcp`) are thin clients over JSON-RPC 2.0 / NDJSON on a Unix socket. Every user action is a protocol command; UI-only view state (window size, zoom, panel layout) stays in the GUI. Providers (`miko-daemon` core, `miko-widgets`, `miko-root`) register commands through the `CommandProvider` trait in `miko-core`.
 
 ## Repository map
 
 | Path | Contents | Licence |
 |---|---|---|
-| `crates/jidr-core` | model, error codes, protocol types, the `CommandProvider` trait | Apache-2.0 |
-| `crates/jidr-proto` | gRPC code from the emulator's `emulator_controller.proto` / `snapshot_service.proto` | Apache-2.0 |
-| `crates/jidr-adb` | wraps the `adb` binary | Apache-2.0 |
-| `crates/jidr-sdk` | SDK discovery and install, license consent, AVDs, hardware profiles, download cache | Apache-2.0 |
-| `crates/jidr-backend` | `Backend` trait and the AOSP emulator backend (launch, ports, boot wait, console, gRPC) | Apache-2.0 |
-| `crates/jidr-daemon` | command registry, JSON-RPC server, jobs, events, locks | Apache-2.0 |
-| `crates/jidr-client` | protocol client used by the CLI, the GUI and MCP | Apache-2.0 |
-| `crates/jidr-mcp` | MCP server | Apache-2.0 |
-| `crates/jidr-widgets` | provider for sensors, phone, network, GPS, dev tools, media, snapshots | Apache-2.0 |
-| `crates/jidr-cpio` | ramdisk cpio and gz/lz4/xz codecs | Apache-2.0 |
-| `crates/jidr-root` | provider for root modes (adb, Magisk, verify, revert, build props) | Apache-2.0 |
-| `apps/jidr` | the `jidr` binary: CLI, `daemon` and `mcp` subcommands | Apache-2.0 |
-| `apps/jidr-swiftui` | SwiftUI/AppKit device centre and integrated player (only GUI); `bridge/` is the Apache-2.0 Rust bridge | **GPL-3.0-only** (Swift sources) / Apache-2.0 (bridge) |
+| `crates/miko-core` | model, error codes, protocol types, the `CommandProvider` trait | Apache-2.0 |
+| `crates/miko-proto` | gRPC code from the emulator's `emulator_controller.proto` / `snapshot_service.proto` | Apache-2.0 |
+| `crates/miko-adb` | wraps the `adb` binary | Apache-2.0 |
+| `crates/miko-sdk` | SDK discovery and install, license consent, AVDs, hardware profiles, download cache | Apache-2.0 |
+| `crates/miko-backend` | `Backend` trait and the AOSP emulator backend (launch, ports, boot wait, console, gRPC) | Apache-2.0 |
+| `crates/miko-daemon` | command registry, JSON-RPC server, jobs, events, locks | Apache-2.0 |
+| `crates/miko-client` | protocol client used by the CLI, the GUI and MCP | Apache-2.0 |
+| `crates/miko-mcp` | MCP server | Apache-2.0 |
+| `crates/miko-widgets` | provider for sensors, phone, network, GPS, dev tools, media, snapshots | Apache-2.0 |
+| `crates/miko-cpio` | ramdisk cpio and gz/lz4/xz codecs | Apache-2.0 |
+| `crates/miko-root` | provider for root modes (adb, Magisk, verify, revert, build props) | Apache-2.0 |
+| `apps/miko` | the `miko` binary: CLI, `daemon` and `mcp` subcommands | Apache-2.0 |
+| `apps/miko-swiftui` | SwiftUI/AppKit device centre and integrated player (only GUI); `bridge/` is the Apache-2.0 Rust bridge | **GPL-3.0-only** (Swift sources) / Apache-2.0 (bridge) |
 | `xtask` | `ci`, `license-check`, `e2e-mac`, `release` | Apache-2.0 |
 | `skills/` | agent skills (`skills/<name>/SKILL.md`, D43), checked by `cargo xtask skills-check` | Apache-2.0 |
 | `docs/design/` | design tokens (`tokens.json`, the source for the app), CSS and component specs | — |
@@ -33,12 +33,12 @@ Dependency versions live in the root `[workspace.dependencies]`; crates use `foo
 
 - `.agents/skills/` contains optional internal development skills. Choose skills and references for the task at hand; related areas do not require loading every skill or repeating the same analysis and checks.
 - Use visual-design and relevant HIG skills for design questions, SwiftUI/AppKit skills for their implementation boundaries, and Rust skills for the specific language, API, concurrency, testing, performance, or safety work involved. Use `rust-uniffi-building` only when UniFFI is actually in use or explicitly being evaluated; FFI alone does not select a binding technology.
-- Follow Jidr's existing architecture, build scripts, and rules below over generic skill examples. Scope verification to the change and its risks, preserving regression tests, safety checks, and the full pre-PR gates required here.
+- Follow Miko's existing architecture, build scripts, and rules below over generic skill examples. Scope verification to the change and its risks, preserving regression tests, safety checks, and the full pre-PR gates required here.
 - `skills/` contains product-facing skills. Read them when their development, maintenance, testing, or user-facing behavior is relevant; do not register them as default internal development skills.
 
 ## Licensing (D18)
 
-- Apache-2.0 everywhere except the desktop GUI sources: `apps/jidr-swiftui` Swift/AppKit code (GPL-3.0-only by choice, ADR-0003). The SwiftUI Rust bridge is Apache-2.0.
+- Apache-2.0 everywhere except the desktop GUI sources: `apps/miko-swiftui` Swift/AppKit code (GPL-3.0-only by choice, ADR-0003). The SwiftUI Rust bridge is Apache-2.0.
 - The CLI, the daemon, MCP and every other Apache crate must never reintroduce Slint or the retired GUI crates. `cargo xtask license-check` (part of `cargo xtask ci`) enforces this.
 
 ## Clean-room rules (non-negotiable)
@@ -48,25 +48,25 @@ See [docs/clean-room.md](docs/clean-room.md). In short: use only Genymotion's pu
 ## Code rules
 
 - Rust edition 2024, toolchain pinned in `rust-toolchain.toml`.
-- Never crash: `unwrap`, `expect`, `panic!`, `todo!`, `unimplemented!` and `dbg!` are denied outside tests (workspace lints and `clippy.toml`). Return typed errors (`jidr_core::JidrError`). Integration-test files (`tests/*.rs`) start with `#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]`, because clippy's test allowance only covers `#[test]` fns and `#[cfg(test)]` modules.
+- Never crash: `unwrap`, `expect`, `panic!`, `todo!`, `unimplemented!` and `dbg!` are denied outside tests (workspace lints and `clippy.toml`). Return typed errors (`miko_core::MikoError`). Integration-test files (`tests/*.rs`) start with `#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]`, because clippy's test allowance only covers `#[test]` fns and `#[cfg(test)]` modules.
 - `unsafe` is denied by default. A crate that truly needs it allows it locally with a comment explaining why.
 - Every bug fix gets a regression test.
 - Emulators launch with `-gpu host` on macOS (ADR-0001: `auto` falls back to software rendering under `-no-window`); CI on Linux KVM uses `swiftshader_indirect`.
-- Android Studio's SDK and AVDs are read-only (D3). Jidr's own SDK lives in `~/Library/Application Support/Jidr/sdk`. Tests create AVDs in temp dirs, never in `~/.android/avd`.
+- Android Studio's SDK and AVDs are read-only (D3). Miko's own SDK lives in `~/Library/Application Support/Miko/sdk`. Tests create AVDs in temp dirs, never in `~/.android/avd`.
 - Never accept a Google SDK license on a user's behalf outside a test context.
 
 ## Tests
 
-- `cargo nextest run -p <crate>` runs unit and integration tests offline. `jidr_daemon::testing::TestDaemon` gives a daemon with a fake backend and a fake SDK. The SwiftUI client has its own `apps/jidr-swiftui/test.sh` (logic tests + localization gate), `snapshot.sh` (rendered screenshot matrix) and `cargo xtask release --rehearsal`/`render-live.sh` (packaging and live-device evidence).
+- `cargo nextest run -p <crate>` runs unit and integration tests offline. `miko_daemon::testing::TestDaemon` gives a daemon with a fake backend and a fake SDK. The SwiftUI client has its own `apps/miko-swiftui/test.sh` (logic tests + localization gate), `snapshot.sh` (rendered screenshot matrix) and `cargo xtask release --rehearsal`/`render-live.sh` (packaging and live-device evidence).
 - Tests that need a running emulator sit behind each crate's `emulator` feature (`cargo nextest run -p <crate> --features emulator`). They read:
-  - `JIDR_TEST_SDK`: the SDK root (default `~/Library/Android/sdk`, used read-only);
-  - `JIDR_TEST_IMAGE`: the sdkmanager package of the image (default on Apple Silicon `system-images;android-31;google_apis;arm64-v8a`);
-  - `JIDR_TEST_API`: its API level.
+  - `MIKO_TEST_SDK`: the SDK root (default `~/Library/Android/sdk`, used read-only);
+  - `MIKO_TEST_IMAGE`: the sdkmanager package of the image (default on Apple Silicon `system-images;android-31;google_apis;arm64-v8a`);
+  - `MIKO_TEST_API`: its API level.
 - On a pull request, CI runs the emulator tests on Linux KVM with x86_64 images (API 30, 33 and 35). `cargo xtask e2e-mac` is the arm64 release gate on an Apple Silicon Mac (D28).
 
 ## Protocol
 
-The control protocol is frozen at the tag `protocol-v0.1` ([docs/control-protocol.md](docs/control-protocol.md)). Any change to the wire format, an existing command's params or result, error codes or event topics needs a row in that file's changelog. New commands from providers are additive. The generated command reference is kept in sync by `cargo nextest run -p jidr-daemon protocol_doc` (`JIDR_UPDATE_DOCS=1` rewrites it).
+The control protocol is frozen at the tag `protocol-v0.1` ([docs/control-protocol.md](docs/control-protocol.md)). Any change to the wire format, an existing command's params or result, error codes or event topics needs a row in that file's changelog. New commands from providers are additive. The generated command reference is kept in sync by `cargo nextest run -p miko-daemon protocol_doc` (`MIKO_UPDATE_DOCS=1` rewrites it).
 
 ## GitHub presentation and releases
 
@@ -90,14 +90,14 @@ The control protocol is frozen at the tag `protocol-v0.1` ([docs/control-protoco
 ```bash
 cargo xtask ci                                   # fmt, clippy, tests, license-check, skills-check
 cargo xtask license-check                        # D18 split-licensing guard
-cargo xtask skills-check                         # skills' frontmatter and jidr commands (D43)
+cargo xtask skills-check                         # skills' frontmatter and miko commands (D43)
 cargo nextest run -p <crate>                     # unit + integration tests
 cargo nextest run -p <crate> --features emulator # needs an emulator image
 cargo xtask e2e-mac                              # release gate on Apple Silicon (D28)
 
 # GUI (SwiftUI) and release rehearsal
-bash apps/jidr-swiftui/build-center.sh # debug app build
-bash apps/jidr-swiftui/test.sh         # Swift logic tests + localization gate
-bash apps/jidr-swiftui/snapshot.sh --check --only tools-battery-light # hidden, scoped; --all only for full regression
+bash apps/miko-swiftui/build-center.sh # debug app build
+bash apps/miko-swiftui/test.sh         # Swift logic tests + localization gate
+bash apps/miko-swiftui/snapshot.sh --check --only tools-battery-light # hidden, scoped; --all only for full regression
 cargo xtask release --rehearsal                  # SwiftUI app + DMG, ad-hoc, local only
 ```

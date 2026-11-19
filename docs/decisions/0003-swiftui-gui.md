@@ -9,7 +9,7 @@
 
 ## Context
 
-The MVP GUI is Slint (`crates/jidr-ui`, `apps/jidr-gui`, GPL-3.0-only because it links Slint).
+The MVP GUI is Slint (`crates/miko-ui`, `apps/miko-gui`, GPL-3.0-only because it links Slint).
 This fork targets Chinese-first, player-oriented macOS use, where native input methods,
 clipboard, drag-and-drop, multi-display behaviour and window management matter more than a
 portable toolkit. A SwiftUI/AppKit prototype already covers the device center, the game
@@ -18,9 +18,9 @@ the protocol or the CLI: both GUIs are thin clients over the same JSON-RPC contr
 
 ## Decision (approved 2026-11-11)
 
-1. **SwiftUI/AppKit is the only GUI.** The retired `crates/jidr-ui` and `apps/jidr-gui`
+1. **SwiftUI/AppKit is the only GUI.** The retired `crates/miko-ui` and `apps/miko-gui`
    sources, golden images, Cargo dependencies and release selection have been removed.
-   The native app is `apps/jidr-swiftui`; shared assets were moved before deletion.
+   The native app is `apps/miko-swiftui`; shared assets were moved before deletion.
 2. **Entry point:** one device-center application owns all player windows. The old
    standalone prototype app and duplicate packaging implementation are removed. Tests
    and the native performance harness remain separate verification executables.

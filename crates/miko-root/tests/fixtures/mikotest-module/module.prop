@@ -1,0 +1,6 @@
+id=mikotest_module
+name=Miko test module
+version=1.0
+versionCode=1
+author=Miko
+description=Writes a marker at boot and sets a property, for Miko's emulator tests.

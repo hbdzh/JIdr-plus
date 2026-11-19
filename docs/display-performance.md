@@ -1,6 +1,6 @@
 # Native player measurements
 
-Build and run the current harness with `bash apps/jidr-swiftui/bench-player.sh --help`.
+Build and run the current harness with `bash apps/miko-swiftui/bench-player.sh --help`.
 `--self-test` runs offline checks. Live measurements use an already running disposable
 device and explicit panel size; latency probes require show-taps to be enabled. Results
 are written with `--json-out PATH`. Compare like-for-like device, scene, screen refresh
@@ -17,8 +17,8 @@ skip reading guest RAM only when a positive recorded peak already determines
 the result. Device persistence serializes borrowed fields instead of cloning
 the registry; disk writes and replacement still finish before success returns.
 
-The targeted offline suite (`cargo nextest run -p jidr-adb -p jidr-client
--p jidr-daemon`) covers notification byte equality, event order and malformed
+The targeted offline suite (`cargo nextest run -p miko-adb -p miko-client
+-p miko-daemon`) covers notification byte equality, event order and malformed
 messages, UTF-8/buffer ownership, mixed job states, budget fallbacks, and saved
 registry byte equality across all device statuses and populated optional fields.
 These changes retain the existing queues, deadlines, frame/input scheduling,
@@ -34,7 +34,7 @@ shared path reserves the one waiting-frame slot before rotation/packet preparati
 the existing drop-new-on-full rule and input/orientation scheduling are retained.
 At the measured 576×1280 stream size, this removes a 2.8125 MiB packet-payload
 copy per unrotated frame. A rotated frame still needs its rotated pixel buffer.
-`JIDR_PLAYER_FRAME_TRANSPORT=legacy` selects the copied-packet rollback branch.
+`MIKO_PLAYER_FRAME_TRANSPORT=legacy` selects the copied-packet rollback branch.
 
 Reproduce with an installed clean SDK and a disposable real device:
 
@@ -220,7 +220,7 @@ Temporary clipboard-chord keys are included, and cancellation during an error
 recovery retains unfinished releases. Each release attempt has a one-second
 bound. The screenshot stream is dropped before releasing inputs. SIGTERM keeps
 its immediate default behavior during startup before inputs can be delivered.
-`JIDR_PLAYER_INPUT_SCHEDULER=inline` retains coupled scheduling/shared transport
+`MIKO_PLAYER_INPUT_SCHEDULER=inline` retains coupled scheduling/shared transport
 for rollback; `fifo` is the default. Both branches use the current release-safety
 fixes. This is a same-binary comparison of scheduling/connection isolation.
 
@@ -320,7 +320,7 @@ The implementation and command described below were retired on 2026-11-11; this 
 retained measurement evidence, not a runnable current entry point.
 
 
-`cargo run -p jidr-ui --example display_bench -- "<running device name>"` opens a separate, read-only window connected to an already running device. It does not send keys, touch, clipboard operations or application launches. The test requests half the device's width and height. It measures three 10-second intervals: visible, minimized, and restored. Set `JIDR_DISPLAY_BENCH_SECS` to 3–60 to change each interval. CPU is process CPU as a percentage of one core; on systems without `ps` it is reported as unavailable. Frame rate and throughput are receiver-side measurements, not the Android game's own render rate. Minimize/restore transitions can cause a few frames in the adjacent interval.
+`cargo run -p miko-ui --example display_bench -- "<running device name>"` opens a separate, read-only window connected to an already running device. It does not send keys, touch, clipboard operations or application launches. The test requests half the device's width and height. It measures three 10-second intervals: visible, minimized, and restored. Set `MIKO_DISPLAY_BENCH_SECS` to 3–60 to change each interval. CPU is process CPU as a percentage of one core; on systems without `ps` it is reported as unavailable. Frame rate and throughput are receiver-side measurements, not the Android game's own render rate. Minimize/restore transitions can cause a few frames in the adjacent interval.
 
 The source uses the same `Session` and native occlusion notification used by the game window. Compare runs on the same device, screen, window size, game scene and machine; record emulator CPU and RAM separately. This benchmark does not prove touch latency, audio playback, game correctness, or long-running memory stability. It briefly creates an additional screenshot stream, which adds load to the running emulator.
 

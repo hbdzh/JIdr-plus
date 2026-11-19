@@ -1,0 +1,574 @@
+//! Magisk mode: the per-device patched ramdisk and the `root.set magisk`
+//! state machine.
+//!
+//! Flow (plan, "Root engine"): fetch the pinned APK → hash the pristine
+//! `ramdisk.img` → patch a per-device copy with `miko-cpio` → cold boot with
+//! `-ramdisk` → install the app → set up `/data/adb/magisk` → one reboot →
+//! grant the shell su → verify. Revert clears the ramdisk, deletes the patched
+//! file and cold-boots. Re-patching happens whenever the pristine hash or the
+//! pinned version differs from what was recorded; patches never stack.
+
+pub mod auto_grant;
+pub mod boot_image;
+pub mod env;
+pub mod grant;
+pub mod patch;
+pub mod pins;
+
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use miko_adb::InstallOptions;
+use miko_core::provider::CallCtx;
+use miko_core::{Device, ErrorCode, MikoError, MikoResult, ResultExt, RootHealth, RootMode};
+use miko_sdk::DownloadCache;
+use serde_json::{Value, json};
+
+use crate::flash::ModuleInfo;
+use crate::verify;
+use pins::MagiskPin;
+
+/// Where the pristine `ramdisk.img` of a device's image lives.
+pub fn pristine_ramdisk_path(device: &Device) -> PathBuf {
+    device
+        .sdk_root
+        .join(device.image.sysdir())
+        .join("ramdisk.img")
+}
+
+/// The per-device patched ramdisk, under `<avd>/miko/` (never the SDK image).
+pub fn patched_ramdisk_path(ctx: &CallCtx, device: &Device, version: &str) -> PathBuf {
+    ctx.daemon
+        .paths()
+        .avd_home()
+        .join(format!("{}.avd", device.avd))
+        .join("miko")
+        .join(format!("ramdisk.magisk-{version}.img"))
+}
+
+/// Resolves the Magisk APK: either the pinned release (downloaded through the
+/// 5b cache, verified by SHA-256) or a local `--magisk <path>` imported into
+/// the cache. Returns the APK path, its SHA-256 and the Magisk version it
+/// carries.
+async fn resolve_apk(
+    ctx: &CallCtx,
+    pin: &MagiskPin,
+    magisk_sha256: Option<&str>,
+) -> MikoResult<(PathBuf, String, String)> {
+    let cache = DownloadCache::new(ctx.daemon.paths().downloads());
+    match magisk_sha256 {
+        Some(sha) => {
+            let apk = cache.get_verified(sha)?.ok_or_else(|| {
+                MikoError::usage(format!(
+                    "no Magisk APK with sha256 {sha} in the download cache; \
+                     import one with `miko root set --magisk <apk>` first"
+                ))
+            })?;
+            let version = patch::version_from_apk(&apk)?;
+            Ok((apk, sha.to_string(), version))
+        }
+        None => {
+            // A verified cached copy means no download, so the GPL licence and
+            // source link are shown only before the first fetch.
+            if cache.get_verified(&pin.sha256)?.is_none() {
+                ctx.report(None, &pins::notice(pin));
+            }
+            let fetcher = miko_sdk::Fetcher::new()?;
+            let report = ctx.clone();
+            let version = pin.version.clone();
+            let apk = cache
+                .fetch(
+                    &fetcher,
+                    &pin.url,
+                    &pin.sha256,
+                    &move |done, total| {
+                        let frac = if total > 0 {
+                            done as f32 / total as f32
+                        } else {
+                            0.0
+                        };
+                        report.report(Some(frac), &format!("Downloading Magisk {version}"));
+                    },
+                    &ctx.cancel,
+                )
+                .await?;
+            Ok((apk, pin.sha256.clone(), pin.version.clone()))
+        }
+    }
+}
+
+/// Hashes the pristine ramdisk and rebuilds the patched copy when the pristine
+/// hash, the Magisk version or the device's build props (Phase 9f) differ
+/// from what is recorded (patches never stack). Returns the patched file path.
+async fn ensure_patched(
+    ctx: &CallCtx,
+    device: &Device,
+    version: &str,
+    apk: &Path,
+    apk_sha256: &str,
+) -> MikoResult<PathBuf> {
+    let pristine_path = pristine_ramdisk_path(device);
+    let patched = patched_ramdisk_path(ctx, device, version);
+    let props = crate::props::load(ctx, device);
+
+    let pristine_for_hash = pristine_path.clone();
+    let patched_for_check = patched.clone();
+    let version_for_check = version.to_string();
+    let props_for_check = props.clone();
+    let (pristine_sha, up_to_date) =
+        tokio::task::spawn_blocking(move || -> MikoResult<(String, bool)> {
+            let pristine_sha = miko_sdk::cache::sha256_file(&pristine_for_hash)?;
+            let ok = patched_for_check.is_file()
+                && patch::read_provenance(&patched_for_check).is_some_and(|p| {
+                    p.pristine_sha256 == pristine_sha
+                        && p.magisk_version == version_for_check
+                        && p.props == props_for_check
+                });
+            Ok((pristine_sha, ok))
+        })
+        .await
+        .map_err(|e| MikoError::unexpected(format!("ramdisk check task: {e}")))??;
+
+    if up_to_date {
+        return Ok(patched);
+    }
+
+    ctx.report(None, &format!("Patching the ramdisk for Magisk {version}"));
+    let apk = apk.to_path_buf();
+    let abi = device.image.abi.clone();
+    let version = version.to_string();
+    let apk_sha256 = apk_sha256.to_string();
+    let patched_out = patched.clone();
+    tokio::task::spawn_blocking(move || -> MikoResult<()> {
+        let pristine = std::fs::read(&pristine_path).ctx(
+            ErrorCode::Sdk,
+            format!("reading {}", pristine_path.display()),
+        )?;
+        let payload = patch::load_payload(&apk, &abi)?;
+        let bytes = patch::patch_ramdisk(&pristine, &payload, &props)?;
+        patch::write_atomic(&patched_out, &bytes)?;
+        patch::write_provenance(
+            &patched_out,
+            &patch::Provenance {
+                magisk_version: version,
+                pristine_sha256: pristine_sha,
+                apk_sha256: Some(apk_sha256),
+                props,
+            },
+        )?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| MikoError::unexpected(format!("ramdisk patch task: {e}")))??;
+    Ok(patched)
+}
+
+/// Rebuilds a Full-root device's patched ramdisk after its build props
+/// changed (Phase 9f), with the same Magisk APK it was patched from (or the
+/// cached pinned release of the same version), and makes the next start a
+/// cold boot. Never downloads.
+pub(crate) async fn repatch(ctx: &CallCtx, device: &Device) -> MikoResult<Device> {
+    let version = device
+        .root
+        .magisk_version
+        .clone()
+        .ok_or_else(|| MikoError::usage(format!("{} has no Magisk patch yet", device.name)))?;
+    let cache = DownloadCache::new(ctx.daemon.paths().downloads());
+    let recorded = device
+        .root
+        .patched_ramdisk_path
+        .as_deref()
+        .and_then(patch::read_provenance)
+        .and_then(|p| p.apk_sha256);
+    let pin = pins::default_pin().ok().filter(|p| p.version == version);
+    let mut found = None;
+    for sha in recorded.into_iter().chain(pin.map(|p| p.sha256)) {
+        if let Some(apk) = cache.get_verified(&sha)? {
+            found = Some((apk, sha));
+            break;
+        }
+    }
+    let (apk, sha) = found.ok_or_else(|| {
+        MikoError::usage(format!(
+            "the Magisk {version} APK isn't in the download cache; run `root.set magisk` again"
+        ))
+    })?;
+    ctx.report(None, "Patching the ramdisk with the build props");
+    let patched = ensure_patched(ctx, device, &version, &apk, &sha).await?;
+    ctx.daemon
+        .update_device(
+            device.id,
+            Box::new(move |d| {
+                d.root.patched_ramdisk_path = Some(patched.clone());
+                d.launch.ramdisk = Some(patched);
+                d.launch.force_cold_boot = true;
+            }),
+        )
+        .await
+}
+
+/// Stops the device if it is running, then cold-boots it. The stored
+/// `launch.ramdisk` points at the patched copy, so this boots Magisk.
+pub(crate) async fn cold_boot(ctx: &CallCtx, device: &Device) -> MikoResult<Device> {
+    if device.status.is_active() {
+        ctx.report(None, "Stopping before the cold boot");
+        ctx.daemon.shut_down_device(device.id).await?;
+    }
+    ctx.report(None, "Cold booting");
+    let device = ctx
+        .daemon
+        .start_device(device.id, true, &ctx.cancel)
+        .await?;
+    // Booted is not yet reachable: the adb transport can stay offline for a
+    // while after a cold boot (CI: "adb: device offline" on the app install).
+    let adb = verify::device_adb(ctx, &device).await?;
+    crate::adb_ready::until(
+        &adb,
+        Some(&ctx.cancel),
+        std::time::Duration::from_secs(90),
+        "after the cold boot",
+        "echo ok",
+        |out| out.trim() == "ok",
+    )
+    .await?;
+    Ok(device)
+}
+
+/// Switches a device to Magisk mode: fetch, patch, set state, cold boot, then
+/// finish the setup (app install, environment, one reboot, shell grant,
+/// verify). On any failure the health is set to `failed` and the device is
+/// left in a state revert can recover from.
+pub(crate) async fn to_magisk(
+    ctx: &CallCtx,
+    device: &Device,
+    magisk_sha256: Option<&str>,
+    su_settle: Duration,
+) -> MikoResult<Value> {
+    let changed = device.root.mode != RootMode::Magisk;
+    match to_magisk_inner(ctx, device, changed, magisk_sha256, su_settle).await {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            let _ = ctx
+                .daemon
+                .update_device(device.id, Box::new(|d| d.root.health = RootHealth::Failed))
+                .await;
+            Err(e)
+        }
+    }
+}
+
+async fn to_magisk_inner(
+    ctx: &CallCtx,
+    device: &Device,
+    changed: bool,
+    magisk_sha256: Option<&str>,
+    su_settle: Duration,
+) -> MikoResult<Value> {
+    let pin = pins::default_pin()?;
+    let adb_root_allowed = device.image.allows_adb_root();
+
+    ctx.report(None, "Resolving the Magisk release");
+    let (apk, apk_sha, version) = resolve_apk(ctx, &pin, magisk_sha256).await?;
+
+    let patched = ensure_patched(ctx, device, &version, &apk, &apk_sha).await?;
+    let device = ctx
+        .daemon
+        .update_device(
+            device.id,
+            Box::new(move |d| {
+                d.root.mode = RootMode::Magisk;
+                // #25: writable /system is for adb root only.
+                d.root.writable_system = false;
+                d.root.magisk_version = Some(version);
+                d.root.patched_ramdisk_path = Some(patched.clone());
+                d.root.health = RootHealth::Unverified;
+                d.root.verified_at = None;
+                d.launch.ramdisk = Some(patched);
+                d.launch.force_cold_boot = true;
+            }),
+        )
+        .await?;
+
+    let device = cold_boot(ctx, &device).await?;
+
+    // Install the manager app (the release APK is also a valid APK).
+    ctx.report(None, "Installing the Magisk app");
+    verify::device_adb(ctx, &device)
+        .await?
+        .with_timeout(std::time::Duration::from_secs(600))
+        .install(
+            &apk,
+            InstallOptions {
+                replace: true,
+                ..Default::default()
+            },
+        )
+        .await?;
+
+    // Environment setup: unpack the app's files into /data/adb/magisk. On
+    // images that allow adb root this is headless; Play Store defers to the
+    // app (the guided tap below covers it).
+    if adb_root_allowed {
+        ctx.report(None, "Setting up Magisk's environment");
+        let files = env::environment_files(&apk, &device.image.abi)?;
+        let adb = verify::device_adb(ctx, &device).await?;
+        grant::ensure_adbd_root(&adb).await?;
+        let pushed = env::push_environment(&adb, &files).await;
+        let _ = grant::drop_adbd_root(&adb).await;
+        pushed?;
+    } else {
+        ctx.report(
+            None,
+            "Play Store: open the Magisk app to finish its setup, then grant root to Shell",
+        );
+    }
+
+    // One reboot so magiskd re-reads the environment and enables su.
+    ctx.report(None, "Rebooting");
+    let device = cold_boot(ctx, &device).await?;
+
+    // Shell su grant: zero-touch on adb-root images, guided tap on Play Store.
+    ctx.report(None, "Granting the adb shell su access");
+    let adb = verify::device_adb(ctx, &device).await?;
+    grant::grant_shell(ctx, &adb, adb_root_allowed).await?;
+    let device = if adb_root_allowed {
+        settle_su(ctx, device, &adb, su_settle).await?
+    } else {
+        device
+    };
+
+    ctx.report(None, "Verifying root");
+    let verification = verify::verify(ctx, &device).await?;
+    Ok(json!({
+        "device": device.id,
+        "mode": "magisk",
+        "changed": changed,
+        "applied": "live",
+        "magisk_version": verification.magisk_version,
+        "verification": verification,
+        "beta": !adb_root_allowed,
+        "play_integrity": crate::PLAY_INTEGRITY_NOTICE,
+    }))
+}
+
+/// How long `su` gets to answer as root after the zero-touch grant.
+pub(crate) const SU_SETTLE: Duration = Duration::from_secs(60);
+
+/// Waits for the granted shell `su` to answer as root. On a first setup it
+/// can stay stuck instead (2026-11-03: `su -c id` timed out with the policy
+/// stored and magiskd running, until a cold boot), so cold-boot and grant
+/// once more, as "Try again" would, and let verify judge the result.
+async fn settle_su(
+    ctx: &CallCtx,
+    device: Device,
+    adb: &miko_adb::Adb,
+    timeout: Duration,
+) -> MikoResult<Device> {
+    if grant::su_answers_root(&ctx.cancel, adb, timeout).await? {
+        return Ok(device);
+    }
+    ctx.report(None, "su didn't answer as root; cold booting once more");
+    let device = cold_boot(ctx, &device).await?;
+    ctx.report(None, "Granting the adb shell su access");
+    let adb = verify::device_adb(ctx, &device).await?;
+    grant::grant_shell_zero_touch(&adb).await?;
+    Ok(device)
+}
+
+/// Clears a Magisk patch: delete the patched file, clear `launch.ramdisk` and
+/// the Magisk fields, set `target` as the new mode and cold-boot if running.
+pub(crate) async fn clear_patch(
+    ctx: &CallCtx,
+    device: &Device,
+    target: RootMode,
+) -> MikoResult<Device> {
+    if let Some(patched) = &device.root.patched_ramdisk_path {
+        let _ = std::fs::remove_file(patched);
+        let _ = std::fs::remove_file(patch::provenance_path(patched));
+    }
+    // Build props only apply on Full root (Phase 9f); like auto-grant, they
+    // don't survive leaving it.
+    crate::props::clear(ctx, device);
+    let device = ctx
+        .daemon
+        .update_device(
+            device.id,
+            Box::new(move |d| {
+                d.root.mode = target;
+                d.root.magisk_version = None;
+                d.root.patched_ramdisk_path = None;
+                // D22: leaving Full root also drops "auto-grant all".
+                d.root.auto_grant_all = false;
+                d.root.health = RootHealth::Unverified;
+                d.root.verified_at = None;
+                d.launch.ramdisk = None;
+                d.launch.force_cold_boot = true;
+            }),
+        )
+        .await?;
+    if device.status.is_active() {
+        cold_boot(ctx, &device).await
+    } else {
+        Ok(device)
+    }
+}
+
+/// The boot hook: for a Magisk device, rebuild the patched ramdisk for the
+/// next boot when the pristine image or the pinned version changed. Best
+/// effort — it never fails the boot, because the current boot already worked.
+pub(crate) async fn on_booted(ctx: &CallCtx, device: &Device) -> MikoResult<()> {
+    // A pool clone resumes its base's snapshot and must keep the matching
+    // ramdisk and Magisk version instead of adopting a newer cached pin.
+    if device.pool_base.is_some() {
+        return Ok(());
+    }
+    let Ok(pin) = pins::default_pin() else {
+        return Ok(());
+    };
+    // Re-patch only when the pinned APK is already cached; never fetch here
+    // (a boot must not block on, or be slowed by, the network).
+    let cache = DownloadCache::new(ctx.daemon.paths().downloads());
+    let Ok(Some(apk)) = cache.get_verified(&pin.sha256) else {
+        return Ok(());
+    };
+    let version = pin.version.clone();
+    let Ok(patched) = ensure_patched(ctx, device, &version, &apk, &pin.sha256).await else {
+        return Ok(());
+    };
+    // Force the next start to be a cold boot only when the patch actually
+    // changed under us (a new image hash or a Magisk upgrade).
+    if device.root.magisk_version.as_deref() != Some(version.as_str())
+        || device.root.patched_ramdisk_path.as_deref() != Some(patched.as_path())
+    {
+        let _ = ctx
+            .daemon
+            .update_device(
+                device.id,
+                Box::new(move |d| {
+                    d.root.magisk_version = Some(version);
+                    d.root.patched_ramdisk_path = Some(patched.clone());
+                    d.launch.ramdisk = Some(patched);
+                    d.launch.force_cold_boot = true;
+                }),
+            )
+            .await;
+    }
+
+    // Apply the stored "auto-grant all" flag (D22). Best-effort: on the very
+    // first boot of a fresh setup the Magisk app is not installed yet, and a
+    // boot must never fail over a preference write.
+    if let Ok(adb) = verify::device_adb(ctx, device).await {
+        let _ = auto_grant::apply(&adb, device.root.auto_grant_all).await;
+    }
+    Ok(())
+}
+
+/// `root.module.install` and `file.flash`: push a module zip Miko has
+/// checked ([`crate::flash::module_to_install`]), install it through Magisk,
+/// cold boot, then check that Magisk loaded it and root still verifies.
+/// Only available on Magisk devices.
+pub(crate) async fn install_module(
+    ctx: &CallCtx,
+    device: &Device,
+    path: &Path,
+    module: &ModuleInfo,
+) -> MikoResult<Value> {
+    if device.root.mode != RootMode::Magisk {
+        return Err(MikoError::usage(
+            "installing a Magisk module needs a Full-root (Magisk) device",
+        ));
+    }
+    // A module's installer script can take a while, and a module zip can be
+    // tens of MB: the 20 s default would cut either off.
+    let adb = verify::device_adb(ctx, device)
+        .await?
+        .with_timeout(MODULE_TIMEOUT);
+    let remote = "/data/local/tmp/miko-module.zip";
+    ctx.report(None, "Pushing the module");
+    adb.push(path, remote).await?;
+
+    ctx.report(None, &format!("Installing {}", module.id));
+    let adb_root_allowed = device.image.allows_adb_root();
+    if adb_root_allowed {
+        grant::ensure_adbd_root(&adb).await?;
+    }
+    let result = adb
+        .shell(&format!("su -c 'magisk --install-module {remote}'"))
+        .await;
+    let _ = adb.shell(&format!("rm -f {remote}")).await;
+    if adb_root_allowed {
+        let _ = grant::drop_adbd_root(&adb).await;
+    }
+    result.map_err(|e| MikoError::root_failed(format!("installing {}: {e}", module.id)))?;
+
+    ctx.report(None, "Rebooting");
+    let device = cold_boot(ctx, device).await?;
+    let verification = verify::verify(ctx, &device).await?;
+    let adb = verify::device_adb(ctx, &device).await?;
+    if !module_loaded(&adb, &module.id).await? {
+        return Err(MikoError::root_failed(format!(
+            "Magisk didn't load {} after the reboot (/data/adb/modules/{} is missing, disabled or marked for removal)",
+            module.id, module.id
+        )));
+    }
+    let zygisk_enabled = zygisk_enabled(&adb).await;
+    let note = (module.zygisk && zygisk_enabled == Some(false)).then_some(
+        "Zygisk is off in Magisk's settings, so this module won't load until you turn Zygisk on in the Magisk app and restart the device.",
+    );
+    Ok(json!({
+        "device": device.id,
+        "installed": true,
+        "module": module,
+        "zygisk_enabled": zygisk_enabled,
+        "note": note,
+        "verification": verification,
+    }))
+}
+
+/// How long pushing and installing a module may take.
+const MODULE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Whether Magisk loaded module `id` at boot: its folder moved from
+/// `modules_update` to `modules`, without a `disable` or `remove` flag.
+/// `id` was checked against Magisk's id rule, so it needs no quoting.
+pub(crate) async fn module_loaded(adb: &miko_adb::Adb, id: &str) -> MikoResult<bool> {
+    let dir = format!("/data/adb/modules/{id}");
+    let (_, out) = adb
+        .shell_status(&format!(
+            "su -c 'test -f {dir}/module.prop && test ! -e {dir}/disable && test ! -e {dir}/remove && echo loaded'"
+        ))
+        .await?;
+    Ok(out.trim() == "loaded")
+}
+
+/// Magisk's `zygisk` setting: the stored row, or Magisk's default on an
+/// emulator (on). `None` when the database can't be read.
+pub(crate) async fn zygisk_enabled(adb: &miko_adb::Adb) -> Option<bool> {
+    let out = adb
+        .shell("su -c \"magisk --sqlite \\\"SELECT value FROM settings WHERE key='zygisk'\\\"\"")
+        .await
+        .ok()?;
+    Some(parse_zygisk_setting(&out))
+}
+
+/// `value=0` turns Zygisk off; no row means Magisk's emulator default, on.
+fn parse_zygisk_setting(out: &str) -> bool {
+    out.lines()
+        .find_map(|l| l.trim().strip_prefix("value="))
+        .is_none_or(|v| v.trim() != "0")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_zygisk_setting;
+
+    #[test]
+    fn zygisk_is_on_unless_magisk_stores_zero() {
+        assert!(
+            parse_zygisk_setting(""),
+            "no row: Magisk's emulator default"
+        );
+        assert!(parse_zygisk_setting("value=1\n"));
+        assert!(!parse_zygisk_setting("value=0\n"));
+    }
+}

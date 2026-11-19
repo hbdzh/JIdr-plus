@@ -63,7 +63,7 @@ impl NodeDep {
 }
 
 fn is_gpl_package(name: &str) -> bool {
-    name == "slint" || name.starts_with("i-slint-") || matches!(name, "jidr-ui" | "jidr-gui")
+    name == "slint" || name.starts_with("i-slint-") || matches!(name, "miko-ui" | "miko-gui")
 }
 
 /// Returns every violation found; an empty list means the check passed.
@@ -204,9 +204,9 @@ mod tests {
     }
 
     const BASE: &[(&str, &str)] = &[
-        ("jidr", "Apache-2.0"),
-        ("jidr-client", "Apache-2.0"),
-        ("jidr-swiftui-bridge", "Apache-2.0"),
+        ("miko", "Apache-2.0"),
+        ("miko-client", "Apache-2.0"),
+        ("miko-swiftui-bridge", "Apache-2.0"),
     ];
 
     #[test]
@@ -215,9 +215,9 @@ mod tests {
             BASE,
             &["slint", "serde"],
             &[
-                ("jidr", "jidr-client", None),
-                ("jidr-client", "serde", None),
-                ("jidr-swiftui-bridge", "jidr-client", None),
+                ("miko", "miko-client", None),
+                ("miko-client", "serde", None),
+                ("miko-swiftui-bridge", "miko-client", None),
             ],
         );
         assert_eq!(violations(&m).unwrap(), Vec::<String>::new());
@@ -225,10 +225,10 @@ mod tests {
 
     #[test]
     fn slint_added_to_cli_fails() {
-        let m = meta(BASE, &["slint"], &[("jidr", "slint", None)]);
+        let m = meta(BASE, &["slint"], &[("miko", "slint", None)]);
         let v = violations(&m).unwrap();
         assert_eq!(v.len(), 1, "{v:?}");
-        assert!(v[0].contains("jidr -> slint"), "{v:?}");
+        assert!(v[0].contains("miko -> slint"), "{v:?}");
     }
 
     #[test]
@@ -237,35 +237,35 @@ mod tests {
             BASE,
             &["helper", "i-slint-core"],
             &[
-                ("jidr-client", "helper", None),
+                ("miko-client", "helper", None),
                 ("helper", "i-slint-core", Some("build")),
             ],
         );
         let v = violations(&m).unwrap();
         assert!(
             v.iter()
-                .any(|s| s.contains("jidr-client -> helper -> i-slint-core")),
+                .any(|s| s.contains("miko-client -> helper -> i-slint-core")),
             "{v:?}"
         );
     }
 
     #[test]
     fn apache_crate_depending_on_gui_crate_fails() {
-        let m = meta(BASE, &["jidr-ui"], &[("jidr", "jidr-ui", None)]);
+        let m = meta(BASE, &["miko-ui"], &[("miko", "miko-ui", None)]);
         let v = violations(&m).unwrap();
-        assert!(v.iter().any(|s| s.contains("GPL crate `jidr-ui`")), "{v:?}");
+        assert!(v.iter().any(|s| s.contains("GPL crate `miko-ui`")), "{v:?}");
     }
 
     #[test]
     fn dev_dependency_on_slint_is_allowed() {
-        let m = meta(BASE, &["slint"], &[("jidr", "slint", Some("dev"))]);
+        let m = meta(BASE, &["slint"], &[("miko", "slint", Some("dev"))]);
         assert!(violations(&m).unwrap().is_empty());
     }
 
     #[test]
     fn wrong_license_field_fails() {
         let m = meta(
-            &[("jidr", "MIT"), ("jidr-swiftui-bridge", "GPL-3.0-only")],
+            &[("miko", "MIT"), ("miko-swiftui-bridge", "GPL-3.0-only")],
             &[],
             &[],
         );

@@ -2,9 +2,9 @@
 # M4-A: isolated, repeatable real-device acceptance for the SwiftUI migration.
 #
 # Runs the CLI/protocol surface the SwiftUI app is built on against one real
-# emulator, in a throwaway JIDR_HOME under /tmp (short path: Unix sockets are
+# emulator, in a throwaway MIKO_HOME under /tmp (short path: Unix sockets are
 # limited to ~104 bytes). It never touches the user's data, AVDs or SDK files:
-# the SDK is read-only (ANDROID_HOME=JIDR_TEST_SDK) and every AVD lives under
+# the SDK is read-only (ANDROID_HOME=MIKO_TEST_SDK) and every AVD lives under
 # the throwaway home.
 #
 # Steps (all against a real booted Android emulator):
@@ -17,7 +17,7 @@
 #                        → marker read back (proves the restore)
 #   7  root              root.verify → root.set adb (live adbd root) → verify
 #   8  record            media.record 3 s → media.record_stop → MP4 checked
-#   9  stop              device stop, no Jidr emulator left
+#   9  stop              device stop, no Miko emulator left
 #   10 delete            device delete --yes, device list empty
 #   11 daemon-quit       daemon.quit, socket gone, daemon not running
 #
@@ -26,20 +26,20 @@
 # summary.json, README.md, logs copied from the throwaway home).
 #
 # Environment:
-#   JIDR_TEST_SDK    SDK holding the system image (read-only). Default: $ANDROID_HOME
+#   MIKO_TEST_SDK    SDK holding the system image (read-only). Default: $ANDROID_HOME
 #                    or the Android Studio SDK. On this machine use /tmp/m4-sdk.
-#   JIDR_TEST_IMAGE  sdkmanager package. Default: android-36 google_apis, host ABI.
-#   JIDR_TEST_PROFILE Hardware profile (default small-phone-5).
-#   JIDR_TEST_DEVICE  Device name (default m4-accept-<HHMMSS>; keep it unique).
-#   JIDR_M4_KEEP=1   Keep the throwaway JIDR_HOME after the run (debugging).
-#   JIDR_M4_SKIP_RAMDISK_CHECK=1  Skip the pristine-ramdisk preflight (not advised).
-#   PROTOC            protoc for rebuilding jidr-proto; autodetected from
+#   MIKO_TEST_IMAGE  sdkmanager package. Default: android-36 google_apis, host ABI.
+#   MIKO_TEST_PROFILE Hardware profile (default small-phone-5).
+#   MIKO_TEST_DEVICE  Device name (default m4-accept-<HHMMSS>; keep it unique).
+#   MIKO_M4_KEEP=1   Keep the throwaway MIKO_HOME after the run (debugging).
+#   MIKO_M4_SKIP_RAMDISK_CHECK=1  Skip the pristine-ramdisk preflight (not advised).
+#   PROTOC            protoc for rebuilding miko-proto; autodetected from
 #                     target/tools/protoc/bin/protoc or PATH. An up-to-date
-#                     target/debug/jidr is preferred and build is skipped;
-#                     JIDR_M4_FORCE_BUILD=1 always rebuilds.
+#                     target/debug/miko is preferred and build is skipped;
+#                     MIKO_M4_FORCE_BUILD=1 always rebuilds.
 #
 # Rerun on this machine:
-#   JIDR_TEST_SDK=/tmp/m4-sdk bash scripts/m4-swiftui-acceptance.sh
+#   MIKO_TEST_SDK=/tmp/m4-sdk bash scripts/m4-swiftui-acceptance.sh
 #
 # On another machine: use a clean, read-only SDK whose image was not patched
 # by a root tool (ramdisk.img must stay the image's LZ4 ramdisk; if it is an
@@ -69,13 +69,13 @@ esac
 # ---- configuration --------------------------------------------------------
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 case "$CARGO_TARGET_DIR" in /*) TARGET="$CARGO_TARGET_DIR" ;; *) TARGET="$ROOT/$CARGO_TARGET_DIR" ;; esac
-JIDR="$TARGET/debug/jidr"
+MIKO="$TARGET/debug/miko"
 
 case "$(uname -m)" in arm64|aarch64) ABI=arm64-v8a ;; *) ABI=x86_64 ;; esac
-SDK="${JIDR_TEST_SDK:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
-IMAGE="${JIDR_TEST_IMAGE:-system-images;android-36;google_apis;$ABI}"
-PROFILE="${JIDR_TEST_PROFILE:-small-phone-5}"
-DEVICE="${JIDR_TEST_DEVICE:-m4-accept-$(date +%H%M%S)-$$}"
+SDK="${MIKO_TEST_SDK:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
+IMAGE="${MIKO_TEST_IMAGE:-system-images;android-36;google_apis;$ABI}"
+PROFILE="${MIKO_TEST_PROFILE:-small-phone-5}"
+DEVICE="${MIKO_TEST_DEVICE:-m4-accept-$(date +%H%M%S)-$$}"
 TS="$(date +%Y%m%d-%H%M%S)"
 EVID="$ROOT/target/m4"
 if [ "$MODE" = self-check ]; then LOG="$EVID/selfcheck-$TS.log"; else LOG="$EVID/acceptance-$TS.log"; fi
@@ -90,11 +90,11 @@ SDK="${SDK_ABS:-$SDK}"
 # script fingerprints ANDROID_HOME, so the build keeps the inherited host env.
 INHERITED_ANDROID_HOME="${ANDROID_HOME:-unset}"
 unset ANDROID_AVD_HOME || true
-JIDR_HOME="$(mktemp -d /tmp/jidr-m4-accept.XXXXXX)"
-export JIDR_HOME
-RUN="$JIDR_HOME/run"
+MIKO_HOME="$(mktemp -d /tmp/miko-m4-accept.XXXXXX)"
+export MIKO_HOME
+RUN="$MIKO_HOME/run"
 mkdir -p "$RUN"
-export JIDR_M4_HOME="$JIDR_HOME"
+export MIKO_M4_HOME="$MIKO_HOME"
 
 # ---- shared state ---------------------------------------------------------
 CURRENT_STEP=""
@@ -107,7 +107,7 @@ BOOT_SECONDS=""
 TOTAL_START="$SECONDS"
 ADB_PATH=""
 ADB_SERIAL=""
-JIDR_VERSION=""
+MIKO_VERSION=""
 
 # ---- logging / evidence helpers ------------------------------------------
 exec > >(tee "$LOG") 2>&1
@@ -147,18 +147,18 @@ ramdisk_problem() {
 # A throwaway home this script is allowed to delete.
 can_remove_home() {
   case "$1" in
-    /tmp/jidr-m4-accept.*) return 0 ;;
+    /tmp/miko-m4-accept.*) return 0 ;;
     *) return 1 ;;
   esac
 }
 
-# True when the last line of a `jidr --json` output file is the ok envelope.
+# True when the last line of a `miko --json` output file is the ok envelope.
 envelope_ok() {
   python3 -I - "$1" <<'PY'
 import json, sys
 lines = [line for line in open(sys.argv[1]).read().splitlines() if line.strip()]
 value = json.loads(lines[-1])
-assert value.get("jidr_json") == 1 and value.get("ok") is True, value
+assert value.get("miko_json") == 2 and value.get("ok") is True, value
 PY
 }
 
@@ -167,10 +167,10 @@ write_summary() {  # write_summary <status> [failed-step]
   [ "$SUMMARY_WRITTEN" = 1 ] && return 0
   SUMMARY_WRITTEN=1
   local status="$1" failed_step="${2:-}"
-  cp -R "$JIDR_HOME/logs" "$ART/logs" 2>/dev/null || true
-  cp "$JIDR_HOME/data/devices.json" "$ART/devices.json" 2>/dev/null || true
+  cp -R "$MIKO_HOME/logs" "$ART/logs" 2>/dev/null || true
+  cp "$MIKO_HOME/data/devices.json" "$ART/devices.json" 2>/dev/null || true
   python3 -I - "$ART" "$status" "$failed_step" "$STEPS_TSV" "$DEVICE" "$IMAGE" "$SDK" \
-      "$JIDR_VERSION" "$BOOT_SECONDS" "$(( SECONDS - TOTAL_START ))" "$ROOT" <<'PY'
+      "$MIKO_VERSION" "$BOOT_SECONDS" "$(( SECONDS - TOTAL_START ))" "$ROOT" <<'PY'
 import datetime, hashlib, json, os, platform, subprocess, sys
 art, status, failed_step, steps_tsv, device, image, sdk, version, boot, total, root = sys.argv[1:12]
 steps = []
@@ -206,7 +206,7 @@ summary = {
     "device": device,
     "image": image,
     "sdk": sdk,
-    "jidr_version": version,
+    "miko_version": version,
     "boot_seconds": int(boot) if str(boot).isdigit() else None,
     "total_seconds": int(total),
     "steps": steps,
@@ -222,7 +222,7 @@ if status == "ok":
         f"- device: `{device}`",
         f"- image: `{image}`",
         f"- SDK: `{sdk}` (read-only)",
-        f"- jidr: `{version}`",
+        f"- miko: `{version}`",
         f"- boot: {boot} s, total: {total} s",
         "",
         "| step | status | seconds | note |",
@@ -236,7 +236,7 @@ if status == "ok":
         "## Rerun",
         "",
         "```bash",
-        "JIDR_TEST_SDK=/tmp/m4-sdk bash scripts/m4-swiftui-acceptance.sh",
+        "MIKO_TEST_SDK=/tmp/m4-sdk bash scripts/m4-swiftui-acceptance.sh",
         "```",
         "",
         "## Another machine",
@@ -244,8 +244,8 @@ if status == "ok":
         "Use a clean, read-only Android SDK whose system image ramdisk was not",
         "patched (the preflight refuses an Android boot image), a logged-in macOS",
         "GUI session, and ~10 GiB free in /tmp. The script creates its own",
-        "throwaway JIDR_HOME, AVD and 3-second MP4; it never writes the user's",
-        "Jidr data, AVDs or SDK files, and it does not accept any SDK licence.",
+        "throwaway MIKO_HOME, AVD and 3-second MP4; it never writes the user's",
+        "Miko data, AVDs or SDK files, and it does not accept any SDK licence.",
     ]
     open(os.path.join(art, "README.md"), "w").write("\n".join(lines) + "\n")
 PY
@@ -261,17 +261,17 @@ fail() {
   exit "$code"
 }
 
-# Runs `jidr --json …`; fails on a non-zero exit or a non-ok envelope.
+# Runs `miko --json …`; fails on a non-zero exit or a non-ok envelope.
 # Leaves the raw output in $RUN/last.json.
 last_json() { printf '%s\n' "$RUN/last.json"; }
-jidr_json() {
+miko_json() {
   local out code=0
-  out="$("$JIDR" --json "$@" 2>&1)" || code=$?
+  out="$("$MIKO" --json "$@" 2>&1)" || code=$?
   printf '%s\n' "$out" > "$RUN/last.json"
   if [ "$code" -ne 0 ]; then
-    fail "jidr $* exited $code: $out"
+    fail "miko $* exited $code: $out"
   fi
-  envelope_ok "$RUN/last.json" || fail "jidr $* returned a bad JSON envelope: $out"
+  envelope_ok "$RUN/last.json" || fail "miko $* returned a bad JSON envelope: $out"
   LAST="$out"
 }
 
@@ -309,30 +309,30 @@ preflight() {
   log "M4-A SwiftUI acceptance $TS"
   log "workspace: $ROOT"
   log "host: $(sw_vers -productName) $(sw_vers -productVersion) $(uname -m), $(sysctl -n hw.ncpu) CPUs, $(( $(sysctl -n hw.memsize) / 1073741824 )) GiB RAM"
-  log "jidr home (throwaway): $JIDR_HOME"
+  log "miko home (throwaway): $MIKO_HOME"
   log "SDK (read-only): $SDK"
   log "image: $IMAGE"
   log "profile: $PROFILE"
   log "device: $DEVICE"
 
   command -v python3 >/dev/null || fail "python3 is required for the JSON assertions"
-  local socket_path="$JIDR_HOME/data/daemon.sock"
+  local socket_path="$MIKO_HOME/data/daemon.sock"
   [ "${#socket_path}" -le 100 ] || fail "the daemon socket path would be too long: $socket_path"
   command -v file >/dev/null || fail "file(1) is required for the ramdisk preflight"
-  [ -d "$SDK" ] || fail "SDK not found: $SDK (set JIDR_TEST_SDK to a read-only merged SDK)"
+  [ -d "$SDK" ] || fail "SDK not found: $SDK (set MIKO_TEST_SDK to a read-only merged SDK)"
   [ -n "$SDK_ABS" ] || fail "SDK path is not a directory: $SDK"
 
   # Refuse a patched image ramdisk before starting anything: the emulator can
   # only boot the image's pristine LZ4 ramdisk. Never modify the user SDK.
   local ramdisk problem
   ramdisk="$(image_ramdisk_path "$IMAGE")"
-  [ -n "$ramdisk" ] && [ -e "$ramdisk" ] || fail "no installed system image found for $IMAGE under $SDK; install it or point JIDR_TEST_SDK at an SDK that has it"
-  if [ "${JIDR_M4_SKIP_RAMDISK_CHECK:-0}" != 1 ]; then
+  [ -n "$ramdisk" ] && [ -e "$ramdisk" ] || fail "no installed system image found for $IMAGE under $SDK; install it or point MIKO_TEST_SDK at an SDK that has it"
+  if [ "${MIKO_M4_SKIP_RAMDISK_CHECK:-0}" != 1 ]; then
     problem="$(ramdisk_problem "$ramdisk")"
-    [ -z "$problem" ] || fail "the system image ramdisk at $ramdisk is not the pristine LZ4 ramdisk (file says: $problem). A boot image there means the image was patched (e.g. by a root tool) and the emulator will not boot. Point JIDR_TEST_SDK at a merged read-only SDK with the pristine ramdisk (e.g. /tmp/m4-sdk); this script never modifies the user's SDK."
+    [ -z "$problem" ] || fail "the system image ramdisk at $ramdisk is not the pristine LZ4 ramdisk (file says: $problem). A boot image there means the image was patched (e.g. by a root tool) and the emulator will not boot. Point MIKO_TEST_SDK at a merged read-only SDK with the pristine ramdisk (e.g. /tmp/m4-sdk); this script never modifies the user's SDK."
     log "ramdisk preflight: pristine LZ4 ramdisk at $ramdisk"
   else
-    log "ramdisk preflight skipped by JIDR_M4_SKIP_RAMDISK_CHECK=1"
+    log "ramdisk preflight skipped by MIKO_M4_SKIP_RAMDISK_CHECK=1"
   fi
 
   # A stale /tmp home from an interrupted earlier run may still hold an
@@ -352,7 +352,7 @@ for d in dirs:
             pid = int(os.path.basename(f)[4:-4])
         except (OSError, ValueError):
             continue
-        if not os.path.realpath(vals.get("avd.dir", "/")).startswith("/tmp/jidr-m4-accept."):
+        if not os.path.realpath(vals.get("avd.dir", "/")).startswith("/tmp/miko-m4-accept."):
             continue
         try:
             os.kill(pid, signal.SIGTERM)
@@ -364,7 +364,7 @@ if killed:
 PY
 
   local avail_gib
-  avail_gib="$(df -g "$JIDR_HOME" | awk 'NR==2 {print $4}')"
+  avail_gib="$(df -g "$MIKO_HOME" | awk 'NR==2 {print $4}')"
   [ -n "$avail_gib" ] && [ "$avail_gib" -ge 8 ] || fail "not enough free space under /tmp: ${avail_gib:-?} GiB (need about 8 GiB for the image data + snapshot)"
   log "free space under /tmp: ${avail_gib} GiB"
 }
@@ -379,16 +379,16 @@ cleanup() {
     code=1
     FAILED_STEP="$CURRENT_STEP"
   fi
-  if [ -S "$JIDR_HOME/data/daemon.sock" ]; then
-    log "cleanup: stopping device $DEVICE, emulators of $JIDR_HOME and the daemon"
-    "$JIDR" --json device stop "$DEVICE" >/dev/null 2>&1
-    "$JIDR" --json device delete "$DEVICE" --yes >/dev/null 2>&1
-    "$JIDR" --json daemon stop >/dev/null 2>&1
+  if [ -S "$MIKO_HOME/data/daemon.sock" ]; then
+    log "cleanup: stopping device $DEVICE, emulators of $MIKO_HOME and the daemon"
+    "$MIKO" --json device stop "$DEVICE" >/dev/null 2>&1
+    "$MIKO" --json device delete "$DEVICE" --yes >/dev/null 2>&1
+    "$MIKO" --json daemon stop >/dev/null 2>&1
   else
-    log "cleanup: no daemon socket under $JIDR_HOME; nothing to stop"
+    log "cleanup: no daemon socket under $MIKO_HOME; nothing to stop"
   fi
   # Kill any emulator still running an AVD under this run's home.
-  python3 -I - "$JIDR_HOME" <<'PY' || true
+  python3 -I - "$MIKO_HOME" <<'PY' || true
 import glob, os, signal, sys, time
 home = os.path.realpath(sys.argv[1])
 dirs = [
@@ -444,14 +444,14 @@ for d in dirs:
 PY
   # Belt and braces: an emulator launched for this device name.
   pkill -f -- "-avd $DEVICE" 2>/dev/null || true
-  if [ "${JIDR_M4_KEEP:-0}" != 1 ]; then
-    if can_remove_home "$JIDR_HOME"; then
-      rm -rf -- "$JIDR_HOME"
+  if [ "${MIKO_M4_KEEP:-0}" != 1 ]; then
+    if can_remove_home "$MIKO_HOME"; then
+      rm -rf -- "$MIKO_HOME"
     else
-      log "cleanup: refusing to remove unexpected home: $JIDR_HOME"
+      log "cleanup: refusing to remove unexpected home: $MIKO_HOME"
     fi
   else
-    log "cleanup: keeping JIDR_HOME=$JIDR_HOME (JIDR_M4_KEEP=1)"
+    log "cleanup: keeping MIKO_HOME=$MIKO_HOME (MIKO_M4_KEEP=1)"
   fi
   write_summary "$([ "$code" -eq 0 ] && echo ok || echo failed)" "$FAILED_STEP"
   log "cleanup done (exit $code)"
@@ -464,20 +464,20 @@ trap 'exit 130' INT TERM
 # ---- offline self-check (no daemon, no emulator) -------------------------
 self_check() {
   local tmp fail_count=0
-  tmp="$(mktemp -d /tmp/jidr-m4-selfcheck.XXXXXX)"
+  tmp="$(mktemp -d /tmp/miko-m4-selfcheck.XXXXXX)"
   log "self-check: helpers"
 
-  printf '%s\n' '{"jidr_json":1,"ok":true,"result":{"name":"d"}}' > "$tmp/good.json"
-  printf '%s\n' '{"jidr_json":1,"ok":false,"error":{"message":"nope"}}' > "$tmp/bad-ok.json"
+  printf '%s\n' '{"miko_json":2,"ok":true,"result":{"name":"d"}}' > "$tmp/good.json"
+  printf '%s\n' '{"miko_json":2,"ok":false,"error":{"message":"nope"}}' > "$tmp/bad-ok.json"
   printf '%s\n' 'not json' > "$tmp/bad-json.json"
   envelope_ok "$tmp/good.json" || { log "self-check FAIL: a valid envelope was rejected"; fail_count=$((fail_count + 1)); }
   if envelope_ok "$tmp/bad-ok.json" 2>/dev/null; then log "self-check FAIL: ok=false was accepted"; fail_count=$((fail_count + 1)); fi
   if envelope_ok "$tmp/bad-json.json" 2>/dev/null; then log "self-check FAIL: non-JSON was accepted"; fail_count=$((fail_count + 1)); fi
 
   # field(): object and array results, the shapes the steps assert on.
-  printf '%s\n' '{"jidr_json":1,"ok":true,"result":{"uid":0,"name":"x"}}' > "$tmp/last.json"
+  printf '%s\n' '{"miko_json":2,"ok":true,"result":{"uid":0,"name":"x"}}' > "$tmp/last.json"
   [ "$(field 'r["uid"]' "$tmp/last.json")" = "0" ] || { log "self-check FAIL: field object lookup"; fail_count=$((fail_count + 1)); }
-  printf '%s\n' '{"jidr_json":1,"ok":true,"result":[{"status":{"state":"running"}}]}' > "$tmp/last.json"
+  printf '%s\n' '{"miko_json":2,"ok":true,"result":[{"status":{"state":"running"}}]}' > "$tmp/last.json"
   [ "$(field 'r[0]["status"]["state"]' "$tmp/last.json")" = "running" ] || { log "self-check FAIL: field array lookup"; fail_count=$((fail_count + 1)); }
 
   # The ramdisk preflight: /tmp/m4-sdk must pass; the user's patched SDK must
@@ -500,10 +500,10 @@ self_check() {
   [ -n "$(ramdisk_problem "$tmp/patched.img")" ] || { log "self-check FAIL: a non-LZ4 file was accepted as a ramdisk"; fail_count=$((fail_count + 1)); }
   [ -n "$(ramdisk_problem "$tmp/missing.img")" ] || { log "self-check FAIL: a missing ramdisk was accepted"; fail_count=$((fail_count + 1)); }
 
-  # cleanup safety: only /tmp/jidr-m4-accept.* homes may be removed.
-  can_remove_home "/tmp/jidr-m4-accept.abc123" || { log "self-check FAIL: our own home was refused"; fail_count=$((fail_count + 1)); }
-  if can_remove_home "$HOME/Library/Application Support/JIdr"; then log "self-check FAIL: the real Jidr home would be removed"; fail_count=$((fail_count + 1)); fi
-  if can_remove_home "/tmp/jidr-m4-bench.abc"; then log "self-check FAIL: another M4 home pattern would be removed"; fail_count=$((fail_count + 1)); fi
+  # cleanup safety: only /tmp/miko-m4-accept.* homes may be removed.
+  can_remove_home "/tmp/miko-m4-accept.abc123" || { log "self-check FAIL: our own home was refused"; fail_count=$((fail_count + 1)); }
+  if can_remove_home "$HOME/Library/Application Support/Miko"; then log "self-check FAIL: the real Miko home would be removed"; fail_count=$((fail_count + 1)); fi
+  if can_remove_home "/tmp/miko-m4-bench.abc"; then log "self-check FAIL: another M4 home pattern would be removed"; fail_count=$((fail_count + 1)); fi
 
   rm -rf -- "$tmp"
   [ "$fail_count" -eq 0 ] || fail "self-check: $fail_count check(s) failed"
@@ -526,15 +526,15 @@ if [ "$MODE" = "preflight-only" ]; then
   exit 0
 fi
 
-# Prefer an up-to-date prebuilt binary: a rebuild of jidr-proto needs protoc,
+# Prefer an up-to-date prebuilt binary: a rebuild of miko-proto needs protoc,
 # which is a local, uncommitted tool here (target/tools/protoc/bin/protoc).
-# JIDR_M4_FORCE_BUILD=1 always rebuilds.
+# MIKO_M4_FORCE_BUILD=1 always rebuilds.
 NEEDS_BUILD=1
-if [ -x "$JIDR" ] && [ "${JIDR_M4_FORCE_BUILD:-0}" != 1 ]; then
-  if [ -z "$(find "$ROOT/crates" "$ROOT/apps/jidr" -name '*.rs' -newer "$JIDR" -print -quit 2>/dev/null)" ]; then
+if [ -x "$MIKO" ] && [ "${MIKO_M4_FORCE_BUILD:-0}" != 1 ]; then
+  if [ -z "$(find "$ROOT/crates" "$ROOT/apps/miko" -name '*.rs' -newer "$MIKO" -print -quit 2>/dev/null)" ]; then
     NEEDS_BUILD=0
-    log "using the up-to-date prebuilt $JIDR ($(stat -f '%Sm' "$JIDR"))"
-    log "set JIDR_M4_FORCE_BUILD=1 to rebuild (needs protoc)"
+    log "using the up-to-date prebuilt $MIKO ($(stat -f '%Sm' "$MIKO"))"
+    log "set MIKO_M4_FORCE_BUILD=1 to rebuild (needs protoc)"
   fi
 fi
 if [ "$NEEDS_BUILD" = 1 ]; then
@@ -550,28 +550,28 @@ if [ "$NEEDS_BUILD" = 1 ]; then
     export PROTOC="$PROTOC_BIN"
     log "protoc: $PROTOC_BIN"
   fi
-  note "building jidr (inherited ANDROID_HOME=$INHERITED_ANDROID_HOME)"
-  if cargo build -q -p jidr; then
-    log "built $JIDR"
-  elif [ -x "$JIDR" ]; then
-    log "WARNING: cargo build failed; using the existing prebuilt binary $JIDR"
+  note "building miko (inherited ANDROID_HOME=$INHERITED_ANDROID_HOME)"
+  if cargo build -q -p miko; then
+    log "built $MIKO"
+  elif [ -x "$MIKO" ]; then
+    log "WARNING: cargo build failed; using the existing prebuilt binary $MIKO"
     log "WARNING: a rebuild needs protobuf — install it or set PROTOC (e.g. $ROOT/target/tools/protoc/bin/protoc)"
   else
-    fail "cargo build -p jidr failed and no prebuilt $JIDR exists (install protobuf or set PROTOC; CI installs it)"
+    fail "cargo build -p miko failed and no prebuilt $MIKO exists (install protobuf or set PROTOC; CI installs it)"
   fi
 fi
-[ -x "$JIDR" ] || fail "jidr binary missing: $JIDR"
-JIDR_VERSION="$("$JIDR" --version 2>/dev/null | head -1)"
-log "jidr: $JIDR_VERSION ($JIDR)"
+[ -x "$MIKO" ] || fail "miko binary missing: $MIKO"
+MIKO_VERSION="$("$MIKO" --version 2>/dev/null | head -1)"
+log "miko: $MIKO_VERSION ($MIKO)"
 
 # From here on, the daemon (auto-started by the CLI) must see the merged SDK.
 export ANDROID_HOME="$SDK"
-export JIDR_TEST_SDK="$SDK"
+export MIKO_TEST_SDK="$SDK"
 log "runtime ANDROID_HOME=$ANDROID_HOME"
 
 # 1 — create ---------------------------------------------------------------
 begin_step create
-jidr_json device create "$DEVICE" --image "$IMAGE" --profile "$PROFILE"
+miko_json device create "$DEVICE" --image "$IMAGE" --profile "$PROFILE"
 save_json create
 python3 -I - "$RUN/last.json" "$DEVICE" <<'PY' || fail "device create returned an unexpected device: $LAST"
 import json, sys
@@ -587,7 +587,7 @@ end_step "root=$(field 'r["root"]["mode"]')"
 # 2 — start ----------------------------------------------------------------
 begin_step start
 START_AT=$SECONDS
-jidr_json device start "$DEVICE" --timeout 300
+miko_json device start "$DEVICE" --timeout 300
 save_json start
 BOOT_SECONDS=$(( SECONDS - START_AT ))
 [ "$(field 'r[0]["status"]["state"]')" = "running" ] || fail "device did not report running: $LAST"
@@ -596,7 +596,7 @@ end_step "boot ${BOOT_SECONDS}s"
 
 # 3 — connect-info ---------------------------------------------------------
 begin_step connect-info
-jidr_json device connect-info "$DEVICE"
+miko_json device connect-info "$DEVICE"
 save_json connect-info
 ADB_PATH="$(field 'r["adb_path"]')"
 ADB_SERIAL="$(field 'r["adb_serial"]')"
@@ -614,10 +614,10 @@ end_step "grpc=$ENDPOINT"
 
 # 4 — apps -----------------------------------------------------------------
 begin_step apps
-jidr_json call app.list "{\"device\":\"$DEVICE\"}"
+miko_json call app.list "{\"device\":\"$DEVICE\"}"
 save_json app-list
 note "app.list: $(field 'len(r["apps"])') third-party app(s)"
-jidr_json call app.launch "{\"device\":\"$DEVICE\",\"package\":\"com.android.settings\"}"
+miko_json call app.launch "{\"device\":\"$DEVICE\",\"package\":\"com.android.settings\"}"
 save_json app-launch
 [ "$(field 'r["launched"]')" = "com.android.settings" ] || fail "app.launch launched the wrong package: $LAST"
 [ "$(field 'r["focused"]')" = "True" ] || fail "com.android.settings did not report focused: $LAST"
@@ -629,7 +629,7 @@ end_step "settings focused"
 # 5 — screenshot -----------------------------------------------------------
 begin_step screenshot
 SHOT="$RUN/screenshot.png"
-jidr_json call media.screenshot "{\"device\":\"$DEVICE\",\"path\":\"$SHOT\"}"
+miko_json call media.screenshot "{\"device\":\"$DEVICE\",\"path\":\"$SHOT\"}"
 save_json screenshot
 [ "$(field 'r["path"]')" = "$SHOT" ] || fail "media.screenshot wrote to an unexpected path: $LAST"
 [ -f "$SHOT" ] || fail "media.screenshot did not create $SHOT"
@@ -649,12 +649,12 @@ GOT="$(adb_run shell cat "$MARKER_FILE" 2>/dev/null | tr -d '\r')"
 [ "$GOT" = "$MARKER" ] || fail "guest marker did not read back before the snapshot: '$GOT'"
 note "guest marker written: $MARKER"
 
-jidr_json snapshot save "$DEVICE" m4-marker
+miko_json snapshot save "$DEVICE" m4-marker
 save_json snapshot-save
 [ "$(field 'r["name"]')" = "m4-marker" ] || fail "snapshot save returned the wrong name: $LAST"
 note "snapshot m4-marker saved in $SECONDS s (total elapsed)"
 
-jidr_json call snapshot.list "{\"device\":\"$DEVICE\"}"
+miko_json call snapshot.list "{\"device\":\"$DEVICE\"}"
 save_json snapshot-list
 python3 -I - "$RUN/last.json" <<'PY' || fail "snapshot list does not contain m4-marker: $LAST"
 import json, sys
@@ -671,7 +671,7 @@ adb_run shell "rm -f $MARKER_FILE" || fail "could not delete the guest marker"
 [ -z "$(adb_run shell cat "$MARKER_FILE" 2>/dev/null | tr -d '\r')" ] || fail "marker still readable after deletion"
 note "marker deleted; restoring"
 
-jidr_json snapshot load "$DEVICE" m4-marker
+miko_json snapshot load "$DEVICE" m4-marker
 save_json snapshot-load
 [ "$(field 'r["name"]')" = "m4-marker" ] || fail "snapshot load returned the wrong name: $LAST"
 
@@ -688,15 +688,15 @@ end_step "save+load marker restored"
 
 # 7 — root -----------------------------------------------------------------
 begin_step root
-jidr_json root verify "$DEVICE"
+miko_json root verify "$DEVICE"
 save_json root-verify-initial
 INITIAL_UID="$(field 'r["uid"]')"
 note "root.verify before set: mode=$(field 'r["mode"]') uid=$INITIAL_UID"
-jidr_json root set "$DEVICE" adb
+miko_json root set "$DEVICE" adb
 save_json root-set-adb
 SET_UID="$(field 'r["verification"]["uid"]')"
 [ "$SET_UID" = "0" ] || fail "root.set adb did not report uid 0: $LAST"
-jidr_json root verify "$DEVICE"
+miko_json root verify "$DEVICE"
 save_json root-verify
 [ "$(field 'r["uid"]')" = "0" ] || fail "root.verify after root.set adb did not report uid 0: $LAST"
 note "adbd root verified: uid 0 (command $(field 'r["command"]'))"
@@ -706,13 +706,13 @@ end_step "uid 0"
 begin_step record
 VIDEO="$RUN/record.mp4"
 ( set +e
-  "$JIDR" --json call media.record "{\"device\":\"$DEVICE\",\"path\":\"$VIDEO\",\"max_seconds\":300}" \
+  "$MIKO" --json call media.record "{\"device\":\"$DEVICE\",\"path\":\"$VIDEO\",\"max_seconds\":300}" \
       > "$RUN/record.json" 2> "$RUN/record.err"
   echo $? > "$RUN/record.code"
 ) &
 REC_PID=$!
 sleep 1
-jidr_json jobs list
+miko_json jobs list
 save_json jobs-recording
 python3 -I - "$RUN/last.json" <<'PY' || fail "media.record did not start a running job"
 import json, sys
@@ -722,7 +722,7 @@ match = [j for j in jobs if j.get("kind") == "media.record"]
 assert match and match[0].get("state") in ("pending", "running"), jobs
 PY
 sleep 2
-jidr_json call media.record_stop "{\"device\":\"$DEVICE\"}"
+miko_json call media.record_stop "{\"device\":\"$DEVICE\"}"
 save_json record-stop
 [ "$(field 'r["stopping"]')" = "True" ] || fail "media.record_stop did not report stopping: $LAST"
 for _ in $(seq 1 120); do
@@ -760,7 +760,7 @@ end_step "$REC_NOTE"
 
 # 9 — stop -----------------------------------------------------------------
 begin_step stop
-jidr_json device stop "$DEVICE"
+miko_json device stop "$DEVICE"
 save_json stop
 python3 -I - "$RUN/last.json" "$DEVICE" <<'PY' || fail "device stop did not report a stopped device: $LAST"
 import json, sys
@@ -771,18 +771,18 @@ assert r.get("status", {}).get("state") == "stopped", r
 PY
 STOPPED=0
 for _ in $(seq 1 30); do
-  if python3 -I "$ROOT/scripts/lib/no_jidr_emulators.py" "$JIDR_HOME" 2>/dev/null; then STOPPED=1; break; fi
+  if python3 -I "$ROOT/scripts/lib/no_miko_emulators.py" "$MIKO_HOME" 2>/dev/null; then STOPPED=1; break; fi
   sleep 1
 done
-[ "$STOPPED" = 1 ] || fail "a Jidr emulator is still running after device stop"
-note "device stopped; no Jidr emulator of this home is running"
+[ "$STOPPED" = 1 ] || fail "a Miko emulator is still running after device stop"
+note "device stopped; no Miko emulator of this home is running"
 end_step
 
 # 10 — delete --------------------------------------------------------------
 begin_step delete
-jidr_json device delete "$DEVICE" --yes
+miko_json device delete "$DEVICE" --yes
 save_json delete
-jidr_json device list
+miko_json device list
 [ "$(field 'len(r)')" = "0" ] || fail "device list is not empty after delete: $LAST"
 note "device and its data deleted; device list is empty"
 end_step
@@ -790,14 +790,14 @@ end_step
 # 11 — daemon quit ---------------------------------------------------------
 begin_step daemon-quit
 QUIT_CODE=0
-QUIT_OUT="$("$JIDR" --json call daemon.quit 2>&1)" || QUIT_CODE=$?
+QUIT_OUT="$("$MIKO" --json call daemon.quit 2>&1)" || QUIT_CODE=$?
 printf '%s\n' "$QUIT_OUT" > "$ART/daemon-quit.json"
 if [ "$QUIT_CODE" -eq 0 ]; then
   python3 -I - "$ART/daemon-quit.json" <<'PY' || fail "daemon.quit returned a bad envelope: $QUIT_OUT"
 import json, sys
 lines = [line for line in open(sys.argv[1]).read().splitlines() if line.strip()]
 v = json.loads(lines[-1])
-assert v.get("jidr_json") == 1 and v.get("ok") is True, v
+assert v.get("miko_json") == 2 and v.get("ok") is True, v
 assert v.get("result", {}).get("stopping") is True, v
 PY
 else
@@ -805,10 +805,10 @@ else
 fi
 GONE=0
 for _ in $(seq 1 30); do
-  if [ ! -S "$JIDR_HOME/data/daemon.sock" ]; then GONE=1; break; fi
+  if [ ! -S "$MIKO_HOME/data/daemon.sock" ]; then GONE=1; break; fi
   sleep 0.5
 done
-[ "$GONE" = 1 ] || fail "the daemon socket is still there after daemon.quit: $JIDR_HOME/data/daemon.sock"
+[ "$GONE" = 1 ] || fail "the daemon socket is still there after daemon.quit: $MIKO_HOME/data/daemon.sock"
 note "daemon quit: socket gone"
 end_step
 
@@ -818,5 +818,5 @@ TOTAL=$(( SECONDS - TOTAL_START ))
 log "ACCEPTANCE PASSED in ${TOTAL} s; 11/11 steps ok"
 log "log: $LOG"
 log "evidence: $ART/"
-log "rerun: JIDR_TEST_SDK=$SDK bash scripts/m4-swiftui-acceptance.sh"
+log "rerun: MIKO_TEST_SDK=$SDK bash scripts/m4-swiftui-acceptance.sh"
 exit 0

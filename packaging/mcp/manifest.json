@@ -1,10 +1,10 @@
 {
   "manifest_version": "0.3",
-  "name": "jidr",
+  "name": "miko",
   "display_name": "miko simulator",
   "version": "@VERSION@",
-  "description": "See and drive Android emulators on your Mac: screenshot, tap, type, read the UI and logs, and run any Jidr command.",
-  "long_description": "miko simulator is a free, open-source Android emulator manager for Apple Silicon Macs with one-click rooted devices. This extension runs `jidr mcp`, which starts the Jidr daemon when needed. Agents can create, start and stop devices, install apps, take screenshots, tap, swipe, type, read the uiautomator tree and tail logcat. Destructive commands (delete, factory reset) are refused unless the device is agent-owned (D5). miko simulator downloads Google's Android SDK and system images on your Mac the first time, after you accept their licence in the app or CLI.",
+  "description": "See and drive Android emulators on your Mac: screenshot, tap, type, read the UI and logs, and run any Miko command.",
+  "long_description": "miko simulator is a free, open-source Android emulator manager for Apple Silicon Macs with one-click rooted devices. This extension runs `miko mcp`, which starts the Miko daemon when needed. Agents can create, start and stop devices, install apps, take screenshots, tap, swipe, type, read the uiautomator tree and tail logcat. Destructive commands (delete, factory reset) are refused unless the device is agent-owned (D5). miko simulator downloads Google's Android SDK and system images on your Mac the first time, after you accept their licence in the app or CLI.",
   "author": {
     "name": "Jidr contributors",
     "url": "https://github.com/AbdurahmanAlmehdi/jidr"
@@ -21,15 +21,15 @@
   "keywords": ["android", "emulator", "adb", "root", "magisk", "testing", "macos"],
   "server": {
     "type": "binary",
-    "entry_point": "server/jidr",
+    "entry_point": "server/miko",
     "mcp_config": {
-      "command": "${__dirname}/server/jidr",
+      "command": "${__dirname}/server/miko",
       "args": ["mcp"]
     }
   },
   "tools": [
-    { "name": "command_list", "description": "Every Jidr command with its params schema and flags" },
-    { "name": "command_run", "description": "Run any Jidr command; long-running ones are waited for or returned as a job" },
+    { "name": "command_list", "description": "Every Miko command with its params schema and flags" },
+    { "name": "command_run", "description": "Run any Miko command; long-running ones are waited for or returned as a job" },
     { "name": "pool_get", "description": "Lease a throwaway clone of a base device, booted from its snapshot in seconds" },
     { "name": "pool_release", "description": "Give a leased device back: it is stopped and deleted" },
     { "name": "jobs_list", "description": "List long-running operations" },

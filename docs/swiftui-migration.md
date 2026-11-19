@@ -1,6 +1,6 @@
 # SwiftUI migration: plan, status and gates
 
-> Historical migration/parity record. Since the maintainer-approved retirement on 2026-11-11, SwiftUI is the sole UI in `apps/jidr-swiftui`; Slint sources, baselines and fallback commands below describe earlier revisions. See [ADR-0003](decisions/0003-swiftui-gui.md) and the root README for current builds. Retired sources remain available in Git history (before this cleanup).
+> Historical migration/parity record. Since the maintainer-approved retirement on 2026-11-11, SwiftUI is the sole UI in `apps/miko-swiftui`; Slint sources, baselines and fallback commands below describe earlier revisions. See [ADR-0003](decisions/0003-swiftui-gui.md) and the root README for current builds. Retired sources remain available in Git history (before this cleanup).
 
 Status: **M0–M6 complete (2026-11-11)**. The sections below record the migration as it stood at M6; the Slint fallback was subsequently retired. Remaining manual checks are listed under M6.
 
@@ -30,10 +30,10 @@ Done and reproducible on this machine:
 | Check | Command | Result |
 |---|---|---|
 | Rust gate | `PATH=target/tools/bin:$PATH PROTOC=target/tools/protoc/bin/protoc cargo xtask ci` | **green**: 597 passed, 1 skipped; licence-check ok (16 crates); skills-check ok (4 skills) |
-| Swift logic tests | `bash apps/jidr-swiftui/test.sh` | 10/10 pass (decoder, mapping, quality, window state, creation, SDK plan, MCP, app list, log filter, i18n coverage) |
-| Player preview | `bash apps/jidr-swiftui/build.sh` | builds `target/swiftui-prototype/JidrSwiftUIPrototype.app` |
-| Center preview | `bash apps/jidr-swiftui/build-center.sh` | builds `target/swiftui-center/JidrSwiftUICenter.app` |
-| Window lifecycle | `bash apps/jidr-swiftui/test-window.sh` | passed (GUI session available) |
+| Swift logic tests | `bash apps/miko-swiftui/test.sh` | 10/10 pass (decoder, mapping, quality, window state, creation, SDK plan, MCP, app list, log filter, i18n coverage) |
+| Player preview | `bash apps/miko-swiftui/build.sh` | builds `target/swiftui-prototype/MikoSwiftUIPrototype.app` |
+| Center preview | `bash apps/miko-swiftui/build-center.sh` | builds `target/swiftui-center/MikoSwiftUICenter.app` |
+| Window lifecycle | `bash apps/miko-swiftui/test-window.sh` | passed (GUI session available) |
 
 Two fixes made the baseline honest (they were red before this migration started):
 
@@ -48,14 +48,14 @@ Two fixes made the baseline honest (they were red before this migration started)
 | Tool | Version | Notes |
 |---|---|---|
 | rustc / cargo | 1.99.0 | pinned by `rust-toolchain.toml` |
-| protoc | 36.2 | needed by `jidr-proto`'s build script; CI installs it via `setup-protoc` |
+| protoc | 36.2 | needed by `miko-proto`'s build script; CI installs it via `setup-protoc` |
 | cargo-nextest | 0.9.151 | the gate runner; CI installs it |
 | Xcode | 27.2 (build 27B52) | `swiftc` from the active command-line tools |
 | macOS | 27.0.1 | dev machine |
 
-Reproducibility caveat for M1: `crates/jidr-proto/build.rs` prefers the protos shipped with
+Reproducibility caveat for M1: `crates/miko-proto/build.rs` prefers the protos shipped with
 the installed SDK emulator and falls back to the vendored 35.6.11 copies. Two machines can
-therefore compile different gRPC bindings. M1 fixes the policy (pin `JIDR_PROTO_VENDORED=1`
+therefore compile different gRPC bindings. M1 fixes the policy (pin `MIKO_PROTO_VENDORED=1`
 for CI and acceptance, or declare the minimum emulator version) and records it.
 
 ### Audits completed (evidence)
@@ -112,9 +112,9 @@ The three decisions above remove the RTL work and the device-tab work from the e
 |---|---|
 | macOS Swift CI job | `.github/workflows/ci.yml` `swift-macos`: rustup, protoc, cached Rust, builds both previews, runs `test.sh` and the localization gate; the GUI window test is a separate `continue-on-error` step (reported, never silently skipped) |
 | Localization gate | `Tests/localization_coverage.py` (8 rules, mechanisms a/b/c, UI and AppKit sinks, both bridge diagnostics, self-test) plus `Tests/i18n_allowlist.txt` (47 audited baseline rows); fails only on new leaks; `.strings` hygiene is warnings; `test.sh` runs `--self-test` |
-| Fixtures and screenshots | `JIDR_CENTER_FIXTURE` (empty/populated/load-failure/long-task/disconnect) and `JIDR_PLAYER_FIXTURE` drive the UI without a daemon; `snapshot.sh --update/--check/--only` renders offscreen with exact pixel comparison; the five baselines now match the M2 visuals (`--check` 5/5 PASS on this machine) |
-| Installable test package | `package-test.sh` → `target/swiftui-package/JidrSwiftUICenter.app` + `Jidr-0.3.1-test.dmg`; re-verified after M2 (signature, structure, forbidden-content scan, Finder-style launch, real data untouched) |
-| Isolation | the packaging run and the CI-local tests never write `~/Library/Application Support/Jidr`; the test home is removed afterwards |
+| Fixtures and screenshots | `MIKO_CENTER_FIXTURE` (empty/populated/load-failure/long-task/disconnect) and `MIKO_PLAYER_FIXTURE` drive the UI without a daemon; `snapshot.sh --update/--check/--only` renders offscreen with exact pixel comparison; the five baselines now match the M2 visuals (`--check` 5/5 PASS on this machine) |
+| Installable test package | `package-test.sh` → `target/swiftui-package/MikoSwiftUICenter.app` + `Miko-0.3.1-test.dmg`; re-verified after M2 (signature, structure, forbidden-content scan, Finder-style launch, real data untouched) |
+| Isolation | the packaging run and the CI-local tests never write `~/Library/Application Support/Miko`; the test home is removed afterwards |
 
 CI runs the snapshot check as a **reported** step: font/control metrics and the backing scale
 differ between macOS runner images, so it does not gate until the runner image is pinned. The
@@ -144,7 +144,7 @@ Dock integration, the design-token mapping, and the visual English walkthrough (
 
 | Area | Delivered |
 |---|---|
-| Native shell | real menu bar (app/edit/device/view/window/help) driven through palette actions with target validation, Dock menu, per-JIDR_HOME flock single instance that activates the running window, close-to-hide/reopen, device-window focus instead of duplicates, key-window menu target resolution |
+| Native shell | real menu bar (app/edit/device/view/window/help) driven through palette actions with target validation, Dock menu, per-MIKO_HOME flock single instance that activates the running window, close-to-hide/reopen, device-window focus instead of duplicates, key-window menu target resolution |
 | Layout and displays | centre collapses to one scrolling column below 940pt with a details toggle; sheets fit 900×600; player windows save their display id, restore on the saved/nearest screen and clamp when the screen set changes; Retina handled in points |
 | Design system | `generate-tokens.sh` renders the D41 tokens from `docs/design/tokens.json` into Swift (150 light/dark colour pairs, spacing, radii, borders, 30 type styles, durations, easings, shadows); 903 Wb* call sites across the centre and player; 69 semantic WbIcon constants with no bare SF Symbol names left; CI fails when the generated files drift |
 | Fonts | Geist, Geist Mono and Noto Kufi ship in both previews and the package with `ATSApplicationFontsPath`; WbFontResolver uses the real faces and falls back to the system font; the OFL licences ship in the package |
@@ -166,7 +166,7 @@ scope. Accessibility end-to-end (VoiceOver/Tab order) remains a manual check.
 
 ## M4: isolated real-device acceptance (status 2026-11-11)
 
-All runs used a throwaway `JIDR_HOME` under `/tmp`, a one-off AVD and a read-only SDK; no
+All runs used a throwaway `MIKO_HOME` under `/tmp`, a one-off AVD and a read-only SDK; no
 user data, AVDs or SDK files were touched and no Google licence was accepted by a test.
 
 | Evidence | Result |
@@ -198,7 +198,7 @@ with one logged observation (actual draws below presented frames). The three man
 | Item | Result |
 |---|---|
 | Default GUI | `cargo xtask release` builds the SwiftUI device centre; `--gui slint` keeps the pre-M6 chain as the fallback. The release and release-check workflows therefore ship the SwiftUI app. |
-| Production launch | a packaged launch without arguments and without `JIDR_HOME` leaves the environment unset, so the centre, the bridge and the daemon resolve the standard `~/Library/Application Support/Jidr` paths like the CLI. Verified from the rehearsal DMG with an isolated `HOME`: the socket appeared at the standard path, one daemon answered `daemon status`, and the real home was untouched. |
+| Production launch | a packaged launch without arguments and without `MIKO_HOME` leaves the environment unset, so the centre, the bridge and the daemon resolve the standard `~/Library/Application Support/Miko` paths like the CLI. Verified from the rehearsal DMG with an isolated `HOME`: the socket appeared at the standard path, one daemon answered `daemon status`, and the real home was untouched. |
 | Release rehearsal | `cargo xtask release --rehearsal` builds the release-profile centre and helpers, assembles the bundle (fonts, localisations, licences, no standalone player, no test sentinel), signs inside-out ad-hoc, packs the DMG, scans for forbidden content and runs mount/install/launch/uninstall checks with `report.md`. |
 | Docs, architecture, licensing | README, AGENTS, CONTRIBUTING, NOTICE and ADR-0003 updated: SwiftUI/AppKit sources GPL-3.0-only, the Rust bridge Apache-2.0, the Slint crates the GPL fallback, the OFL fonts attributed; the guard still keeps every Apache crate free of Slint/GUI dependencies. |
 | CI | the macOS job gained the token-drift check, the screenshot matrix (reported) and the release rehearsal (reported); the existing Rust gate is unchanged. |
@@ -226,7 +226,7 @@ regenerated. Details, implementation notes, deviations and verification live in
 - **M1 — test and package skeleton.** macOS CI job for Swift builds, logic tests and the
   localization check; a fixture mode for the UI; rendered screenshot baselines; an installable
   ad-hoc-signed `.app` + DMG with helpers, localizations, icon and licences; isolated
-  `JIDR_HOME` for every test run. Gate: documented commands rebuild and test from a clean
+  `MIKO_HOME` for every test run. Gate: documented commands rebuild and test from a clean
   checkout; the test package launches from Finder; no Google SDK/image/Magisk inside.
 - **M2 — behaviour parity, three parallel work lines.** A: device center and tasks. B: player
   and input. C: root, snapshots and advanced tools. Every task ships implementation, tests
@@ -237,7 +237,7 @@ regenerated. Details, implementation notes, deviations and verification live in
   accessibility, EN/ZH walkthrough, light/dark/system, extended localization checks, old
   config compatibility.
 - **M4 — isolated acceptance and performance.** Full flow on disposable devices with an
-  isolated `JIDR_HOME`: SDK setup → create → root → install/launch → input → screenshot and
+  isolated `MIKO_HOME`: SDK setup → create → root → install/launch → input → screenshot and
   recording → snapshot save/restore → safe stop. Plus multi-device, disconnects, bridge/daemon
   exits, data/config round-trip, and measurements against ADR-0001 and the Slint baseline
   (`docs/display-performance.md`). Google licences are accepted by the user, never by tests.

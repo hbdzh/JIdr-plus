@@ -3,7 +3,7 @@ import {C, FONT_MONO, FONT_UI} from '../theme';
 import {Button, Icon, Kbd, Pill} from './primitives';
 
 // Library tab: sidebar (search, Devices +, rows, Settings) and the selected device's detail.
-// Layout follows crates/jidr-ui/tests/golden/launcher-populated-1280.dark.png at 1440×856.
+// Layout follows crates/miko-ui/tests/golden/launcher-populated-1280.dark.png at 1440×856.
 
 const SIDEBAR_W = 248;
 

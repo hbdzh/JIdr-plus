@@ -12,18 +12,18 @@ import threading
 import time
 
 ROOT=Path(__file__).resolve().parents[1]
-PACKAGE='local.jidr.inputprobe'
+PACKAGE='local.miko.inputprobe'
 
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--device',required=True);p.add_argument('--apk',type=Path,required=True)
     p.add_argument('--out',type=Path,required=True);args=p.parse_args()
-    home=Path(os.environ.get('JIDR_HOME',''))
-    if not home.is_absolute() or not home.name.startswith('jidr-perf.'):
-        p.error('requires the baseline runner disposable JIDR_HOME')
+    home=Path(os.environ.get('MIKO_HOME',''))
+    if not home.is_absolute() or not home.name.startswith('miko-perf.'):
+        p.error('requires the baseline runner disposable MIKO_HOME')
     args.out.mkdir(parents=True,exist_ok=False)
-    cli=ROOT/'target/release/jidr';bridge=ROOT/'target/release/jidr-swiftui-bridge'
+    cli=ROOT/'target/release/miko';bridge=ROOT/'target/release/miko-swiftui-bridge'
     def call(command,params):
         value=json.loads(subprocess.check_output([str(cli),'--json','call',command,json.dumps(params)],text=True))
         if not value['ok']: raise RuntimeError(value['error'])
@@ -60,7 +60,7 @@ def main():
             except ValueError: return None
         field=wait(layout,'input fixture layout')
         wait(lambda:read('ready.txt')=='ready','focused Android input window')
-        env=dict(os.environ,JIDR_PLAYER_INPUT_SCHEDULER='fifo',JIDR_PLAYER_FRAME_TRANSPORT='shared',JIDR_PLAYER_INPUT_TRACE='1')
+        env=dict(os.environ,MIKO_PLAYER_INPUT_SCHEDULER='fifo',MIKO_PLAYER_FRAME_TRANSPORT='shared',MIKO_PLAYER_INPUT_TRACE='1')
         process=subprocess.Popen([str(bridge),args.device,'1080','2400','1'],env=env,
                                  stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         def exact(n):
@@ -109,7 +109,7 @@ def main():
         send(type='select_all');send(type='copy',request_id=71)
         def copied(request,text):
             for line in list(diagnostics):
-                if line.startswith('JIDR_CLIPBOARD:'):
+                if line.startswith('MIKO_CLIPBOARD:'):
                     value=json.loads(line.split(':',1)[1])
                     if value.get('request_id')==request and value.get('text')==text:return True
             return False

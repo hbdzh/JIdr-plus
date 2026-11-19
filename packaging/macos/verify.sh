@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Gatekeeper checks for a signed, notarized release (Phase 12b validation).
 #
-#   packaging/macos/verify.sh <Jidr-X-arm64.dmg>
+#   packaging/macos/verify.sh <Miko-X-arm64.dmg>
 #
 # Mounts the DMG read-only and checks the DMG and the app inside it. Exits
 # non-zero for ad-hoc (unsigned, 12a) builds: that's expected until 12b.

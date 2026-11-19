@@ -1,28 +1,28 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/jidr-core",
-    "crates/jidr-proto",
-    "crates/jidr-adb",
-    "crates/jidr-sdk",
-    "crates/jidr-backend",
-    "crates/jidr-daemon",
-    "crates/jidr-client",
-    "crates/jidr-mcp",
-    "crates/jidr-widgets",
-    "crates/jidr-cpio",
-    "crates/jidr-root",
-    "crates/jidr-helper",
-    "crates/jidr-automation",
-    "crates/jidr-sync",
-    "apps/jidr",
-    "apps/jidr-swiftui/bridge",
+    "crates/miko-core",
+    "crates/miko-proto",
+    "crates/miko-adb",
+    "crates/miko-sdk",
+    "crates/miko-backend",
+    "crates/miko-daemon",
+    "crates/miko-client",
+    "crates/miko-mcp",
+    "crates/miko-widgets",
+    "crates/miko-cpio",
+    "crates/miko-root",
+    "crates/miko-helper",
+    "crates/miko-automation",
+    "crates/miko-sync",
+    "apps/miko",
+    "apps/miko-swiftui/bridge",
     "xtask",
 ]
-default-members = ["apps/jidr"]
+default-members = ["apps/miko"]
 
 [workspace.package]
-version = "0.9.0"
+version = "0.9.1"
 edition = "2024"
 rust-version = "1.99"
 license = "Apache-2.0"
@@ -36,20 +36,20 @@ publish = false
 # manifests and move them here once a second crate needs them.
 [workspace.dependencies]
 # Internal
-jidr-core = { path = "crates/jidr-core" }
-jidr-proto = { path = "crates/jidr-proto" }
-jidr-adb = { path = "crates/jidr-adb" }
-jidr-sdk = { path = "crates/jidr-sdk" }
-jidr-backend = { path = "crates/jidr-backend" }
-jidr-daemon = { path = "crates/jidr-daemon" }
-jidr-client = { path = "crates/jidr-client" }
-jidr-mcp = { path = "crates/jidr-mcp" }
-jidr-widgets = { path = "crates/jidr-widgets" }
-jidr-cpio = { path = "crates/jidr-cpio" }
-jidr-root = { path = "crates/jidr-root" }
-jidr-helper = { path = "crates/jidr-helper" }
-jidr-automation = { path = "crates/jidr-automation" }
-jidr-sync = { path = "crates/jidr-sync" }
+miko-core = { path = "crates/miko-core" }
+miko-proto = { path = "crates/miko-proto" }
+miko-adb = { path = "crates/miko-adb" }
+miko-sdk = { path = "crates/miko-sdk" }
+miko-backend = { path = "crates/miko-backend" }
+miko-daemon = { path = "crates/miko-daemon" }
+miko-client = { path = "crates/miko-client" }
+miko-mcp = { path = "crates/miko-mcp" }
+miko-widgets = { path = "crates/miko-widgets" }
+miko-cpio = { path = "crates/miko-cpio" }
+miko-root = { path = "crates/miko-root" }
+miko-helper = { path = "crates/miko-helper" }
+miko-automation = { path = "crates/miko-automation" }
+miko-sync = { path = "crates/miko-sync" }
 
 # Runtime + serialization
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "net", "io-util", "process", "fs", "sync", "time", "signal"] }

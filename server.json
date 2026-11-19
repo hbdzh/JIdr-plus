@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.hbdzh/jidr-plus",
+  "name": "io.github.hbdzh/miko-simulator",
   "title": "miko simulator",
   "description": "See and drive Android emulators on a Mac: screenshot, tap, type, UI tree, logs, root.",
   "websiteUrl": "https://github.com/hbdzh/miko-simulator",

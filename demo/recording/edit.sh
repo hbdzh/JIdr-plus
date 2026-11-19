@@ -5,7 +5,7 @@
 #   out/terminal.mp4 from terminal.tape (vhs)
 # Recordings come from `screencapture -v -l<window id>` on a 2× display.
 # Usage: demo/recording/edit.sh <dir with raw.mov and rooted.mov>
-# Output: demo/recording/out/jidr-demo.mp4 and docs/images/demo.gif (< 10 MB).
+# Output: demo/recording/out/miko-demo.mp4 and docs/images/demo.gif (< 10 MB).
 set -euo pipefail
 
 RAW_DIR=${1:?usage: edit.sh <raw dir>}
@@ -43,11 +43,11 @@ pill "8×" '#0E1014' '#7AA2FF' southeast +48+56 "$WORK/chip.png"
 rsvg-convert -w 168 -h 168 "$ROOT/assets/brand/app-icon.svg" -o "$WORK/icon.png"
 magick -size ${W}x${H} xc:'#0E1014' \
   "$WORK/icon.png" -gravity center -geometry +0-170 -composite \
-  -font "$FONT" -fill '#E7E9EE' -pointsize 84 -annotate +0-10 'Jidr' \
+  -font "$FONT" -fill '#E7E9EE' -pointsize 84 -annotate +0-10 'Miko' \
   -fill '#9BA3B0' -pointsize 34 -annotate +0+62 'Android on your Mac, rooted in a minute.' \
   -fill '#191C22' -draw "roundrectangle 210,560 1230,640 14,14" \
-  -font "$MONO" -fill '#E7E9EE' -pointsize 30 -annotate +0+150 'brew install --cask abdurahmanalmehdi/tap/jidr' \
-  -font "$FONT" -fill '#7AA2FF' -pointsize 34 -annotate +0+250 'jidr.ly' \
+  -font "$MONO" -fill '#E7E9EE' -pointsize 30 -annotate +0+150 'brew install --cask abdurahmanalmehdi/tap/miko' \
+  -font "$FONT" -fill '#7AA2FF' -pointsize 34 -annotate +0+250 'miko.ly' \
   "$WORK/endcard.png"
 
 # clip <input> <start> <dur> <speed> <out>: cut, crop, retime to $FPS.
@@ -78,14 +78,14 @@ ffmpeg -v error -y -f concat -safe 0 -i "$WORK/list.txt" -c copy "$WORK/joined.m
 ffmpeg -v error -y -i "$WORK/joined.mp4" \
   -i "$WORK/cap1.png" -i "$WORK/cap2.png" -i "$WORK/cap3.png" -i "$WORK/chip.png" \
   -filter_complex "[0][1]overlay=enable='between(t,0,3)'[a];[a][2]overlay=enable='between(t,3,5)'[b];[b][3]overlay=enable='between(t,5,11)'[c];[c][4]overlay=enable='between(t,5,11)',format=yuv420p" \
-  -c:v libx264 -crf 18 -movflags +faststart "$OUT/jidr-demo.mp4"
+  -c:v libx264 -crf 18 -movflags +faststart "$OUT/miko-demo.mp4"
 
 # GIF: gifski from PNG frames, shrinking until it fits under 10 MB.
 GIF=$ROOT/docs/images/demo.gif
 for spec in "1200 15 85" "960 15 80" "800 12 70"; do
   set -- $spec
   rm -rf "$WORK/frames" && mkdir "$WORK/frames"
-  ffmpeg -v error -i "$OUT/jidr-demo.mp4" -vf "fps=$2,scale=$1:-1:flags=lanczos" "$WORK/frames/f%04d.png"
+  ffmpeg -v error -i "$OUT/miko-demo.mp4" -vf "fps=$2,scale=$1:-1:flags=lanczos" "$WORK/frames/f%04d.png"
   gifski --quiet --fps "$2" --width "$1" --quality "$3" -o "$GIF" "$WORK"/frames/f*.png
   size=$(stat -f %z "$GIF")
   echo "gif: ${1}px ${2}fps q$3 → $((size / 1024)) KB"

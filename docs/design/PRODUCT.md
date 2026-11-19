@@ -1,19 +1,19 @@
-# Jidr (جذر): product brief for designers
+# Miko (جذر): product brief for designers
 
 > The source of truth for design work. If anything here seems ambiguous, the decisions in `docs/decisions/log.md` settle it.
 
-## 1. What Jidr is
+## 1. What Miko is
 
-Jidr (Arabic جذر, *JID-er*, "root") is a **free, open-source Android emulator for the Mac**. It is a desktop app, plus a command-line tool and an AI-agent (MCP) server, that creates and runs virtual Android phones and tablets.
+Miko (Arabic جذر, *JID-er*, "root") is a **free, open-source Android emulator for the Mac**. It is a desktop app, plus a command-line tool and an AI-agent (MCP) server, that creates and runs virtual Android phones and tablets.
 
 It does what Genymotion Desktop does (a polished device manager, a device window and sensor controls) and adds four things:
 
-1. **One-click rooted devices.** You pick a root mode when you create a device: *None*, *Shell root (adb)* or *Full root (Magisk)*. Jidr does the rest and shows a verified "Rooted" badge. This is the headline feature.
+1. **One-click rooted devices.** You pick a root mode when you create a device: *None*, *Shell root (adb)* or *Full root (Magisk)*. Miko does the rest and shows a verified "Rooted" badge. This is the headline feature.
 2. **Everything free.** Genymotion's paid features (CLI automation, network profiles, GPS route replay, quick boot, root toggle) cost nothing here.
 3. **Agent-native.** Every button is also a CLI command and an MCP tool, so an AI agent can drive a device: screenshot, tap, type, read logs.
 4. **Snapshots done right.** Save and restore device states, each tagged with its root mode.
 
-Under the hood it runs Google's open-source Android emulator headless. Jidr's own window shows the screen. We never ship Google's binaries: Jidr downloads them on the user's machine after they accept Google's license.
+Under the hood it runs Google's open-source Android emulator headless. Miko's own window shows the screen. We never ship Google's binaries: Miko downloads them on the user's machine after they accept Google's license.
 
 ## 2. Who uses it
 
@@ -34,8 +34,8 @@ Users are technical, on macOS (Apple Silicon), and often keep the app open all d
 4. **Device window (player)**: the live Android screen (the hero), a vertical toolbar (volume, rotate, back, home, recents, power, screenshot, record, pixel-perfect, fullscreen) and a **widget panel** that opens beside the screen.
 5. **Widgets**: Battery · GPS (map, coordinates, GPX/KML route replay) · Rotation and motion sensors · Phone and SMS · Network (Wi-Fi/mobile on/off, speed/delay profiles) · Identifiers · Android controls (D-pad, media keys) · Developer tools (root, show taps, layout bounds, animations) · Biometrics (fingerprint touch) · Clipboard · Microphone input · Snapshots · Logcat.
 6. **Root setup flow**: a short, honest progress sequence (download Magisk → patch → reboot → install → verify), with a clear success badge, a clear failure state, and one-click revert.
-7. **Settings**: SDK location and disk usage, cache, MCP setup ("Add Jidr to Claude"), map tile source, default root mode, about and licenses.
-8. **Landing page (jidr.ly)**: a pre-launch "coming soon" page, then the full marketing site: hero, root showcase, "Genymotion's paid features, free", agent/MCP section, CLI snippet, download, sponsors, Arabic version.
+7. **Settings**: SDK location and disk usage, cache, MCP setup ("Add Miko to Claude"), map tile source, default root mode, about and licenses.
+8. **Landing page (miko.ly)**: a pre-launch "coming soon" page, then the full marketing site: hero, root showcase, "Genymotion's paid features, free", agent/MCP section, CLI snippet, download, sponsors, Arabic version.
 
 ## 4. Non-negotiables
 
@@ -83,7 +83,7 @@ Users are technical, on macOS (Apple Silicon), and often keep the app open all d
 - Battery: 64%, discharging.
 - Snapshots on Pixel-ish 6.1: "Clean install" (Full root, 2.1 GB), "Logged in test account" (Full root, 2.4 GB), "Quick boot" (auto).
 - Logcat lines: `I/ActivityManager: Start proc 4821:com.example.shop/u0a190`, `W/Magisk: su: request from uid 10190 (com.example.shop)`, `E/AndroidRuntime: FATAL EXCEPTION: main`.
-- CLI snippet: `jidr device create "Pixel-ish 6.1" --api 35 --root magisk --wait-boot`.
+- CLI snippet: `miko device create "Pixel-ish 6.1" --api 35 --root magisk --wait-boot`.
 
 ## 8. Design and brand
 

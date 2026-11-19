@@ -8,6 +8,6 @@ FPS="${2:-15}"
 QUALITY="${3:-80}"
 FRAMES="out/gif-frames-$WIDTH-$FPS"
 mkdir -p "$FRAMES"
-ffmpeg -v error -y -i out/jidr-demo-motion.mp4 -vf "fps=$FPS,scale=$WIDTH:-1:flags=lanczos" "$FRAMES/f%04d.png"
-gifski --fps "$FPS" --width "$WIDTH" --quality "$QUALITY" -o out/jidr-demo-motion.gif "$FRAMES"/f*.png
-ls -l out/jidr-demo-motion.gif
+ffmpeg -v error -y -i out/miko-demo-motion.mp4 -vf "fps=$FPS,scale=$WIDTH:-1:flags=lanczos" "$FRAMES/f%04d.png"
+gifski --fps "$FPS" --width "$WIDTH" --quality "$QUALITY" -o out/miko-demo-motion.gif "$FRAMES"/f*.png
+ls -l out/miko-demo-motion.gif

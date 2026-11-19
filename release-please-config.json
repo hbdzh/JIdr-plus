@@ -8,7 +8,7 @@
   "pull-request-title-pattern": "chore: release v${version}",
   "packages": {
     ".": {
-      "package-name": "jidr",
+      "package-name": "miko",
       "initial-version": "0.1.0",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [

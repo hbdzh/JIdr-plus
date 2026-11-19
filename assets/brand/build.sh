@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerates every Jidr brand/icon asset from source/appLogoOnPaper.jpg.
+# Regenerates every Miko brand/icon asset from source/appLogoOnPaper.jpg.
 # Requires: potrace, rsvg-convert (librsvg), magick (ImageMagick), iconutil (macOS).
 #   brew install potrace librsvg imagemagick
 # Usage: assets/brand/build.sh   (run from anywhere; outputs are committed)
@@ -7,7 +7,7 @@ set -euo pipefail
 
 BRAND="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$BRAND/../.." && pwd)"
-GUI="$ROOT/apps/jidr-swiftui/Resources"
+GUI="$ROOT/apps/miko-swiftui/Resources"
 WEB="$BRAND/web"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -75,7 +75,7 @@ cat > "$BRAND/social-card.svg" <<EOF
   <rect width="1200" height="630" fill="$INK"/>
   <circle cx="250" cy="315" r="160" fill="url(#bg)"/>
   <svg x="178" y="241" width="144" height="149" $(vbox "$BRAND/symbol.svg") color="#FFFFFF">$(inner "$BRAND/symbol.svg")</svg>
-  <text x="470" y="285" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="700" font-size="120" fill="#FFFFFF">Jidr</text>
+  <text x="470" y="285" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-weight="700" font-size="120" fill="#FFFFFF">Miko</text>
   <text x="474" y="390" font-family="Geeza Pro, SF Arabic, Noto Naskh Arabic, sans-serif" font-weight="700" font-size="92" fill="$LILAC">جذر</text>
   <text x="472" y="470" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="32" fill="#C9C9C9">Android on your Mac. Rooted in a minute.</text>
 </svg>
@@ -95,7 +95,7 @@ for s in 16 32 128 256 512; do
   d=$((s*2)); src2="$BRAND/app-icon.svg"; [ "$d" -le 32 ] && src2="$BRAND/app-icon-small.svg"
   rsvg-convert -w $d -h $d "$src2" -o "$SET/icon_${s}x${s}@2x.png"
 done
-iconutil -c icns "$SET" -o "$GUI/Jidr.icns"
+iconutil -c icns "$SET" -o "$GUI/Miko.icns"
 # 9. Standalone web assets.
 sed "s/currentColor/$BOTTOM/" "$BRAND/symbol-bold.svg" > "$WEB/favicon.svg"
 rsvg-convert -w 32 -h 32 "$BRAND/app-icon-small.svg" -o "$WEB/favicon-32.png"

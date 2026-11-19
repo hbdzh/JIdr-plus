@@ -2,13 +2,13 @@
 
 Run several emulators as one: input on the **leader** device is replayed on every **follower** in real time (tap, swipe, multi-finger touch, keys, text, paste and the back/home/recents/volume/power keys). Design: [docs/design/sync-plan.md](design/sync-plan.md), decision D45.
 
-> Status: implemented across the daemon (`sync.*`), CLI (`jidr input-sync`), MCP (`sync_start`/`sync_stop`/`sync_status`), player bridges, and the SwiftUI Synchronizer panel (`⇧⌘Y`). Real-emulator latency and stress benchmarks have not been run in this environment yet (no local Android SDK system image).
+> Status: implemented across the daemon (`sync.*`), CLI (`miko input-sync`), MCP (`sync_start`/`sync_stop`/`sync_status`), player bridges, and the SwiftUI Synchronizer panel (`⇧⌘Y`). Real-emulator latency and stress benchmarks have not been run in this environment yet (no local Android SDK system image).
 
 ## Using the Synchronizer
 
 - **GUI:** Open **同步器… / Synchronizer…** from the menu bar (`⇧⌘Y`), the Command Palette (`⌘K`), or the Synchronizer button in any player window toolbar. Select two or more running devices, pick a leader, choose coordinate adaptation (`Stretch` or `Letterbox`) and input filters, then click **Start sync**.
 - **In-player indicators:** Each participating window shows a corner glass pill (`Syncing · Leader` or `Syncing · Following`). Followers are locked by default so stray clicks don't desynchronize; clicking a locked follower offers **Take over** to promote it to leader. Followers without an open window run in a hidden background player session managed by `SyncHub`.
-- **CLI & MCP:** `jidr input-sync start --leader <dev> --follower <dev>…`, `stop`, `status`, `add`, `remove`, `leader`; MCP `sync_start`, `sync_stop`, `sync_status`. Input flows while the leader has an open player window.
+- **CLI & MCP:** `miko input-sync start --leader <dev> --follower <dev>…`, `stop`, `status`, `add`, `remove`, `leader`; MCP `sync_start`, `sync_stop`, `sync_status`. Input flows while the leader has an open player window.
 
 ## Concepts
 

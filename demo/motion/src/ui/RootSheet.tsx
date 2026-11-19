@@ -4,7 +4,7 @@ import {C, FONT_MONO, FONT_UI} from '../theme';
 import {FPS, STEPS, STEP_STARTS, clamp, fade, standard} from '../timeline';
 import {Button, Icon, Kbd, Pill} from './primitives';
 
-// The Root sheet (crates/jidr-ui/src/root/root.slint), from root-progress.dark.png to
+// The Root sheet (crates/miko-ui/src/root/root.slint), from root-progress.dark.png to
 // root-success.dark.png / docs/images/root-success.png. Sheet-relative coordinates;
 // it sits at x 410, y 44 in the 1440×900 window.
 
@@ -247,7 +247,7 @@ export const RootSheet: React.FC<{frame: number; rootedAt: number}> = ({frame, r
           opacity: successIn(0),
         }}
       >
-        Jidr checked that su really answers as root before saying so.
+        Miko checked that su really answers as root before saying so.
       </div>
 
       {/* Steps */}

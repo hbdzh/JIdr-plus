@@ -36,7 +36,7 @@ export const EndCard: React.FC = () => {
         }}
       />
       <div style={{display: 'flex', alignItems: 'baseline', gap: 26, marginTop: 6, ...rise(frame, t + 12)}}>
-        <span style={{color: C.textPrimary, font: `600 104px/1.05 ${FONT_UI}`, letterSpacing: -3}}>Jidr</span>
+        <span style={{color: C.textPrimary, font: `600 104px/1.05 ${FONT_UI}`, letterSpacing: -3}}>Miko</span>
         <span style={{color: C.lilac, font: `600 76px/1 ${FONT_AR}`}}>جذر</span>
       </div>
       <div style={{color: C.textSecondary, font: `500 40px/1.3 ${FONT_UI}`, marginTop: 18, letterSpacing: -0.4, ...rise(frame, t + 20)}}>
@@ -56,10 +56,10 @@ export const EndCard: React.FC = () => {
         }}
       >
         <span style={{color: C.textTertiary}}>$ </span>
-        <span style={{color: C.accentText}}>brew</span> install --cask abdurahmanalmehdi/tap/jidr
+        <span style={{color: C.accentText}}>brew</span> install --cask abdurahmanalmehdi/tap/miko
       </div>
       <div style={{marginTop: 34, display: 'flex', gap: 18, alignItems: 'center', font: `500 34px/1 ${FONT_UI}`, ...rise(frame, t + 38)}}>
-        <span style={{color: C.accentText}}>jidr.ly</span>
+        <span style={{color: C.accentText}}>miko.ly</span>
         <span style={{color: C.textTertiary}}>·</span>
         <span style={{color: C.textSecondary}}>Free and open source</span>
         <span style={{color: C.textTertiary}}>·</span>

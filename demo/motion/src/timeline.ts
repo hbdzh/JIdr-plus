@@ -5,7 +5,7 @@ export const DURATION = 25 * FPS; // 750
 export const STAGE_W = 1920;
 export const STAGE_H = 1080;
 
-// The app window is laid out at the goldens' size (crates/jidr-ui/tests/golden, 1440×900).
+// The app window is laid out at the goldens' size (crates/miko-ui/tests/golden, 1440×900).
 export const WIN_W = 1440;
 export const WIN_H = 900;
 export const WIN_SCALE = 1.14;
@@ -32,7 +32,7 @@ export const T = {
   endIn: s(20.0),
 };
 
-// Five Full-root steps, labels verbatim from crates/jidr-ui/src/root/root.slint (StepRow).
+// Five Full-root steps, labels verbatim from crates/miko-ui/src/root/root.slint (StepRow).
 // `real` is the step's real duration in seconds (58 s in all, as in root-success.png);
 // `frames` is its on-screen duration.
 export const STEPS = [
@@ -53,7 +53,7 @@ export const ROOTED = STEPS_END + 4;
 
 export const clamp = {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'} as const;
 
-// jidr-easing-standard
+// miko-easing-standard
 export const standard = Easing.bezier(0.2, 0, 0, 1);
 export const moveEase = Easing.bezier(0.45, 0, 0.2, 1);
 

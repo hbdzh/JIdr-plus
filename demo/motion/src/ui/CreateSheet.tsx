@@ -3,7 +3,7 @@ import {interpolateColors} from 'remotion';
 import {C, FONT_MONO, FONT_UI} from '../theme';
 import {Button, Icon} from './primitives';
 
-// New device sheet, laid out from crates/jidr-ui/tests/golden/create-google-apis.dark.png.
+// New device sheet, laid out from crates/miko-ui/tests/golden/create-google-apis.dark.png.
 // Coordinates are sheet-relative; the sheet sits at x 380, y 44 in the 1440×900 window.
 
 export const SHEET = {x: 380, y: 44, w: 680, h: 659};

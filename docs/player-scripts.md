@@ -17,15 +17,15 @@ replays it locally in the player bridge. Scripts are data, not code.
   (0.25x–4x).
 - Closing the player window stops recording and playback (the bridge process
   exits).
-- Scripts live in `<Jidr data>/scripts/`; they are portable JSON files.
+- Scripts live in `<Miko data>/scripts/`; they are portable JSON files.
 - No daemon, CLI, MCP or protocol changes in v1.
 
 ## Script format
 
 ```json
 {
-  "format": "jidr.operation-recording",
-  "version": 1,
+  "format": "miko.operation-recording",
+  "version": 2,
   "id": "uuid",
   "name": "每日签到",
   "created_at": "2026-11-12T01:00:00.000Z",
@@ -61,19 +61,19 @@ Rules:
 - Display size is used only for a compatibility warning; normalized coordinates
   still map to the current screen.
 
-## Core crate API (`crates/jidr-automation`)
+## Core crate API (`crates/miko-automation`)
 
 Pure Rust, no UI/daemon dependencies. Public API used by the bridge:
 
 - `Script`, `Event` (tagged `type`), `TimedEvent`, `DisplayInfo`,
   `PlaybackOptions`, `PlaybackMode`, `ScriptSummary`
-- `validate(&Script) -> JidrResult<()>`
+- `validate(&Script) -> MikoResult<()>`
 - `Recorder`: `new(now)`, `record(event, now)`, `pause(now)`, `resume(now)`,
   `is_paused()`, `event_count()`, `finish(name, device, display, playback, now)`
   (finish appends release events for still-held touch/key state and validates).
 - `ScriptStore::new(data_dir)`: `list()`, `load(id)`, `save(&script)`,
   `delete(id)`, `rename(id, name)`, `import(path)`, `export(id, path)`.
-- Errors use `jidr_core::JidrError` (`usage`/`not found` semantics).
+- Errors use `miko_core::MikoError` (`usage`/`not found` semantics).
 
 ## Player bridge protocol additions
 
@@ -110,7 +110,7 @@ Rules:
   is invalid.
 - On stop/cancel/pause/finish, held key/touch inputs are released.
 
-### Notifications (stderr, `JIDR_SCRIPT:` + JSON)
+### Notifications (stderr, `MIKO_SCRIPT:` + JSON)
 
 ```text
 {"op":"record","state":"recording"|"paused"|"progress"|"saved"|"stopped"|"failed","event_count":..., "name":..., "message":..., "script":{summary}}

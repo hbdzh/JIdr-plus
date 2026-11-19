@@ -3,56 +3,56 @@
 # verifying each step and that the shared SDK ramdisk.img is untouched at the
 # end (Phase 9d acceptance).
 #
-# Env: JIDR_TEST_SDK    (SDK holding the images, read-only; default Studio's)
-#      JIDR_TEST_IMAGES (space-separated sdkmanager packages; default one
+# Env: MIKO_TEST_SDK    (SDK holding the images, read-only; default Studio's)
+#      MIKO_TEST_IMAGES (space-separated sdkmanager packages; default one
 #                        google_apis image for the host ABI — CI passes
 #                        API 30/33/35 x86_64 on Linux KVM)
-#      JIDR_TEST_MAGISK (optional local Magisk APK; default: download the pin)
+#      MIKO_TEST_MAGISK (optional local Magisk APK; default: download the pin)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target}"
-cargo build -q -p jidr
+cargo build -q -p miko
 # CARGO_TARGET_DIR may be absolute (CI, `cargo xtask e2e-mac` callers) or relative.
 case "$CARGO_TARGET_DIR" in /*) TARGET="$CARGO_TARGET_DIR" ;; *) TARGET="$PWD/$CARGO_TARGET_DIR" ;; esac
-JIDR="$TARGET/debug/jidr"
+MIKO="$TARGET/debug/miko"
 
 case "$(uname -m)" in arm64|aarch64) ABI=arm64-v8a ;; *) ABI=x86_64 ;; esac
-SDK="${JIDR_TEST_SDK:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
+SDK="${MIKO_TEST_SDK:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
 export ANDROID_HOME="$SDK"
-IMAGES="${JIDR_TEST_IMAGES:-system-images;android-31;google_apis;$ABI}"
+IMAGES="${MIKO_TEST_IMAGES:-system-images;android-31;google_apis;$ABI}"
 
-JIDR_HOME="$(mktemp -d /tmp/jidr-e2e-root.XXXXXX)"
-export JIDR_HOME
+MIKO_HOME="$(mktemp -d /tmp/miko-e2e-root.XXXXXX)"
+export MIKO_HOME
 cleanup() {
   local code=$?
   # Stop the daemon first; emulators outlive it and are re-adopted, but the
   # happy path already stopped and deleted the device.
-  "$JIDR" daemon stop >/dev/null 2>&1 || true
-  if [ "$code" -ne 0 ] || [ "${JIDR_E2E_KEEP:-}" = 1 ]; then
+  "$MIKO" daemon stop >/dev/null 2>&1 || true
+  if [ "$code" -ne 0 ] || [ "${MIKO_E2E_KEEP:-}" = 1 ]; then
     # Keep the evidence: the emulator log that says why a boot hung lives
-    # under $JIDR_HOME/logs/devices/<avd>/emulator-*.log. `uninstall --purge`
+    # under $MIKO_HOME/logs/devices/<avd>/emulator-*.log. `uninstall --purge`
     # would delete it, so it is skipped here.
-    echo "e2e-root: keeping JIDR_HOME=$JIDR_HOME (logs: $JIDR_HOME/logs/devices)" >&2
+    echo "e2e-root: keeping MIKO_HOME=$MIKO_HOME (logs: $MIKO_HOME/logs/devices)" >&2
   else
-    mkdir -p "$JIDR_HOME/cleanup-home"
-    HOME="$JIDR_HOME/cleanup-home" "$JIDR" --quiet uninstall --purge --yes >/dev/null 2>&1 || true
-    rm -rf "$JIDR_HOME"
+    mkdir -p "$MIKO_HOME/cleanup-home"
+    HOME="$MIKO_HOME/cleanup-home" "$MIKO" --quiet uninstall --purge --yes >/dev/null 2>&1 || true
+    rm -rf "$MIKO_HOME"
   fi
 }
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 
-# Runs `jidr --json …` and checks ok == true; sets LAST to the last line.
+# Runs `miko --json …` and checks ok == true; sets LAST to the last line.
 step() {
   local name="$1"; shift
   local out code=0
-  out="$("$JIDR" --json "$@")" || code=$?
+  out="$("$MIKO" --json "$@")" || code=$?
   if [ "$code" -ne 0 ]; then
     echo "e2e-root: FAIL $name (exit $code): $out" >&2
     exit 1
   fi
-  python3 -I -c 'import json,sys; v=json.loads(sys.stdin.read().strip().splitlines()[-1]); assert v["jidr_json"]==1 and v["ok"] is True, v' <<<"$out" \
+  python3 -I -c 'import json,sys; v=json.loads(sys.stdin.read().strip().splitlines()[-1]); assert v["miko_json"]==2 and v["ok"] is True, v' <<<"$out" \
     || { echo "e2e-root: FAIL $name: bad envelope: $out" >&2; exit 1; }
   echo "e2e-root: ok   $name"
   LAST="$out"
@@ -89,8 +89,8 @@ cycle() {
   [ "$uid" = 0 ] || { echo "e2e-root: FAIL adb uid=$uid" >&2; exit 1; }
 
   # adb → magisk: the full setup, then `su -c id` must be uid 0.
-  if [ -n "${JIDR_TEST_MAGISK:-}" ]; then
-    step "set-magisk" root set "$dev" magisk --magisk "$JIDR_TEST_MAGISK"
+  if [ -n "${MIKO_TEST_MAGISK:-}" ]; then
+    step "set-magisk" root set "$dev" magisk --magisk "$MIKO_TEST_MAGISK"
   else
     step "set-magisk" root set "$dev" magisk
   fi

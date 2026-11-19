@@ -17,7 +17,7 @@ Set WindowBar Colorful
 Set WindowBarSize 44
 Set BorderRadius 12
 Set Margin 0
-Set Theme { "name": "Jidr", "background": "#0E1014", "foreground": "#E7E9EE", "cursor": "#7AA2FF", "selection": "#20242B", "black": "#0A0C0F", "red": "#F2707A", "green": "#5FD49A", "yellow": "#E8C267", "blue": "#7AA2FF", "magenta": "#B794F6", "cyan": "#6CC7D9", "white": "#E7E9EE", "brightBlack": "#5C6370", "brightRed": "#F2707A", "brightGreen": "#5FD49A", "brightYellow": "#E8C267", "brightBlue": "#7AA2FF", "brightMagenta": "#B794F6", "brightCyan": "#6CC7D9", "brightWhite": "#FFFFFF" }
+Set Theme { "name": "Miko", "background": "#0E1014", "foreground": "#E7E9EE", "cursor": "#7AA2FF", "selection": "#20242B", "black": "#0A0C0F", "red": "#F2707A", "green": "#5FD49A", "yellow": "#E8C267", "blue": "#7AA2FF", "magenta": "#B794F6", "cyan": "#6CC7D9", "white": "#E7E9EE", "brightBlack": "#5C6370", "brightRed": "#F2707A", "brightGreen": "#5FD49A", "brightYellow": "#E8C267", "brightBlue": "#7AA2FF", "brightMagenta": "#B794F6", "brightCyan": "#6CC7D9", "brightWhite": "#FFFFFF" }
 
 Hide
 # frida-ps pads each row to the terminal width, which wraps; trim the padding.

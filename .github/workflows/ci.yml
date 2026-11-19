@@ -87,29 +87,29 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build native app
-        run: bash apps/jidr-swiftui/build-center.sh
+        run: bash apps/miko-swiftui/build-center.sh
       - name: Optimized center build and macOS deployment check
         # This is a gate, independent of the optional GUI/DMG rehearsal.
-        run: bash apps/jidr-swiftui/build-release.sh
+        run: bash apps/miko-swiftui/build-release.sh
       - name: Logic tests and localization gate (test.sh)
-        run: bash apps/jidr-swiftui/test.sh
+        run: bash apps/miko-swiftui/test.sh
       - name: Center and player lifecycle regressions
         # Real controller/transport callbacks with a mock bridge and isolated
         # home; no Android SDK or emulator. A regression fails the macOS job.
-        run: bash apps/jidr-swiftui/test-player-lifecycle.sh
+        run: bash apps/miko-swiftui/test-player-lifecycle.sh
       - name: Center UI interaction regressions
-        run: bash apps/jidr-swiftui/test-center-ui.sh --interactive
+        run: bash apps/miko-swiftui/test-center-ui.sh --interactive
       - name: Design tokens are in sync with tokens.json
         # generate-tokens.sh --check regenerates from docs/design/tokens.json
         # into the generated Swift files and fails when they differ.
-        run: bash apps/jidr-swiftui/generate-tokens.sh --check
+        run: bash apps/miko-swiftui/generate-tokens.sh --check
       - name: Localization gate (mechanisms a/b/c, AppKit sinks, both bridges)
         # Fails only on leaks outside the audited baseline
         # (Tests/i18n_allowlist.txt); .strings hygiene issues are warnings.
-        run: python3 apps/jidr-swiftui/Tests/localization_coverage.py
+        run: python3 apps/miko-swiftui/Tests/localization_coverage.py
       - name: SwiftUI release rehearsal (needs a macOS GUI session; reported, not gating)
         # Builds the release-profile centre + helpers, assembles and ad-hoc signs
-        # Jidr.app, packs the DMG and runs the mount/signature/scan/CLI/isolated
+        # Miko.app, packs the DMG and runs the mount/signature/scan/CLI/isolated
         # launch checks. Reported because signing/notarization need the
         # maintainer's credentials and the launch needs a GUI session.
         continue-on-error: true
@@ -120,14 +120,14 @@ jobs:
         # between macOS runner images, so this is reported rather than gating
         # until the runner image is pinned; see docs/swiftui-migration.md.
         continue-on-error: true
-        run: bash apps/jidr-swiftui/snapshot.sh --check --all
+        run: bash apps/miko-swiftui/snapshot.sh --check --all
       - name: GUI window lifecycle (needs a macOS GUI session; reported, not gating)
         # test-window.sh drives real AppKit windows and needs a logged-in
         # WindowServer session. Hosted runners usually have one, but not
         # contractually, so the result is reported as an annotation instead of
         # gating the build; it is never skipped silently.
         continue-on-error: true
-        run: bash apps/jidr-swiftui/test-window.sh
+        run: bash apps/miko-swiftui/test-window.sh
 
   emulator:
     # Emulator integration tests on Linux KVM with x86_64 images (D28).
@@ -216,9 +216,9 @@ jobs:
         # booting (a hung QEMU main loop); a test that passes on the retry is
         # reported as FLAKY in the log, so flakes stay visible.
         env:
-          JIDR_TEST_SDK: ${{ env.ANDROID_SDK_ROOT }}
-          JIDR_TEST_IMAGE: system-images;android-${{ matrix.api }};google_apis;x86_64
-          JIDR_TEST_API: ${{ matrix.api }}
+          MIKO_TEST_SDK: ${{ env.ANDROID_SDK_ROOT }}
+          MIKO_TEST_IMAGE: system-images;android-${{ matrix.api }};google_apis;x86_64
+          MIKO_TEST_API: ${{ matrix.api }}
         run: >-
           cargo nextest run --workspace --features emulator --no-tests=pass --test-threads 1
           --no-fail-fast --retries 1 -E '${{ matrix.shard.filter }}'

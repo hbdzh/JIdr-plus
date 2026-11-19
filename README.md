@@ -74,12 +74,12 @@ miko simulator 是面向 Apple Silicon Mac 的开源 Android 模拟器管理工�
 需要 **Apple Silicon Mac，macOS 13 或更高版本**。
 
 1. 从 [GitHub Releases](https://github.com/hbdzh/miko-simulator/releases/latest) 下载 DMG。
-2. 打开 DMG，将 JIdr 拖入“应用程序”文件夹。
-3. 启动 JIdr，按引导准备 Android SDK 和系统镜像，也可以复用已安装的 Android SDK。
+2. 打开 DMG，将 miko simulator 拖入“应用程序”文件夹。
+3. 启动 miko simulator，按引导准备 Android SDK 和系统镜像，也可以复用已安装的 Android SDK。
 
 ## AI 与自动化
 
-miko 模拟器 提供 `jidr` 命令行和 MCP 服务。打开「设置 → 智能体」配置 Codex 或 WorkBuddy，命令行和其他客户端的配置方法见 [MCP 使用指南](docs/mcp.md)。
+miko 模拟器 提供 `miko` 命令行和 MCP 服务。打开「设置 → 智能体」配置 Codex 或 WorkBuddy，命令行和其他客户端的配置方法见 [MCP 使用指南](docs/mcp.md)。
 
 ## 从源码编译
 
@@ -88,8 +88,8 @@ miko 模拟器 提供 `jidr` 命令行和 MCP 服务。打开「设置 → 智�
 ```bash
 git clone https://github.com/hbdzh/miko-simulator.git
 cd miko-simulator
-cargo build --release -p jidr
-bash apps/jidr-swiftui/build-center.sh
+cargo build --release -p miko --bin miko
+bash apps/miko-swiftui/build-center.sh
 ```
 
 ## 文档
@@ -98,4 +98,4 @@ bash apps/jidr-swiftui/build-center.sh
 
 ## 开源与致谢
 
-miko 模拟器 基于 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr) 开发，感谢原项目及其贡献者。Swift/AppKit 界面采用 [GPL-3.0-only](apps/jidr-swiftui/LICENSE-GPL)，Rust 桥、CLI 和后台采用 [Apache-2.0](LICENSE-APACHE)。第三方组件许可见 [NOTICE](NOTICE)。
+miko 模拟器 基于 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr) 开发，感谢原项目及其贡献者。Swift/AppKit 界面采用 [GPL-3.0-only](apps/miko-swiftui/LICENSE-GPL)，Rust 桥、CLI 和后台采用 [Apache-2.0](LICENSE-APACHE)。第三方组件许可见 [NOTICE](NOTICE)。

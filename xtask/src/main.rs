@@ -1,4 +1,4 @@
-//! `cargo xtask <task>`: build automation for the Jidr workspace.
+//! `cargo xtask <task>`: build automation for the Miko workspace.
 
 mod helper;
 mod license_check;
@@ -16,7 +16,7 @@ usage: cargo xtask <task>
 tasks:
   ci              fmt --check, clippy -D warnings, nextest, license-check, skills-check
   license-check   enforce Apache Rust crates and exclude retired GUI dependencies (D18)
-  skills-check    check skills/*/SKILL.md frontmatter and their `jidr` commands (D43)
+  skills-check    check skills/*/SKILL.md frontmatter and their `miko` commands (D43)
   helper          build the on-device helper for Android guests
   e2e-mac         full arm64 end-to-end gate on Apple Silicon (release gate, D28)
   release         build the macOS release artifacts (Phase 12a)";

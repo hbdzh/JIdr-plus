@@ -6,7 +6,7 @@ To change a decision, open an issue that names it and explains why; the change l
 
 | # | Decision |
 |---|---|
-| D1 | Name **Jidr** (جذر, "root"). CLI `jidr`, crates `jidr-*`, app `Jidr.app`, site `jidr.ly`. |
+| D1 | Name **Miko** (جذر, "root"). CLI `miko`, crates `miko-*`, app `Miko.app`, site `miko.ly`. |
 | D2 | UI toolkit **SwiftUI/AppKit only** on macOS (ADR-0003). The Slint MVP and fallback were retired by maintainer instruction on 2026-11-11. |
 | D3 | Private SDK; Android Studio SDK/AVDs read-only. |
 | D4 | Daemon auto-starts on first client, lives while devices run, exits 10 min after the last stops; no launchd agent. |
@@ -22,8 +22,8 @@ To change a decision, open an issue that names it and explains why; the change l
 | D14 | GPS map: OpenStreetMap tiles, attribution, configurable URL; GPX/KML replay. |
 | D15 | MVP = Apple Silicon macOS only; code stays portable. |
 | D16 | Landing page: Astro + Vue islands on Cloudflare Pages. |
-| D17 | No telemetry; no auto-updater. Updates come from the Homebrew cask (`brew upgrade --cask jidr`), or from Settings › About › Check for updates, which asks GitHub's latest-release API only when clicked and links the new release (amended in #44). |
-| D18 | Split licensing: all Rust workspace crates (including the SwiftUI bridge) are Apache-2.0; Swift/AppKit GUI sources in `apps/jidr-swiftui` remain GPL-3.0-only by choice. `cargo xtask license-check` rejects retired GUI dependencies. |
+| D17 | No telemetry; no auto-updater. Updates come from the Homebrew cask (`brew upgrade --cask miko`), or from Settings › About › Check for updates, which asks GitHub's latest-release API only when clicked and links the new release (amended in #44). |
+| D18 | Split licensing: all Rust workspace crates (including the SwiftUI bridge) are Apache-2.0; Swift/AppKit GUI sources in `apps/miko-swiftui` remain GPL-3.0-only by choice. `cargo xtask license-check` rejects retired GUI dependencies. |
 | D19 | Names/handles as in D1. |
 | D20 | The original Slint spike is closed. SwiftUI/AppKit is the sole GUI; frame transport requirements remain in ADR-0001. |
 | D21 | Play Store root R&D order: ramdisk boot-script grant → uiautomator auto-tap → guided-tap beta. |
@@ -31,12 +31,12 @@ To change a decision, open an issue that names it and explains why; the change l
 | D23 | API 29–36 arm64 supported; 28 best-effort; 25–27 not offered. |
 | D24 | Generic device profile names; SDK device definitions imported as-is. |
 | D25 | No paid tier; GitHub Sponsors (Open Collective later). |
-| D26 | Repo stays at `github.com/AbdurahmanAlmehdi/jidr` (the `jidr-dev` org move was dropped on 2026-10-17). The Homebrew cask lives in the `AbdurahmanAlmehdi/homebrew-tap` tap; the MCP Registry name is `io.github.AbdurahmanAlmehdi/jidr`. |
+| D26 | Repo stays at `github.com/AbdurahmanAlmehdi/miko` (the `miko-dev` org move was dropped on 2026-10-17). The Homebrew cask lives in the `AbdurahmanAlmehdi/homebrew-tap` tap; the MCP Registry name is `io.github.AbdurahmanAlmehdi/miko`. |
 | D27 | Built in three parallel streams after the core platform: A core platform, B player and widgets, C root, release and site. |
 | D28 | CI: Linux KVM runners (x86_64 images) for emulator tests on every PR; `cargo xtask e2e-mac` on an Apple Silicon Mac (arm64) before release. |
 | D29 | Stop saves a quick-boot snapshot by default; cold boot is separate; root changes force a cold boot; root-tagged snapshots. |
-| D30 | Magisk APK cache by SHA-256, `--magisk <path>` offline, `jidr cache prune`, per-device disk usage. |
-| D31 | `jidr uninstall [--purge]` + "Remove all data…"; never touches the Studio SDK; removes Jidr MCP config entries. |
+| D30 | Magisk APK cache by SHA-256, `--magisk <path>` offline, `miko cache prune`, per-device disk usage. |
+| D31 | `miko uninstall [--purge]` + "Remove all data…"; never touches the Studio SDK; removes Miko MCP config entries. |
 | D32 | Signing with the maintainer's Apple Developer ID; unsigned DMG with a CI warning until the signing secrets exist. |
 | D33 | English-only MVP, all strings via `@tr`, RTL-checked; Arabic UI post-MVP; Arabic landing page at launch. |
 | D34 | Pre-launch "coming soon" site without email capture; brand: a root growing into a phone outline, جذر + Latin wordmark. |
@@ -44,10 +44,10 @@ To change a decision, open an issue that names it and explains why; the change l
 | D36 | Phase 8a adds fingerprint touch/remove (R8), mobile signal bars (R3) and host webcam camera (R7); all other custom-work findings are post-MVP. |
 | D37 | Research findings accepted with their stated targets (post-MVP items are GitHub issues labelled `upcoming feature`); R10 Device Link rejected. MVP+ queue after the MVP: R5 build props (Magisk `resetprop`), R12 modules. R6 disk I/O moved to Post-MVP after the proof run (the emulator kernel has no block throttling). |
 | D38 | Research proofs ran on a throwaway arm64 AVD. |
-| D39 | Brand sources live in `assets/brand/`; `assets/brand/build.sh` generates the native app icon at `apps/jidr-swiftui/Resources/Jidr.icns` and the web set in `assets/brand/web/`. |
+| D39 | Brand sources live in `assets/brand/`; `assets/brand/build.sh` generates the native app icon at `apps/miko-swiftui/Resources/Miko.icns` and the web set in `assets/brand/web/`. |
 | D40 | R15 WebRTC not needed: ADR-0001 passed with inline RGBA frames. Phase 9d adds `root.module.install` (D35). R5 becomes Phase 9f (MVP+). Repo made public (CI on standard runners is free). |
-| D41 | Design direction **Workbench**. `docs/design/tokens.json` is the single source, compiled by `apps/jidr-swiftui/generate-tokens.sh` into Swift token layers. Bundled Geist / Geist Mono / Noto Kufi Arabic fonts retain OFL licenses. Native controls/SF Symbols follow ADR-0003; shared Lucide SVGs live in `assets/lucide` (ISC). |
+| D41 | Design direction **Workbench**. `docs/design/tokens.json` is the single source, compiled by `apps/miko-swiftui/generate-tokens.sh` into Swift token layers. Bundled Geist / Geist Mono / Noto Kufi Arabic fonts retain OFL licenses. Native controls/SF Symbols follow ADR-0003; shared Lucide SVGs live in `assets/lucide` (ISC). |
 | D42 | Many devices on one machine (2026-11-02, Phases 13a–13f): a host RAM budget with a lean profile, snapshot-keeping copy-on-write clones, and hibernate (named snapshot + stop) for everyone, plus agents' throwaway clones of a base through `pool.get` leases. Persistent agent devices stay on `device.create`. Bases start with root `none`/`adb`; Magisk bases come later (13f). Designed for any Mac first and for Linux/Windows later. Ideas from droidpool (MIT), no code ported. |
-| D43 | Agent skills (2026-11-02, Phases 14a–14c) ship in the repo's `skills/` folder, installed with `npx skills add AbdurahmanAlmehdi/jidr`; no npm package. Four skills: `jidr` (basics), `jidr-app-testing`, `jidr-agent-devices` (after 13d), `jidr-root` (after 9d, stream C). `cargo xtask skills-check` keeps them in sync with the CLI. |
+| D43 | Agent skills (2026-11-02, Phases 14a–14c) ship in the repo's `skills/` folder, installed with `npx skills add AbdurahmanAlmehdi/miko`; no npm package. Four skills: `miko` (basics), `miko-app-testing`, `miko-agent-devices` (after 13d), `miko-root` (after 9d, stream C). `cargo xtask skills-check` keeps them in sync with the CLI. |
 | D44 | SwiftUI/AppKit is the sole GUI (ADR-0003; retirement explicitly approved 2026-11-11). The device center owns integrated player windows. Slint crates, their release fallback and the standalone prototype app are removed; Swift GUI GPL-3.0-only and Rust bridge Apache-2.0 remain unchanged. |
 | D45 | Multi-device input synchronizer (2026-11-19): the daemon owns the sync *session* (`sync.*` commands and events, additive to protocol v0.1, existing error codes only); input *events* travel leader bridge → GUI hub → follower bridges, because player input is injected inside each player window's bridge process, not by the daemon. Normalized coordinates, `stretch` adaptation by default, followers locked by default, touch moves may be coalesced but downs, ups and keys never dropped. A daemon-side fan-out (shared input crate) is the later migration path. Plan: `docs/design/sync-plan.md`. |

@@ -1,16 +1,16 @@
 # SwiftUI parity: 68 golden scene mapping (M0 audit)
 
-> Historical migration/parity record. Since the maintainer-approved retirement on 2026-11-11, SwiftUI is the sole UI in `apps/jidr-swiftui`; Slint sources, baselines and fallback commands below describe earlier revisions. See [ADR-0003](decisions/0003-swiftui-gui.md) and the root README for current builds. Retired sources remain available in Git history (before this cleanup).
+> Historical migration/parity record. Since the maintainer-approved retirement on 2026-11-11, SwiftUI is the sole UI in `apps/miko-swiftui`; Slint sources, baselines and fallback commands below describe earlier revisions. See [ADR-0003](decisions/0003-swiftui-gui.md) and the root README for current builds. Retired sources remain available in Git history (before this cleanup).
 
 > 产品决定（2026-11-11）：保持独立设备窗口、不迁主工作台 device tab；不要求 RTL；本地化保留现有中文 key 机制。因此本审计中 `player-booting`/`player-stopped` 的"缺失"由独立播放器窗口补齐，`-rtl` golden 变体不作为迁移门槛。
 
 > 这是 M0 的行为级审计记录，由 68 个 golden 场景逐行映射而来；摘要与模块矩阵见 [swiftui-parity.md](swiftui-parity.md)。判定口径：**有入口** = 场景的主要 UI 与行为都有对应实现，仅细节差异；**部分** = 有入口但一项以上可见/行为要素缺失；**缺失** = 无入口或无法到达该状态。
 
 - 基线：`master@b46a2f3`（`feat(gui): add SwiftUI prototype`）。
-- 参考实现：Slint 正式 UI `crates/jidr-ui`（Rust 逻辑 + `ui/*.slint` + `tests/golden` 204 张 PNG，68 场景 × dark/light/rtl）。
-- 待迁移实现：`apps/jidr-swiftui`（`Center/` 设备中心与设置、`Sources/` 播放器与工具、`bridge/` Rust 助手）。
+- 参考实现：Slint 正式 UI `crates/miko-ui`（Rust 逻辑 + `ui/*.slint` + `tests/golden` 204 张 PNG，68 场景 × dark/light/rtl）。
+- 待迁移实现：`apps/miko-swiftui`（`Center/` 设备中心与设置、`Sources/` 播放器与工具、`bridge/` Rust 助手）。
 - 方法：逐文件检查代码与测试；未运行模拟器、GUI 或构建。行号对应上述基线；无法从代码确认的运行时行为标为“待确认”。
-- 文件缩写（证据列）：Slint 侧相对 `crates/jidr-ui/`：`goldens.rs`=`src/goldens.rs`，`root/goldens.rs`=`src/root/goldens.rs`，`ui/*.slint`=`ui/*.slint`；SwiftUI 侧相对 `apps/jidr-swiftui/`：`Center/DeviceViews.swift`、`Center/DeviceModel.swift`、`Center/AdvancedTools.swift`、`Sources/GameWindow.swift` 等。
+- 文件缩写（证据列）：Slint 侧相对 `crates/miko-ui/`：`goldens.rs`=`src/goldens.rs`，`root/goldens.rs`=`src/root/goldens.rs`，`ui/*.slint`=`ui/*.slint`；SwiftUI 侧相对 `apps/miko-swiftui/`：`Center/DeviceViews.swift`、`Center/DeviceModel.swift`、`Center/AdvancedTools.swift`、`Sources/GameWindow.swift` 等。
 
 ## 0. 结论摘要（数字）
 
@@ -154,27 +154,27 @@
 | # | 流程 | Slint 侧实现（文件:行） | SwiftUI 侧现状（文件:行） | 状态 | 迁移要补 |
 |---|---|---|---|---|---|
 | 1 | 任务列表 / 取消长任务 | `ui/shell.slint:52-153`（JobRow/TasksDialog）、`ui/app.slint:412-418`、`src/launcher/mod.rs:305-320`（`jobs.cancel`）、`src/bridge.rs:29-36`（Data.jobs）、`src/app.rs:65-77`（任务列表渲染） | 只有 SDK 安装可取消：`Center/DeviceModel.swift:184-222`、`Center/DeviceViews.swift:462-464`；无任务列表 | 部分/缺失 | 中心级 job 模型 + 列表 + 逐项取消 |
-| 2 | daemon 断线与自动重连 | `src/bridge.rs:17-27,96-153`（3s 健康检查、2s 重试、`Conn::Reconnecting`）、`src/app.rs:241-257`、`goldens.rs:751-759` | 中心桥只 `connect_or_spawn` 一次（`bridge/src/bin/jidr-center-bridge.rs:66-73`），进程结束仅一条 notice（`Center/DeviceModel.swift:113-119`）；播放器侧有重连策略（`Sources/GameWindowState.swift:22-26`、`Center/DeviceModel.swift:375-380`） | 缺失 | 中心连接状态机 + 重试 + 断线 UI；重连后重新拉取设备/任务 |
-| 3 | 配置文件损坏 | `src/settings/mod.rs:57-62`（prefs 静默默认）、`src/player/window_state.rs:97-125`（校验+拒绝覆盖）、`src/player/keymap.rs:144-155`、`src/player/game_shortcuts.rs:114-141` | 窗口状态/画质/键位有校验与“未覆盖”提示（`Sources/GameWindowState.swift:51-58`、`Sources/WindowQuality.swift:30-48`、`Sources/KeyMapping.swift:39-83`）；中心 prefs 解析失败被忽略（`bridge/src/bin/jidr-center-bridge.rs:114-121` + `Center/DeviceModel.swift:121-127` 无失败分支） | 部分 | 中心偏好损坏提示与恢复；统一“拒绝覆盖”口径 |
-| 4 | 安全退出（设备/任务/录屏/窗口） | `src/app.rs:366-410`（`begin_native_quit`）、`src/macos_dock.rs:138-163`、`src/shutdown.rs:9-44`、`src/app.rs:345-363`；测试 `tests/quit.rs` | `Center/main.swift:24-50`：有外部播放器/录屏/忙任务/游戏窗口四道拦截，`center.quit` 只 `daemon.quit`+等 pid（`bridge/src/bin/jidr-center-bridge.rs:253-275`），无 Slint 的 AVD 静止校验（`src/shutdown.rs:38-44`） | 部分 | 退出前 AVD/快照静止校验；把“等待任务”从硬拦截改可取消（对齐 Slint 语义需产品确认） |
+| 2 | daemon 断线与自动重连 | `src/bridge.rs:17-27,96-153`（3s 健康检查、2s 重试、`Conn::Reconnecting`）、`src/app.rs:241-257`、`goldens.rs:751-759` | 中心桥只 `connect_or_spawn` 一次（`bridge/src/bin/miko-center-bridge.rs:66-73`），进程结束仅一条 notice（`Center/DeviceModel.swift:113-119`）；播放器侧有重连策略（`Sources/GameWindowState.swift:22-26`、`Center/DeviceModel.swift:375-380`） | 缺失 | 中心连接状态机 + 重试 + 断线 UI；重连后重新拉取设备/任务 |
+| 3 | 配置文件损坏 | `src/settings/mod.rs:57-62`（prefs 静默默认）、`src/player/window_state.rs:97-125`（校验+拒绝覆盖）、`src/player/keymap.rs:144-155`、`src/player/game_shortcuts.rs:114-141` | 窗口状态/画质/键位有校验与“未覆盖”提示（`Sources/GameWindowState.swift:51-58`、`Sources/WindowQuality.swift:30-48`、`Sources/KeyMapping.swift:39-83`）；中心 prefs 解析失败被忽略（`bridge/src/bin/miko-center-bridge.rs:114-121` + `Center/DeviceModel.swift:121-127` 无失败分支） | 部分 | 中心偏好损坏提示与恢复；统一“拒绝覆盖”口径 |
+| 4 | 安全退出（设备/任务/录屏/窗口） | `src/app.rs:366-410`（`begin_native_quit`）、`src/macos_dock.rs:138-163`、`src/shutdown.rs:9-44`、`src/app.rs:345-363`；测试 `tests/quit.rs` | `Center/main.swift:24-50`：有外部播放器/录屏/忙任务/游戏窗口四道拦截，`center.quit` 只 `daemon.quit`+等 pid（`bridge/src/bin/miko-center-bridge.rs:253-275`），无 Slint 的 AVD 静止校验（`src/shutdown.rs:38-44`） | 部分 | 退出前 AVD/快照静止校验；把“等待任务”从硬拦截改可取消（对齐 Slint 语义需产品确认） |
 | 5 | 多窗口与 Dock 菜单 | `src/app.rs:150-168`（多窗口容器）、`src/player/game.rs:350-554`（每设备一窗）、`src/macos_dock.rs:170-234`（Dock 列出游戏窗口） | 每设备播放器 `Center/DeviceModel.swift:95-97,329-364`、高级工具窗 `Center/AdvancedTools.swift:7-25`、中心单主窗 `Center/main.swift:15-21`；无 Dock 菜单 | 部分 | Dock/窗口菜单、窗口间一致性；旧版独立播放器互斥（`Center/DeviceModel.swift:383-385`）需移除 |
 | 6 | APK 签名冲突重装 | `src/player/mod.rs:656-723`（`app.inspect`→`app.uninstall`→`file.install`，确认框 666-676）、`src/player/drop.rs:74-77`；游戏窗口仅提示 `src/player/game.rs:257-258` | 中心：`Center/DeviceModel.swift:419-424` 直接 `file.install replace:true`，无 inspect/uninstall，无重装确认；播放器：`Sources/GameWindow.swift:227-228` 只映射文案 | 部分/缺失 | 中心侧冲突→确认→卸载重装（会删数据）完整流程 |
 | 7 | APK 安装后自动启动应用 | `src/player/mod.rs:703-721`（安装后 `app.launch`，失败降级“已安装”） | 中心安装后不启动（`Center/DeviceModel.swift:291-307`）；播放器仅提示状态（`Sources/GameWindow.swift:219-232`） | 部分 | 安装成功后启动或至少提示“启动” |
 | 8 | 录屏中关闭窗口/退出 | Slint 游戏窗口关闭不拦录屏（`src/player/game.rs:1165-1174`），录屏是 daemon job（`src/recording.rs:138-180`），窗口关闭后任务是否继续**待确认** | 双层拦截：游戏窗 `Sources/GameWindow.swift:735-738`、中心退出 `Center/main.swift:32`；录屏集合仅内存（`Center/DeviceModel.swift:67,437-452`） | 部分 | 关闭前确认/自动 stop，并把“保存中”持久化到 job 状态 |
-| 9 | 截图（保存+剪贴板） | `src/recording.rs:112-136`（存 `~/Pictures/Jidr` 并复制到粘贴板）、`src/launcher/mod.rs:189-214`（打开截图目录） | 中心 `Center/DeviceModel.swift:425-436` 用 NSSavePanel 单文件保存 + 打开 `Pictures/Jidr`；播放器 `Sources/GameWindow.swift:86-93` 也是 NSSavePanel；不复制到粘贴板 | 部分 | 默认目录/自动复制语义需对齐或产品确认 |
+| 9 | 截图（保存+剪贴板） | `src/recording.rs:112-136`（存 `~/Pictures/Miko` 并复制到粘贴板）、`src/launcher/mod.rs:189-214`（打开截图目录） | 中心 `Center/DeviceModel.swift:425-436` 用 NSSavePanel 单文件保存 + 打开 `Pictures/Miko`；播放器 `Sources/GameWindow.swift:86-93` 也是 NSSavePanel；不复制到粘贴板 | 部分 | 默认目录/自动复制语义需对齐或产品确认 |
 | 10 | 拖放分类（APK / 文件 / Magisk 模块） | `src/player/drop.rs:18-43`（classify）、`74-77`（签名冲突识别）、`src/player/mod.rs:577-654`（module→`root.module.install`，未知方法降级 `file.push`） | `Sources/GameWindow.swift:260-270` 只 `sendFile`（apk 也走 send_file）；中心 `Center/DeviceModel.swift:419-424` 有 APK/文件两种但无模块分类 | 部分 | 拖放按扩展名与 root 模式分派；模块安装入口已在高级工具（`Center/AdvancedTools.swift:352`） |
 | 11 | 键位映射编辑与损坏恢复 | `src/player/keymap.rs:144-169`（校验/原子写）、`src/player/game.rs:1384+` 测试；映射面板 `ui/app.slint:795-823` | `Sources/KeyMapping.swift:39-83`（校验/基线对比/原子写，测试 `Tests/Mapping/main.swift`）；编辑 UI `Sources/GameWindow.swift:521-540` | 有入口 | 与 Slint 的右键删除/旋转分方案（`ui/app.slint:814`）待确认是否需要 |
 | 12 | 可配置游戏快捷键 | `src/player/game_shortcuts.rs:56-141`（保存/读取/冲突）、按键面板 `ui/app.slint:875-890` | 无对应实现（播放器快捷键固定：`Sources/GameWindow.swift:379-387`） | 缺失 | 快捷键配置面板+文件（`game-shortcuts/*.json`） |
 | 13 | 快照跨 Root 恢复拒绝 | `src/snapshots/mod.rs:242-311`（拒绝弹窗+“Set up Full root…”动作）、`ui/snapshots.slint:263-306` | 只有 `restorable` 禁用 + 一行说明（`Center/DeviceViews.swift:924-926`） | 部分 | 拒绝原因、目标 root 模式、恢复动作按钮 |
 | 14 | 首次启动无 SDK 引导 | `ui/launcher.slint:249-327`（三步卡）、`ui/wizard.slint:113-587`、`src/wizard/mod.rs` | 空态两按钮（`Center/DeviceViews.swift:1012-1022`）+ InstallSDKView sheet | 部分 | Setup 向导步骤条/检测/许可/下载/首设备串联 |
-| 15 | 存储迁移 | 两侧都只做 preflight：Slint `src/settings/mod.rs:355-443`、`ui/settings.slint:398-403`“Data migration is not yet available”；SwiftUI `Center/DeviceViews.swift:669-706`、`bridge/src/bin/jidr_center/migration_preflight.rs` | 同左（README:38 也声明未实现） | 一致（都未实现） | M0 不要求；迁移要补的是“真正切换数据目录+快照恢复验证”，属后续里程碑 |
+| 15 | 存储迁移 | 两侧都只做 preflight：Slint `src/settings/mod.rs:355-443`、`ui/settings.slint:398-403`“Data migration is not yet available”；SwiftUI `Center/DeviceViews.swift:669-706`、`bridge/src/bin/miko_center/migration_preflight.rs` | 同左（README:38 也声明未实现） | 一致（都未实现） | M0 不要求；迁移要补的是“真正切换数据目录+快照恢复验证”，属后续里程碑 |
 | 16 | 语言切换即时生效 + RTL 镜像 | `src/i18n.rs:1-13`、`ui/theme.slint:7` 的 `rtl`、golden 的 `Variant::Rtl`（`goldens.rs:14-18`，204 张图的 1/3） | 语言切换即时生效部分实现（`Center/DeviceModel.swift:409-418`、播放器语言下发 `413`）；RTL grep 无任何实现 | 部分（本地化）/缺失（RTL） | RTL 是 D33 要求，需补布局方向策略；本地化细节见 task-2 审计 |
 
 ---
 
 ## 3. 每个模块的实现状态 / 验证状态建议值
 
-验证状态口径：**未验证** = 无自动化测试也无验收记录；**离线测试** = 有单元/集成测试（不依赖 emulator/GUI）；**真机** = 有真实设备或真实游戏验收记录。本次审计未发现 SwiftUI 原型的“真机/真实游戏验收”证据，README 也自述未完成（`apps/jidr-swiftui/README.md:24,38`），故绝大多数只能是“未验证”，本表中没有任何模块达到“真机”。Slint 参考侧另有 golden 快照测试（`crates/jidr-ui/examples/snapshot.rs:1-97`）与 quit/emulator 集成测试（`crates/jidr-ui/tests/quit.rs`、`tests/player_emulator.rs`）。
+验证状态口径：**未验证** = 无自动化测试也无验收记录；**离线测试** = 有单元/集成测试（不依赖 emulator/GUI）；**真机** = 有真实设备或真实游戏验收记录。本次审计未发现 SwiftUI 原型的“真机/真实游戏验收”证据，README 也自述未完成（`apps/miko-swiftui/README.md:24,38`），故绝大多数只能是“未验证”，本表中没有任何模块达到“真机”。Slint 参考侧另有 golden 快照测试（`crates/miko-ui/examples/snapshot.rs:1-97`）与 quit/emulator 集成测试（`crates/miko-ui/tests/quit.rs`、`tests/player_emulator.rs`）。
 
 | 模块 | 实现状态 | 验证状态 | 证据（SwiftUI 现状 / 已有测试） |
 |---|---|---|---|
@@ -188,7 +188,7 @@
 | 输入 / 键位映射 | 部分 | 离线测试 | `Sources/KeyMapping.swift` + `Tests/Mapping/main.swift`（`test.sh:11-14`） |
 | 游戏窗口状态 / 画质 | 部分 | 离线测试 + GUI 测试 | `Sources/GameWindowState.swift`、`Sources/WindowQuality.swift`（`Tests/WindowState/main.swift`、`test.sh:15-22`）；窗口生命周期 `Tests/Window/main.swift:1-70`（由 `test-window.sh` 驱动） |
 | 录屏 / 截图 | 部分 | 未验证 | `Sources/GameWindow.swift:86-112`；`Center/DeviceModel.swift:425-452`；无测试 |
-| Logcat | 部分 | 离线测试 | `Sources/LogStream.swift:6-80`、`Sources/LogFilter.swift` + `Tests/LogFilter/main.swift`（`test.sh:40-44`）；`bridge/src/bin/jidr-center-bridge.rs:56-65,288-318` |
+| Logcat | 部分 | 离线测试 | `Sources/LogStream.swift:6-80`、`Sources/LogFilter.swift` + `Tests/LogFilter/main.swift`（`test.sh:40-44`）；`bridge/src/bin/miko-center-bridge.rs:56-65,288-318` |
 | 全屏 / 像素完美 / 性能面板 | 部分 | 离线测试（仅像素完美） | `Sources/GameWindow.swift:512-513,699-711`；像素完美在 `Tests/Window/main.swift:47-60`；性能面板无实现 |
 | 拖放 / APK 安装（含签名冲突） | 部分 | 未验证 | `Sources/GameWindow.swift:114-127,260-270,219-232`；`Center/DeviceModel.swift:419-424`；无测试 |
 | 小组件面板（电池/GPS/网络/传感器/更多） | 部分 | 未验证 | `Center/AdvancedTools.swift:184-374,377-399`；无测试 |
@@ -201,11 +201,11 @@
 | 应用列表 | 部分 | 离线测试 | `Sources/AppListLoader.swift` + `Tests/AppList/main.swift`（`test.sh:36-39`）；UI `Center/DeviceViews.swift:1085-1116` |
 | 本地化（中/英） | 部分 | 离线测试（覆盖率脚本） | `Tests/localization_coverage.py:1-20`（仅扫 Center 直接字面量）；播放器本地化 `Sources/GameWindow.swift:472-482` |
 | RTL（D33） | 未做 | 未验证 | 无实现；Slint 参考 `goldens.rs:14-18`、`ui/theme.slint:7` 的 `rtl` |
-| daemon 连接 / 事件 / 重连 | 部分 | 未验证 | `bridge/src/bin/jidr-center-bridge.rs:66-80`、`Center/DeviceModel.swift:148-179`；无重连 |
-| 安全退出 | 部分 | 未验证 | `Center/main.swift:24-50`；无测试（Slint 参考 `crates/jidr-ui/tests/quit.rs`） |
+| daemon 连接 / 事件 / 重连 | 部分 | 未验证 | `bridge/src/bin/miko-center-bridge.rs:66-80`、`Center/DeviceModel.swift:148-179`；无重连 |
+| 安全退出 | 部分 | 未验证 | `Center/main.swift:24-50`；无测试（Slint 参考 `crates/miko-ui/tests/quit.rs`） |
 | 多窗口 / 停靠 | 部分 | GUI 测试（窗口生命周期） | `Sources/GameWindow.swift:570-746`、`Center/DeviceModel.swift:95-97`；`Tests/Window/main.swift` |
-| 存储迁移 | 未做（两侧同） | 离线测试（仅 preflight） | `bridge/src/bin/jidr_center/migration_preflight.rs:103+`（Rust 单测）；`Center/DeviceViews.swift:669-706` |
-| 设计 token / 主题 | 未做 | 未验证 | SwiftUI 用系统色/硬编码；Slint token 由 `docs/design/tokens.json` 生成（`crates/jidr-ui/build.rs:1-15,146`） |
+| 存储迁移 | 未做（两侧同） | 离线测试（仅 preflight） | `bridge/src/bin/miko_center/migration_preflight.rs:103+`（Rust 单测）；`Center/DeviceViews.swift:669-706` |
+| 设计 token / 主题 | 未做 | 未验证 | SwiftUI 用系统色/硬编码；Slint token 由 `docs/design/tokens.json` 生成（`crates/miko-ui/build.rs:1-15,146`） |
 
 ---
 
@@ -233,10 +233,10 @@
 
 1. **Slint 自绘窗口装饰与红绿灯对齐**（`src/macos_dock.rs:16-75`）：SwiftUI 用原生标题栏；`Center/DeviceViews.swift:1005` 的 `padding(.leading,94)` 只是给原生红绿灯留位。移植会与 macOS 原生窗口行为打架。
 2. **golden/offscreen/fixtures 渲染管线**（`goldens.rs`、`src/offscreen.rs`、`examples/snapshot.rs`）：这是 Slint 快照测试基础设施，应换成 SwiftUI 的 snapshot harness（XCUITest/ImageRenderer），而不是移植代码。
-3. **Slint 主题文件**（`crates/jidr-ui/build.rs` 从 `docs/design/tokens.json` 生成 `ui/theme.slint`）：SwiftUI 应直接消费 `tokens.json`（或生成 Swift 常量），不要手抄 `theme.slint` 的色值/字号。
-4. **gettext/.po 本地化管线**（`crates/jidr-ui/translations/`、`src/i18n.rs:1-13`）：SwiftUI 已有 `Resources/*.lproj/Localizable.strings` + 覆盖率脚本（`Tests/localization_coverage.py`），迁移期不要维护两套机制；只迁字符串内容。
+3. **Slint 主题文件**（`crates/miko-ui/build.rs` 从 `docs/design/tokens.json` 生成 `ui/theme.slint`）：SwiftUI 应直接消费 `tokens.json`（或生成 Swift 常量），不要手抄 `theme.slint` 的色值/字号。
+4. **gettext/.po 本地化管线**（`crates/miko-ui/translations/`、`src/i18n.rs:1-13`）：SwiftUI 已有 `Resources/*.lproj/Localizable.strings` + 覆盖率脚本（`Tests/localization_coverage.py`），迁移期不要维护两套机制；只迁字符串内容。
 5. **MockScreen 假屏与设备美术 fixtures**（`ui/player.slint:13-65`、`ui/assets/*generated.png`）：仅用于 golden 的固定画面；生产窗口不应内嵌假屏，golden 重做时可用截图 fixture 代替。
-6. **开发/测试用环境变量钩子**（`src/app.rs:412-447` 的 `JIDR_PLAYER_DEVICE`、`src/player/mod.rs:726-735` 的 bench/drop、SwiftUI 的 `JIDR_PROTOTYPE_TEST_PASTEBOARD`）：不进产品路径。
+6. **开发/测试用环境变量钩子**（`src/app.rs:412-447` 的 `MIKO_PLAYER_DEVICE`、`src/player/mod.rs:726-735` 的 bench/drop、SwiftUI 的 `MIKO_PROTOTYPE_TEST_PASTEBOARD`）：不进产品路径。
 7. **把独立旧版播放器 App 作为迁移目标**（`Sources/GameWindow.swift` + `Player/main.swift` + `build.sh`）：中心已内嵌同一套播放器代码（`build-center.sh` 编译 `Sources/GameWindow.swift`），双 App 还引入“旧版测试窗口互斥”（`Center/DeviceModel.swift:383-385`）。只保留一个入口。
 8. **Slint 的 `draw-lights` 等 golden-only 属性**（`ui/app.slint:50-51`、`goldens.rs:41-51` 的 Reduce Motion 冻结）：测试伪影，不迁。
 9. **把“主窗口内 device tab”当作纯 UI 细节照抄**：若要保留 tab 形态需产品决策（D41 Workbench 的窗口模型与 SwiftUI 原生窗口差异大）；建议先以“独立设备窗口 + 中心导航”达到功能 parity，再单独立项决定形态。
@@ -262,5 +262,5 @@ P2（细节对齐）：首次设置向导、小组件面板常驻化、截图/�
 
 ## 附录 B：审计范围
 
-- 覆盖：`crates/jidr-ui` 的 `goldens.rs`/`root/goldens.rs` 全部 68 个 Case、`ui/*.slint`、`src/` 主要模块（app/bridge/shutdown/launcher/player/root/widgets/settings/snapshots/wizard/device_form/palette/recording/model/i18n/macos_dock/window_state/keymap/game_shortcuts）；SwiftUI 原型 `Center/*`、`Sources/*`、`bridge/src/*`、`Tests/*`、构建/测试脚本。
+- 覆盖：`crates/miko-ui` 的 `goldens.rs`/`root/goldens.rs` 全部 68 个 Case、`ui/*.slint`、`src/` 主要模块（app/bridge/shutdown/launcher/player/root/widgets/settings/snapshots/wizard/device_form/palette/recording/model/i18n/macos_dock/window_state/keymap/game_shortcuts）；SwiftUI 原型 `Center/*`、`Sources/*`、`bridge/src/*`、`Tests/*`、构建/测试脚本。
 - 未覆盖（只读分析限制）：实际 UI 渲染与像素对比、真实 SDK/镜像安装、真实设备/游戏验收、daemon 运行时协议行为、RTL 视觉验证、macOS 辅助功能/输入法实测。

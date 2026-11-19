@@ -1,7 +1,7 @@
 # Root modes
 
-Jidr roots your own Android emulators. Root is a first-class device property
-(`root_mode: none | adb | magisk`), switched with `jidr root set` and applied
+Miko roots your own Android emulators. Root is a first-class device property
+(`root_mode: none | adb | magisk`), switched with `miko root set` and applied
 per device — the shared SDK system images are never modified.
 
 | Mode | Images | Mechanism | Verify |
@@ -11,12 +11,12 @@ per device — the shared SDK system images are never modified.
 | `magisk` | all | patched per-device ramdisk, cold boot | `adb shell su -c id` → uid 0, `su -c 'magisk -v'` |
 
 ```bash
-jidr root set <device> magisk   # one-click full root
-jidr root set <device> adb      # shell root
-jidr root set <device> none     # revert either to stock
-jidr root writable-system <device> on   # adb mode: a writable /system
-jidr root verify <device>       # check the live uid against the mode
-jidr root status <device>       # stored mode, health, Magisk version
+miko root set <device> magisk   # one-click full root
+miko root set <device> adb      # shell root
+miko root set <device> none     # revert either to stock
+miko root writable-system <device> on   # adb mode: a writable /system
+miko root verify <device>       # check the live uid against the mode
+miko root status <device>       # stored mode, health, Magisk version
 ```
 
 > Play Integrity cannot pass on any emulator; Zygisk/DenyList only hides root
@@ -29,13 +29,13 @@ jidr root status <device>       # stored mode, health, Magisk version
 1. **Fetch** the pinned Magisk release from the official GitHub release and
    check its SHA-256 (see [below](#magisk-licence)).
 2. **Hash** the image's pristine `ramdisk.img`.
-3. **Patch** a *per-device* copy on the host with `jidr-cpio`: `init` becomes
+3. **Patch** a *per-device* copy on the host with `miko-cpio`: `init` becomes
    `magiskinit`, the compressed payload goes under `overlay.d/sbin`, and the
    config is recorded in `.backup/.magisk`. The result is written to
-   `<avd>/jidr/ramdisk.magisk-<ver>.img` atomically (temp file + rename).
+   `<avd>/miko/ramdisk.magisk-<ver>.img` atomically (temp file + rename).
 Some system images, notably images installed by Android Studio, store
    `ramdisk.img` as an Android boot image (`ANDROID!` container) rather than a
-   bare compressed cpio. Jidr detects this and extracts the embedded ramdisk
+   bare compressed cpio. Miko detects this and extracts the embedded ramdisk
    payload before patching; the per-device patched file remains a bare ramdisk
    for the emulator's `-ramdisk` option. Boot-image headers v0–v4 are supported;
    other or truncated containers fail with a specific boot-image error rather
@@ -52,27 +52,27 @@ dropped back so the final check exercises Magisk's own `su`. Apps still get
 Magisk's normal per-app prompt; the opt-in "auto-grant all" toggle is off by
 default.
 
-Before Root's cold boots, Jidr asks Android to shut down so that services can
+Before Root's cold boots, Miko asks Android to shut down so that services can
 flush buffered changes, including the first boot's Wi-Fi configuration. If
 shutdown cannot be confirmed, it falls back to the normal device stop.
 
 ## Packet loss
 
-On a running Shell-root or Full-root device, `jidr network loss <device> 10`
-sets 10% outgoing packet loss; `jidr network loss <device> 0` clears it.
-`jidr root helper <device>` reports the on-device helper's status. The device
+On a running Shell-root or Full-root device, `miko network loss <device> 10`
+sets 10% outgoing packet loss; `miko network loss <device> 0` clears it.
+`miko root helper <device>` reports the on-device helper's status. The device
 center offers the same controls under Device Tools → Network. See
 [on-device helper](on-device-helper.md) for kernel, network and qdisc limits.
 
-`jidr network dns <device> slow --delay-ms 3000` delays DNS queries; `fail`
+`miko network dns <device> slow --delay-ms 3000` delays DNS queries; `fail`
 drops them and `normal` clears DNS shaping. Requested shaping is restored
 after boot where the device's root mode and kernel support it.
 
-`jidr identity <device>` reads Android ID and IMEI. `--android-id` writes a
+`miko identity <device>` reads Android ID and IMEI. `--android-id` writes a
 16-digit hexadecimal Android ID for installed apps and restarts Android's
 framework; it needs Shell or Full Root. The IMEI is read-only.
 
-`jidr flash <device> <zip>` inspects the archive before acting. Magisk and
+`miko flash <device> <zip>` inspects the archive before acting. Magisk and
 Zygisk modules install on Full-root devices; on other devices they are copied
 to Download. Recovery, Riru and image archives are refused. Other ZIPs are
 copied to Download; SDK system images are never overwritten.
@@ -82,12 +82,12 @@ copied to Download; SDK system images are never overwritten.
 A running Full-root device can be saved as a base for throwaway agent clones:
 
 ```bash
-jidr base create <device> <base>
-jidr --json pool get <base>
-jidr pool release <lease>
+miko base create <device> <base>
+miko --json pool get <base>
+miko pool release <lease>
 ```
 
-Creating a base stops the source device after saving its snapshot. Jidr first
+Creating a base stops the source device after saving its snapshot. Miko first
 checks that the device owns its patched ramdisk and that `su -c id` succeeds
 without a prompt. On Play Store images the user must grant the shell access in
 Magisk; choose **Forever**, since an expiring grant also expires in clones.
@@ -118,7 +118,7 @@ rebuilds it at once. Patches never stack.
 To use Magisk without network access, import the official APK once:
 
 ```bash
-jidr root set <device> magisk --magisk /path/to/Magisk-v30.7.apk
+miko root set <device> magisk --magisk /path/to/Magisk-v30.7.apk
 ```
 
 The CLI adds the APK to the download cache by SHA-256 and `root.set` uses that
@@ -131,8 +131,8 @@ On a Full-root device the adb shell is always auto-granted `su`. Every other
 app gets Magisk's normal allow/deny prompt — unless you opt in per device:
 
 ```bash
-jidr root auto-grant <device> on    # grant every app root without a prompt
-jidr root auto-grant <device> off   # back to the prompt (off by default)
+miko root auto-grant <device> on    # grant every app root without a prompt
+miko root auto-grant <device> off   # back to the prompt (off by default)
 ```
 
 `root.auto_grant` stores the flag on the device and, when it is running, sets
@@ -150,9 +150,9 @@ GUI, open Device Center → Device tools → Root → Build identity.
 From the CLI or an agent:
 
 ```bash
-jidr call device.props.set '{"device":"Phone","props":{"model":"Pixel 8","brand":"google","security_patch":"2026-10-05"}}'
-jidr call device.props.get '{"device":"Phone"}'
-jidr call device.props.set '{"device":"Phone","props":{}}'   # back to stock
+miko call device.props.set '{"device":"Phone","props":{"model":"Pixel 8","brand":"google","security_patch":"2026-10-05"}}'
+miko call device.props.get '{"device":"Phone"}'
+miko call device.props.set '{"device":"Phone","props":{}}'   # back to stock
 ```
 
 `props` is the whole set: a field left out (or empty) keeps the image's value.
@@ -162,8 +162,8 @@ Values are trimmed, at most 256 characters, with no line breaks, and
 
 How it works: the emulator's `-prop` only reaches `qemu.*` properties, so the
 values are applied by Magisk's `resetprop` at boot. `device.props.set` stores
-them in `<avd>/jidr/props.json` and re-patches the per-device ramdisk with the
-same Magisk APK. The patch adds `overlay.d/jidr-props.rc`, which Magisk appends
+them in `<avd>/miko/props.json` and re-patches the per-device ramdisk with the
+same Magisk APK. The patch adds `overlay.d/miko-props.rc`, which Magisk appends
 to `init.rc`, and a script in `overlay.d/sbin`. At `post-fs-data`, before
 zygote starts, the script runs `resetprop -n` for each property and its
 partition copies (`ro.product.model`, `ro.product.vendor.model`, …). Only
@@ -188,8 +188,8 @@ A shell-root (`adb`) device on API 31 or later can boot with a writable
 (`adb push … /system/…`):
 
 ```bash
-jidr root writable-system <device> on    # -writable-system + adb remount
-jidr root writable-system <device> off   # back to the read-only stock image
+miko root writable-system <device> on    # -writable-system + adb remount
+miko root writable-system <device> off   # back to the read-only stock image
 ```
 
 `root.writable_system {device, enabled}` stores the setting in the device's
@@ -205,7 +205,7 @@ How it works: with the setting on, the device launches with the emulator's
 After every boot the root hook runs `adb root`, then `adb remount`. The first
 remount on a device needs a reboot before `/system` becomes writable (it
 turns verity off and asks for one). If `/system` is still read-only after a
-remount, Jidr reboots the guest once, waits for the boot to complete, roots
+remount, Miko reboots the guest once, waits for the boot to complete, roots
 adbd again and remounts. It
 then checks that a file can be created under `/system`, and the command fails
 with `root_failed` (exit code 7) if it can't. Later boots only remount.
@@ -229,14 +229,14 @@ device's folder.
 
 To read an app's HTTPS traffic in Burp or mitmproxy, the app must trust the
 proxy's CA. Apps that target Android 7 or later ignore user-installed CAs, so on a
-Full-root device Jidr adds the CA to the **system** store instead:
+Full-root device Miko adds the CA to the **system** store instead:
 
 ```bash
-jidr cert install <device> ~/Downloads/cacert.der   # PEM or DER; restarts the device
-jidr cert list <device>                             # Jidr's CAs and whether each is trusted
-jidr cert verify <device>                           # fails (exit 7) unless all are in the store
-jidr cert remove <device> a4ac454c.0                # or a subject hash, a SHA-256, or --all
-jidr proxy set <device> 8080                        # then send traffic to 10.0.2.2:8080
+miko cert install <device> ~/Downloads/cacert.der   # PEM or DER; restarts the device
+miko cert list <device>                             # Miko's CAs and whether each is trusted
+miko cert verify <device>                           # fails (exit 7) unless all are in the store
+miko cert remove <device> a4ac454c.0                # or a subject hash, a SHA-256, or --all
+miko proxy set <device> 8080                        # then send traffic to 10.0.2.2:8080
 ```
 
 Burp exports its CA from Proxy › Proxy settings › Import / export CA
@@ -244,7 +244,7 @@ certificate (DER); mitmproxy keeps it in `~/.mitmproxy/mitmproxy-ca-cert.pem`.
 In the GUI: Device Center → Device tools → Root → CA
 certificates → Add….
 
-How it works: Jidr writes its own Magisk module, `/data/adb/modules/jidr_cacerts`,
+How it works: Miko writes its own Magisk module, `/data/adb/modules/miko_cacerts`,
 in Magisk's documented module layout. The certificate is stored under the name
 Android's store uses, `<subject hash>.<n>` (OpenSSL's `subject_hash_old`; `n`
 counts certificates with the same subject, so a re-generated Burp CA becomes
@@ -254,7 +254,7 @@ counts certificates with the same subject, so a re-generated Burp CA becomes
   folder puts the certificate there through Magisk's system overlay.
 - **API 34+** read the Conscrypt APEX store, `/apex/com.android.conscrypt/cacerts`,
   which no overlay reaches. The module's `post-fs-data.sh`, which Magisk runs
-  before Zygote starts, copies the store and Jidr's certificates into a
+  before Zygote starts, copies the store and Miko's certificates into a
   tmpfs directory and bind-mounts it over the APEX store. Zygote, and every
   app it forks, inherits the mount.
 
@@ -277,10 +277,10 @@ refuses the proxy; that needs Frida or similar on top.
 ## Play Store images (beta)
 
 `google_apis_playstore` images refuse `adb root`, so the shell grant cannot be
-pre-approved. Jidr uses the guided tap from ADR-0002:
+pre-approved. Miko uses the guided tap from ADR-0002:
 
 1. Full-root setup runs as above (patch, cold boot, app install, environment).
-2. Jidr shows "Magisk will ask to grant root to Shell. Tap Grant." and runs
+2. Miko shows "Magisk will ask to grant root to Shell. Tap Grant." and runs
    `su -c id`, which raises Magisk's normal prompt.
 3. It waits up to 60 s. Tap Grant, and the shell is granted root.
 4. Denied or timed out, the device reports `awaiting_user_grant` with
@@ -291,7 +291,7 @@ prompt.
 
 ## Magisk licence
 
-Magisk is **GPL-3.0-only**, so Jidr never bundles or redistributes it. It is
+Magisk is **GPL-3.0-only**, so Miko never bundles or redistributes it. It is
 downloaded at runtime from
 [topjohnwu/Magisk](https://github.com/topjohnwu/Magisk), its SHA-256 is checked
 against the pin in `assets/magisk-pins.toml`, and the licence and source link

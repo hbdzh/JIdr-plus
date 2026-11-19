@@ -4,7 +4,7 @@ Thanks for helping. Bug reports, fixes, features and docs are all welcome. This 
 
 ## Before you start
 
-- **Bugs:** open an issue with your macOS version, Mac model, the Android image (for example `35:google_apis`), the command or steps, and what you saw. `jidr --json …` output and the daemon log help.
+- **Bugs:** open an issue with your macOS version, Mac model, the Android image (for example `35:google_apis`), the command or steps, and what you saw. `miko --json …` output and the daemon log help.
 - **Features:** check the [miko simulator issues](https://github.com/hbdzh/miko-simulator/issues) first, then open an issue to agree on the approach before writing a large change.
 - **Security issues:** don't open a public issue; follow [SECURITY.md](SECURITY.md).
 
@@ -18,14 +18,14 @@ curl https://sh.rustup.rs -sSf | sh       # rustup installs the pinned toolchain
 cargo install cargo-nextest --locked      # the test runner
 git clone https://github.com/hbdzh/miko-simulator.git && cd miko-simulator
 cargo xtask ci                            # fmt, clippy, tests, licence check, skills check
-bash apps/jidr-swiftui/test.sh  # Swift logic tests + localization gate (needs Xcode)
+bash apps/miko-swiftui/test.sh  # Swift logic tests + localization gate (needs Xcode)
 cargo xtask release --rehearsal           # SwiftUI app + DMG rehearsal (ad-hoc, local)
 ```
 
-For the emulator tests you need an Android SDK with the emulator and one system image. Android Studio's SDK works and is only read, never modified. The tests use `system-images;android-31;google_apis;arm64-v8a` by default; override it with `JIDR_TEST_SDK`, `JIDR_TEST_IMAGE` and `JIDR_TEST_API`.
+For the emulator tests you need an Android SDK with the emulator and one system image. Android Studio's SDK works and is only read, never modified. The tests use `system-images;android-31;google_apis;arm64-v8a` by default; override it with `MIKO_TEST_SDK`, `MIKO_TEST_IMAGE` and `MIKO_TEST_API`.
 
 ```bash
-cargo nextest run -p jidr-widgets --features emulator
+cargo nextest run -p miko-widgets --features emulator
 ```
 
 ## How the code is organised
@@ -34,12 +34,12 @@ cargo nextest run -p jidr-widgets --features emulator
 
 ## Rules the code follows
 
-- **Never crash.** `unwrap`, `expect`, `panic!`, `todo!`, `unimplemented!` and `dbg!` are denied outside tests. Return `jidr_core::JidrError`.
+- **Never crash.** `unwrap`, `expect`, `panic!`, `todo!`, `unimplemented!` and `dbg!` are denied outside tests. Return `miko_core::MikoError`.
 - **No `unsafe`** unless a crate truly needs it, allowed locally with a comment explaining why.
 - **Every bug fix comes with a regression test.**
-- **Split licensing.** The desktop GUI sources are GPL-3.0-only: `apps/jidr-swiftui` Swift/AppKit code (by choice, ADR-0003). The SwiftUI Rust bridge, the CLI, the daemon and everything else are Apache-2.0 and must never depend on Slint or the GPL GUI crates. `cargo xtask license-check` enforces the Apache side.
+- **Split licensing.** The desktop GUI sources are GPL-3.0-only: `apps/miko-swiftui` Swift/AppKit code (by choice, ADR-0003). The SwiftUI Rust bridge, the CLI, the daemon and everything else are Apache-2.0 and must never depend on Slint or the GPL GUI crates. `cargo xtask license-check` enforces the Apache side.
 - **Clean room.** Use only Genymotion's public docs, the public AOSP emulator protos and docs, and behaviour you observe by running the SDK tools. Never decompile or inspect Genymotion binaries, never copy GPL code (Magisk, rootAVD), never bundle Google's SDK, system images or Magisk. Details in [docs/clean-room.md](docs/clean-room.md).
-- **Protocol changes** that touch the wire format, an existing command, error codes or events need a row in the changelog of [docs/control-protocol.md](docs/control-protocol.md). Regenerate the command reference with `JIDR_UPDATE_DOCS=1 cargo nextest run -p jidr-daemon protocol_doc`.
+- **Protocol changes** that touch the wire format, an existing command, error codes or events need a row in the changelog of [docs/control-protocol.md](docs/control-protocol.md). Regenerate the command reference with `MIKO_UPDATE_DOCS=1 cargo nextest run -p miko-daemon protocol_doc`.
 - **Android Studio's SDK and AVDs stay read-only.** Tests create AVDs in temporary directories.
 
 ## Pull requests
@@ -59,4 +59,4 @@ Automated releases are currently disabled. The release workflow can build assets
 
 ## Licence of contributions
 
-By contributing you agree that your contribution is licensed under the licence of the files you change: Apache-2.0, or GPL-3.0-only for the Swift/AppKit sources in `apps/jidr-swiftui` (its Rust bridge is Apache-2.0).
+By contributing you agree that your contribution is licensed under the licence of the files you change: Apache-2.0, or GPL-3.0-only for the Swift/AppKit sources in `apps/miko-swiftui` (its Rust bridge is Apache-2.0).

@@ -2,14 +2,14 @@
 
 # macOS packaging
 
-`cargo xtask release` (in `xtask/src/release.rs`) builds `miko simulator.app`, `miko-simulator-<version>-arm64.dmg` and the MCP bundle `jidr-mcp-<version>-darwin-arm64.mcpb` from this folder and `../mcp`.
+`cargo xtask release` (in `xtask/src/release.rs`) builds `miko simulator.app`, `miko-simulator-<version>-arm64.dmg` and the MCP bundle `miko-mcp-<version>-darwin-arm64.mcpb` from this folder and `../mcp`.
 
 | File | What |
 |---|---|
 | `Info.plist.in` | bundle metadata; `@VERSION@` becomes the workspace version |
-| `sign.sh` | Developer ID signing (hardened runtime, inside-out) and DMG notarization + staple; `cargo xtask release` calls it when `JIDR_SIGNING_IDENTITY` is set |
+| `sign.sh` | Developer ID signing (hardened runtime, inside-out) and DMG notarization + staple; `cargo xtask release` calls it when `MIKO_SIGNING_IDENTITY` is set |
 | `verify.sh` | Gatekeeper, hardened runtime and the stapled ticket; the release workflow runs it on signed builds. Fails on ad-hoc builds, as expected |
-| `../mcp/manifest.json` | MCPB manifest (`@VERSION@`); the bundle holds it, the signed `jidr` as `server/jidr`, the icon and the licences. `jidr-mcp`'s tests check its tool list |
+| `../mcp/manifest.json` | MCPB manifest (`@VERSION@`); the bundle holds it, the signed `miko` as `server/miko`, the icon and the licences. `miko-mcp`'s tests check its tool list |
 | `../../server.json` | MCP Registry metadata template; its release URL and checksum must be verified before any future publication |
 
 Bundle layout:
@@ -17,13 +17,13 @@ Bundle layout:
 ```
 miko simulator.app/Contents/
   Info.plist  PkgInfo
-  MacOS/Jidr            GUI (apps/jidr-swiftui, GPL-3.0)
-  Helpers/jidr          CLI, daemon and MCP server (apps/jidr, Apache-2.0)
-  Resources/Jidr.icns   from apps/jidr-swiftui/Resources (D39)
+  MacOS/Miko            GUI (apps/miko-swiftui, GPL-3.0)
+  Helpers/miko          CLI, daemon and MCP server (apps/miko, Apache-2.0)
+  Resources/Miko.icns   from apps/miko-swiftui/Resources (D39)
   Resources/licenses/   LICENSE-APACHE, LICENSE-GPL, NOTICE
 ```
 
-The CLI lives in `Helpers/` because `MacOS/jidr` and `MacOS/Jidr` are the same path on the default case-insensitive APFS.
+The CLI lives in `Helpers/` because `MacOS/miko` and `MacOS/Miko` are the same path on the default case-insensitive APFS.
 
 ```bash
 cargo xtask release --dry-run --scan    # local build, DMG, mount check, forbidden-content scan
@@ -48,6 +48,6 @@ Repository secrets for signing (without them the DMG is ad-hoc signed and the ru
 
 Set them without printing anything, for example `base64 -i developer-id.p12 | gh secret set MAC_DEVELOPER_ID_P12_BASE64`, and check the file exists first: if `base64` fails, `gh` stores an empty secret.
 
-To sign and notarize locally: `JIDR_SIGNING_IDENTITY="Developer ID Application: Name (TEAMID)" NOTARY_KEY_PATH=path/to/AuthKey.p8 NOTARY_KEY_ID=… NOTARY_ISSUER_ID=… cargo xtask release --scan`.
+To sign and notarize locally: `MIKO_SIGNING_IDENTITY="Developer ID Application: Name (TEAMID)" NOTARY_KEY_PATH=path/to/AuthKey.p8 NOTARY_KEY_ID=… NOTARY_ISSUER_ID=… cargo xtask release --scan`.
 
-The scan fails the build if the bundle or the DMG contains Google SDK binaries, system images or Magisk. Jidr downloads those on the user's machine, never ships them.
+The scan fails the build if the bundle or the DMG contains Google SDK binaries, system images or Magisk. Miko downloads those on the user's machine, never ships them.

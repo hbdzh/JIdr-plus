@@ -2,8 +2,8 @@
 //! the Android guest, as a static musl executable linked with the
 //! toolchain's own `rust-lld`, so no Android NDK or C toolchain is needed.
 //!
-//! Output: `<target>/jidr-helper/<arch>/jidr-helper`, where the daemon looks
-//! for it in development builds (`jidr_helper::host::search_dirs`).
+//! Output: `<target>/miko-helper/<arch>/miko-helper`, where the daemon looks
+//! for it in development builds (`miko_helper::host::search_dirs`).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -15,8 +15,8 @@ use crate::{cargo, workspace_root};
 const USAGE: &str = "\
 usage: cargo xtask helper [--arch aarch64|x86_64]...
 
-Builds jidr-helper for each guest CPU (default: both) into
-<target>/jidr-helper/<arch>/jidr-helper.";
+Builds miko-helper for each guest CPU (default: both) into
+<target>/miko-helper/<arch>/miko-helper.";
 
 /// Guest CPUs: (the helper's arch directory, the Rust target).
 pub const TARGETS: [(&str, &str); 2] = [
@@ -104,15 +104,15 @@ pub fn build(arches: &[&str]) -> Result<Vec<(String, PathBuf)>> {
             "CARGO_TARGET_{}_LINKER",
             target.to_uppercase().replace('-', "_")
         );
-        println!("xtask: $ cargo build -p jidr-helper --profile helper --target {target}");
+        println!("xtask: $ cargo build -p miko-helper --profile helper --target {target}");
         let status = Command::new(cargo())
             .args([
                 "build",
                 "--locked",
                 "-p",
-                "jidr-helper",
+                "miko-helper",
                 "--bin",
-                "jidr-helper",
+                "miko-helper",
                 "--profile",
                 "helper",
                 "--target",
@@ -124,9 +124,9 @@ pub fn build(arches: &[&str]) -> Result<Vec<(String, PathBuf)>> {
             .status()
             .context("spawning cargo")?;
         if !status.success() {
-            bail!("building jidr-helper for {target} failed with {status}");
+            bail!("building miko-helper for {target} failed with {status}");
         }
-        let from = target_dir.join(target).join("helper/jidr-helper");
+        let from = target_dir.join(target).join("helper/miko-helper");
         let to = output(&target_dir, arch);
         if let Some(dir) = to.parent() {
             std::fs::create_dir_all(dir)?;
@@ -141,9 +141,9 @@ pub fn build(arches: &[&str]) -> Result<Vec<(String, PathBuf)>> {
 /// Where `cargo xtask helper` puts the build for `arch`.
 pub fn output(target_dir: &Path, arch: &str) -> PathBuf {
     target_dir
-        .join("jidr-helper")
+        .join("miko-helper")
         .join(arch)
-        .join("jidr-helper")
+        .join("miko-helper")
 }
 
 fn library_path_var() -> &'static str {
@@ -171,7 +171,7 @@ mod tests {
         assert_eq!(parse_args(&args(&["-h"])).unwrap(), None);
         assert_eq!(
             output(Path::new("/t"), "aarch64"),
-            Path::new("/t/jidr-helper/aarch64/jidr-helper")
+            Path::new("/t/miko-helper/aarch64/miko-helper")
         );
     }
 }

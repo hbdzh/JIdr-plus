@@ -1,0 +1,45 @@
+[package]
+name = "miko"
+description = "Miko CLI, daemon and MCP server."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "miko"
+path = "src/main.rs"
+
+[dependencies]
+miko-core.workspace = true
+miko-client.workspace = true
+miko-daemon.workspace = true
+miko-backend.workspace = true
+miko-mcp.workspace = true
+miko-root.workspace = true
+miko-widgets.workspace = true
+clap.workspace = true
+clap_complete.workspace = true
+rustyline.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml_edit = "0.25"
+uuid.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+assert_cmd.workspace = true
+predicates = "3.1"
+tempfile.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+# Tests that need a running Android emulator (Linux KVM in CI, arm64 on an Apple Silicon Mac).
+emulator = []

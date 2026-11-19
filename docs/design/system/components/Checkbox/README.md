@@ -1,3 +1,3 @@
 # Checkbox
 
-Checkbox, 16 px box, outline `jidr-color-border-strong`, checked `jidr-color-accent-fill`. No loading state.
+Checkbox, 16 px box, outline `miko-color-border-strong`, checked `miko-color-accent-fill`. No loading state.

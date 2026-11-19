@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# Proves Jidr never writes to Android Studio's SDK or AVDs (D3, D31).
+# Proves Miko never writes to Android Studio's SDK or AVDs (D3, D31).
 #
 #   scripts/e2e-studio-untouched.sh [command...]
 #
 # Fingerprints every file (path, size, mtime) under the Studio SDK and
-# ~/.android/avd, runs the command (default: the jidr-sdk emulator tests and
-# scripts/e2e-cli.sh, which ends with `jidr uninstall --purge`),
+# ~/.android/avd, runs the command (default: the miko-sdk emulator tests and
+# scripts/e2e-cli.sh, which ends with `miko uninstall --purge`),
 # and fails if anything changed. AVDs that are running right now are
 # skipped, since the emulator legitimately writes to them.
 set -euo pipefail
 
-STUDIO_SDK="${JIDR_TEST_SDK:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
+STUDIO_SDK="${MIKO_TEST_SDK:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
 STUDIO_AVD="${ANDROID_AVD_HOME:-$HOME/.android/avd}"
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-target}"
 
 if [ "$#" -eq 0 ]; then
   # Install → use → uninstall --purge on a real emulator, plus the SDK tests.
-  set -- sh -c 'cargo nextest run -p jidr-sdk --features emulator --no-tests=pass && scripts/e2e-cli.sh'
+  set -- sh -c 'cargo nextest run -p miko-sdk --features emulator --no-tests=pass && scripts/e2e-cli.sh'
 fi
 
 if [ ! -d "$STUDIO_SDK" ]; then

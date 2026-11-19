@@ -1,11 +1,11 @@
 {
-  "name": "jidr-demo-motion",
+  "name": "miko-demo-motion",
   "private": true,
   "license": "Apache-2.0",
-  "description": "Animated 25-second Jidr demo video (Remotion).",
+  "description": "Animated 25-second Miko demo video (Remotion).",
   "scripts": {
     "studio": "remotion studio",
-    "render": "remotion render Demo out/jidr-demo-motion.mp4 --codec=h264 --crf=18 --pixel-format=yuv420p --color-space=bt709",
+    "render": "remotion render Demo out/miko-demo-motion.mp4 --codec=h264 --crf=18 --pixel-format=yuv420p --color-space=bt709",
     "gif": "sh scripts/gif.sh",
     "typecheck": "tsc --noEmit"
   },

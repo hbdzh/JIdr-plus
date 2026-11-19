@@ -28,7 +28,7 @@ def main():
         if not tool.is_file():
             p.error(f'missing installed tool: {tool}; no SDK download or license acceptance is performed')
     out = args.out.resolve(); out.mkdir(parents=True, exist_ok=False)
-    source = ROOT/'apps/jidr-swiftui/Tests/AndroidInput'
+    source = ROOT/'apps/miko-swiftui/Tests/AndroidInput'
     shutil.copy2(source/'AndroidManifest.xml',out/'AndroidManifest.xml')
     classes=out/'classes'; classes.mkdir(); dex=out/'dex'; dex.mkdir()
     def run(*cmd): subprocess.run([str(x) for x in cmd],check=True)
@@ -41,7 +41,7 @@ def main():
     run(tools/'zipalign','-f','4',unsigned,aligned)
     # Ephemeral debug key, used only for this throwaway test package.
     run(java/'keytool','-genkeypair','-keystore',out/'test.jks','-storepass','android','-keypass','android',
-        '-alias','test','-keyalg','RSA','-validity','1','-dname','CN=Jidr input probe')
+        '-alias','test','-keyalg','RSA','-validity','1','-dname','CN=Miko input probe')
     run(tools/'apksigner','sign','--ks',out/'test.jks','--ks-pass','pass:android','--key-pass','pass:android','--out',apk,aligned)
     hashes={str(f.relative_to(ROOT)):hashlib.sha256(f.read_bytes()).hexdigest() for f in source.iterdir() if f.is_file()}
     (out/'build.json').write_text(json.dumps({'source_sha256':hashes,'apk_sha256':hashlib.sha256(apk.read_bytes()).hexdigest(),

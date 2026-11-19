@@ -1,4 +1,4 @@
-# Jidr brand assets
+# Miko brand assets
 
 The symbol is a root (جذر) that grows into a phone outline. Everything here is generated from `source/appLogoOnPaper.jpg` by `build.sh`. Don't hand-edit outputs; change `build.sh` and re-run it.
 
@@ -29,7 +29,7 @@ These were sampled from the approved board (`source/brand-board.jpg`). When the 
 | `avatar.svg` / `avatar-1024.png` | circular avatar | GitHub org/repo, social profiles |
 | `social-card.svg` / `.png` | 1200×630 preview card | Open Graph / Twitter card |
 | `web/` | `favicon.svg`, `favicon.ico`, `favicon-32.png`, `apple-touch-icon.png`, `og-image.png`, `avatar-512.png`, `symbol.svg` | standalone web assets |
-| `../../apps/jidr-swiftui/Resources/Jidr.icns` | app bundle icon (16–1024, @1x/@2x) | Phase 12a bundle (`CFBundleIconFile`) |
+| `../../apps/miko-swiftui/Resources/Miko.icns` | app bundle icon (16–1024, @1x/@2x) | Phase 12a bundle (`CFBundleIconFile`) |
 
 ## Rules
 
@@ -38,4 +38,4 @@ These were sampled from the approved board (`source/brand-board.jpg`). When the 
 - No Google, Android or Genymotion marks next to the symbol.
 - Ownership: this folder is shared and read-only for the work streams. Only `build.sh` changes it.
 
-The native app icon is generated at `apps/jidr-swiftui/Resources/Jidr.icns`. Retired Slint/menu-bar raster duplicates are no longer generated.
+The native app icon is generated at `apps/miko-swiftui/Resources/Miko.icns`. Retired Slint/menu-bar raster duplicates are no longer generated.

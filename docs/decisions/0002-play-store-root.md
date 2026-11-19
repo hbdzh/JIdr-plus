@@ -17,11 +17,11 @@ Play Store images don't allow `adb root`. So the shell can't write Magisk's poli
 ## Proposed beta flow: guided tap (option 3)
 
 1. Full-root setup runs exactly as on `google_apis` (9d): patched private ramdisk, cold boot, Magisk app install, environment setup, one reboot.
-2. Jidr opens the device window and shows one instruction beside the screen: "Magisk will ask to grant root to Shell. Tap Grant." Magisk's own "Forever" option is left to the user.
-3. Jidr runs `su -c id` from the adb shell, which raises Magisk's normal prompt. It waits up to 60 s, with a Cancel button.
+2. Miko opens the device window and shows one instruction beside the screen: "Magisk will ask to grant root to Shell. Tap Grant." Magisk's own "Forever" option is left to the user.
+3. Miko runs `su -c id` from the adb shell, which raises Magisk's normal prompt. It waits up to 60 s, with a Cancel button.
 4. Verify: `adb shell su -c id` → `uid=0` and `su -c 'magisk -v'`. The badge reads "Rooted ✓ · Beta (Play Store image)".
 5. Denied or timed out: the badge reads "Root unverified", with "Try again" (repeats step 3) and "Revert" (9d revert).
-6. Headless or CLI (`jidr root set magisk` on a Play Store image): the command prints the same instruction and waits; `--json` reports `{"state": "awaiting_user_grant"}` until verified. There is no headless bypass.
+6. Headless or CLI (`miko root set magisk` on a Play Store image): the command prints the same instruction and waits; `--json` reports `{"state": "awaiting_user_grant"}` until verified. There is no headless bypass.
 
 Apps keep Magisk's normal per-app prompt (D22). The "auto-grant all" toggle stays opt-in and off.
 

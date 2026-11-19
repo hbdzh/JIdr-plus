@@ -15,13 +15,13 @@ Status: proposal. This is the implementation brief for the "Synchronizer" featur
 
 | Fact | Where |
 |---|---|
-| Each player window runs its **own bridge process** (`jidr-center-bridge`). The GUI feeds it JSON lines on stdin (`Command`: `touch`, `mapped_touch`, `key`, `text`, `paste`, `tool_key`, …) and reads `JIDR_*:` JSON lines on stderr (e.g. `JIDR_SCRIPT:`). | `apps/jidr-swiftui/bridge/src/main.rs` (`enum Command`, the `command =>` arm near line 686) |
+| Each player window runs its **own bridge process** (`miko-center-bridge`). The GUI feeds it JSON lines on stdin (`Command`: `touch`, `mapped_touch`, `key`, `text`, `paste`, `tool_key`, …) and reads `MIKO_*:` JSON lines on stderr (e.g. `MIKO_SCRIPT:`). | `apps/miko-swiftui/bridge/src/main.rs` (`enum Command`, the `command =>` arm near line 686) |
 | Input is injected by the bridge straight to the emulator over gRPC (`sendTouch`, `sendKey`), **not** through the daemon. `InputState<W: InputWire>` tracks held touches and keys and releases them in reverse press order. | `bridge/src/player_input.rs` |
-| Recorded events are normalized (`x,y` in 0…1) and serialized as `Event`. `execute_event` replays an `Event` through `InputState`. `event_fits_the_format` validates bounds. | `crates/jidr-automation/src/model.rs`, `bridge/src/script.rs` |
+| Recorded events are normalized (`x,y` in 0…1) and serialized as `Event`. `execute_event` replays an `Event` through `InputState`. `event_fits_the_format` validates bounds. | `crates/miko-automation/src/model.rs`, `bridge/src/script.rs` |
 | While a script plays, direct user input is ignored (`is_direct_input`, `ignores_user_input`). Sync followers need the same guard. | `bridge/src/script.rs` |
-| `key.press` is a daemon command; touch is **not**. | `crates/jidr-widgets/src/devtools.rs` |
-| The recording panel is `PlayerScriptsWindowController`. It uses a transparent titlebar, `fullSizeContentView`, `NSVisualEffectView` with `.underWindowBackground` and `.behindWindow`, a unified-compact `NSToolbar`, and a SwiftUI `NSHostingView`. | `apps/jidr-swiftui/Sources/PlayerScripts.swift` (≈ lines 280-335) |
-| Per-device single-writer locks exist; the protocol is frozen at `protocol-v0.1`, so new commands must be additive and logged. | `crates/jidr-daemon/src/locks.rs`, `docs/control-protocol.md` |
+| `key.press` is a daemon command; touch is **not**. | `crates/miko-widgets/src/devtools.rs` |
+| The recording panel is `PlayerScriptsWindowController`. It uses a transparent titlebar, `fullSizeContentView`, `NSVisualEffectView` with `.underWindowBackground` and `.behindWindow`, a unified-compact `NSToolbar`, and a SwiftUI `NSHostingView`. | `apps/miko-swiftui/Sources/PlayerScripts.swift` (≈ lines 280-335) |
+| Per-device single-writer locks exist; the protocol is frozen at `protocol-v0.1`, so new commands must be additive and logged. | `crates/miko-daemon/src/locks.rs`, `docs/control-protocol.md` |
 
 ## 3. Architecture
 
@@ -31,13 +31,13 @@ Status: proposal. This is the implementation brief for the "Synchronizer" featur
 
 ```mermaid
 flowchart LR
-  L["Leader bridge<br/>(player window)"] -- "JIDR_SYNC: event line (stderr)" --> H["SyncHub (Swift, device center)"]
+  L["Leader bridge<br/>(player window)"] -- "MIKO_SYNC: event line (stderr)" --> H["SyncHub (Swift, device center)"]
   H -- "adapt coords, JSON line (stdin)" --> F1["Follower bridge 1"]
   H --> F2["Follower bridge N"]
-  H -. "sync.state / sync.follower_error" .-> D["jidr-daemon (session state)"]
+  H -. "sync.state / sync.follower_error" .-> D["miko-daemon (session state)"]
 ```
 
-- A leader bridge in sync mode emits every whitelisted input (the same set as `event_from_command`) as one stderr line `JIDR_SYNC:{"seq":N,"event":{…}}`, **in addition to** injecting it locally.
+- A leader bridge in sync mode emits every whitelisted input (the same set as `event_from_command`) as one stderr line `MIKO_SYNC:{"seq":N,"event":{…}}`, **in addition to** injecting it locally.
 - `SyncHub` in the GUI process turns each event into a stdin command line for every follower bridge, after coordinate adaptation.
 - Follower bridges have a "driven" mode: they accept a new command `sync_input` (the same payload shape as `Event`) and inject it through the existing `InputState`. Direct user input on a follower is ignored while driven (unless the user takes over, see §6).
 - A follower must have a bridge. If the follower has no open player window, the hub opens a **background (hidden) player session** for it. Investigate how `PlayerSession` is created and reuse it. If it can't be hidden, open the window minimized.
@@ -46,15 +46,15 @@ Why not a daemon-side fan-out? It would require moving `InputState` and key/touc
 
 ## 4. Work breakdown (milestones)
 
-Each milestone ends with a green `cargo xtask ci`, and for GUI work also `bash apps/jidr-swiftui/test.sh` and a scoped snapshot check. Commit once per logical change using conventional commits.
+Each milestone ends with a green `cargo xtask ci`, and for GUI work also `bash apps/miko-swiftui/test.sh` and a scoped snapshot check. Commit once per logical change using conventional commits.
 
 ### M0. Decision and docs skeleton
 - Add `D45` to `docs/decisions/log.md`: control plane in the daemon, data plane between bridges relayed by the GUI, and why (§3).
 - Create `docs/sync.md` (user-facing behavior, limits, troubleshooting). Fill it in as milestones land.
 - Copy the checklist at the end of this file into the PR description.
 
-### M1. Pure logic crate `crates/jidr-sync` (Apache-2.0, no I/O)
-Add the crate to the workspace (`[workspace.dependencies]` entry, `foo.workspace = true` style). Dependencies: `jidr-core`, `jidr-automation` (reuse `Event`), `serde`, `thiserror`/`JidrError`. No `unwrap`, `expect` or `panic`.
+### M1. Pure logic crate `crates/miko-sync` (Apache-2.0, no I/O)
+Add the crate to the workspace (`[workspace.dependencies]` entry, `foo.workspace = true` style). Dependencies: `miko-core`, `miko-automation` (reuse `Event`), `serde`, `thiserror`/`MikoError`. No `unwrap`, `expect` or `panic`.
 
 Contents:
 1. `SyncSession`: `id: Uuid`, `leader: Uuid`, `followers: Vec<Follower>`, `options: SyncOptions`, `state: SyncState` (`Idle | Active | Stopping`).
@@ -66,15 +66,15 @@ Contents:
    - `sync_tool_keys: bool` (default true)
    - `lock_followers: bool` (default true)
    - `jitter_ms: u8` (0…20, default 0)
-4. `adapt(event, leader_display, follower_display, mode) -> Option<Event>`: touch events pass through for `Stretch` (identical normalized coordinates). For `Letterbox`, map relative to the shorter edge and clamp to 0…1. Return `None` for events that must not be forwarded. `x,y` outside 0…1 or non-finite is rejected, reusing the same bounds as `event_fits_the_format` (export that check from `jidr-automation` if needed instead of duplicating it).
+4. `adapt(event, leader_display, follower_display, mode) -> Option<Event>`: touch events pass through for `Stretch` (identical normalized coordinates). For `Letterbox`, map relative to the shorter edge and clamp to 0…1. Return `None` for events that must not be forwarded. `x,y` outside 0…1 or non-finite is rejected, reusing the same bounds as `event_fits_the_format` (export that check from `miko-automation` if needed instead of duplicating it).
 5. `Coalescer`: a bounded per-follower queue (default 256). Policy: under pressure, drop *intermediate* touch moves (`Touch{down:true}` repeated for the same finger) and keep only the latest. **Never drop** a touch down or up, a key, text or a tool key. If the queue is still full of non-droppable events, mark the follower `Lagging`, then `Error{code:"sync.follower_overflow"}` after a threshold, and detach it without affecting the others.
 6. `SeqTracker`: ordering check and gap detection per follower (`seq` strictly increasing).
-7. `can_join(devices) -> Result<(), JidrError>`: at least 2 devices, all running (backend state), leader in the set, no duplicates, none already in another session, none currently playing a recording (see M4).
+7. `can_join(devices) -> Result<(), MikoError>`: at least 2 devices, all running (backend state), leader in the set, no duplicates, none already in another session, none currently playing a recording (see M4).
 
-Tests (`cargo nextest run -p jidr-sync`): table tests for `adapt` (same aspect, 16:9 to 9:16, clamping), property tests that `adapt` output always satisfies `event_fits_the_format`, coalescer ordering and the never-drop guarantee, overflow transition, `can_join` error cases. Include a test per bug found during development.
+Tests (`cargo nextest run -p miko-sync`): table tests for `adapt` (same aspect, 16:9 to 9:16, clamping), property tests that `adapt` output always satisfies `event_fits_the_format`, coalescer ordering and the never-drop guarantee, overflow transition, `can_join` error cases. Include a test per bug found during development.
 
 ### M2. Daemon control plane
-Add the provider in `crates/jidr-daemon` (module `sync`, registered through `CommandProvider`, as in `core_provider.rs`).
+Add the provider in `crates/miko-daemon` (module `sync`, registered through `CommandProvider`, as in `core_provider.rs`).
 
 | Command | Params | Result | Notes |
 |---|---|---|---|
@@ -90,34 +90,34 @@ Events: `sync.state` (full session snapshot), `sync.follower_error` (`{device, c
 
 Behavior:
 - State is in memory. It is cleared when the daemon restarts or any member device stops, crashes or is deleted. Subscribe to the existing device lifecycle events and auto-remove a stopped follower (the session ends if fewer than 2 members remain, or if the leader stops).
-- Error codes: add `sync.not_enough_devices`, `sync.device_not_running`, `sync.already_active`, `sync.not_active`, `sync.follower_overflow`. Follow the existing `JidrError` and `ErrorCode` conventions in `jidr-core` and add rows to the protocol changelog.
-- Docs: regenerate the command reference with `JIDR_UPDATE_DOCS=1 cargo nextest run -p jidr-daemon protocol_doc`, then add the changelog rows in `docs/control-protocol.md` (additive).
+- Error codes: add `sync.not_enough_devices`, `sync.device_not_running`, `sync.already_active`, `sync.not_active`, `sync.follower_overflow`. Follow the existing `MikoError` and `ErrorCode` conventions in `miko-core` and add rows to the protocol changelog.
+- Docs: regenerate the command reference with `MIKO_UPDATE_DOCS=1 cargo nextest run -p miko-daemon protocol_doc`, then add the changelog rows in `docs/control-protocol.md` (additive).
 
-Tests: use `jidr_daemon::testing::TestDaemon` with the fake backend. Cover: start, stop, status, add and remove, leader change, auto-teardown when a member stops, a device in two sessions, and the error codes.
+Tests: use `miko_daemon::testing::TestDaemon` with the fake backend. Cover: start, stop, status, add and remove, leader change, auto-teardown when a member stops, a device in two sessions, and the error codes.
 
 ### M3. CLI and MCP
-- CLI in `apps/jidr`: `jidr sync start --leader <dev> --follower <dev>… [--adaptation stretch|letterbox] [--no-keyboard] [--no-text] [--unlock-followers]`, `jidr sync stop`, `jidr sync status [--json]`, `jidr sync add|remove <dev>`, `jidr sync leader <dev>`. Update `docs/cli.md`.
-- MCP in `crates/jidr-mcp`: `sync_start`, `sync_stop`, `sync_status` tools. Update `docs/mcp.md`.
+- CLI in `apps/miko`: `miko sync start --leader <dev> --follower <dev>… [--adaptation stretch|letterbox] [--no-keyboard] [--no-text] [--unlock-followers]`, `miko sync stop`, `miko sync status [--json]`, `miko sync add|remove <dev>`, `miko sync leader <dev>`. Update `docs/cli.md`.
+- MCP in `crates/miko-mcp`: `sync_start`, `sync_stop`, `sync_status` tools. Update `docs/mcp.md`.
 - **Limitation to state in the docs:** the CLI/MCP can manage a session, but input only flows when the leader has a player window (events originate there). This is acceptable for v1.
-- Update `skills/jidr` (add a short "multi-device sync" section) and run `cargo xtask skills-check`.
+- Update `skills/miko` (add a short "multi-device sync" section) and run `cargo xtask skills-check`.
 
-### M4. Bridge changes (`apps/jidr-swiftui/bridge`, Apache-2.0)
+### M4. Bridge changes (`apps/miko-swiftui/bridge`, Apache-2.0)
 1. Add `Command::SyncMode { role: "leader" | "follower" | "off", lock: bool }` and `Command::SyncInput { event }` (same fields as `Event`, so reuse the serde `Event` type).
-2. In the `command =>` arm (main.rs ≈ line 686), after `record_user_command`, if the role is leader and `event_from_command(&command)` is `Some(event)` and `event_fits_the_format`, print `JIDR_SYNC:{"seq":N,"event":…}` on stderr. Move `event_from_command` and `event_fits_the_format` to `pub(crate)` instead of duplicating them. Respect `sync_keyboard`, `sync_text` and `sync_tool_keys` in the hub, not in the bridge, so options can change live.
+2. In the `command =>` arm (main.rs ≈ line 686), after `record_user_command`, if the role is leader and `event_from_command(&command)` is `Some(event)` and `event_fits_the_format`, print `MIKO_SYNC:{"seq":N,"event":…}` on stderr. Move `event_from_command` and `event_fits_the_format` to `pub(crate)` instead of duplicating them. Respect `sync_keyboard`, `sync_text` and `sync_tool_keys` in the hub, not in the bridge, so options can change live.
 3. Follower role: `SyncInput` goes through `script::execute_event`, the same path as playback, so held-input bookkeeping and release semantics are shared. When `lock` is true, treat direct user input as ignored, extending `is_direct_input` and `ignores_user_input` with `sync_locked`.
 4. On `SyncMode off` or bridge shutdown: call `state.release()` so no finger or key stays held.
 5. **Interaction rules** (must be enforced and tested):
-   - A **follower** in sync cannot start recording or playing a script, and a recording or playing device cannot join sync as a **follower** (return the existing `script.busy` code). The **leader** *can* record and play scripts while syncing: playback events emit `JIDR_SYNC:` alongside local injection, and stopping/pausing releases held inputs on followers too.
-   - Follower injection is never re-emitted as `JIDR_SYNC` (no echo or loop).
+   - A **follower** in sync cannot start recording or playing a script, and a recording or playing device cannot join sync as a **follower** (return the existing `script.busy` code). The **leader** *can* record and play scripts while syncing: playback events emit `MIKO_SYNC:` alongside local injection, and stopping/pausing releases held inputs on followers too.
+   - Follower injection is never re-emitted as `MIKO_SYNC` (no echo or loop).
    - If the same device is leader and the user loads a script on it, playback mirrors to all followers.
 6. The stderr line must stay under the existing line-size assumptions. Events are small, so no change is needed, but add a test.
 
-Tests in the bridge crate (`cargo nextest run -p jidr-center-bridge` or the real crate name): leader emits events in order with increasing `seq`; follower injects through a fake `InputWire`; the loop guard; release on `off`; locked follower ignores user input; script and sync mutual exclusion.
+Tests in the bridge crate (`cargo nextest run -p miko-center-bridge` or the real crate name): leader emits events in order with increasing `seq`; follower injects through a fake `InputWire`; the loop guard; release on `off`; locked follower ignores user input; script and sync mutual exclusion.
 
 ### M5. SyncHub (Swift)
-Create `apps/jidr-swiftui/Sources/SyncHub.swift` (GPL-3.0-only header like the sibling files). Responsibilities:
+Create `apps/miko-swiftui/Sources/SyncHub.swift` (GPL-3.0-only header like the sibling files). Responsibilities:
 - Observe the session through the existing client or event subscription (`sync.state`), and create or retire the hub's internal routing table `[deviceID: PlayerSession]`.
-- Parse `JIDR_SYNC:` lines from the leader's `PlayerSession` stderr handling (add a case beside the `JIDR_SCRIPT` parsing in `PlayerSession.swift`).
+- Parse `MIKO_SYNC:` lines from the leader's `PlayerSession` stderr handling (add a case beside the `MIKO_SCRIPT` parsing in `PlayerSession.swift`).
 - For each event, per follower: apply `adapt` (Swift port of the tiny stretch or letterbox rule, or call the Rust function through the bridge. Keep **one source of truth**: preferably do the adaptation in the follower bridge using `leader_display` sent with `SyncMode`, so Swift just forwards bytes).
 - Apply optional jitter, write the stdin line, and track per-follower queue depth. Implement the coalescing policy from M1 (port or call into the bridge). Report health to the daemon with `sync.report` at most 2 times per second.
 - Ensure background player sessions exist for followers and are torn down on stop if the hub created them.
@@ -147,10 +147,10 @@ Layout (top to bottom):
 
 **Localization**: all strings via the existing mechanism. Add Chinese and English entries in `Resources/*.lproj/Localizable.strings` (and the `t(zh, en, language)` pattern used in the player), then pass the gate in `test.sh`. Messages for new error codes belong in `OperationMessages.swift`.
 
-**Snapshots**: add scenes to `Tests/Snapshot/main.swift` and run `bash apps/jidr-swiftui/snapshot.sh --check --only sync-panel-*` for: empty (no running devices), selecting, active with 3 devices, a follower error, and dark mode. Do not use `--all` unless a shared token changed.
+**Snapshots**: add scenes to `Tests/Snapshot/main.swift` and run `bash apps/miko-swiftui/snapshot.sh --check --only sync-panel-*` for: empty (no running devices), selecting, active with 3 devices, a follower error, and dark mode. Do not use `--all` unless a shared token changed.
 
 ### M7. End-to-end and performance verification
-- Emulator-feature tests (`--features emulator`) in the crate that owns the integration: start 2 real emulators, start a session, inject a tap on the leader, and assert (via `adb shell dumpsys input` or a tiny test app that logs touches) that the follower received the tap at the matching position. Gate by `JIDR_TEST_SDK` and `JIDR_TEST_IMAGE`.
+- Emulator-feature tests (`--features emulator`) in the crate that owns the integration: start 2 real emulators, start a session, inject a tap on the leader, and assert (via `adb shell dumpsys input` or a tiny test app that logs touches) that the follower received the tap at the matching position. Gate by `MIKO_TEST_SDK` and `MIKO_TEST_IMAGE`.
 - Latency budget: leader event to follower injection p95 ≤ 40 ms on an Apple Silicon Mac with 4 devices, measured with timestamps added to the `seq` records (debug-only). Record numbers in `docs/sync.md` and in the PR. If a device isn't available, say the real-device check was not run.
 - Stress: 8 followers with continuous swipe for 5 minutes, with no unbounded memory growth and no stuck held inputs after stop.
 - Fault tests: kill a follower emulator mid-session, quit a follower bridge, stop the daemon, and close the leader window. Each must end in a defined state with no stuck touch.
@@ -169,7 +169,7 @@ Layout (top to bottom):
   "sync_tool_keys": true, "lock_followers": true, "jitter_ms": 0 }
 
 // stderr from the leader bridge
-JIDR_SYNC:{"seq":42,"event":{"type":"touch","x":0.51,"y":0.37,"down":true}}
+MIKO_SYNC:{"seq":42,"event":{"type":"touch","x":0.51,"y":0.37,"down":true}}
 
 // stdin to a follower bridge
 {"type":"sync_mode","role":"follower","lock":true,"leader_display":{"width":1080,"height":2400},"adaptation":"stretch"}
@@ -202,12 +202,12 @@ JIDR_SYNC:{"seq":42,"event":{"type":"touch","x":0.51,"y":0.37,"down":true}}
 ## 8. Definition of done (checklist)
 
 - [ ] D45 added, `docs/sync.md` written
-- [ ] `jidr-sync` crate with tests, adaptation property tests, coalescer guarantees
+- [ ] `miko-sync` crate with tests, adaptation property tests, coalescer guarantees
 - [ ] Daemon `sync.*` commands, events and error codes, with protocol docs regenerated and changelog rows added
 - [ ] CLI, MCP and skills updated, `cargo xtask skills-check` passes
 - [ ] Bridge leader/follower modes, loop guard, release on teardown, script/sync mutual exclusion, tests
 - [ ] SyncHub with fault isolation, and tests
 - [ ] Sync panel and in-player indicators in liquid-glass style, with Reduce Transparency and Motion fallbacks, light and dark, localization gate passing, snapshots checked
 - [ ] Emulator e2e with two devices, latency and stress numbers recorded (or the gap stated honestly)
-- [ ] `cargo xtask ci`, `bash apps/jidr-swiftui/test.sh` and `cargo xtask release --rehearsal` all pass
+- [ ] `cargo xtask ci`, `bash apps/miko-swiftui/test.sh` and `cargo xtask release --rehearsal` all pass
 - [ ] No `unwrap`, `expect` or `panic` outside tests, and every bug fix has a regression test

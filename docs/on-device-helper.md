@@ -1,6 +1,6 @@
 # On-device helper and packet loss
 
-JIdr builds a small Apache-2.0 Rust helper for the Android guest. It starts on
+Miko builds a small Apache-2.0 Rust helper for the Android guest. It starts on
 demand under Shell Root or Magisk, exposes fixed typed operations over an
 abstract Unix socket, and is reached through an adb forward on host loopback.
 The guest checks peer credentials and accepts only root and the adb shell;
@@ -10,7 +10,7 @@ adapted from upstream Jidr's [helper implementation](https://github.com/jidr-dev
 
 `network.shaping.set` controls egress packet loss using the guest's `tc`
 and `netem` on interfaces with an IPv4 default route. It needs a running,
-rooted device and kernel support for netem. Jidr stores the requested packet
+rooted device and kernel support for netem. Miko stores the requested packet
 loss and DNS settings and attempts to restore them after boot. Slow or failed
 DNS is supported on ports 53 and 853. Changing interfaces or routes may require applying
 the setting again. A partial failure across interfaces can leave some changed;

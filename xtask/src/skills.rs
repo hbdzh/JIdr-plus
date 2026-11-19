@@ -2,8 +2,8 @@
 //!
 //! Every `skills/<name>/SKILL.md` starts with YAML frontmatter: a `name` equal
 //! to its folder and a `description` (at most 1024 characters) saying when to
-//! use the skill. Every `jidr …` command in a fenced shell block must parse
-//! against the real CLI, and every `jidr call <method>` must name a command in
+//! use the skill. Every `miko …` command in a fenced shell block must parse
+//! against the real CLI, and every `miko call <method>` must name a command in
 //! the protocol reference, so a renamed subcommand, flag or method fails CI.
 
 use std::collections::BTreeSet;
@@ -15,9 +15,9 @@ use clap::error::ErrorKind;
 use crate::workspace_root;
 
 /// The CLI's clap definition, compiled in as-is. Only `Cli::try_parse_from` is
-/// used here; the parsed fields are read by the `jidr` binary itself.
+/// used here; the parsed fields are read by the `miko` binary itself.
 #[allow(dead_code)]
-#[path = "../../apps/jidr/src/cli.rs"]
+#[path = "../../apps/miko/src/cli.rs"]
 mod cli;
 
 const MAX_DESCRIPTION: usize = 1024;
@@ -98,7 +98,7 @@ pub fn check_skill(folder: &str, text: &str, methods: &BTreeSet<String>) -> Vec<
             }
         }
     }
-    for (line, cmd) in jidr_commands(text) {
+    for (line, cmd) in miko_commands(text) {
         if let Err(e) = check_command(&cmd, methods) {
             problems.push(format!("line {line}: `{}`: {e}", cmd.join(" ")));
         }
@@ -166,10 +166,10 @@ fn valid_name(name: &str) -> bool {
         && !name.contains("--")
 }
 
-/// Every command line in a fenced shell block that runs `jidr`, as words
-/// (without the `jidr`), with its 1-based line number. Shell operators split a
+/// Every command line in a fenced shell block that runs `miko`, as words
+/// (without the `miko`), with its 1-based line number. Shell operators split a
 /// line into commands; comments and redirections are dropped.
-fn jidr_commands(text: &str) -> Vec<(usize, Vec<String>)> {
+fn miko_commands(text: &str) -> Vec<(usize, Vec<String>)> {
     let mut out = Vec::new();
     let mut in_shell = false;
     let mut in_fence = false;
@@ -199,7 +199,7 @@ fn jidr_commands(text: &str) -> Vec<(usize, Vec<String>)> {
         }
         joined.push_str(line);
         for cmd in commands(&joined) {
-            if cmd.first().map(String::as_str) == Some("jidr") {
+            if cmd.first().map(String::as_str) == Some("miko") {
                 out.push((start, cmd[1..].to_vec()));
             }
         }
@@ -316,10 +316,10 @@ fn is_assignment(word: &str) -> bool {
     })
 }
 
-/// Parses `jidr <args>` with the real clap definition; `jidr call <method>`
+/// Parses `miko <args>` with the real clap definition; `miko call <method>`
 /// must also name a protocol command.
 fn check_command(args: &[String], methods: &BTreeSet<String>) -> std::result::Result<(), String> {
-    let argv = std::iter::once("jidr").chain(args.iter().map(String::as_str));
+    let argv = std::iter::once("miko").chain(args.iter().map(String::as_str));
     match cli::Cli::try_parse_from(argv) {
         Ok(parsed) => match parsed.cmd {
             cli::Cmd::Call { method, .. } if !methods.contains(&method) => {
@@ -362,13 +362,13 @@ mod tests {
         format!("---\n{frontmatter}\n---\n\n# Title\n\n{body}")
     }
 
-    const OK_FM: &str = "name: jidr\ndescription: Use when the user wants an Android emulator.";
+    const OK_FM: &str = "name: miko\ndescription: Use when the user wants an Android emulator.";
 
     #[test]
     fn a_valid_skill_passes() {
-        let body = "```bash\njidr device list\njidr --json call media.screenshot '{\"device\":\"Phone\"}'\n```\n";
+        let body = "```bash\nmiko device list\nmiko --json call media.screenshot '{\"device\":\"Phone\"}'\n```\n";
         assert_eq!(
-            check_skill("jidr", &skill(OK_FM, body), &methods()),
+            check_skill("miko", &skill(OK_FM, body), &methods()),
             Vec::<String>::new()
         );
     }
@@ -376,18 +376,18 @@ mod tests {
     #[test]
     fn name_must_match_the_folder() {
         let p = check_skill(
-            "jidr",
-            &skill("name: jidr-basics\ndescription: x", ""),
+            "miko",
+            &skill("name: miko-basics\ndescription: x", ""),
             &methods(),
         );
-        assert_eq!(p, ["name `jidr-basics` must match the folder `jidr`"]);
+        assert_eq!(p, ["name `miko-basics` must match the folder `miko`"]);
     }
 
     #[test]
     fn name_must_follow_the_spec() {
         let p = check_skill(
-            "Jidr_X",
-            &skill("name: Jidr_X\ndescription: x", ""),
+            "Miko_X",
+            &skill("name: Miko_X\ndescription: x", ""),
             &methods(),
         );
         assert!(p[0].contains("lowercase letters"), "{p:?}");
@@ -395,51 +395,51 @@ mod tests {
 
     #[test]
     fn description_is_required() {
-        let p = check_skill("jidr", &skill("name: jidr", ""), &methods());
+        let p = check_skill("miko", &skill("name: miko", ""), &methods());
         assert_eq!(p, ["frontmatter has no `description`"]);
     }
 
     #[test]
     fn description_is_at_most_1024_chars() {
-        let fm = format!("name: jidr\ndescription: {}", "a".repeat(1025));
-        let p = check_skill("jidr", &skill(&fm, ""), &methods());
+        let fm = format!("name: miko\ndescription: {}", "a".repeat(1025));
+        let p = check_skill("miko", &skill(&fm, ""), &methods());
         assert_eq!(p, ["description is 1025 characters (max 1024)"]);
     }
 
     #[test]
     fn frontmatter_is_required() {
-        let p = check_skill("jidr", "# Jidr\n", &methods());
+        let p = check_skill("miko", "# Miko\n", &methods());
         assert_eq!(p, ["must start with `---` YAML frontmatter"]);
     }
 
     #[test]
     fn quoted_values_are_unquoted() {
-        let fm = frontmatter("---\nname: \"jidr\"\ndescription: 'it''s fine'\n---\n").unwrap();
-        assert_eq!(fm.name.as_deref(), Some("jidr"));
+        let fm = frontmatter("---\nname: \"miko\"\ndescription: 'it''s fine'\n---\n").unwrap();
+        assert_eq!(fm.name.as_deref(), Some("miko"));
         assert_eq!(fm.description.as_deref(), Some("it's fine"));
     }
 
     #[test]
     fn an_unknown_subcommand_fails() {
-        let body = "```bash\njidr device lst\n```\n";
-        let p = check_skill("jidr", &skill(OK_FM, body), &methods());
+        let body = "```bash\nmiko device lst\n```\n";
+        let p = check_skill("miko", &skill(OK_FM, body), &methods());
         assert_eq!(p.len(), 1, "{p:?}");
         assert!(p[0].starts_with("line 9: `device lst`:"), "{p:?}");
     }
 
     #[test]
     fn an_unknown_flag_fails() {
-        let body = "```sh\njidr device start Phone --wait\n```\n";
+        let body = "```sh\nmiko device start Phone --wait\n```\n";
         assert_eq!(
-            check_skill("jidr", &skill(OK_FM, body), &methods()).len(),
+            check_skill("miko", &skill(OK_FM, body), &methods()).len(),
             1
         );
     }
 
     #[test]
     fn an_unknown_protocol_method_fails() {
-        let body = "```bash\njidr call media.screenshoot '{}'\n```\n";
-        let p = check_skill("jidr", &skill(OK_FM, body), &methods());
+        let body = "```bash\nmiko call media.screenshoot '{}'\n```\n";
+        let p = check_skill("miko", &skill(OK_FM, body), &methods());
         assert!(
             p[0].contains("`media.screenshoot` is not a protocol command"),
             "{p:?}"
@@ -448,31 +448,31 @@ mod tests {
 
     #[test]
     fn non_shell_fences_are_ignored() {
-        let body = "```json\njidr nonsense\n```\n\njidr nonsense outside a fence\n";
-        assert!(check_skill("jidr", &skill(OK_FM, body), &methods()).is_empty());
+        let body = "```json\nmiko nonsense\n```\n\nmiko nonsense outside a fence\n";
+        assert!(check_skill("miko", &skill(OK_FM, body), &methods()).is_empty());
     }
 
     #[test]
     fn commands_split_on_operators_and_drop_comments_and_redirections() {
         let cmds = commands(
-            r#"SERIAL=x jidr device list 2>/dev/null | grep "a b" && echo $(jidr profile list) # jidr bogus"#,
+            r#"SERIAL=x miko device list 2>/dev/null | grep "a b" && echo $(miko profile list) # miko bogus"#,
         );
         assert_eq!(
             cmds,
             [
-                vec!["jidr", "device", "list"],
+                vec!["miko", "device", "list"],
                 vec!["grep", "a b"],
                 vec!["echo"],
-                vec!["jidr", "profile", "list"],
+                vec!["miko", "profile", "list"],
             ]
         );
     }
 
     #[test]
     fn continuation_lines_are_joined() {
-        let text = "```bash\njidr device create Phone \\\n  --image 35\n```\n";
+        let text = "```bash\nmiko device create Phone \\\n  --image 35\n```\n";
         assert_eq!(
-            jidr_commands(text),
+            miko_commands(text),
             [(
                 2,
                 vec![

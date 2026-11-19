@@ -1,6 +1,6 @@
 # Pinned Magisk releases (D30). The root engine downloads the first entry at
 # runtime and checks its SHA-256 before anything is baked into a ramdisk.
-# Magisk is GPL-3.0-only, so Jidr never bundles it: it is fetched from the
+# Magisk is GPL-3.0-only, so Miko never bundles it: it is fetched from the
 # official GitHub release, and the licence and source link are shown to the
 # user before the download.
 #

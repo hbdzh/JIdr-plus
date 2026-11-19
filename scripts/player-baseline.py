@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Release baseline on a disposable real emulator. Never uses the normal Jidr home."""
+"""Release baseline on a disposable real emulator. Never uses the normal Miko home."""
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -85,26 +85,26 @@ def main():
     out = (args.out or ROOT / "target/performance" / datetime.now(timezone.utc).strftime("baseline-%Y%m%dT%H%M%SZ")).resolve()
     out.mkdir(parents=True, exist_ok=False)
     env = os.environ.copy()
-    for key in ["JIDR_HOME", "JIDR_CENTER_FIXTURE", "JIDR_PLAYER_FIXTURE", "JIDR_UI_PREVIEW", "ANDROID_AVD_HOME",
+    for key in ["MIKO_HOME", "MIKO_CENTER_FIXTURE", "MIKO_PLAYER_FIXTURE", "MIKO_UI_PREVIEW", "ANDROID_AVD_HOME",
                 "ANDROID_USER_HOME", "ANDROID_EMULATOR_HOME", "ANDROID_SDK_HOME"]:
         env.pop(key, None)
-    env.pop('JIDR_PLAYER_FRAME_TRANSPORT', None)
-    env.pop('JIDR_PLAYER_INPUT_SCHEDULER', None)
-    env.pop('JIDR_PLAYER_INPUT_TRACE', None)
-    env["JIDR_BENCH_PROFILE"] = "release"
-    env.update(ANDROID_HOME=str(sdk), JIDR_TEST_SDK=str(sdk))
+    env.pop('MIKO_PLAYER_FRAME_TRANSPORT', None)
+    env.pop('MIKO_PLAYER_INPUT_SCHEDULER', None)
+    env.pop('MIKO_PLAYER_INPUT_TRACE', None)
+    env["MIKO_BENCH_PROFILE"] = "release"
+    env.update(ANDROID_HOME=str(sdk), MIKO_TEST_SDK=str(sdk))
     # Build before booting, so compilation cannot contaminate the timing runs.
     with (out / "build.log").open("w") as log:
-        subprocess.run(["cargo", "build", "--release", "--locked", "-p", "jidr", "-p", "jidr-swiftui-bridge"],
+        subprocess.run(["cargo", "build", "--release", "--locked", "-p", "miko", "-p", "miko-swiftui-bridge"],
                        cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
-        subprocess.run(["bash", "apps/jidr-swiftui/bench-player.sh", "--self-test"],
+        subprocess.run(["bash", "apps/miko-swiftui/bench-player.sh", "--self-test"],
                        cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
         if args.input_smoke:
             subprocess.run([sys.executable,'scripts/build-input-probe.py','--sdk',str(args.build_sdk or sdk),
                             '--out',str(out/'input-probe')],cwd=ROOT,env=env,stdout=log,stderr=subprocess.STDOUT,check=True)
-    cli = ROOT / "target/release/jidr"
-    home = Path(tempfile.mkdtemp(prefix="jidr-perf.", dir="/private/tmp"))
-    env.update(JIDR_HOME=str(home), JIDR_DAEMON_BIN=str(cli), ANDROID_HOME=str(sdk), JIDR_TEST_SDK=str(sdk))
+    cli = ROOT / "target/release/miko"
+    home = Path(tempfile.mkdtemp(prefix="miko-perf.", dir="/private/tmp"))
+    env.update(MIKO_HOME=str(home), MIKO_DAEMON_BIN=str(cli), ANDROID_HOME=str(sdk), MIKO_TEST_SDK=str(sdk))
     env.update(ANDROID_USER_HOME=str(home / "android-user"), ANDROID_EMULATOR_HOME=str(home / "emulator-home"))
     initial_ramdisk_hash = hashlib.sha256(ramdisk.read_bytes()).hexdigest()
     manifest = {
@@ -131,10 +131,10 @@ def main():
         result = subprocess.run([str(cli), "--json", *arguments], env=env, cwd=ROOT,
                                 capture_output=True, text=True, timeout=timeout)
         if result.returncode:
-            raise RuntimeError(f"jidr {arguments[0]} failed: {result.stderr[-1000:]}")
+            raise RuntimeError(f"miko {arguments[0]} failed: {result.stderr[-1000:]}")
         reply = json.loads(result.stdout.strip().splitlines()[-1])
         if not reply.get("ok"):
-            raise RuntimeError(f"jidr {arguments[0]} failed: {reply.get('error')}")
+            raise RuntimeError(f"miko {arguments[0]} failed: {reply.get('error')}")
         return reply["result"]
 
     try:
@@ -170,20 +170,20 @@ def main():
         plan = input_run_plan(args.runs) if args.compare_input else frame_run_plan(args.runs, args.compare_frames)
         for run, mode in plan:
             if args.animated_input:
-                fixture_adb('shell','am','force-stop','local.jidr.inputprobe')
-                fixture_adb('shell','am','start','-n','local.jidr.inputprobe/.MainActivity','--ez','trace','false','--ez','no_copy','true')
+                fixture_adb('shell','am','force-stop','local.miko.inputprobe')
+                fixture_adb('shell','am','start','-n','local.miko.inputprobe/.MainActivity','--ez','trace','false','--ez','no_copy','true')
             else:
                 call("call", "app.launch", json.dumps({"device": device, "package": "com.android.settings"}))
             name = f"run-{run}-{mode}" if args.compare_frames or args.compare_input else f"run-{run}"
             report = out / f"{name}.json"
             frame_mode = mode if args.compare_frames else 'shared'
             scheduler = mode if args.compare_input else 'fifo'
-            env['JIDR_PLAYER_FRAME_TRANSPORT'] = frame_mode
-            env['JIDR_PLAYER_INPUT_SCHEDULER'] = scheduler
+            env['MIKO_PLAYER_FRAME_TRANSPORT'] = frame_mode
+            env['MIKO_PLAYER_INPUT_SCHEDULER'] = scheduler
             print(f"Release run {run}/{args.runs} ({mode}): real player, {args.seconds}s fps, {args.taps} taps, 3 restores", flush=True)
             with (out / f"{name}.log").open("w") as log:
                 extra = ['--latency-tool','volume_up','--clipboard-probes','3'] if args.animated_input else []
-                subprocess.run(["bash", "apps/jidr-swiftui/bench-player.sh", "--device", device,
+                subprocess.run(["bash", "apps/miko-swiftui/bench-player.sh", "--device", device,
                                 "--seconds", str(args.seconds), "--taps", str(args.taps), "--settle", "7",
                                 "--fps-drive", "--restore-probes", "3", "--json-out", str(report), *extra],
                                cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=240, check=True)
@@ -205,7 +205,7 @@ def main():
                   "touch p95 ms:", value["latency"]["p95_ms"], flush=True)
         manifest['collection_complete'] = True
         if args.animated_input:
-            fixture_adb('uninstall','local.jidr.inputprobe')
+            fixture_adb('uninstall','local.miko.inputprobe')
         success = not manifest['probe_failures']
     finally:
         cleanup = {}

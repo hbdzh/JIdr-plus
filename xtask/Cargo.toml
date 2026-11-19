@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-description = "Jidr build automation: ci, license-check, skills-check, e2e-mac, release."
+description = "Miko build automation: ci, license-check, skills-check, e2e-mac, release."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,7 +11,7 @@ publish.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-# skills-check compiles apps/jidr/src/cli.rs to parse the skills' commands.
+# skills-check compiles apps/miko/src/cli.rs to parse the skills' commands.
 clap.workspace = true
 clap_complete.workspace = true
 serde.workspace = true

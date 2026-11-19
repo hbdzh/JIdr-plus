@@ -28,7 +28,7 @@ usage: cargo xtask release [--dry-run] [--scan] [--out <dir>] [--rehearsal]
 
 /// Env var with the Developer ID identity, e.g.
 /// `Developer ID Application: Name (TEAMID)` (Phase 12b).
-const SIGNING_IDENTITY_ENV: &str = "JIDR_SIGNING_IDENTITY";
+const SIGNING_IDENTITY_ENV: &str = "MIKO_SIGNING_IDENTITY";
 
 #[derive(Debug, Default, PartialEq)]
 struct Options {
@@ -105,12 +105,12 @@ fn run_swiftui(
             "--release",
             "--locked",
             "-p",
-            "jidr",
+            "miko",
             "-p",
-            "jidr-swiftui-bridge",
+            "miko-swiftui-bridge",
         ],
     )?;
-    for helper in ["jidr", "jidr-center-bridge", "jidr-swiftui-bridge"] {
+    for helper in ["miko", "miko-center-bridge", "miko-swiftui-bridge"] {
         let path = bin.join(helper);
         if !path.is_file() {
             bail!("cargo build did not produce {}", path.display());
@@ -119,12 +119,12 @@ fn run_swiftui(
     println!("xtask: building the SwiftUI center with `swiftc -O`");
     crate::run(
         "bash",
-        &[&path_str(&root.join("apps/jidr-swiftui/build-release.sh"))?],
+        &[&path_str(&root.join("apps/miko-swiftui/build-release.sh"))?],
     )?;
-    let center = target.join("swiftui-center-release/Jidr");
+    let center = target.join("swiftui-center-release/Miko");
     if !center.is_file() {
         bail!(
-            "apps/jidr-swiftui/build-release.sh did not produce {}",
+            "apps/miko-swiftui/build-release.sh did not produce {}",
             center.display()
         );
     }
@@ -137,17 +137,17 @@ fn run_swiftui(
     assemble_swiftui_app(root, &bin, &center, &app, version)?;
     copy(
         &helper,
-        &app.join("Contents/Resources/helper/aarch64/jidr-helper"),
+        &app.join("Contents/Resources/helper/aarch64/miko-helper"),
     )?;
     let identity = std::env::var(SIGNING_IDENTITY_ENV).ok();
     let signing = signing_mode(identity.as_deref(), opts.dry_run, opts.rehearsal);
     sign_swiftui(&app, &signing)?;
 
-    let mcpb_name = format!("jidr-mcp-{version}-darwin-arm64.mcpb");
+    let mcpb_name = format!("miko-mcp-{version}-darwin-arm64.mcpb");
     let mcpb_dir = out.join("mcpb");
     pack_mcpb(
         root,
-        &app.join("Contents/Helpers/jidr"),
+        &app.join("Contents/Helpers/miko"),
         &helper,
         &mcpb_dir,
         &out.join(&mcpb_name),
@@ -166,7 +166,7 @@ fn run_swiftui(
     }
     // The mounted image is the artifact a user installs; check it there, and
     // in rehearsal also install/launch/uninstall it from an isolated home.
-    let mountpoint = PathBuf::from("/tmp").join(format!("jidr-release-mnt-{}", std::process::id()));
+    let mountpoint = PathBuf::from("/tmp").join(format!("miko-release-mnt-{}", std::process::id()));
     let evidence = verify_swiftui_dmg(&dmg, &mountpoint, version, opts.scan, opts.rehearsal)?;
     if !findings.is_empty() {
         for f in &findings {
@@ -257,7 +257,7 @@ pub(crate) fn target_dir(root: &Path) -> PathBuf {
     }
 }
 
-/// The version of the `jidr` package (the workspace version).
+/// The version of the `miko` package (the workspace version).
 fn workspace_version() -> Result<String> {
     let out = Command::new(cargo())
         .args(["metadata", "--no-deps", "--format-version", "1"])
@@ -270,10 +270,10 @@ fn workspace_version() -> Result<String> {
     let meta: serde_json::Value = serde_json::from_slice(&out.stdout)?;
     meta["packages"]
         .as_array()
-        .and_then(|pkgs| pkgs.iter().find(|p| p["name"] == "jidr"))
+        .and_then(|pkgs| pkgs.iter().find(|p| p["name"] == "miko"))
         .and_then(|p| p["version"].as_str())
         .map(str::to_owned)
-        .context("package `jidr` not found in cargo metadata")
+        .context("package `miko` not found in cargo metadata")
 }
 
 fn tool(program: &str, args: &[&str]) -> Result<()> {
@@ -327,8 +327,8 @@ fn copy(from: &Path, to: &Path) -> Result<()> {
 }
 
 /// `miko simulator.app` layout for the SwiftUI device center (ADR-0003). It keeps the
-/// existing `ly.jidr.Jidr` bundle identity, puts the device center in
-/// `Contents/MacOS/Jidr`, the three Rust helpers in `Contents/Helpers/`, and
+/// existing `ly.miko.Miko` bundle identity, puts the device center in
+/// `Contents/MacOS/Miko`, the three Rust helpers in `Contents/Helpers/`, and
 /// the Workbench fonts (Geist + Noto Kufi Arabic and their OFL texts) in
 /// `Contents/Resources/fonts/` for `ATSApplicationFontsPath`. The standalone
 /// player app is a development/test entry and is deliberately absent.
@@ -340,32 +340,32 @@ fn assemble_swiftui_app(
     version: &str,
 ) -> Result<()> {
     let contents = app.join("Contents");
-    copy(center, &contents.join("MacOS/Jidr"))?;
-    for helper in ["jidr", "jidr-center-bridge", "jidr-swiftui-bridge"] {
+    copy(center, &contents.join("MacOS/Miko"))?;
+    for helper in ["miko", "miko-center-bridge", "miko-swiftui-bridge"] {
         copy(&bin.join(helper), &contents.join("Helpers").join(helper))?;
     }
     let resources = contents.join("Resources");
     copy(
-        &root.join("apps/jidr-swiftui/Resources/Jidr.icns"),
-        &resources.join("Jidr.icns"),
+        &root.join("apps/miko-swiftui/Resources/Miko.icns"),
+        &resources.join("Miko.icns"),
     )?;
     for (from, name) in [
         (
-            "apps/jidr-swiftui/Resources/device-list-generated.png",
+            "apps/miko-swiftui/Resources/device-list-generated.png",
             "device-list.png",
         ),
         (
-            "apps/jidr-swiftui/Resources/device-detail-generated.png",
+            "apps/miko-swiftui/Resources/device-detail-generated.png",
             "device-detail.png",
         ),
         (
-            "apps/jidr-swiftui/Resources/device-stopped.png",
+            "apps/miko-swiftui/Resources/device-stopped.png",
             "device-stopped.png",
         ),
     ] {
         copy(&root.join(from), &resources.join(name))?;
     }
-    let fonts = root.join("apps/jidr-swiftui/Resources/fonts");
+    let fonts = root.join("apps/miko-swiftui/Resources/fonts");
     let mut font_count = 0;
     for entry in std::fs::read_dir(&fonts)
         .with_context(|| format!("reading the Workbench fonts in {}", fonts.display()))?
@@ -392,13 +392,13 @@ fn assemble_swiftui_app(
     for lproj in ["en", "zh-Hans"] {
         copy(
             &root.join(format!(
-                "apps/jidr-swiftui/Resources/{lproj}.lproj/Localizable.strings"
+                "apps/miko-swiftui/Resources/{lproj}.lproj/Localizable.strings"
             )),
             &resources.join(format!("{lproj}.lproj/Localizable.strings")),
         )?;
         copy(
             &root.join(format!(
-                "apps/jidr-swiftui/Resources/{lproj}.lproj/InfoPlist.strings"
+                "apps/miko-swiftui/Resources/{lproj}.lproj/InfoPlist.strings"
             )),
             &resources.join(format!("{lproj}.lproj/InfoPlist.strings")),
         )?;
@@ -406,34 +406,34 @@ fn assemble_swiftui_app(
     for (from, name) in [
         ("LICENSE-APACHE", "LICENSE-APACHE"),
         ("LICENSE-MUSL", "LICENSE-MUSL"),
-        ("apps/jidr-swiftui/LICENSE-GPL", "LICENSE-GPL"),
+        ("apps/miko-swiftui/LICENSE-GPL", "LICENSE-GPL"),
         ("NOTICE", "NOTICE"),
     ] {
         copy(&root.join(from), &resources.join("licenses").join(name))?;
     }
-    let template = std::fs::read_to_string(root.join("packaging/swiftui/Jidr-Info.plist.in"))
-        .context("reading packaging/swiftui/Jidr-Info.plist.in")?;
+    let template = std::fs::read_to_string(root.join("packaging/swiftui/Miko-Info.plist.in"))
+        .context("reading packaging/swiftui/Miko-Info.plist.in")?;
     let plist = contents.join("Info.plist");
     std::fs::write(
         &plist,
-        render_version(&template, version, "Jidr-Info.plist.in")?,
+        render_version(&template, version, "Miko-Info.plist.in")?,
     )?;
     std::fs::write(contents.join("PkgInfo"), "APPL????")?;
     tool("plutil", &["-lint", &path_str(&plist)?])
 }
 
-/// An MCPB bundle (a zip: `manifest.json`, `server/jidr`, icon, licences)
+/// An MCPB bundle (a zip: `manifest.json`, `server/miko`, icon, licences)
 /// for Claude Desktop and the MCP registries.
 fn pack_mcpb(
     root: &Path,
-    jidr: &Path,
+    miko: &Path,
     helper: &Path,
     dir: &Path,
     mcpb: &Path,
     version: &str,
 ) -> Result<()> {
-    copy(jidr, &dir.join("server/jidr"))?;
-    copy(helper, &dir.join("server/helper/aarch64/jidr-helper"))?;
+    copy(miko, &dir.join("server/miko"))?;
+    copy(helper, &dir.join("server/helper/aarch64/miko-helper"))?;
     for (from, name) in [
         ("assets/brand/app-icon-512.png", "icon.png"),
         ("LICENSE-APACHE", "LICENSE-APACHE"),
@@ -498,7 +498,7 @@ fn warn_ad_hoc(message: &str) {
 
 /// Signs the SwiftUI app inside-out; there is no `--deep`. The Developer ID
 /// path deliberately refuses for now: `packaging/macos/sign.sh` only signs
-/// `Helpers/jidr`, `MacOS/Jidr` and the bundle, so a signed SwiftUI release
+/// `Helpers/miko`, `MacOS/Miko` and the bundle, so a signed SwiftUI release
 /// would ship two ad-hoc/unsigned bridge helpers. Extending `sign.sh` and
 /// notarizing is M5b work; until then the rehearsal reports it as unverified
 /// instead of claiming a passing signature.
@@ -506,7 +506,7 @@ fn sign_swiftui(app: &Path, signing: &Signing) -> Result<()> {
     match signing {
         Signing::DeveloperId => bail!(
             "SwiftUI Developer ID signing is not wired yet: packaging/macos/sign.sh signs \
-             `Contents/Helpers/jidr`, `Contents/MacOS/Jidr` and the bundle, not the two bridge \
+             `Contents/Helpers/miko`, `Contents/MacOS/Miko` and the bundle, not the two bridge \
              helpers. Extend sign.sh (and then notarization) before signing a `cargo xtask release` \
              release with {SIGNING_IDENTITY_ENV}; the rehearsal uses ad-hoc signing and says so"
         ),
@@ -514,10 +514,10 @@ fn sign_swiftui(app: &Path, signing: &Signing) -> Result<()> {
             warn_ad_hoc(message);
             let contents = app.join("Contents");
             let nested = vec![
-                contents.join("Helpers/jidr"),
-                contents.join("Helpers/jidr-center-bridge"),
-                contents.join("Helpers/jidr-swiftui-bridge"),
-                contents.join("MacOS/Jidr"),
+                contents.join("Helpers/miko"),
+                contents.join("Helpers/miko-center-bridge"),
+                contents.join("Helpers/miko-swiftui-bridge"),
+                contents.join("MacOS/Miko"),
             ];
             for path in &nested {
                 tool(
@@ -786,10 +786,10 @@ fn verify_swiftui_dmg(
 fn check_swiftui_bundle(app: &Path, version: &str, evidence: &mut Evidence) -> Result<()> {
     let contents = app.join("Contents");
     for (relative, what) in [
-        ("MacOS/Jidr", "SwiftUI device center"),
-        ("Helpers/jidr", "CLI, daemon and MCP server"),
-        ("Helpers/jidr-center-bridge", "center bridge"),
-        ("Helpers/jidr-swiftui-bridge", "player bridge"),
+        ("MacOS/Miko", "SwiftUI device center"),
+        ("Helpers/miko", "CLI, daemon and MCP server"),
+        ("Helpers/miko-center-bridge", "center bridge"),
+        ("Helpers/miko-swiftui-bridge", "player bridge"),
     ] {
         let path = contents.join(relative);
         if !path_is_executable(&path) {
@@ -803,7 +803,7 @@ fn check_swiftui_bundle(app: &Path, version: &str, evidence: &mut Evidence) -> R
     }
     for (relative, why) in [
         (
-            "Helpers/JidrSwiftUIPrototype.app",
+            "Helpers/MikoSwiftUIPrototype.app",
             "ADR-0003: the production bundle must not ship the standalone player app",
         ),
         (
@@ -817,18 +817,18 @@ fn check_swiftui_bundle(app: &Path, version: &str, evidence: &mut Evidence) -> R
     }
     evidence.line(
         "Bundle structure (mounted DMG)",
-        "- PASS no `Helpers/JidrSwiftUIPrototype.app` (ADR-0003) and no M1 test-package sentinel",
+        "- PASS no `Helpers/MikoSwiftUIPrototype.app` (ADR-0003) and no M1 test-package sentinel",
     );
     let pkginfo = std::fs::read_to_string(contents.join("PkgInfo")).context("reading PkgInfo")?;
     if pkginfo.trim() != "APPL????" {
         bail!("unexpected PkgInfo content: {:?}", pkginfo.trim());
     }
     let resources = contents.join("Resources");
-    let icon = resources.join("Jidr.icns");
+    let icon = resources.join("Miko.icns");
     require_file(&icon, "the app icon")?;
     let icon_bytes = std::fs::read(&icon)?;
     if !icon_bytes.starts_with(b"icns") {
-        bail!("Jidr.icns has no `icns` magic");
+        bail!("Miko.icns has no `icns` magic");
     }
     for name in ["device-list.png", "device-detail.png", "device-stopped.png"] {
         let path = resources.join(name);
@@ -839,7 +839,7 @@ fn check_swiftui_bundle(app: &Path, version: &str, evidence: &mut Evidence) -> R
     }
     evidence.line(
         "Bundle structure (mounted DMG)",
-        "- PASS `Resources/Jidr.icns` (icns magic), `device-list.png`, `device-detail.png`, `device-stopped.png`",
+        "- PASS `Resources/Miko.icns` (icns magic), `device-list.png`, `device-detail.png`, `device-stopped.png`",
     );
     let fonts = resources.join("fonts");
     let mut ttf = 0;
@@ -905,9 +905,9 @@ fn check_swiftui_bundle(app: &Path, version: &str, evidence: &mut Evidence) -> R
     let plist = plist_json(&plist_path)?;
     let text_field = |key: &str| plist.get(key).and_then(Value::as_str).map(str::to_owned);
     let expected = [
-        ("CFBundleIdentifier", "ly.jidr.Jidr"),
-        ("CFBundleExecutable", "Jidr"),
-        ("CFBundleIconFile", "Jidr"),
+        ("CFBundleIdentifier", "ly.miko.Miko"),
+        ("CFBundleExecutable", "Miko"),
+        ("CFBundleIconFile", "Miko"),
         ("CFBundleShortVersionString", version),
         ("CFBundleVersion", version),
         ("LSMinimumSystemVersion", "13.0"),
@@ -939,8 +939,8 @@ fn check_swiftui_bundle(app: &Path, version: &str, evidence: &mut Evidence) -> R
     evidence.line(
         "Bundle structure (mounted DMG)",
         format!(
-            "- PASS `Info.plist`: `ly.jidr.Jidr` {version}, LSMinimumSystemVersion 13.0, \
-             NSHighResolutionCapable, ATSApplicationFontsPath=fonts, CFBundleIconFile=Jidr, \
+            "- PASS `Info.plist`: `ly.miko.Miko` {version}, LSMinimumSystemVersion 13.0, \
+             NSHighResolutionCapable, ATSApplicationFontsPath=fonts, CFBundleIconFile=Miko, \
              en + zh-Hans localisations"
         ),
     );
@@ -959,10 +959,10 @@ fn check_swiftui_signature(app: &Path, evidence: &mut Evidence) -> Result<()> {
         );
     }
     for relative in [
-        "Helpers/jidr",
-        "Helpers/jidr-center-bridge",
-        "Helpers/jidr-swiftui-bridge",
-        "MacOS/Jidr",
+        "Helpers/miko",
+        "Helpers/miko-center-bridge",
+        "Helpers/miko-swiftui-bridge",
+        "MacOS/Miko",
     ] {
         let path = app.join("Contents").join(relative);
         let check = capture("codesign", &["--verify", "--strict", &path_str(&path)?])?;
@@ -982,8 +982,8 @@ fn check_swiftui_signature(app: &Path, evidence: &mut Evidence) -> Result<()> {
     }
     evidence.line(
         "Signature (inside-out)",
-        "- PASS order: `Helpers/jidr`, `jidr-center-bridge`, `jidr-swiftui-bridge`, \
-         `MacOS/Jidr`, then `miko simulator.app`; no `--deep` in the signing step",
+        "- PASS order: `Helpers/miko`, `miko-center-bridge`, `miko-swiftui-bridge`, \
+         `MacOS/Miko`, then `miko simulator.app`; no `--deep` in the signing step",
     );
     evidence.line(
         "Signature (inside-out)",
@@ -999,14 +999,14 @@ fn check_swiftui_signature(app: &Path, evidence: &mut Evidence) -> Result<()> {
 }
 
 fn check_cli_from_dmg(app: &Path, version: &str, evidence: &mut Evidence) -> Result<()> {
-    let cli = app.join("Contents/Helpers/jidr");
+    let cli = app.join("Contents/Helpers/miko");
     let mut command = Command::new(&cli);
     command
         .arg("--version")
-        .env_remove("JIDR_HOME")
-        .env_remove("JIDR_DAEMON_BIN");
-    let captured = capture_command(command, "jidr --version from the DMG")?;
-    let expected = format!("jidr {version}");
+        .env_remove("MIKO_HOME")
+        .env_remove("MIKO_DAEMON_BIN");
+    let captured = capture_command(command, "miko --version from the DMG")?;
+    let expected = format!("miko {version}");
     if !captured.success || captured.output.trim() != expected {
         bail!(
             "the bundled CLI does not run from the mounted DMG (expected {expected:?}): {}",
@@ -1016,22 +1016,22 @@ fn check_cli_from_dmg(app: &Path, version: &str, evidence: &mut Evidence) -> Res
     evidence.line(
         "CLI from the DMG",
         format!(
-            "- PASS `Contents/Helpers/jidr --version` → `{expected}` (read-only mounted image)"
+            "- PASS `Contents/Helpers/miko --version` → `{expected}` (read-only mounted image)"
         ),
     );
     Ok(())
 }
 
 /// Installs the mounted app into a temporary directory, launches it with an
-/// isolated `JIDR_HOME`, checks the daemon auto-start and `daemon status`,
+/// isolated `MIKO_HOME`, checks the daemon auto-start and `daemon status`,
 /// verifies the real user home and `/Applications` were untouched, then runs
-/// `jidr uninstall --purge` in the isolated environment. Everything is
+/// `miko uninstall --purge` in the isolated environment. Everything is
 /// best-effort cleaned up; the checks themselves are hard requirements.
 fn rehearse_install(mounted_app: &Path, version: &str, evidence: &mut Evidence) -> Result<()> {
     // `/tmp` (not `temp_dir()`, which is `/var/folders/...` on macOS): the
     // daemon Unix socket path must stay below SUN_LEN, and the isolated home
     // lives under this directory.
-    let root = PathBuf::from("/tmp").join(format!("jidr-release-rehearsal-{}", std::process::id()));
+    let root = PathBuf::from("/tmp").join(format!("miko-release-rehearsal-{}", std::process::id()));
     let result = rehearse_install_inner(mounted_app, version, evidence, &root);
     kill_leftovers(&root).ok();
     let _ = std::fs::remove_dir_all(&root);
@@ -1093,7 +1093,7 @@ fn rehearse_install_inner(
         );
     }
 
-    let home = root.join("jidr-home");
+    let home = root.join("miko-home");
     let fake_home = root.join("user-home");
     std::fs::create_dir_all(&home)?;
     let real_home = std::env::var_os("HOME")
@@ -1101,7 +1101,7 @@ fn rehearse_install_inner(
         .filter(|path| path.is_absolute());
     let real_data = real_home
         .as_ref()
-        .map(|path| path.join("Library/Application Support/Jidr"));
+        .map(|path| path.join("Library/Application Support/miko"));
     let real_mcp: Vec<(String, Option<SystemTime>)> = real_home
         .as_ref()
         .map(|path| {
@@ -1147,7 +1147,7 @@ fn rehearse_install_inner(
     evidence.line(
         "Isolated launch (rehearsal)",
         format!(
-            "- PASS launched `Contents/MacOS/Jidr` with `JIDR_HOME={}` and no `JIDR_DAEMON_BIN`; \
+            "- PASS launched `Contents/MacOS/Miko` with `MIKO_HOME={}` and no `MIKO_DAEMON_BIN`; \
              the daemon socket appeared after {:.1}s",
             home.display(),
             started.elapsed().as_secs_f64()
@@ -1156,32 +1156,38 @@ fn rehearse_install_inner(
 
     let ps = capture("ps", &["-axo", "pid=,command="])?;
     let helpers = install_app.join("Contents/Helpers");
-    let bridge_marker = format!("{}/jidr-center-bridge", helpers.display());
-    let daemon_marker = format!("{}/jidr daemon", helpers.display());
+    let bridge_marker = format!("{}/miko-center-bridge", helpers.display());
+    let daemon_marker = format!("{}/miko daemon", helpers.display());
     if !ps.output.lines().any(|line| line.contains(&bridge_marker)) {
         bail!("the center bridge is not running from Contents/Helpers");
     }
     if !ps.output.lines().any(|line| line.contains(&daemon_marker)) {
-        bail!("the daemon was not auto-started from Contents/Helpers/jidr");
+        bail!("the daemon was not auto-started from Contents/Helpers/miko");
     }
     evidence.line(
         "Isolated launch (rehearsal)",
         "- PASS both the center bridge and the daemon run from `Contents/Helpers` \
-         (bundle-relative discovery, no development paths or `JIDR_DAEMON_BIN`)",
+         (bundle-relative discovery, no development paths or `MIKO_DAEMON_BIN`)",
     );
 
-    let cli = install_app.join("Contents/Helpers/jidr");
+    let cli = install_app.join("Contents/Helpers/miko");
     let status = capture_env(
         &path_str(&cli)?,
         &["--json", "daemon", "status"],
-        &[("JIDR_HOME", &home)],
-        &["JIDR_DAEMON_BIN"],
+        &[("MIKO_HOME", &home)],
+        &["MIKO_DAEMON_BIN"],
     )?;
     if !status.success {
-        bail!("`jidr --json daemon status` failed: {}", status.output);
+        bail!("`miko --json daemon status` failed: {}", status.output);
     }
     let status_json: Value =
         serde_json::from_str(&status.stdout).context("daemon status is not JSON")?;
+    if !has_supported_cli_envelope(&status_json) {
+        bail!(
+            "daemon status has an unexpected JSON envelope: {}",
+            status.output
+        );
+    }
     if status_json.get("ok").and_then(Value::as_bool) != Some(true) {
         bail!("daemon status is not ok: {}", status.output);
     }
@@ -1202,7 +1208,7 @@ fn rehearse_install_inner(
     evidence.line(
         "Isolated launch (rehearsal)",
         format!(
-            "- PASS bundled `jidr --json daemon status` → ok, version {reported_version}, \
+            "- PASS bundled `miko --json daemon status` → ok, version {reported_version}, \
              socket `{reported_socket}`"
         ),
     );
@@ -1213,14 +1219,14 @@ fn rehearse_install_inner(
 
     let after_data = real_data.as_deref().and_then(modified);
     if before_data != after_data {
-        bail!("the real ~/Library/Application Support/Jidr changed during the rehearsal");
+        bail!("the real ~/Library/Application Support/miko changed during the rehearsal");
     }
     evidence.line(
         "Isolation",
         if before_data.is_some() {
-            "- PASS real `~/Library/Application Support/Jidr` untouched (mtime unchanged)"
+            "- PASS real `~/Library/Application Support/miko` untouched (mtime unchanged)"
         } else {
-            "- PASS no real `~/Library/Application Support/Jidr` was created or touched"
+            "- PASS no real `~/Library/Application Support/miko` was created or touched"
         },
     );
     if before_app != modified(Path::new("/Applications/miko simulator.app")) {
@@ -1261,7 +1267,7 @@ fn uninstall_rehearsal(
     evidence: &mut Evidence,
 ) -> Result<()> {
     // Seed an MCP client config in the isolated HOME: the rehearsal should
-    // remove Jidr's entry, keep unrelated ones and write a backup. The real
+    // remove Miko's entry, keep unrelated ones and write a backup. The real
     // MCP configs are never opened because HOME is isolated.
     let fake_config = fake_home.join(".cursor/mcp.json");
     if let Some(parent) = fake_config.parent() {
@@ -1269,16 +1275,16 @@ fn uninstall_rehearsal(
     }
     std::fs::write(
         &fake_config,
-        r#"{"mcpServers":{"jidr":{"command":"jidr","args":["mcp"]},"keep":{"command":"other"}}}"#,
+        r#"{"mcpServers":{"miko":{"command":"miko","args":["mcp"]},"keep":{"command":"other"}}}"#,
     )?;
     let captured = capture_env(
         &path_str(cli)?,
         &["--json", "uninstall", "--purge", "--yes"],
-        &[("JIDR_HOME", home), ("HOME", fake_home)],
-        &["JIDR_DAEMON_BIN"],
+        &[("MIKO_HOME", home), ("HOME", fake_home)],
+        &["MIKO_DAEMON_BIN"],
     )?;
     if !captured.success {
-        bail!("`jidr uninstall --purge --yes` failed: {}", captured.output);
+        bail!("`miko uninstall --purge --yes` failed: {}", captured.output);
     }
     let json: Value = serde_json::from_str(&captured.stdout)
         .context("uninstall output is not JSON; expected --json")?;
@@ -1302,10 +1308,10 @@ fn uninstall_rehearsal(
     .with_context(|| format!("{} is not JSON after uninstall", fake_config.display()))?;
     if cleaned
         .get("mcpServers")
-        .and_then(|servers| servers.get("jidr"))
+        .and_then(|servers| servers.get("miko"))
         .is_some()
     {
-        bail!("uninstall --purge did not remove Jidr's MCP entry from the isolated HOME");
+        bail!("uninstall --purge did not remove Miko's MCP entry from the isolated HOME");
     }
     if cleaned
         .get("mcpServers")
@@ -1314,21 +1320,21 @@ fn uninstall_rehearsal(
     {
         bail!("uninstall --purge removed an unrelated MCP entry");
     }
-    if !fake_home.join(".cursor/mcp.json.jidr-backup").is_file() {
+    if !fake_home.join(".cursor/mcp.json.miko-backup").is_file() {
         bail!("uninstall --purge did not back up the MCP config it changed");
     }
     evidence.line(
         "Uninstall (rehearsal)",
         format!(
-            "- PASS `jidr --json uninstall --purge --yes` on the isolated HOME: ok, purged=true; \
+            "- PASS `miko --json uninstall --purge --yes` on the isolated HOME: ok, purged=true; \
              removed `{}/data`, `cache` and `logs`",
             home.display()
         ),
     );
     evidence.line(
         "Uninstall (rehearsal)",
-        "- PASS removed only Jidr's seeded MCP entry from the isolated `~/.cursor/mcp.json`, kept \
-         the unrelated entry and wrote the `.jidr-backup` file",
+        "- PASS removed only Miko's seeded MCP entry from the isolated `~/.cursor/mcp.json`, kept \
+         the unrelated entry and wrote the `.miko-backup` file",
     );
     Ok(())
 }
@@ -1339,12 +1345,12 @@ fn add_unverified(evidence: &mut Evidence) {
          credentials are present in this environment, so the rehearsal uses an ad-hoc \
          hardened-runtime signature and Gatekeeper rejects it as expected. `cargo xtask release` \
          deliberately refuses the Developer ID path until `packaging/macos/sign.sh` also signs \
-         `Contents/Helpers/jidr-center-bridge` and `jidr-swiftui-bridge` and the DMG branch runs \
+         `Contents/Helpers/miko-center-bridge` and `miko-swiftui-bridge` and the DMG branch runs \
          `notarytool`; until then sign.sh + notarization stay M5b work (D32: whether to ship an \
          unnotarized build is the maintainer's decision, never assumed here).",
     );
     evidence.unverified(
-        "- **Upgrade/downgrade between installs: NOT VERIFIED.** It needs a previous signed Jidr \
+        "- **Upgrade/downgrade between installs: NOT VERIFIED.** It needs a previous signed Miko \
          installer; this rehearsal installs, launches and uninstalls one fresh build only.",
     );
     evidence.unverified(
@@ -1368,18 +1374,18 @@ impl LaunchedApp {
         stdout: std::fs::File,
         stderr: std::fs::File,
     ) -> Result<Self> {
-        let executable = app.join("Contents/MacOS/Jidr");
+        let executable = app.join("Contents/MacOS/Miko");
         let child = Command::new(&executable)
-            .env("JIDR_HOME", home)
+            .env("MIKO_HOME", home)
             .env("HOME", fake_home)
-            .env_remove("JIDR_DAEMON_BIN")
+            .env_remove("MIKO_DAEMON_BIN")
             .stdout(Stdio::from(stdout))
             .stderr(Stdio::from(stderr))
             .spawn()
             .with_context(|| format!("launching {}", executable.display()))?;
         Ok(Self {
             child,
-            cli: app.join("Contents/Helpers/jidr"),
+            cli: app.join("Contents/Helpers/miko"),
             home: home.to_path_buf(),
             stopped: false,
         })
@@ -1402,7 +1408,7 @@ impl LaunchedApp {
         // home first; a failure here is only best-effort cleanup.
         let _ = Command::new(&self.cli)
             .args(["--json", "daemon", "stop"])
-            .env("JIDR_HOME", &self.home)
+            .env("MIKO_HOME", &self.home)
             .output();
         let pid = self.child.id().to_string();
         let _ = Command::new("kill").args(["-TERM", &pid]).status();
@@ -1493,14 +1499,14 @@ fn write_rehearsal_report(
     evidence: &Evidence,
 ) -> Result<()> {
     let mut md = String::new();
-    md.push_str("# Jidr M5 release rehearsal\n\n");
+    md.push_str("# Miko M5 release rehearsal\n\n");
     md.push_str(
         "Local rehearsal of the SwiftUI production release chain. It builds, assembles, signs \
          (ad-hoc, because no Developer ID credentials are present), packs, mounts and checks the \
          same `miko simulator.app` + DMG that `cargo xtask release` would produce, then \
-         installs, launches and uninstalls it with an isolated `JIDR_HOME`. It writes only under \
+         installs, launches and uninstalls it with an isolated `MIKO_HOME`. It writes only under \
          the output directory and `/tmp`, and never touches `/Applications` or the user's real \
-         Jidr data.\n\n",
+         Miko data.\n\n",
     );
     md.push_str("- Command: `cargo xtask release --rehearsal`\n");
     md.push_str(&format!(
@@ -1508,7 +1514,7 @@ fn write_rehearsal_report(
          from the mounted DMG)\n"
     ));
     md.push_str(
-        "- GUI: SwiftUI device center (`Contents/MacOS/Jidr`); the production bundle contains no \
+        "- GUI: SwiftUI device center (`Contents/MacOS/Miko`); the production bundle contains no \
          standalone player app (ADR-0003)\n",
     );
     md.push_str(&format!("- Output directory: `{}`\n\n", out.display()));
@@ -1542,7 +1548,7 @@ fn write_rehearsal_report(
     md.push_str("```\n\n");
     md.push_str(
         "The rehearsal needs macOS on Apple Silicon, Xcode `swiftc`, the workspace Rust toolchain, \
-         `protoc` for `jidr-proto` (the command above points at the workspace copy) and the system \
+         `protoc` for `miko-proto` (the command above points at the workspace copy) and the system \
          `codesign`/`hdiutil`/`plutil`/`ditto`/`shasum` tools. Expect a few minutes for the release \
          Rust helpers plus the optimised SwiftUI center.\n\n",
     );
@@ -1551,17 +1557,17 @@ fn write_rehearsal_report(
         "- **GUI:** SwiftUI/AppKit is the only GUI; no toolkit selection or legacy bundle.\n",
     );
     md.push_str(
-        "- **Production home:** a plain Finder launch uses the standard Jidr data directory. \
-         Rehearsal launches set an isolated `JIDR_HOME`; no separate test-package policy remains.\n",
+        "- **Production home:** a plain Finder launch uses the standard Miko data directory. \
+         Rehearsal launches set an isolated `MIKO_HOME`; no separate test-package policy remains.\n",
     );
     md.push_str(
         "- **Signing:** extend `packaging/macos/sign.sh` to sign and verify \
-         `Contents/Helpers/jidr-center-bridge` and `jidr-swiftui-bridge` before the first \
+         `Contents/Helpers/miko-center-bridge` and `miko-swiftui-bridge` before the first \
          Developer ID SwiftUI release, then reuse its DMG notarization/staple branch. Until then \
          `cargo xtask release` refuses Developer ID signing rather than shipping an unverified bundle.\n",
     );
     md.push_str(
-        "- **MCP bundle:** unchanged; it ships the same `Helpers/jidr` and stays part of the \
+        "- **MCP bundle:** unchanged; it ships the same `Helpers/miko` and stays part of the \
          SwiftUI release artifacts so the CLI/MCP distribution does not regress at the switch.\n",
     );
     std::fs::write(out.join("report.md"), md)
@@ -1662,8 +1668,8 @@ fn scan_tree_with_helper(root: &Path, expected: &Path) -> Result<Vec<Finding>> {
 
 fn is_own_helper(path: &Path, expected: &Path) -> bool {
     use sha2::{Digest, Sha256};
-    let allowed = path.ends_with("Contents/Resources/helper/aarch64/jidr-helper")
-        || path.ends_with("server/helper/aarch64/jidr-helper");
+    let allowed = path.ends_with("Contents/Resources/helper/aarch64/miko-helper")
+        || path.ends_with("server/helper/aarch64/miko-helper");
     allowed
         && std::fs::read(path)
             .ok()
@@ -1724,7 +1730,7 @@ fn classify_name(name: &str) -> Option<&'static str> {
     None
 }
 
-/// Forbidden by content: formats that only Android payloads use. Jidr's own
+/// Forbidden by content: formats that only Android payloads use. Miko's own
 /// binaries are Mach-O, so any ELF in a macOS bundle is foreign.
 fn classify_content(head: &[u8]) -> Option<&'static str> {
     let starts = |magic: &[u8]| head.starts_with(magic);
@@ -1754,6 +1760,10 @@ fn classify_content(head: &[u8]) -> Option<&'static str> {
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {
     haystack.windows(needle.len()).any(|w| w == needle)
+}
+
+fn has_supported_cli_envelope(value: &Value) -> bool {
+    value.get("miko_json").and_then(Value::as_u64) == Some(2)
 }
 
 #[cfg(test)]
@@ -1833,6 +1843,19 @@ mod tests {
         });
         assert_eq!(calls, 3);
         assert_eq!(err.unwrap_err().to_string(), "busy 3");
+    }
+
+    #[test]
+    fn accepts_the_current_cli_json_envelope() {
+        assert!(has_supported_cli_envelope(
+            &serde_json::json!({"miko_json": 2, "ok": true})
+        ));
+        assert!(!has_supported_cli_envelope(
+            &serde_json::json!({"miko_json": 1, "ok": true})
+        ));
+        assert!(!has_supported_cli_envelope(
+            &serde_json::json!({"ok": true})
+        ));
     }
 
     #[test]
@@ -1924,8 +1947,8 @@ mod tests {
             assert!(classify_name(name).is_some(), "{name}");
         }
         for name in [
-            "jidr",
-            "jidr.icns",
+            "miko",
+            "miko.icns",
             "info.plist",
             "license-gpl",
             "notice",
@@ -1962,10 +1985,10 @@ mod tests {
 
     #[test]
     fn scan_finds_planted_payloads_and_ignores_symlinks() {
-        let tmp = std::env::temp_dir().join(format!("jidr-scan-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("miko-scan-{}", std::process::id()));
         let app = tmp.join("miko simulator.app/Contents");
         std::fs::create_dir_all(app.join("MacOS")).unwrap();
-        std::fs::write(app.join("MacOS/Jidr"), [0xcf, 0xfa, 0xed, 0xfe]).unwrap();
+        std::fs::write(app.join("MacOS/Miko"), [0xcf, 0xfa, 0xed, 0xfe]).unwrap();
         std::fs::write(app.join("Info.plist"), "<?xml").unwrap();
         assert!(scan_tree(&tmp).unwrap().is_empty());
 
@@ -1985,12 +2008,12 @@ mod tests {
 
     #[test]
     fn scan_allows_only_the_exact_built_helper_at_its_release_path() {
-        let tmp = std::env::temp_dir().join(format!("jidr-helper-scan-{}", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("miko-helper-scan-{}", std::process::id()));
         let app = tmp.join("miko simulator.app/Contents/Resources/helper/aarch64");
         std::fs::create_dir_all(&app).unwrap();
         let expected = tmp.join("expected-helper");
         std::fs::write(&expected, b"\x7fELF-good").unwrap();
-        let shipped = app.join("jidr-helper");
+        let shipped = app.join("miko-helper");
         std::fs::copy(&expected, &shipped).unwrap();
         assert!(
             scan_tree_with_helper(&tmp.join("miko simulator.app"), &expected)
@@ -2017,10 +2040,10 @@ mod tests {
         assert!(render_version(manifest, "0.1.0", "manifest.json").is_ok());
         // The production SwiftUI template must carry the fields the release
         // bundle is verified for.
-        let template = include_str!("../../packaging/swiftui/Jidr-Info.plist.in");
-        let rendered = render_version(template, "0.3.1", "Jidr-Info.plist.in").unwrap();
+        let template = include_str!("../../packaging/swiftui/Miko-Info.plist.in");
+        let rendered = render_version(template, "0.3.1", "Miko-Info.plist.in").unwrap();
         for needle in [
-            "ly.jidr.Jidr",
+            "ly.miko.Miko",
             "ATSApplicationFontsPath",
             "<string>fonts</string>",
             "LSMinimumSystemVersion",
@@ -2036,16 +2059,16 @@ mod tests {
     fn swiftui_release_resources_exist() {
         let root = workspace_root();
         let mut required = vec![
-            "apps/jidr-swiftui/Resources/Jidr.icns".to_owned(),
-            "apps/jidr-swiftui/Resources/device-list-generated.png".to_owned(),
-            "apps/jidr-swiftui/Resources/device-detail-generated.png".to_owned(),
-            "apps/jidr-swiftui/Resources/device-stopped.png".to_owned(),
-            "apps/jidr-swiftui/Resources/en.lproj/Localizable.strings".to_owned(),
-            "apps/jidr-swiftui/Resources/zh-Hans.lproj/Localizable.strings".to_owned(),
-            "apps/jidr-swiftui/build-release.sh".to_owned(),
-            "packaging/swiftui/Jidr-Info.plist.in".to_owned(),
+            "apps/miko-swiftui/Resources/Miko.icns".to_owned(),
+            "apps/miko-swiftui/Resources/device-list-generated.png".to_owned(),
+            "apps/miko-swiftui/Resources/device-detail-generated.png".to_owned(),
+            "apps/miko-swiftui/Resources/device-stopped.png".to_owned(),
+            "apps/miko-swiftui/Resources/en.lproj/Localizable.strings".to_owned(),
+            "apps/miko-swiftui/Resources/zh-Hans.lproj/Localizable.strings".to_owned(),
+            "apps/miko-swiftui/build-release.sh".to_owned(),
+            "packaging/swiftui/Miko-Info.plist.in".to_owned(),
             "LICENSE-APACHE".to_owned(),
-            "apps/jidr-swiftui/LICENSE-GPL".to_owned(),
+            "apps/miko-swiftui/LICENSE-GPL".to_owned(),
             "NOTICE".to_owned(),
         ];
         for path in required.drain(..) {
@@ -2054,7 +2077,7 @@ mod tests {
                 "missing release resource {path}"
             );
         }
-        let fonts = root.join("apps/jidr-swiftui/Resources/fonts");
+        let fonts = root.join("apps/miko-swiftui/Resources/fonts");
         let mut ttf = 0;
         let mut ofl = 0;
         for entry in std::fs::read_dir(&fonts).unwrap() {
@@ -2074,7 +2097,7 @@ mod tests {
     fn swiftui_release_bundles_stopped_device_art() {
         let root = workspace_root();
         let temp = std::env::temp_dir().join(format!(
-            "jidr-release-art-test-{}-{}",
+            "miko-release-art-test-{}-{}",
             std::process::id(),
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
@@ -2084,9 +2107,9 @@ mod tests {
         let bin = temp.join("bin");
         std::fs::create_dir_all(&bin).unwrap();
         for helper in [
-            "jidr",
-            "jidr-center-bridge",
-            "jidr-swiftui-bridge",
+            "miko",
+            "miko-center-bridge",
+            "miko-swiftui-bridge",
             "center",
         ] {
             std::fs::write(bin.join(helper), b"test executable").unwrap();
@@ -2095,7 +2118,7 @@ mod tests {
         assemble_swiftui_app(&root, &bin, &bin.join("center"), &app, "0.3.1").unwrap();
         assert_eq!(
             std::fs::read(app.join("Contents/Resources/device-stopped.png")).unwrap(),
-            std::fs::read(root.join("apps/jidr-swiftui/Resources/device-stopped.png")).unwrap()
+            std::fs::read(root.join("apps/miko-swiftui/Resources/device-stopped.png")).unwrap()
         );
         std::fs::remove_dir_all(temp).unwrap();
     }
@@ -2104,10 +2127,10 @@ mod tests {
     fn native_gui_is_the_only_ui_source_and_release_entry() {
         let root = workspace_root();
         for retired in [
-            "crates/jidr-ui",
-            "apps/jidr-gui",
-            "apps/jidr-swiftui-prototype",
-            "apps/jidr-swiftui/Player/main.swift",
+            "crates/miko-ui",
+            "apps/miko-gui",
+            "apps/miko-swiftui-prototype",
+            "apps/miko-swiftui/Player/main.swift",
             "packaging/macos/Info.plist.in",
         ] {
             assert!(
@@ -2116,12 +2139,12 @@ mod tests {
             );
         }
         let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
-        assert!(!manifest.contains("crates/jidr-ui") && !manifest.contains("apps/jidr-gui"));
+        assert!(!manifest.contains("crates/miko-ui") && !manifest.contains("apps/miko-gui"));
         assert!(!manifest.lines().any(|line| line.starts_with("slint =")));
-        let license = std::fs::read_to_string(root.join("apps/jidr-swiftui/LICENSE-GPL")).unwrap();
+        let license = std::fs::read_to_string(root.join("apps/miko-swiftui/LICENSE-GPL")).unwrap();
         assert!(license.contains("GNU GENERAL PUBLIC LICENSE"));
         let entry =
-            std::fs::read_to_string(root.join("apps/jidr-swiftui/Center/main.swift")).unwrap();
+            std::fs::read_to_string(root.join("apps/miko-swiftui/Center/main.swift")).unwrap();
         assert!(entry.contains("Contents/Helpers") && !entry.contains("test-package"));
     }
 

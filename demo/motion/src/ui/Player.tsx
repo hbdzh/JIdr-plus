@@ -2,7 +2,7 @@ import React from 'react';
 import {C, FONT_MONO, FONT_UI} from '../theme';
 import {Icon} from './primitives';
 
-// Device tab behind the Root sheet, after crates/jidr-ui/tests/golden/root-progress.dark.png
+// Device tab behind the Root sheet, after crates/miko-ui/tests/golden/root-progress.dark.png
 // (window content area, 1440×856). The sheet's scrim dims all of it.
 
 const RAIL = ['smartphone', 'smartphone', 'smartphone', 'smartphone'];

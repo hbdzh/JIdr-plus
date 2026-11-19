@@ -28,10 +28,10 @@ jobs:
       - name: Upload test packages
         uses: actions/upload-artifact@v4
         with:
-          name: jidr-plus-unsigned-test-packages
+          name: miko-plus-unsigned-test-packages
           path: |
-            dist/Jidr-*-arm64.dmg
-            dist/jidr-mcp-*.mcpb
+            dist/Miko-*-arm64.dmg
+            dist/miko-mcp-*.mcpb
             dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 7
