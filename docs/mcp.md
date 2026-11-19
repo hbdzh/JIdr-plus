@@ -29,7 +29,7 @@ Choose **Configure WorkBuddy** in Jidr settings to add the Jidr server to the us
 
 `jidr uninstall` also removes the Jidr entry from this user-level file.
 
-JIdr Plus has not yet been published to the MCP Registry.
+miko 模拟器 has not yet been published to the MCP Registry.
 
 The current source version is 0.5.0. Build the matching local MCP bundle with
 `cargo xtask release --rehearsal`; the presence of a version in `server.json`

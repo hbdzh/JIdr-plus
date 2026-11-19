@@ -58,7 +58,7 @@ the protocol or the CLI: both GUIs are thin clients over the same JSON-RPC contr
    M2 fixes the known leaks. Only consider an English-source catalogue if a third language is
    added.
 
-Amendments this proposal implies: D2 (Slint was the MVP UI; for JIdr Plus the production UI
+Amendments this proposal implies: D2 (Slint was the MVP UI; for miko 模拟器 the production UI
 is SwiftUI), D15 (portability stays at the daemon/protocol/CLI; the GUI is macOS-only),
 D20 (the Slint spike is closed), D18 (wording and enforcement when Slint leaves the build).
 D41 is not amended; the tokens remain the single design source.

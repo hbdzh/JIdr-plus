@@ -177,7 +177,7 @@ emulator pass it.
 
 ## Writable /system (adb mode)
 
-In JIdr Plus 0.4, Device Center → Device tools → Root → System partition
+In miko 模拟器 0.4, Device Center → Device tools → Root → System partition
 provides the same setting with eligibility checks and a cold-boot confirmation.
 Restore read-only removes the writable overlay and its system changes. The
 overview displays Root information only; verification and changes live in Root

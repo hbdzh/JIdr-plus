@@ -36,6 +36,6 @@
 
 ## 版本与验证范围
 
-本指南对应 JIdr Plus 0.5.0 源码。后台 API 沿用已有的 `root.writable_system`、`audio.inject`、`audio.stop` 和任务协议，没有新增 wire-format 变更。
+本指南对应 miko 模拟器 0.5.0 源码。后台 API 沿用已有的 `root.writable_system`、`audio.inject`、`audio.stop` 和任务协议，没有新增 wire-format 变更。
 
 逻辑测试、后台截图及应用构建用于检查状态处理、布局和打包。它们不等同于真实模拟器上的系统写入／音频接收验收，也不证明所有游戏兼容或发行公证已完成。可复现命令见 [SwiftUI 开发说明](../apps/jidr-swiftui/README.md#verification)。
