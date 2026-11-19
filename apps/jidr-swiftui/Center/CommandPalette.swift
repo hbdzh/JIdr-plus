@@ -35,6 +35,7 @@ enum PaletteAction: Equatable {
     case settings
     case toggleAppearance
     case tasks
+    case openSynchronizer
 }
 
 struct PaletteEntry: Identifiable, Equatable {
@@ -122,6 +123,7 @@ enum PaletteCatalog {
             }
         }
         add(.action, text("后台任务", "Background tasks"), text("查看进度或取消正在运行的任务", "See progress or cancel running tasks"), "", .tasks)
+        add(.action, text("多设备同步器", "Synchronizer"), text("同步主控与跟随设备的触控与按键输入", "Mirror input from a leader device to followers"), "⇧⌘Y", .openSynchronizer)
         add(.setting, text("设置", "Settings"), text("SDK、存储、智能体、关于", "SDK, storage, agents, about"), "⌘,", .settings)
         add(.setting, text("切换浅色和深色", "Toggle light and dark"), text("外观", "Appearance"), "", .toggleAppearance)
         return entries
@@ -149,6 +151,7 @@ enum PaletteCatalog {
         case .settings: return "settings"
         case .toggleAppearance: return "appearance"
         case .tasks: return "tasks"
+        case .openSynchronizer: return "synchronizer"
         }
     }
 

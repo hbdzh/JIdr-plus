@@ -15,9 +15,14 @@ use tokio::sync::mpsc as async_mpsc;
 
 mod frame_transport;
 mod script;
+mod sync;
 use frame_transport::{FramePacket, FrameTransport};
 mod player_input;
 use player_input::{GrpcInput, InputState, SerialInput};
+
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -64,6 +69,8 @@ enum Command {
     },
     StartRecording {
         path: String,
+        #[serde(default = "default_true")]
+        audio: bool,
     },
     StopRecording,
     AppInspect {
@@ -103,6 +110,30 @@ enum Command {
     ScriptPlayPause,
     ScriptPlayResume,
     ScriptPlayStop,
+    // Input synchronizer control and event injection (D45).
+    SyncMode {
+        role: sync::SyncRole,
+        #[serde(default = "default_true")]
+        lock: bool,
+        #[serde(default)]
+        leader: Option<String>,
+        #[serde(default)]
+        leader_display: Option<jidr_sync::DisplaySize>,
+        #[serde(default)]
+        adaptation: jidr_sync::Adaptation,
+        #[serde(default = "default_true")]
+        sync_keyboard: bool,
+        #[serde(default = "default_true")]
+        sync_text: bool,
+        #[serde(default = "default_true")]
+        sync_tool_keys: bool,
+    },
+    SyncInput {
+        #[serde(default)]
+        seq: Option<u64>,
+        event: jidr_automation::Event,
+    },
+    SyncRelease,
 }
 
 /// One user-visible bridge notification: a stable machine code plus an English
@@ -403,10 +434,13 @@ const PREVIEW_UNSUPPORTED: Diagnostic = Diagnostic::new(
 
 /// Fixtures must never silently accept a device command. Recording and app
 /// flows need their own failure envelopes to release the UI's pending state.
-fn fixture_reply(line: &str) -> (&'static str, serde_json::Value) {
+fn fixture_reply(line: &str) -> Option<(&'static str, serde_json::Value)> {
     let mut value =
         json!({"ok":false,"code":PREVIEW_UNSUPPORTED.code,"message":PREVIEW_UNSUPPORTED.message});
     let prefix = match serde_json::from_str::<Command>(line) {
+        Ok(Command::SyncMode { .. } | Command::SyncInput { .. } | Command::SyncRelease) => {
+            return None;
+        }
         Ok(
             Command::ScriptRecordStart
             | Command::ScriptRecordPause
@@ -424,7 +458,7 @@ fn fixture_reply(line: &str) -> (&'static str, serde_json::Value) {
             | Command::ScriptPlayStop,
         ) => {
             value["op"] = json!("error");
-            return ("JIDR_SCRIPT:", value);
+            return Some(("JIDR_SCRIPT:", value));
         }
         Ok(Command::StartRecording { .. } | Command::StopRecording) => {
             value["state"] = json!("failed");
@@ -440,7 +474,7 @@ fn fixture_reply(line: &str) -> (&'static str, serde_json::Value) {
         }
         _ => "JIDR_OPERATION:",
     };
-    (prefix, value)
+    Some((prefix, value))
 }
 
 /// `JIDR_PLAYER_FIXTURE=1` replaces the gRPC stream with synthetic frames.
@@ -486,8 +520,9 @@ async fn player_fixture(width: u32, height: u32) -> Result<()> {
         tokio::time::sleep(Duration::from_millis(40)).await;
     }
     while let Some(line) = input_rx.recv().await {
-        let (prefix, value) = fixture_reply(&line);
-        eprintln!("{prefix}{value}");
+        if let Some((prefix, value)) = fixture_reply(&line) {
+            eprintln!("{prefix}{value}");
+        }
     }
     Ok(())
 }
@@ -500,6 +535,7 @@ struct BridgeInputs {
     rotation: Arc<AtomicU32>,
     physical_rotation: Arc<AtomicU32>,
     scripts: script::ScriptManager,
+    sync: sync::BridgeSync,
 }
 
 impl SerialInput for BridgeInputs {
@@ -511,23 +547,104 @@ impl SerialInput for BridgeInputs {
                 return;
             }
         };
+        match command {
+            Command::SyncMode {
+                role,
+                lock,
+                leader,
+                leader_display,
+                adaptation,
+                sync_keyboard,
+                sync_text,
+                sync_tool_keys,
+            } => {
+                if role == sync::SyncRole::Follower
+                    && (self.scripts.is_recording() || self.scripts.is_playing())
+                {
+                    sync::notify_sync_busy(
+                        "Cannot become a sync follower while recording or playing a script",
+                    );
+                    return;
+                }
+                if self.sync.set_mode(
+                    role,
+                    lock,
+                    leader,
+                    leader_display,
+                    adaptation,
+                    sync_keyboard,
+                    sync_text,
+                    sync_tool_keys,
+                ) {
+                    self.state.release().await;
+                }
+                return;
+            }
+            Command::SyncInput { seq, event } => {
+                let rotation = self.rotation.load(Ordering::Relaxed);
+                if let Some(adapted) = self.sync.accept_follower_input(seq, &event, rotation)
+                    && let Err(error) = script::execute_event(
+                        &mut self.state,
+                        &self.client,
+                        &self.device,
+                        self.panel,
+                        &self.rotation,
+                        &adapted,
+                    )
+                    .await
+                {
+                    eprintln!("Sync input failed: {error:#}");
+                }
+                return;
+            }
+            Command::SyncRelease => {
+                if self.sync.is_active() {
+                    self.state.release().await;
+                }
+                return;
+            }
+            _ => {}
+        }
         // Script control commands are handled before any device input; pause,
         // stop and cancel may ask us to release held inputs.
         if script::is_script_command(&command) {
+            if self.sync.is_follower()
+                && matches!(
+                    command,
+                    Command::ScriptRecordStart | Command::ScriptPlayStart { .. }
+                )
+            {
+                let op = if matches!(command, Command::ScriptRecordStart) {
+                    "record"
+                } else {
+                    "play"
+                };
+                eprintln!(
+                    "JIDR_SCRIPT:{}",
+                    json!({
+                        "op": op,
+                        "state": "failed",
+                        "code": "script.busy",
+                        "message": "Cannot record or play a script while following input sync"
+                    })
+                );
+                return;
+            }
             let outcome = self.scripts.handle_command(&command, Instant::now());
             if outcome.release {
                 self.state.release().await;
+                self.sync.emit_leader_release();
             }
             return;
         }
-        // While a script plays back it owns device input (the UI disables its
-        // own controls), so direct input is ignored.
-        if self.scripts.ignores_user_input(&command) {
+        // While a script plays back or this bridge is a locked sync follower,
+        // direct user input is ignored.
+        if self.scripts.ignores_user_input(&command) || self.sync.ignores_user_input(&command) {
             return;
         }
         match command {
             Command::Rotate { direction } => {
-                if self.scripts.is_playing() {
+                if self.scripts.is_playing() || self.sync.is_locked_follower() {
                     return;
                 }
                 let current = self.physical_rotation.load(Ordering::Relaxed) as i32;
@@ -544,7 +661,7 @@ impl SerialInput for BridgeInputs {
                 }
             }
             Command::ToolKey { key } => {
-                if self.scripts.is_playing() {
+                if self.scripts.is_playing() || self.sync.is_locked_follower() {
                     return;
                 }
                 if [
@@ -558,6 +675,7 @@ impl SerialInput for BridgeInputs {
                 .contains(&key.as_str())
                 {
                     self.scripts.record_tool_key(&key, Instant::now());
+                    self.sync.emit_leader_tool_key(&key);
                     if let Err(e) = self
                         .client
                         .call("key.press", json!({"device":self.device, "key":key}))
@@ -567,7 +685,7 @@ impl SerialInput for BridgeInputs {
                     }
                 }
             }
-            Command::StartRecording { path } => {
+            Command::StartRecording { path, audio } => {
                 let path = std::path::PathBuf::from(path);
                 if !path.is_absolute() || path.exists() {
                     eprintln!(
@@ -579,15 +697,15 @@ impl SerialInput for BridgeInputs {
                     let device = self.device.clone();
                     tokio::spawn(async move {
                         let announced = std::sync::atomic::AtomicBool::new(false);
-                        let result = client.run("media.record", json!({"device":device,"path":path}), |_| {
+                        let result = client.run("media.record", json!({"device":device,"path":path,"audio":audio}), |_| {
                             if !announced.swap(true, Ordering::Relaxed) {
                                 eprintln!("JIDR_RECORD:{}", json!({"state":"recording", "code":RECORDING_STARTED.code, "message":RECORDING_STARTED.message}));
                             }
                         }).await;
                         match result {
                             Ok(value) => {
-                                let notice = if value["audio"] == false
-                                    || value["audio_received"] == false
+                                let notice = if audio
+                                    && (value["audio"] == false || value["audio_received"] == false)
                                 {
                                     RECORDING_SAVED_NO_AUDIO
                                 } else {
@@ -678,6 +796,7 @@ impl SerialInput for BridgeInputs {
             }
             command => {
                 self.scripts.record_user_command(&command, Instant::now());
+                self.sync.emit_leader_command(&command);
                 if let Err(e) = self
                     .state
                     .command(command, self.panel, &self.rotation)
@@ -697,6 +816,7 @@ impl SerialInput for BridgeInputs {
     async fn tick(&mut self, now: Instant) {
         let outcome = self.scripts.tick(now);
         for event in outcome.events {
+            self.sync.emit_leader_event(&event);
             if let Err(error) = script::execute_event(
                 &mut self.state,
                 &self.client,
@@ -714,6 +834,7 @@ impl SerialInput for BridgeInputs {
         // press/release pair does not leave the device held.
         if outcome.release {
             self.state.release().await;
+            self.sync.emit_leader_release();
         }
     }
 }
@@ -886,6 +1007,7 @@ async fn main() -> Result<()> {
             frame_width,
             frame_height,
         ),
+        sync: sync::BridgeSync::new(width, height),
     };
     let mut pump = FramePump {
         frames,
@@ -1000,7 +1122,7 @@ mod tests {
                 "uninstall",
             ),
         ] {
-            let (actual, value) = fixture_reply(command);
+            let (actual, value) = fixture_reply(command).unwrap();
             assert_eq!(actual, prefix);
             assert_eq!(value["ok"], false);
             assert_eq!(value[field], expected);
@@ -1145,7 +1267,7 @@ mod tests {
             r#"{"type":"script_play_stop"}"#,
             r#"{"type":"script_list"}"#,
         ] {
-            let (prefix, value) = fixture_reply(command);
+            let (prefix, value) = fixture_reply(command).unwrap();
             assert_eq!(prefix, "JIDR_SCRIPT:");
             assert_eq!(value["op"], "error");
             assert_eq!(value["code"], PREVIEW_UNSUPPORTED.code);
@@ -1218,5 +1340,67 @@ mod tests {
         assert!(frame_packet(2, 2, 0, &[0; 15]).is_none());
         let frame = frame_packet(1, 1, 5, &[1, 2, 3, 4]);
         assert!(frame.is_some_and(|f| f.len() == 24 && &f[..4] == b"JFR1"));
+    }
+
+    #[test]
+    fn start_recording_command_defaults_audio_to_true() {
+        let legacy: Command =
+            serde_json::from_str(r#"{"type":"start_recording","path":"/tmp/a.mp4"}"#).unwrap();
+        assert!(matches!(
+            legacy,
+            Command::StartRecording { ref path, audio: true } if path == "/tmp/a.mp4"
+        ));
+        let muted: Command =
+            serde_json::from_str(r#"{"type":"start_recording","path":"/tmp/b.mp4","audio":false}"#)
+                .unwrap();
+        assert!(matches!(
+            muted,
+            Command::StartRecording { ref path, audio: false } if path == "/tmp/b.mp4"
+        ));
+    }
+
+    #[test]
+    fn sync_commands_parse_contract() {
+        let mode: Command = serde_json::from_str(
+            r#"{"type":"sync_mode","role":"follower","lock":true,"leader":"L1","leader_display":{"width":1080,"height":2400},"adaptation":"stretch"}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            mode,
+            Command::SyncMode {
+                role: sync::SyncRole::Follower,
+                lock: true,
+                leader: Some(ref l),
+                leader_display: Some(jidr_sync::DisplaySize {
+                    width: 1080,
+                    height: 2400
+                }),
+                adaptation: jidr_sync::Adaptation::Stretch,
+                sync_keyboard: true,
+                sync_text: true,
+                sync_tool_keys: true,
+            } if l == "L1"
+        ));
+
+        let input: Command = serde_json::from_str(
+            r#"{"type":"sync_input","seq":42,"event":{"type":"touch","x":0.51,"y":0.37,"down":true}}"#,
+        )
+        .unwrap();
+        assert!(matches!(
+            input,
+            Command::SyncInput {
+                seq: Some(42),
+                event: jidr_automation::Event::Touch {
+                    x,
+                    y,
+                    down: true,
+                },
+            } if (x - 0.51).abs() < 1e-9 && (y - 0.37).abs() < 1e-9
+        ));
+
+        let release: Command = serde_json::from_str(r#"{"type":"sync_release"}"#).unwrap();
+        assert!(matches!(release, Command::SyncRelease));
+        assert!(fixture_reply(r#"{"type":"sync_mode","role":"off"}"#).is_none());
+        assert!(fixture_reply(r#"{"type":"sync_release"}"#).is_none());
     }
 }

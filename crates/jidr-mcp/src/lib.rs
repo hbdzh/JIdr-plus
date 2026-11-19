@@ -232,6 +232,22 @@ struct CaCertArgs {
     path: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct EmptyArgs {}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+struct SyncStartArgs {
+    /// Running leader device (name or id). Input flows while its player window is open.
+    leader: String,
+    /// Running follower devices (names or ids).
+    followers: Vec<String>,
+    /// Optional sync options (`adaptation`, `sync_keyboard`, `sync_text`, `sync_tool_keys`, `lock_followers`, `jitter_ms`).
+    #[serde(default)]
+    options: Option<Value>,
+}
+
 fn schema<T: JsonSchema>() -> JsonObject {
     let mut v = serde_json::to_value(schemars::schema_for!(T))
         .unwrap_or_else(|_| json!({ "type": "object" }));
@@ -399,6 +415,21 @@ impl JidrMcp {
                 "ca_cert_install",
                 "Trust a CA certificate (Burp, mitmproxy) as a system cert on a running Full-root device, so apps accept the proxy. Restarts the device (about a minute) and verifies; root.cacert.list / .remove through command_run.",
                 idempotent(),
+            ),
+            tool::<SyncStartArgs>(
+                "sync_start",
+                "Start an input synchronizer session (one session at a time): mirrors player input from leader to followers while the leader's player window is open.",
+                interacts(),
+            ),
+            tool::<EmptyArgs>(
+                "sync_stop",
+                "Stop the active input synchronizer session.",
+                idempotent(),
+            ),
+            tool::<EmptyArgs>(
+                "sync_status",
+                "Return the active input synchronizer session, or null.",
+                read_only(),
             ),
         ]
     }
@@ -664,6 +695,22 @@ impl JidrMcp {
                     })
                     .await?,
                 ))
+            }
+            "sync_start" => {
+                let a: SyncStartArgs = parse(args)?;
+                let mut params = json!({ "leader": a.leader, "followers": a.followers });
+                if let Some(opts) = a.options {
+                    params["options"] = opts;
+                }
+                Ok(ok_json(self.client.call("sync.start", params).await?))
+            }
+            "sync_stop" => {
+                let _: EmptyArgs = parse(args)?;
+                Ok(ok_json(self.client.call("sync.stop", json!({})).await?))
+            }
+            "sync_status" => {
+                let _: EmptyArgs = parse(args)?;
+                Ok(ok_json(self.client.call("sync.status", json!({})).await?))
             }
             other => Err(JidrError::usage(format!("unknown tool {other}"))),
         }

@@ -229,6 +229,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         let menu = NSMenu(title: t("视图", "View"))
         menu.addItem(menuItem(t("命令面板…", "Command Palette…"), #selector(openPaletteAction), "k"))
         menu.addItem(menuItem(t("后台任务…", "Background Tasks…"), #selector(openTasksAction), "j"))
+        menu.addItem(menuItem(t("同步器…", "Synchronizer…"), #selector(openSynchronizerAction), "y", modifiers: [.command, .shift]))
         menu.addItem(menuItem(t("刷新设备", "Refresh Devices"), #selector(refreshDevicesAction), "r"))
         menu.addItem(menuItem(t("打开截图目录", "Open Screenshots Folder"), #selector(openScreenshotFolderAction)))
         menu.addItem(.separator())
@@ -358,6 +359,11 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
         showCenter()
         model?.openTasks()
     }
+    @objc private func openSynchronizerAction() {
+        guard model?.sheet == nil else { return }
+        showCenter()
+        model?.openSyncPanel()
+    }
     @objc private func newDeviceAction() {
         guard !isCenterModalContext else { return }
         showCenter()
@@ -464,7 +470,7 @@ final class CenterMenuController: NSObject, NSMenuDelegate, NSMenuItemValidation
             item.action == #selector(appearanceAction(_:))) { return false }
         // Overlays stay behind a modal sheet; disabling them keeps the key
         // equivalent from opening a window the user cannot see.
-        if item.action == #selector(openPaletteAction) || item.action == #selector(openTasksAction) {
+        if item.action == #selector(openPaletteAction) || item.action == #selector(openTasksAction) || item.action == #selector(openSynchronizerAction) {
             return model.sheet == nil && !model.onboardingInstallForegroundRequired
         }
         if item.action == #selector(appearanceAction(_:)) { item.state = model.appearance == item.tag ? .on : .off; return true }

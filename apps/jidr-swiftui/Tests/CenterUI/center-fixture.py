@@ -4,7 +4,7 @@ from pathlib import Path
 home=Path(os.environ["JIDR_HOME"])
 (home/'data').mkdir(parents=True,exist_ok=True)
 state=home/'data/ui-preview-devices.json'
-prefs={"language":1,"appearance":1,"tile_url":""}
+prefs={"language":1,"appearance":1,"tile_url":"","record_audio":True}
 settings={"default_root_mode":"adb","quick_boot":True,"budget_percent":80,"auto_hibernate_minutes":30}
 def device(i,name,state):
  return {"id":f"00000000-0000-4000-8000-{i:012d}","name":name,"status":{"state":state},"image":{"api":35,"tag":"google_apis"},"root":{"mode":"none","health":"ok"},"runtime":{"adb_serial":"emulator-5554","pid":12345,"console_port":5554,"grpc_port":8554,"started_at":"2026-11-11T01:00:00Z"} if state=="running" else None,"profile":"pixel_7","sdk_root":"/Volumes/External/Android/SDK","launch":{"audio":True,"quick_boot":True,"camera_back":"none","camera_front":"none"},"auto_hibernate_minutes":30}

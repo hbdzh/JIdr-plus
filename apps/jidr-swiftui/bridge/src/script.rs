@@ -77,7 +77,7 @@ impl ScriptOutcome {
 }
 
 /// One recorded command, if it is part of the v1 recording whitelist.
-fn event_from_command(command: &Command) -> Option<Event> {
+pub(crate) fn event_from_command(command: &Command) -> Option<Event> {
     match command {
         Command::Touch { x, y, down } => Some(Event::Touch {
             x: *x,
@@ -147,7 +147,7 @@ pub fn is_script_command(command: &Command) -> bool {
 }
 
 /// Whether direct user input must be ignored while a script drives the device.
-fn is_direct_input(command: &Command) -> bool {
+pub(crate) fn is_direct_input(command: &Command) -> bool {
     matches!(
         command,
         Command::Touch { .. }
@@ -189,6 +189,11 @@ impl ScriptManager {
     /// True while a script is playing (paused playback counts as active).
     pub fn is_playing(&self) -> bool {
         self.playback.is_some()
+    }
+
+    /// True while an operation recording is active (paused counts as active).
+    pub fn is_recording(&self) -> bool {
+        self.recorder.is_some()
     }
 
     /// True when the UI's direct input must be ignored during playback.

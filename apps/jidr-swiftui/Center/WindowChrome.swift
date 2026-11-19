@@ -45,9 +45,10 @@ final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
     private var screenObservers: [NSObjectProtocol] = []
     private var titles: [String] {
         [model.text("通用", "General"), model.text("设备策略", "Device policies"),
-         model.text("数据与工具", "Data & tools"), model.text("高级", "Advanced"), model.text("关于", "About")]
+         model.text("数据与工具", "Data & tools"), model.text("智能体", "Agents"),
+         model.text("高级", "Advanced"), model.text("关于", "About")]
     }
-    private let symbols = ["gearshape", "iphone", "externaldrive", "slider.horizontal.3", "info.circle"]
+    private let symbols = ["gearshape", "iphone", "externaldrive", "sparkles", "slider.horizontal.3", "info.circle"]
     init(model: CenterModel) {
         self.model = model
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 360),
@@ -143,7 +144,7 @@ final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
         }
     }
     private func updateChrome() {
-        let selected = min(4, max(0, model.settingsCategory))
+        let selected = min(5, max(0, model.settingsCategory))
         window?.title = titles[selected]
         if window?.appearance?.name != model.windowAppearance?.name { window?.appearance = model.windowAppearance }
         toolbar.selectedItemIdentifier = .init("jidr.preferences.\(selected)")
@@ -154,13 +155,13 @@ final class SettingsWindowController: NSWindowController, NSToolbarDelegate {
         }
     }
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        (0..<5).map { .init("jidr.preferences.\($0)") }
+        (0..<6).map { .init("jidr.preferences.\($0)") }
     }
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { toolbarAllowedItemIdentifiers(toolbar) }
     func toolbarSelectableItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] { toolbarAllowedItemIdentifiers(toolbar) }
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
-        guard let index = Int(id.rawValue.split(separator: ".").last ?? ""), (0..<5).contains(index) else { return nil }
+        guard let index = Int(id.rawValue.split(separator: ".").last ?? ""), (0..<6).contains(index) else { return nil }
         let item = NSToolbarItem(itemIdentifier: id)
         item.tag = index; item.label = titles[index]; item.paletteLabel = titles[index]
         item.image = NSImage(systemSymbolName: symbols[index], accessibilityDescription: titles[index])

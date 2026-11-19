@@ -1144,6 +1144,61 @@ impl CoreProvider {
         .map_err(|e| JidrError::unexpected(format!("removing system image: {e}")))?
     }
 
+    async fn start_device_job(
+        &self,
+        ctx: &CallCtx,
+        id: Uuid,
+        cold_boot: bool,
+        force: bool,
+    ) -> JidrResult<Device> {
+        ctx.report(Some(0.05), "Starting emulator");
+        let status = std::sync::Mutex::new((0.05_f32, "Starting emulator"));
+        let on_stage = |stage: jidr_backend::BootStage| {
+            let (frac, label) = match stage {
+                jidr_backend::BootStage::Spawned => (stage.progress(), "Starting emulator"),
+                jidr_backend::BootStage::GrpcReady => {
+                    (stage.progress(), "Connecting emulator control")
+                }
+                jidr_backend::BootStage::AdbOnline => {
+                    (stage.progress(), "Waiting for Android boot")
+                }
+                jidr_backend::BootStage::Booted => (stage.progress(), "Booted"),
+            };
+            if let Ok(mut guard) = status.lock() {
+                *guard = (frac, label);
+            }
+            ctx.report(Some(frac), label);
+        };
+        let started = tokio::time::Instant::now();
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(30));
+        heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        heartbeat.tick().await;
+        let start_fut = self.state.start_admitted_with_progress(
+            id,
+            cold_boot,
+            force,
+            &ctx.cancel,
+            Some(&on_stage),
+        );
+        tokio::pin!(start_fut);
+        loop {
+            tokio::select! {
+                res = &mut start_fut => return res,
+                _ = heartbeat.tick() => {
+                    let waited = started.elapsed().as_secs();
+                    let (frac, label) = status
+                        .lock()
+                        .map(|g| *g)
+                        .unwrap_or((0.05, "Starting emulator"));
+                    ctx.report(
+                        Some(frac),
+                        &format!("{label} ({waited} s; slow when the Mac is busy)"),
+                    );
+                }
+            }
+        }
+    }
+
     async fn image_install(&self, ctx: &CallCtx, p: ImageParams) -> JidrResult<Value> {
         let _image_guard = self.state.image_gate.write().await;
         let image = parse_image(&p.image)?;
@@ -1399,8 +1454,7 @@ impl CommandProvider for CoreProvider {
                 let p: StartParams = parse_params(params)?;
                 let d = self.state.device(&p.device).await?;
                 json(
-                    self.state
-                        .start_admitted(d.id, p.cold_boot, p.force, &ctx.cancel)
+                    self.start_device_job(ctx, d.id, p.cold_boot, p.force)
                         .await?,
                 )
             }

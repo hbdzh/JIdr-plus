@@ -23,6 +23,7 @@ struct Request {
 struct LocalStateLocks {
     preferences: Arc<tokio::sync::Mutex<()>>,
     tools: Arc<tokio::sync::Mutex<()>>,
+    storage: Arc<tokio::sync::Mutex<()>>,
 }
 
 #[derive(Default)]
@@ -47,18 +48,28 @@ impl LogBatch {
 #[derive(Debug)]
 struct DiagnosticError {
     code: &'static str,
-    message: &'static str,
+    message: std::borrow::Cow<'static, str>,
 }
 
 impl DiagnosticError {
     const fn new(code: &'static str, message: &'static str) -> Self {
-        Self { code, message }
+        Self {
+            code,
+            message: std::borrow::Cow::Borrowed(message),
+        }
+    }
+
+    fn with_detail(code: &'static str, message: String) -> Self {
+        Self {
+            code,
+            message: std::borrow::Cow::Owned(message),
+        }
     }
 }
 
 impl std::fmt::Display for DiagnosticError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str(self.message)
+        formatter.write_str(&self.message)
     }
 }
 
@@ -77,6 +88,130 @@ fn error_reply(id: u64, error: &anyhow::Error) -> Value {
 
 fn daemon_error_reply(id: u64, error: &jidr_core::JidrError) -> Value {
     json!({"id":id,"type":"error","code":error.code.as_str(),"message":error.message,"data":error.data})
+}
+
+fn apply_gui_prefs_update(
+    prefs: &mut serde_json::Map<String, Value>,
+    params: &Value,
+) -> Result<()> {
+    for (field, max) in [("language", 1), ("appearance", 2)] {
+        if let Some(value) = params.get(field) {
+            let number = value.as_u64().filter(|n| *n <= max).ok_or_else(|| {
+                DiagnosticError::new("prefs.invalid_setting", "The interface setting is invalid")
+            })?;
+            prefs.insert(field.into(), json!(number));
+        }
+    }
+    if let Some(value) = params.get("tile_url") {
+        let tile = value
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("Invalid map tile URL"))?;
+        if !tile.is_empty()
+            && (tile.len() > 2048
+                || !tile.starts_with("https://")
+                || !["{z}", "{x}", "{y}"].iter().all(|v| tile.contains(v))
+                || tile.contains('@')
+                || tile.chars().any(char::is_whitespace))
+        {
+            anyhow::bail!("Map tile URL must use HTTPS and contain {{z}}, {{x}} and {{y}}");
+        }
+        prefs.insert("tile_url".into(), json!(tile));
+    }
+    if let Some(value) = params.get("record_audio") {
+        let enabled = value.as_bool().ok_or_else(|| {
+            DiagnosticError::new("prefs.invalid_setting", "The interface setting is invalid")
+        })?;
+        prefs.insert("record_audio".into(), json!(enabled));
+    }
+    Ok(())
+}
+
+fn classify_storage_io_error(error: std::io::Error) -> anyhow::Error {
+    let text = error.to_string();
+    let code = if text.contains("destination already exists") {
+        "storage.destination_exists"
+    } else if text.contains("source and destination must not overlap") {
+        "storage.destination_overlap"
+    } else if text.contains("insufficient destination space") {
+        "storage.insufficient_space"
+    } else if text.contains("qemu-img not found") {
+        "storage.missing_qemu_img"
+    } else if text.contains("AVD may still be running") || text.contains("AVD files are still open")
+    {
+        "storage.devices_active"
+    } else if text.contains("snapshot") {
+        "storage.incomplete_snapshot"
+    } else if text.contains("symbolic link") {
+        "storage.symlink_unsupported"
+    } else {
+        "storage.migration_failed"
+    };
+    DiagnosticError::with_detail(code, text).into()
+}
+
+struct StoragePreflight {
+    source: JidrPaths,
+    destination: std::path::PathBuf,
+    estimate: jidr_sdk::migration::SpaceEstimate,
+    qemu_img: Option<std::path::PathBuf>,
+}
+
+fn check_storage_preflight(params: &Value) -> Result<StoragePreflight> {
+    if std::env::var_os(jidr_core::paths::JIDR_HOME_ENV).is_some_and(|v| !v.is_empty()) {
+        return Err(DiagnosticError::new(
+            "storage.env_override",
+            "JIDR_HOME is set; unset JIDR_HOME before changing the data location",
+        )
+        .into());
+    }
+    let destination = params
+        .get("destination")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(std::path::PathBuf::from)
+        .ok_or_else(|| {
+            DiagnosticError::new(
+                "storage.invalid_destination",
+                "The target data location is missing",
+            )
+        })?;
+    let source = JidrPaths::discover()?;
+    let (final_path, estimate) = jidr_sdk::migration::validate_destination(&source, &destination)
+        .map_err(classify_storage_io_error)?;
+    let qemu_img = jidr_sdk::migration::find_qemu_img(&source);
+    if qemu_img.is_none()
+        && jidr_sdk::migration::contains_qcow_images(&source.data)
+            .map_err(classify_storage_io_error)?
+    {
+        return Err(DiagnosticError::new(
+            "storage.missing_qemu_img",
+            "qemu-img was not found; install or configure an Android SDK before migrating device disks",
+        )
+        .into());
+    }
+    Ok(StoragePreflight {
+        source,
+        destination: final_path,
+        estimate,
+        qemu_img,
+    })
+}
+
+fn acquire_storage_lease_with_retry(
+    data: &std::path::Path,
+) -> std::io::Result<jidr_core::storage_lease::StorageLease> {
+    let mut last = None;
+    for _ in 0..20 {
+        match jidr_core::storage_lease::StorageLease::acquire(data) {
+            Ok(lease) => return Ok(lease),
+            Err(error) => {
+                last = Some(error);
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+    }
+    Err(last.unwrap_or_else(|| std::io::Error::other("could not acquire source storage lease")))
 }
 
 /// Reads `gui-prefs.json`. A missing file is the defaults (an empty object);
@@ -178,7 +313,7 @@ fn fixture_result(request: &Request, case: &str) -> Value {
     };
     match request.method.as_str() {
         "center.prefs.get" => {
-            json!({"id":id,"type":"result","result":{"language":1,"appearance":0,"tile_url":""}})
+            json!({"id":id,"type":"result","result":{"language":1,"appearance":0,"tile_url":"","record_audio":true}})
         }
         "center.paths" => json!({"id":id,"type":"result","result":{
             "data":"/tmp/jidr-fixture/data","cache":"/tmp/jidr-fixture/cache","logs":"/tmp/jidr-fixture/logs",
@@ -321,7 +456,7 @@ async fn main() -> Result<()> {
         )
         .await?,
     );
-    if let Ok(mut events) = client.subscribe(&["device."]).await {
+    if let Ok(mut events) = client.subscribe(&["device.", "sync."]).await {
         tokio::spawn(async move {
             while let Ok(event) = events.recv().await {
                 send(json!({"type":"device_event", "event":event}));
@@ -347,6 +482,7 @@ async fn main() -> Result<()> {
         let client = Arc::clone(&client);
         let prefs_lock = Arc::clone(&locks.preferences);
         let tool_lock = Arc::clone(&locks.tools);
+        let storage_lock = Arc::clone(&locks.storage);
         tokio::spawn(async move {
             let id = request.id;
             if request.method == "center.about" {
@@ -363,35 +499,7 @@ async fn main() -> Result<()> {
                     let path = paths.data.join("gui-prefs.json");
                     let mut prefs = read_gui_prefs(&path)?;
                     if request.method == "center.prefs.set" {
-                        for (field, max) in [("language", 1), ("appearance", 2)] {
-                            if let Some(value) = request.params.get(field) {
-                                let number =
-                                    value.as_u64().filter(|n| *n <= max).ok_or_else(|| {
-                                        DiagnosticError::new(
-                                            "prefs.invalid_setting",
-                                            "The interface setting is invalid",
-                                        )
-                                    })?;
-                                prefs.insert(field.into(), json!(number));
-                            }
-                        }
-                        if let Some(value) = request.params.get("tile_url") {
-                            let tile = value
-                                .as_str()
-                                .ok_or_else(|| anyhow::anyhow!("Invalid map tile URL"))?;
-                            if !tile.is_empty()
-                                && (tile.len() > 2048
-                                    || !tile.starts_with("https://")
-                                    || !["{z}", "{x}", "{y}"].iter().all(|v| tile.contains(v))
-                                    || tile.contains('@')
-                                    || tile.chars().any(char::is_whitespace))
-                            {
-                                anyhow::bail!(
-                                    "Map tile URL must use HTTPS and contain {{z}}, {{x}} and {{y}}"
-                                );
-                            }
-                            prefs.insert("tile_url".into(), json!(tile));
-                        }
+                        apply_gui_prefs_update(&mut prefs, &request.params)?;
                         if !paths.data.is_dir() {
                             return Err(DiagnosticError::new(
                                 "prefs.data_unavailable",
@@ -506,6 +614,136 @@ async fn main() -> Result<()> {
                 }
                 return;
             }
+            if request.method == "center.storage.estimate" {
+                let params = request.params;
+                let result = tokio::task::spawn_blocking(move || check_storage_preflight(&params))
+                    .await
+                    .map_err(|e| anyhow::anyhow!("storage preflight failed: {e}"))
+                    .and_then(|res| res);
+                match result {
+                    Ok(pre) => send(json!({
+                        "id": id,
+                        "type": "result",
+                        "result": {
+                            "source_data": pre.source.data,
+                            "destination": pre.destination,
+                            "source_bytes": pre.estimate.source_bytes,
+                            "required_bytes": pre.estimate.required_bytes,
+                            "available_bytes": pre.estimate.available_bytes,
+                        }
+                    })),
+                    Err(error) => send(error_reply(id, &error)),
+                }
+                return;
+            }
+            if request.method == "center.storage.migrate" {
+                let _guard = storage_lock.lock().await;
+                let params = request.params;
+                let pre =
+                    match tokio::task::spawn_blocking(move || check_storage_preflight(&params))
+                        .await
+                        .map_err(|e| anyhow::anyhow!("storage preflight failed: {e}"))
+                        .and_then(|res| res)
+                    {
+                        Ok(pre) => pre,
+                        Err(error) => {
+                            send(error_reply(id, &error));
+                            return;
+                        }
+                    };
+                send(json!({
+                    "id": id,
+                    "type": "progress",
+                    "job": null,
+                    "message": "Stopping background service",
+                    "progress": 0.1
+                }));
+                let pid = client.daemon().pid;
+                if let Err(error) = client.call("daemon.quit", json!({})).await {
+                    send(daemon_error_reply(id, &error));
+                    return;
+                }
+                let mut exited = false;
+                for _ in 0..150 {
+                    if !jidr_sdk::avd::process_alive(pid) {
+                        exited = true;
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                if !exited {
+                    send(error_reply(
+                        id,
+                        &anyhow::Error::new(DiagnosticError::new(
+                            "storage.quit_timeout",
+                            "The background process did not exit cleanly",
+                        )),
+                    ));
+                    return;
+                }
+                send(json!({
+                    "id": id,
+                    "type": "progress",
+                    "job": null,
+                    "message": "Copying and verifying device data",
+                    "progress": 0.35
+                }));
+                let result = tokio::task::spawn_blocking(move || -> Result<Value> {
+                    let lease = acquire_storage_lease_with_retry(&pre.source.data)
+                        .map_err(classify_storage_io_error)?;
+                    jidr_sdk::migration::ensure_avds_quiescent(&pre.source)
+                        .map_err(classify_storage_io_error)?;
+                    let socket_path = pre.source.socket();
+                    for _ in 0..10 {
+                        if !socket_path.exists() {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                    }
+                    let barrier =
+                        jidr_sdk::legacy_barrier::LegacySocketBarrier::acquire(&socket_path)
+                            .map_err(classify_storage_io_error)?;
+                    let prepared = jidr_sdk::migration::prepare_copy_flexible(
+                        &pre.source,
+                        &pre.destination,
+                        pre.qemu_img.as_deref(),
+                        &lease,
+                        &barrier,
+                    )
+                    .map_err(classify_storage_io_error)?;
+                    send(json!({
+                        "id": id,
+                        "type": "progress",
+                        "job": null,
+                        "message": "Switching data location",
+                        "progress": 0.85
+                    }));
+                    let location =
+                        jidr_sdk::migration::publish_copy(&prepared, &pre.source, &lease, &barrier)
+                            .map_err(classify_storage_io_error)?;
+                    let pointer = jidr_core::paths::default_location_file()?;
+                    jidr_core::paths::write_location_file(&pointer, &location)?;
+                    let next_paths = JidrPaths::under(&location.root);
+                    Ok(json!({
+                        "root": location.root,
+                        "data": next_paths.data,
+                        "cache": next_paths.cache,
+                        "logs": next_paths.logs,
+                        "previous_data": pre.source.data,
+                        "files": prepared.data.files,
+                        "bytes": prepared.data.bytes,
+                        "qcow_disks": prepared.qcow_disks,
+                    }))
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("storage migration failed: {e}"))
+                .and_then(|res| res);
+                match result {
+                    Ok(value) => send(json!({"id": id, "type": "result", "result": value})),
+                    Err(error) => send(error_reply(id, &error)),
+                }
+                return;
+            }
             let report_start = request.method == "device.start";
             let result = client.run_with_started(&request.method, request.params, |job| {
                 if report_start {
@@ -592,6 +830,7 @@ mod tests {
         let prefs = read_gui_prefs(&path).unwrap();
         assert_eq!(prefs.get("language"), Some(&json!(1)));
         assert_eq!(prefs.get("appearance"), Some(&json!(0)));
+        assert_eq!(prefs.get("record_audio"), None);
         assert_eq!(std::fs::read(&path).unwrap(), legacy);
 
         let corrupt = b"{ not json";
@@ -656,5 +895,48 @@ mod tests {
         assert_eq!(batch.lines.len(), 1000);
         assert_eq!(batch.lines.front().map(String::as_str), Some("2"));
         assert_eq!(batch.dropped, 2);
+    }
+
+    #[test]
+    fn record_audio_preference_requires_bool() {
+        let mut prefs = serde_json::Map::new();
+        super::apply_gui_prefs_update(&mut prefs, &json!({"record_audio": false})).unwrap();
+        assert_eq!(prefs.get("record_audio"), Some(&json!(false)));
+        super::apply_gui_prefs_update(&mut prefs, &json!({"record_audio": true})).unwrap();
+        assert_eq!(prefs.get("record_audio"), Some(&json!(true)));
+
+        let err =
+            super::apply_gui_prefs_update(&mut prefs, &json!({"record_audio": "no"})).unwrap_err();
+        assert_eq!(
+            err.downcast_ref::<DiagnosticError>()
+                .map(|entry| entry.code),
+            Some("prefs.invalid_setting")
+        );
+    }
+
+    #[test]
+    fn storage_errors_classify_cleanly() {
+        for (raw, expected) in [
+            ("destination already exists", "storage.destination_exists"),
+            (
+                "source and destination must not overlap",
+                "storage.destination_overlap",
+            ),
+            (
+                "insufficient destination space: need 10 bytes, have 5 bytes",
+                "storage.insufficient_space",
+            ),
+            ("qemu-img not found", "storage.missing_qemu_img"),
+            (
+                "AVD may still be running: /tmp/a.avd",
+                "storage.devices_active",
+            ),
+        ] {
+            let err = super::classify_storage_io_error(std::io::Error::other(raw));
+            assert_eq!(
+                err.downcast_ref::<DiagnosticError>().map(|e| e.code),
+                Some(expected)
+            );
+        }
     }
 }

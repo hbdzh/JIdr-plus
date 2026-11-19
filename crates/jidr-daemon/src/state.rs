@@ -352,6 +352,20 @@ impl State {
         force: bool,
         cancel: &Cancel,
     ) -> JidrResult<Device> {
+        self.start_admitted_with_progress(id, cold_boot, force, cancel, None)
+            .await
+    }
+
+    /// [`admit`](Self::admit), then start while forwarding [`BootStage`]
+    /// transitions to `on_stage` for job progress reporting.
+    pub async fn start_admitted_with_progress(
+        &self,
+        id: Uuid,
+        cold_boot: bool,
+        force: bool,
+        cancel: &Cancel,
+        on_stage: Option<&(dyn Fn(BootStage) + Send + Sync)>,
+    ) -> JidrResult<Device> {
         cancel.check()?;
         let d = self.with_store(|s| s.get(id).cloned())?;
         if d.base {
@@ -361,7 +375,9 @@ impl State {
             )));
         }
         self.admit(id, force)?;
-        let r = self.start_device(id, cold_boot, cancel).await;
+        let r = self
+            .start_device_with_progress(id, cold_boot, cancel, on_stage)
+            .await;
         if r.is_err() && self.instance(id).is_none() {
             let starting = self.with_store(|s| {
                 s.get(id)
@@ -372,6 +388,116 @@ impl State {
             }
         }
         r
+    }
+
+    async fn start_device_with_progress(
+        &self,
+        id: Uuid,
+        cold_boot: bool,
+        cancel: &Cancel,
+        on_stage: Option<&(dyn Fn(BootStage) + Send + Sync)>,
+    ) -> JidrResult<Device> {
+        let device = self.with_store(|s| s.get(id).cloned())?;
+        if let Some(info) = self.instance(id) {
+            if self.backend.is_alive(&info).await {
+                return Ok(device);
+            }
+            lock(&self.instances).remove(&id);
+        }
+        if cold_boot {
+            if matches!(device.status, DeviceStatus::Hibernated)
+                || device.launch.resume_snapshot.is_some()
+            {
+                return Err(JidrError::busy(
+                    "resume and stop the saved session before cold booting",
+                ));
+            }
+            let state = self.arc()?;
+            let backup_device = device.clone();
+            tokio::task::spawn_blocking(move || state.backup_quick_boot(&backup_device))
+                .await
+                .map_err(|e| JidrError::unexpected(format!("snapshot backup failed: {e}")))??;
+        }
+        let (spec, _) = self.launch_spec(&device)?;
+        for cam in [&device.launch.camera_back, &device.launch.camera_front]
+            .into_iter()
+            .flatten()
+        {
+            if !jidr_backend::valid_camera(cam) {
+                return Err(JidrError::usage(format!(
+                    "invalid camera {cam:?}: use emulated, virtualscene, none or webcamN"
+                )));
+            }
+        }
+        let resume = device
+            .launch
+            .resume_snapshot
+            .clone()
+            .filter(|_| !cold_boot && !device.launch.force_cold_boot);
+        let opts = LaunchOptions {
+            ramdisk: device.launch.ramdisk.clone(),
+            camera_back: device.launch.camera_back.clone(),
+            camera_front: device.launch.camera_front.clone(),
+            extra_args: device.launch.extra_args.clone(),
+            gpu: device.launch.gpu.clone(),
+            audio: device.launch.audio.unwrap_or(true),
+            cold_boot: cold_boot
+                || device.launch.force_cold_boot
+                || (!device
+                    .launch
+                    .quick_boot
+                    .unwrap_or(self.settings().quick_boot)
+                    && resume.is_none()),
+            snapshot: resume.clone(),
+            // Save explicitly before stopping. The headless emulator's exit
+            // save can stall and leave default_boot without a memory image.
+            snapshot_save: false,
+            // #25: only adb-root devices boot a writable system image.
+            writable_system: device.root.writable_system && device.root.mode == RootMode::Adb,
+            ..LaunchOptions::default()
+        };
+        self.set_status(id, DeviceStatus::Starting, None);
+        let progress = |stage: BootStage| {
+            if stage == BootStage::Spawned {
+                self.set_status(id, DeviceStatus::Booting, None);
+            }
+            self.emit(
+                "device.boot",
+                json!({ "device": id, "stage": stage, "progress": stage.progress() }),
+            );
+            if let Some(cb) = on_stage {
+                cb(stage);
+            }
+        };
+        let info = match self.backend.start(&spec, &opts, &progress, cancel).await {
+            Ok(info) => info,
+            Err(e) => {
+                self.set_status(id, DeviceStatus::Stopped, Some(None));
+                self.emit("device.boot_failed", json!({ "device": id, "error": e }));
+                return Err(e);
+            }
+        };
+        lock(&self.instances).insert(id, info.clone());
+        lock(&self.adopted).remove(&id);
+        self.set_status(id, DeviceStatus::Running, Some(Some(info.runtime())));
+        if device.launch.force_cold_boot || device.launch.resume_snapshot.is_some() {
+            self.with_store(|s| {
+                s.update(id, |d| {
+                    d.launch.force_cold_boot = false;
+                    d.launch.resume_snapshot = None;
+                })
+            })?;
+        }
+        self.watch_crash(id, info);
+        self.touch(id);
+        if resume.is_some() {
+            lock(&self.resumed).insert(id);
+        } else {
+            lock(&self.resumed).remove(&id);
+        }
+        let device = self.with_store(|s| s.get(id).cloned())?;
+        self.run_boot_hooks(&device).await;
+        Ok(device)
     }
 
     /// Samples every running device's footprint (the daemon does this every
@@ -622,104 +748,8 @@ impl DaemonContext for State {
     }
 
     async fn start_device(&self, id: Uuid, cold_boot: bool, cancel: &Cancel) -> JidrResult<Device> {
-        let device = self.with_store(|s| s.get(id).cloned())?;
-        if let Some(info) = self.instance(id) {
-            if self.backend.is_alive(&info).await {
-                return Ok(device);
-            }
-            lock(&self.instances).remove(&id);
-        }
-        if cold_boot {
-            if matches!(device.status, DeviceStatus::Hibernated)
-                || device.launch.resume_snapshot.is_some()
-            {
-                return Err(JidrError::busy(
-                    "resume and stop the saved session before cold booting",
-                ));
-            }
-            let state = self.arc()?;
-            let backup_device = device.clone();
-            tokio::task::spawn_blocking(move || state.backup_quick_boot(&backup_device))
-                .await
-                .map_err(|e| JidrError::unexpected(format!("snapshot backup failed: {e}")))??;
-        }
-        let (spec, _) = self.launch_spec(&device)?;
-        for cam in [&device.launch.camera_back, &device.launch.camera_front]
-            .into_iter()
-            .flatten()
-        {
-            if !jidr_backend::valid_camera(cam) {
-                return Err(JidrError::usage(format!(
-                    "invalid camera {cam:?}: use emulated, virtualscene, none or webcamN"
-                )));
-            }
-        }
-        let resume = device
-            .launch
-            .resume_snapshot
-            .clone()
-            .filter(|_| !cold_boot && !device.launch.force_cold_boot);
-        let opts = LaunchOptions {
-            ramdisk: device.launch.ramdisk.clone(),
-            camera_back: device.launch.camera_back.clone(),
-            camera_front: device.launch.camera_front.clone(),
-            extra_args: device.launch.extra_args.clone(),
-            gpu: device.launch.gpu.clone(),
-            audio: device.launch.audio.unwrap_or(true),
-            cold_boot: cold_boot
-                || device.launch.force_cold_boot
-                || (!device
-                    .launch
-                    .quick_boot
-                    .unwrap_or(self.settings().quick_boot)
-                    && resume.is_none()),
-            snapshot: resume.clone(),
-            // Save explicitly before stopping. The headless emulator's exit
-            // save can stall and leave default_boot without a memory image.
-            snapshot_save: false,
-            // #25: only adb-root devices boot a writable system image.
-            writable_system: device.root.writable_system && device.root.mode == RootMode::Adb,
-            ..LaunchOptions::default()
-        };
-        self.set_status(id, DeviceStatus::Starting, None);
-        let progress = |stage: BootStage| {
-            if stage == BootStage::Spawned {
-                self.set_status(id, DeviceStatus::Booting, None);
-            }
-            self.emit(
-                "device.boot",
-                json!({ "device": id, "stage": stage, "progress": stage.progress() }),
-            );
-        };
-        let info = match self.backend.start(&spec, &opts, &progress, cancel).await {
-            Ok(info) => info,
-            Err(e) => {
-                self.set_status(id, DeviceStatus::Stopped, Some(None));
-                self.emit("device.boot_failed", json!({ "device": id, "error": e }));
-                return Err(e);
-            }
-        };
-        lock(&self.instances).insert(id, info.clone());
-        lock(&self.adopted).remove(&id);
-        self.set_status(id, DeviceStatus::Running, Some(Some(info.runtime())));
-        if device.launch.force_cold_boot || device.launch.resume_snapshot.is_some() {
-            self.with_store(|s| {
-                s.update(id, |d| {
-                    d.launch.force_cold_boot = false;
-                    d.launch.resume_snapshot = None;
-                })
-            })?;
-        }
-        self.watch_crash(id, info);
-        self.touch(id);
-        if resume.is_some() {
-            lock(&self.resumed).insert(id);
-        } else {
-            lock(&self.resumed).remove(&id);
-        }
-        let device = self.with_store(|s| s.get(id).cloned())?;
-        self.run_boot_hooks(&device).await;
-        Ok(device)
+        self.start_device_with_progress(id, cold_boot, cancel, None)
+            .await
     }
 
     async fn stop_device(&self, id: Uuid) -> JidrResult<Device> {

@@ -68,6 +68,10 @@ swiftc -module-cache-path "$out/module-cache" \
   apps/jidr-swiftui/Tests/PlayerSession/main.swift -o "$out/player-session-tests"
 "$out/player-session-tests"
 swiftc -module-cache-path "$out/module-cache" \
+  apps/jidr-swiftui/Sources/SyncHub.swift \
+  apps/jidr-swiftui/Tests/Sync/main.swift -o "$out/sync-hub-tests"
+"$out/sync-hub-tests"
+swiftc -module-cache-path "$out/module-cache" \
   apps/jidr-swiftui/Center/Reconnect.swift \
   apps/jidr-swiftui/Tests/Reconnect/main.swift -o "$out/reconnect-tests"
 "$out/reconnect-tests"

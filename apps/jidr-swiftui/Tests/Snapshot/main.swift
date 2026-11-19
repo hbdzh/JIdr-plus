@@ -81,8 +81,8 @@ let allCases: [SnapshotCase] = [
     SnapshotCase(name: "center-recording-en-minimum", kind: .center(fixture: "populated"), language: 0, appearance: .dark, width: 800, height: 550, recording: true),
     SnapshotCase(name: "center-deselected-light", kind: .center(fixture: "populated"), language: 1, appearance: .light, deselected: true),
     SnapshotCase(name: "center-deselected-en-dark", kind: .center(fixture: "populated"), language: 0, appearance: .dark, deselected: true),
-    SnapshotCase(name: "settings-general-light", kind: .auxiliary(page: "settings"), language: 1, appearance: .light, width: 700, height: 360),
-    SnapshotCase(name: "settings-general-en-dark", kind: .auxiliary(page: "settings"), language: 0, appearance: .dark, width: 700, height: 360),
+    SnapshotCase(name: "settings-general-light", kind: .auxiliary(page: "settings"), language: 1, appearance: .light, width: 700, height: 430),
+    SnapshotCase(name: "settings-general-en-dark", kind: .auxiliary(page: "settings"), language: 0, appearance: .dark, width: 700, height: 430),
     SnapshotCase(name: "image-management-light", kind: .auxiliary(page: "image-management"), language: 1, appearance: .light, width: 700, height: 500),
     SnapshotCase(name: "image-management-en-dark", kind: .auxiliary(page: "image-management"), language: 0, appearance: .dark, width: 700, height: 500),
     SnapshotCase(name: "image-management-empty-light", kind: .auxiliary(page: "image-management-empty"), language: 1, appearance: .light, width: 700, height: 500),
@@ -127,6 +127,9 @@ let allCases: [SnapshotCase] = [
     SnapshotCase(name: "tasks-active-en-dark", kind: .auxiliary(page: "tasks-active"), language: 0, appearance: .dark, width: 480, height: 264),
     SnapshotCase(name: "command-search-light", kind: .auxiliary(page: "palette"), language: 1, appearance: .light, width: 600, height: 450),
     SnapshotCase(name: "command-search-en-dark", kind: .auxiliary(page: "palette"), language: 0, appearance: .dark, width: 600, height: 450),
+    SnapshotCase(name: "sync-panel-light", kind: .auxiliary(page: "sync-panel"), language: 1, appearance: .light, width: 560, height: 520),
+    SnapshotCase(name: "sync-panel-en-dark", kind: .auxiliary(page: "sync-panel"), language: 0, appearance: .dark, width: 560, height: 520),
+    SnapshotCase(name: "sync-panel-active-en-dark", kind: .auxiliary(page: "sync-panel-active"), language: 0, appearance: .dark, width: 560, height: 520),
     SnapshotCase(name: "recordings-search-light", kind: .auxiliary(page: "recordings"), language: 1, appearance: .light, width: 900, height: 620),
     SnapshotCase(name: "recordings-search-en-dark", kind: .auxiliary(page: "recordings"), language: 0, appearance: .dark, width: 900, height: 620),
     SnapshotCase(name: "center-stopped-light", kind: .auxiliary(page: "center-stopped"), language: 1, appearance: .light, width: 1050, height: 700),
@@ -140,7 +143,8 @@ let allCases: [SnapshotCase] = [
     SnapshotCase(name: "device-preview-states-dark", kind: .auxiliary(page: "device-preview-states"), language: 0, appearance: .dark, width: 286, height: 110),
     SnapshotCase(name: "center-stopped-en-minimum", kind: .auxiliary(page: "center-stopped"), language: 0, appearance: .dark, width: 800, height: 550),
     SnapshotCase(name: "settings-defaults-light", kind: .auxiliary(page: "settings-defaults"), language: 1, appearance: .light, width: 700, height: 450),
-    SnapshotCase(name: "settings-advanced-en-dark", kind: .auxiliary(page: "settings-advanced"), language: 0, appearance: .dark, width: 700, height: 450),
+    SnapshotCase(name: "settings-agents-en-dark", kind: .auxiliary(page: "settings-agents"), language: 0, appearance: .dark, width: 700, height: 420),
+    SnapshotCase(name: "settings-advanced-en-dark", kind: .auxiliary(page: "settings-advanced"), language: 0, appearance: .dark, width: 700, height: 280),
     SnapshotCase(name: "device-settings-light", kind: .auxiliary(page: "device-settings"), language: 1, appearance: .light, width: 560, height: 620),
     SnapshotCase(name: "center-search-no-results", kind: .auxiliary(page: "search-empty"), language: 0, appearance: .light, width: 800, height: 550),
     SnapshotCase(name: "center-details-error", kind: .auxiliary(page: "details-error"), language: 1, appearance: .light, width: 1050, height: 700),
@@ -853,7 +857,8 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
         model.detailsError = model.text("读取设备详情超时，请重试。", "Reading device details timed out. Try again.")
     }
     if page == "settings-defaults" { model.settingsCategory = 1 }
-    if page == "settings-advanced" { model.settingsCategory = 3 }
+    if page == "settings-agents" { model.settingsCategory = 3 }
+    if page == "settings-advanced" { model.settingsCategory = 4 }
     if page == "microphone" {
         model.microphoneSession(for: model.selected!).file = URL(fileURLWithPath: "/tmp/voice-test.wav")
     }
@@ -862,7 +867,7 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
     switch page {
     case "image-management", "image-management-empty": canvas.mount(ImageManagementView(model: model))
     case "image-management-install": canvas.mount(NewDeviceView(model: model, initialImageInstall: true, standaloneImageInstall: true))
-    case "settings", "settings-defaults", "settings-advanced": canvas.mount(SettingsView(model: model, onClose: {}))
+    case "settings", "settings-defaults", "settings-agents", "settings-advanced": canvas.mount(SettingsView(model: model, onClose: {}))
     case "center-stopped", "center-stopped-empty", "center-many-content", "search-empty", "details-error", "all-devices-list", "all-devices-grid": canvas.mount(CenterView(model: model))
     case "root", "root-full", "root-adb", "root-adb-writable", "microphone", "camera", "clipboard", "battery", "gps", "network", "calls", "fingerprint", "developer", "logcat":
         let tab = ["root": 4, "root-full": 4, "root-adb": 4, "root-adb-writable": 4, "microphone": 10, "camera": 8, "clipboard": 6, "battery": 0, "gps": 1, "network": 2, "calls": 5, "fingerprint": 7, "developer": 9, "logcat": 3][page]!
@@ -950,6 +955,25 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
         })
     case "tasks", "tasks-active": canvas.mount(TaskCenterView(model: model))
     case "palette": canvas.mount(CommandPaletteView(model: model))
+    case "sync-panel", "sync-panel-active":
+        let syncState = SyncPanelState()
+        if page == "sync-panel-active", let first = model.devices.first(where: \.running)?.id {
+            let others = model.devices.filter { $0.running && $0.id != first }.map {
+                SyncFollowerModel(device: $0.id, display: nil, status: .ready, counters: .init(forwarded: 42, dropped: 0))
+            }
+            if !others.isEmpty {
+                model.syncHub.applySession(SyncSessionModel(
+                    id: "snap-sync",
+                    leader: first,
+                    leader_display: SyncDisplaySize(width: 1080, height: 2400),
+                    followers: others,
+                    options: SyncOptionsModel(),
+                    started_at: "2026-11-19T00:00:00Z"
+                ))
+            }
+        }
+        syncState.seed(from: model.devices, session: model.syncHub.session, preselect: [])
+        canvas.mount(SyncPanelView(model: model, hub: model.syncHub, state: syncState))
     case "device-preview-states":
         guard let running = model.devices.first(where: { $0.running }),
               let stopped = model.devices.first(where: { $0.stopped }),

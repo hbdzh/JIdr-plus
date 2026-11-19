@@ -55,6 +55,7 @@ registry checksum remains a placeholder until a real artifact is published.
 | `ca_cert_install {device, path}` | may restart the device | Trust a CA certificate (PEM or DER, on this Mac) as a system cert on a running Full-root device, then verify; `root.cacert.list` / `.verify` / `.remove` go through `command_run` |
 | `command_run root.writable_system {device, enabled}` | restarts a running device | A writable `/system` on an `adb`-root device, or back to read-only (docs/root.md); refused with `usage` on other root modes, Play Store images and images older than API 31 |
 | `proxy_set {device, host?, port}`, `proxy_clear {device}` | idempotent | The device's global HTTP proxy, for Burp or mitmproxy on the Mac (`host` defaults to `10.0.2.2`, the Mac as the emulator sees it) |
+| `sync_start {leader, followers, options?}`, `sync_stop`, `sync_status` | interacts / idempotent / read-only | Manage the multi-device input synchronizer session (D45, [sync.md](sync.md)). Input flows while the leader has an open player window |
 
 TTL leases start when the clone is delivered and keep their IDs and deadlines across daemon restarts. A connection lease whose daemon restarts enters the same two-minute grace period; an existing grace deadline is not extended by another restart. Renewal returns `busy` if the clone is already being released.
 

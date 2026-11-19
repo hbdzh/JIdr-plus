@@ -108,35 +108,58 @@ async fn ensure_patched(
     apk_sha256: &str,
 ) -> JidrResult<PathBuf> {
     let pristine_path = pristine_ramdisk_path(device);
-    let pristine_sha = jidr_sdk::cache::sha256_file(&pristine_path)?;
     let patched = patched_ramdisk_path(ctx, device, version);
     let props = crate::props::load(ctx, device);
 
-    if patched.is_file()
-        && patch::read_provenance(&patched).is_some_and(|p| {
-            p.pristine_sha256 == pristine_sha && p.magisk_version == version && p.props == props
+    let pristine_for_hash = pristine_path.clone();
+    let patched_for_check = patched.clone();
+    let version_for_check = version.to_string();
+    let props_for_check = props.clone();
+    let (pristine_sha, up_to_date) =
+        tokio::task::spawn_blocking(move || -> JidrResult<(String, bool)> {
+            let pristine_sha = jidr_sdk::cache::sha256_file(&pristine_for_hash)?;
+            let ok = patched_for_check.is_file()
+                && patch::read_provenance(&patched_for_check).is_some_and(|p| {
+                    p.pristine_sha256 == pristine_sha
+                        && p.magisk_version == version_for_check
+                        && p.props == props_for_check
+                });
+            Ok((pristine_sha, ok))
         })
-    {
+        .await
+        .map_err(|e| JidrError::unexpected(format!("ramdisk check task: {e}")))??;
+
+    if up_to_date {
         return Ok(patched);
     }
 
     ctx.report(None, &format!("Patching the ramdisk for Magisk {version}"));
-    let pristine = std::fs::read(&pristine_path).ctx(
-        ErrorCode::Sdk,
-        format!("reading {}", pristine_path.display()),
-    )?;
-    let payload = patch::load_payload(apk, &device.image.abi)?;
-    let bytes = patch::patch_ramdisk(&pristine, &payload, &props)?;
-    patch::write_atomic(&patched, &bytes)?;
-    patch::write_provenance(
-        &patched,
-        &patch::Provenance {
-            magisk_version: version.to_string(),
-            pristine_sha256: pristine_sha,
-            apk_sha256: Some(apk_sha256.to_string()),
-            props,
-        },
-    )?;
+    let apk = apk.to_path_buf();
+    let abi = device.image.abi.clone();
+    let version = version.to_string();
+    let apk_sha256 = apk_sha256.to_string();
+    let patched_out = patched.clone();
+    tokio::task::spawn_blocking(move || -> JidrResult<()> {
+        let pristine = std::fs::read(&pristine_path).ctx(
+            ErrorCode::Sdk,
+            format!("reading {}", pristine_path.display()),
+        )?;
+        let payload = patch::load_payload(&apk, &abi)?;
+        let bytes = patch::patch_ramdisk(&pristine, &payload, &props)?;
+        patch::write_atomic(&patched_out, &bytes)?;
+        patch::write_provenance(
+            &patched_out,
+            &patch::Provenance {
+                magisk_version: version,
+                pristine_sha256: pristine_sha,
+                apk_sha256: Some(apk_sha256),
+                props,
+            },
+        )?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| JidrError::unexpected(format!("ramdisk patch task: {e}")))??;
     Ok(patched)
 }
 

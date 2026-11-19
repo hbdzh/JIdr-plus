@@ -21,8 +21,10 @@ use crate::{
     Backend, BootProgress, BootStage, InstanceInfo, LaunchOptions, LaunchSpec, default_gpu,
 };
 
-/// How long the emulator gets to write its discovery file.
-const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(90);
+/// How long the emulator gets to write its discovery file. Under heavy CPU or
+/// disk load a cold launch can take longer than 90 s before writing the file;
+/// total startup remains bounded by `LaunchOptions::boot_timeout`.
+const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(180);
 /// How long a graceful shutdown (which saves the quick-boot snapshot) may take.
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(120);
 /// A connected but unresponsive gRPC server must not block shutdown forever.

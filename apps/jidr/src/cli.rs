@@ -71,6 +71,11 @@ pub enum Cmd {
         #[command(subcommand)]
         cmd: SyncCmd,
     },
+    /// Mirror a leader device's player input onto follower devices.
+    InputSync {
+        #[command(subcommand)]
+        cmd: InputSyncCmd,
+    },
     /// Forward a connected game controller to a device.
     Gamepad {
         #[command(subcommand)]
@@ -670,6 +675,62 @@ pub enum SyncCmd {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum AdaptationArg {
+    Stretch,
+    Letterbox,
+}
+
+impl AdaptationArg {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Stretch => "stretch",
+            Self::Letterbox => "letterbox",
+        }
+    }
+}
+
+#[derive(Debug, Subcommand)]
+pub enum InputSyncCmd {
+    /// Start mirroring input from a leader device to one or more followers.
+    Start {
+        /// Leader device name or id.
+        #[arg(long)]
+        leader: String,
+        /// Follower device name or id (repeatable).
+        #[arg(long = "follower", required = true)]
+        followers: Vec<String>,
+        /// Coordinate mapping mode.
+        #[arg(long, value_enum, default_value_t = AdaptationArg::Stretch)]
+        adaptation: AdaptationArg,
+        /// Do not forward key presses and releases.
+        #[arg(long)]
+        no_keyboard: bool,
+        /// Do not forward committed text and paste.
+        #[arg(long)]
+        no_text: bool,
+        /// Do not forward back, home, recents, volume and power.
+        #[arg(long)]
+        no_tool_keys: bool,
+        /// Allow direct user input on followers while syncing.
+        #[arg(long)]
+        unlock_followers: bool,
+        /// Random extra delay per follower in ms (0..=20).
+        #[arg(long, default_value_t = 0)]
+        jitter_ms: u8,
+    },
+    /// Stop the active input sync session.
+    Stop,
+    /// Show the active input sync session, or null.
+    Status,
+    /// Add a running follower to the active sync session.
+    Add { device: String },
+    /// Remove a follower from the active sync session.
+    Remove { device: String },
+    /// Promote a session member to leader.
+    Leader { device: String },
+}
+
 #[derive(Debug, Subcommand)]
 pub enum GamepadCmd {
     /// List connected controllers.
@@ -823,5 +884,55 @@ mod tests {
             let args = ["jidr", "root", "auto-grant"].into_iter().chain(bad);
             assert!(Cli::try_parse_from(args).is_err());
         }
+    }
+
+    #[test]
+    fn input_sync_parses() {
+        let cli = Cli::try_parse_from([
+            "jidr",
+            "input-sync",
+            "start",
+            "--leader",
+            "A",
+            "--follower",
+            "B",
+            "--follower",
+            "C",
+            "--adaptation",
+            "letterbox",
+            "--no-text",
+            "--unlock-followers",
+            "--jitter-ms",
+            "5",
+        ])
+        .unwrap();
+        match cli.cmd {
+            Cmd::InputSync {
+                cmd:
+                    InputSyncCmd::Start {
+                        leader,
+                        followers,
+                        adaptation,
+                        no_text,
+                        unlock_followers,
+                        jitter_ms,
+                        ..
+                    },
+            } => {
+                assert_eq!(leader, "A");
+                assert_eq!(followers, ["B", "C"]);
+                assert_eq!(adaptation, AdaptationArg::Letterbox);
+                assert!(no_text);
+                assert!(unlock_followers);
+                assert_eq!(jitter_ms, 5);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(Cli::try_parse_from(["jidr", "input-sync", "start", "--leader", "A"]).is_err());
+        assert!(Cli::try_parse_from(["jidr", "input-sync", "stop"]).is_ok());
+        assert!(Cli::try_parse_from(["jidr", "input-sync", "status"]).is_ok());
+        assert!(Cli::try_parse_from(["jidr", "input-sync", "add", "D"]).is_ok());
+        assert!(Cli::try_parse_from(["jidr", "input-sync", "remove", "D"]).is_ok());
+        assert!(Cli::try_parse_from(["jidr", "input-sync", "leader", "B"]).is_ok());
     }
 }

@@ -12,6 +12,7 @@ jidr-client.workspace = true
 jidr-core.workspace = true
 jidr-proto.workspace = true
 jidr-sdk.workspace = true
+jidr-sync.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

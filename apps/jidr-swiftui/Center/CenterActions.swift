@@ -53,6 +53,7 @@ extension CenterModel {
         case .setupSDK: present(.setupSDK)
         case .settings: present(.settings)
         case .tasks: openTasks()
+        case .openSynchronizer: openSyncPanel()
         case .toggleAppearance: setPreference("appearance", appearance == 2 ? 1 : 2)
         case .openDevice(let id):
             if devices.first(where: { $0.id == id })?.running == true { openGame(id) } else { start(id) }

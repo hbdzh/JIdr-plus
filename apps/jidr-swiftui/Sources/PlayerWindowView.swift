@@ -169,7 +169,12 @@ struct ContentView: View {
     }
     /// Ordinary player input is ignored by the bridge during playback, so the
     /// sidebar disables those entries until the script stops.
-    private var inputEnabled: Bool { linkState.isRunning && !transport.stoppingDevice && transport.scriptPlayback == .idle }
+    private var inputEnabled: Bool {
+        linkState.isRunning
+            && !transport.stoppingDevice
+            && transport.scriptPlayback == .idle
+            && !(transport.syncRole == .follower && transport.syncFollowerLocked)
+    }
 
     var body: some View {
         ZStack(alignment: .trailing) {
@@ -244,6 +249,12 @@ struct ContentView: View {
                 debugOverlay
             }
             recordingPill
+            if transport.syncRole != .off {
+                syncStatusOverlay
+            }
+            if transport.syncLockedHintVisible {
+                syncLockedHintOverlay
+            }
         }
         .overlay(alignment: .top) {
             if scriptHUDActive {
@@ -260,6 +271,51 @@ struct ContentView: View {
                     .padding(8).background(.black.opacity(0.75), in: RoundedRectangle(cornerRadius: 8))
                     .padding(8).allowsHitTesting(false)
             }
+        }
+    }
+
+    private var syncStatusOverlay: some View {
+        VStack {
+            HStack {
+                Spacer()
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(transport.syncRole == .leader ? WbColor.accent : WbColor.positive)
+                        .frame(width: 6, height: 6)
+                    Text(transport.syncRole == .leader
+                         ? t("同步中 · 主控", "Syncing · Leader", language)
+                         : t("同步中 · 跟随", "Syncing · Following", language))
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .modifier(PlayerCanvasGlassSurface(cornerRadius: 999))
+            }
+            .padding(.horizontal, 10)
+            .padding(.top, scriptHUDActive ? PlayerScriptControlMetrics.height + 16 : 10)
+            Spacer()
+        }
+        .allowsHitTesting(false)
+    }
+
+    private var syncLockedHintOverlay: some View {
+        VStack {
+            Spacer()
+            HStack(spacing: 10) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 11))
+                Text(t("由主控设备控制", "Controlled by the leader", language))
+                    .font(.system(size: 12, weight: .medium))
+                Button(t("接管为主控", "Take over", language)) {
+                    transport.onSyncTakeOver?()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.mini)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .modifier(PlayerCanvasGlassSurface(cornerRadius: 999))
+            .padding(.bottom, 16)
         }
     }
 
@@ -584,6 +640,11 @@ struct ContentView: View {
                     tool("截图", WbIcon.camera, enabled: linkState.isRunning) { chrome.chooseScreenshotAction?() }
                     tool("安装 APK", WbIcon.installAPK, enabled: linkState.isRunning) { chrome.chooseAPKAction?() }
                     tool("发送文件", WbIcon.folder, enabled: linkState.isRunning) { chrome.chooseFileAction?() }
+                    tool(t("同步器", "Synchronizer", language),
+                         "rectangle.on.rectangle",
+                         enabled: linkState.isRunning,
+                         active: transport.syncRole != .off,
+                         activeTint: WbColor.accent) { transport.onOpenSyncPanel?() }
                 }
                 sidebarSeparator
                 Menu {

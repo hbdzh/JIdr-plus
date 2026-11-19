@@ -4,6 +4,7 @@
 
 ### 新增
 
+- **多设备输入同步器（Synchronizer）**：新增 `jidr-sync` 逻辑库、守护进程 `sync.*` 会话控制面（`sync.start` / `stop` / `status` / `add_follower` / `remove_follower` / `set_leader` / `set_options` / `report` 与 `sync.state` / `sync.follower_error` 事件）、CLI `jidr input-sync`、MCP 工具（`sync_start` / `sync_stop` / `sync_status`）、桥接端 `leader`/`follower` 实时转发与坐标适配（`stretch` / `letterbox`），以及液态玻璃风格“同步器”面板（`⇧⌘Y`、命令面板与播放器工具栏入口）、窗口内状态胶囊和锁定跟随端一键接管为主控功能。
 - **双向与单向文件夹同步**：新增 `file.sync.start`（支持 `one_way` 与 `bidirectional`）、`file.sync.stop`、`file.sync.list`、`file.sync.resolve` 协议命令与 `file.sync.*` 事件，CLI 同步新增 `jidr sync start [--bidirectional]`、`list`、`stop` 与 `resolve`。双向模式通过 SHA-256 内容基线与设备端扫描同步两端更改与删除，冲突时保留双方内容供手动选择（`keep_local` / `keep_remote` / `keep_both`）。
 - **独立文件夹同步面板**：在设备概览页操作栏、菜单栏「设备」及命令面板（`⌘K`）新增“文件夹同步”入口，支持在独立面板中切换双向/单向方向、可选自定义设备目录、查看实时 `↑pushed ↓pulled` 计数、在访达中显示目录以及一键处理冲突。
 - **网络丢包与 DNS 模拟增强**：`network.shaping.set` 新增 `dns`（`normal` / `slow` / `fail`）与 `dns_delay_ms` 参数，配置持久化到设备并在重启后恢复；同步更新 CLI（`jidr network dns`）与 SwiftUI 工具页。

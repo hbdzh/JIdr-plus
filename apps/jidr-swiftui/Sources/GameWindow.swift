@@ -17,7 +17,7 @@ struct PlayerFrameProbeSample {
 
 // This prototype intentionally requires an explicit device and data directory.
 // It never starts, stops, or changes the configuration of an emulator.
-final class PlayerTransport: ObservableObject {
+final class PlayerTransport: ObservableObject, SyncBridgeTarget {
     enum RecordingState { case idle, starting, recording, stopping }
 
     @Published var recording: RecordingState = .idle {
@@ -27,6 +27,7 @@ final class PlayerTransport: ObservableObject {
     @Published var stoppingDevice = false
     @Published var recordingStateUnknown = false
     @Published var language = 1
+    @Published var recordAudio = true
     /// What the window shows when there is no live frame (booting/stopped/lost).
     @Published private(set) var linkState: PlayerLinkState = .connecting
     @Published private(set) var recordingStartedAt: Date?
@@ -59,6 +60,21 @@ final class PlayerTransport: ObservableObject {
     @Published private(set) var scriptRecordFinishing = false
     @Published private(set) var scriptError: String?
     var scriptPlaybackActive: Bool { scriptPlayback != .idle }
+
+    // MARK: Multi-device input synchronizer (D45)
+    @Published var syncRole: PlayerSyncRole = .off
+    @Published var syncFollowerLocked: Bool = false
+    @Published var syncMemberCount: Int = 0
+    @Published var syncLockedHintVisible: Bool = false
+    var onSyncEvent: ((Int, [String: Any]) -> Void)?
+    var onSyncBusy: ((String) -> Void)?
+    var onSyncTakeOver: (() -> Void)?
+    var onOpenSyncPanel: (() -> Void)?
+    var onSyncBridgeLost: (() -> Void)?
+    var onSyncLeaderRelease: (() -> Void)?
+    var onSyncDisplaySizeChanged: ((Int, Int) -> Void)?
+    private var syncLockedHintWorkItem: DispatchWorkItem?
+    var syncDeviceID: String? { device }
 
     /// Per-device rebindable shortcuts, loaded by the window controller.
     let shortcuts = GameShortcutsStore()
@@ -232,6 +248,12 @@ final class PlayerTransport: ObservableObject {
         onStatus?(scriptInterrupted ? t("连接中断，操作录制或回放已停止。", "Connection lost; recording or playback stopped.", language) : "")
         markRecordingInterrupted()
         resetScriptSession()
+        if syncRole != .off {
+            syncRole = .off
+            syncFollowerLocked = false
+            syncLockedHintVisible = false
+            onSyncBridgeLost?()
+        }
         reconnectPromptIfEditing()
     }
 
@@ -311,6 +333,67 @@ final class PlayerTransport: ObservableObject {
 
     func startDevice() { onStartDevice?() }
 
+    func sendSyncMode(
+        role: String,
+        lock: Bool,
+        leader: String?,
+        leaderDisplay: SyncDisplaySize?,
+        adaptation: String,
+        syncKeyboard: Bool,
+        syncText: Bool,
+        syncToolKeys: Bool
+    ) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.syncRole = PlayerSyncRole(rawValue: role) ?? .off
+            self.syncFollowerLocked = (self.syncRole == .follower && lock)
+            if self.syncRole != .follower || !lock {
+                self.syncLockedHintVisible = false
+            }
+        }
+        var payload: [String: Any] = [
+            "type": "sync_mode",
+            "role": role,
+            "lock": lock,
+            "adaptation": adaptation,
+            "sync_keyboard": syncKeyboard,
+            "sync_text": syncText,
+            "sync_tool_keys": syncToolKeys,
+        ]
+        if let leader {
+            payload["leader"] = leader
+        }
+        if let leaderDisplay {
+            payload["leader_display"] = [
+                "width": leaderDisplay.width,
+                "height": leaderDisplay.height,
+            ]
+        }
+        send(payload)
+    }
+
+    func sendSyncInput(seq: Int, event: [String: Any]) {
+        send([
+            "type": "sync_input",
+            "seq": seq,
+            "event": event,
+        ])
+    }
+
+    func sendSyncRelease() {
+        send(["type": "sync_release"])
+    }
+
+    func showSyncLockedHint() {
+        syncLockedHintWorkItem?.cancel()
+        syncLockedHintVisible = true
+        let work = DispatchWorkItem { [weak self] in
+            self?.syncLockedHintVisible = false
+        }
+        syncLockedHintWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: work)
+    }
+
     func send(_ message: [String: Any]) {
         guard JSONSerialization.isValidJSONObject(message),
               let data = try? JSONSerialization.data(withJSONObject: message) else { return }
@@ -372,9 +455,10 @@ final class PlayerTransport: ObservableObject {
                 onStatus?(t("录屏文件已存在，请选择新文件名。", "The recording file already exists. Choose a new name.", language))
                 return
             }
+            let includeAudio = recordAudio
             recording = .starting
             recordingStartedAt = Date()
-            send(["type": "start_recording", "path": url.path])
+            send(["type": "start_recording", "path": url.path, "audio": includeAudio])
             onStatus?(t("正在启动录屏…", "Starting the recording…", language))
         case .recording:
             recording = .stopping
@@ -582,6 +666,7 @@ final class PlayerTransport: ObservableObject {
             frameWidth = width
             frameHeight = height
             onFrameSize?(width, height)
+            onSyncDisplaySizeChanged?(width, height)
         }
         onFrame?(image, rotation)
         if let measurement { onMeasuredFramePresented?(measurement) }
@@ -726,6 +811,38 @@ final class PlayerTransport: ObservableObject {
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.generation == token else { return }
                 self.applyScriptNotification(result)
+            }
+        } else if line.hasPrefix("JIDR_SYNC:") {
+            let payload = String(line.dropFirst("JIDR_SYNC:".count))
+            guard let data = payload.data(using: .utf8),
+                  let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let seq = result["seq"] as? Int,
+                  let event = result["event"] as? [String: Any] else { return }
+            let now = ProcessInfo.processInfo.systemUptime
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.generation == token else { return }
+                self.onSyncEvent?(seq, event)
+                _ = now
+            }
+        } else if line.hasPrefix("JIDR_SYNC_STATUS:") {
+            let payload = String(line.dropFirst("JIDR_SYNC_STATUS:".count))
+            guard let data = payload.data(using: .utf8),
+                  let result = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return }
+            let message = result["message"] as? String ?? ""
+            let state = result["state"] as? String
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.generation == token else { return }
+                switch state {
+                case "busy":
+                    self.syncRole = .off
+                    self.syncFollowerLocked = false
+                    self.syncLockedHintVisible = false
+                    self.onSyncBusy?(message)
+                case "release":
+                    self.onSyncLeaderRelease?()
+                default:
+                    self.onSyncBusy?(message)
+                }
             }
         } else if line.hasPrefix("Invalid input") || line.contains("unknown variant") {
             // The player bridge does not know a command yet (the M2 commands
@@ -886,6 +1003,8 @@ final class ScreenView: NSView, NSTextInputClient {
     private var pressedKeys: [UInt16: String] = [:]
     private var pressedModifiers: Set<String> = []
     private var scriptPlaybackBlocked = false
+    private var syncFollowerLocked = false
+    private var lastSyncRole: PlayerSyncRole = .off
     private var windowObserver: NSObjectProtocol?
     override var acceptsFirstResponder: Bool { true }
     override init(frame frameRect: NSRect) {
@@ -994,6 +1113,10 @@ final class ScreenView: NSView, NSTextInputClient {
     }
     override func mouseDown(with event: NSEvent) {
         guard !scriptPlaybackActive else { return }
+        if syncFollowerLocked {
+            transport?.showSyncLockedHint()
+            return
+        }
         window?.makeFirstResponder(self)
         let point = convert(event.locationInWindow, from: nil)
         guard imageRect.contains(point) else { return }
@@ -1013,7 +1136,7 @@ final class ScreenView: NSView, NSTextInputClient {
         sendTouch(event, down: true)
     }
     override func mouseDragged(with event: NSEvent) {
-        guard dragging, !scriptPlaybackActive else { return }
+        guard dragging, !inputBlocked else { return }
         if secondFingerDown, let second = secondFingerPoint(event) {
             secondFinger = second
             sendSecondFinger(second, down: true)
@@ -1021,7 +1144,7 @@ final class ScreenView: NSView, NSTextInputClient {
         sendTouch(event, down: true)
     }
     override func mouseUp(with event: NSEvent) {
-        if scriptPlaybackActive { clearHeldInputState(); return }
+        if inputBlocked { clearHeldInputState(); return }
         guard dragging else { return }
         if secondFingerDown, let second = secondFinger {
             sendSecondFinger(second, down: false)
@@ -1045,6 +1168,17 @@ final class ScreenView: NSView, NSTextInputClient {
         if blocked { clearHeldInputState() }
     }
 
+    func setSyncState(role: PlayerSyncRole, locked: Bool) {
+        let roleChanged = role != lastSyncRole
+        let lockedNow = role == .follower && locked
+        let becameLocked = lockedNow && !syncFollowerLocked
+        lastSyncRole = role
+        syncFollowerLocked = lockedNow
+        if roleChanged || becameLocked {
+            clearHeldInputState()
+        }
+    }
+
     private func clearHeldInputState() {
         mappedKeys.removeAll()
         dragging = false
@@ -1060,6 +1194,10 @@ final class ScreenView: NSView, NSTextInputClient {
 
     private var scriptPlaybackActive: Bool {
         scriptPlaybackBlocked || transport?.scriptPlaybackActive == true
+    }
+
+    private var inputBlocked: Bool {
+        scriptPlaybackActive || syncFollowerLocked
     }
 
     fileprivate func releaseHeldInputs() {
@@ -1081,7 +1219,7 @@ final class ScreenView: NSView, NSTextInputClient {
         return super.resignFirstResponder()
     }
     override func flagsChanged(with event: NSEvent) {
-        guard !scriptPlaybackActive else { return }
+        guard !inputBlocked else { return }
         for (flag, key) in [(NSEvent.ModifierFlags.shift, "Shift"), (.control, "Control"), (.option, "Alt")] {
             let down = event.modifierFlags.contains(flag)
             if down && !pressedModifiers.contains(key) {
@@ -1094,6 +1232,10 @@ final class ScreenView: NSView, NSTextInputClient {
     }
     override func keyDown(with event: NSEvent) {
         guard !scriptPlaybackActive else { return }
+        if syncFollowerLocked {
+            transport?.showSyncLockedHint()
+            return
+        }
         if let mapping = transport?.mapping, !event.modifierFlags.contains(.command), !event.modifierFlags.contains(.control), !event.modifierFlags.contains(.option) {
             let raw = event.charactersIgnoringModifiers ?? ""
             let key = raw == " " ? "SPACE" : raw.uppercased()
@@ -1135,7 +1277,7 @@ final class ScreenView: NSView, NSTextInputClient {
         pendingKey = nil
     }
     override func keyUp(with event: NSEvent) {
-        if scriptPlaybackActive {
+        if inputBlocked {
             _ = mappedKeys.removeValue(forKey: event.keyCode)
             _ = pressedKeys.removeValue(forKey: event.keyCode)
             return
@@ -1147,7 +1289,7 @@ final class ScreenView: NSView, NSTextInputClient {
         if let key = pressedKeys.removeValue(forKey: event.keyCode) { transport?.send(["type": "key", "key": key, "down": false]) }
     }
     func insertText(_ string: Any, replacementRange: NSRange) {
-        guard !scriptPlaybackActive else {
+        guard !inputBlocked else {
             marked = NSMutableAttributedString(string: "")
             markedSelection = NSRange(location: 0, length: 0)
             needsDisplay = true
@@ -1166,7 +1308,7 @@ final class ScreenView: NSView, NSTextInputClient {
         }
     }
     func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-        guard !scriptPlaybackActive else { return }
+        guard !inputBlocked else { return }
         let value = (string as? NSAttributedString)?.string ?? (string as? String ?? "")
         let markedFont = WbFontResolver.nsFont(family: WbType.body.family, weight: .regular, size: WbType.title.size)
         marked = NSMutableAttributedString(string: value, attributes: [.foregroundColor: NSColor(WbColor.textPrimary), .font: markedFont])
@@ -1207,6 +1349,7 @@ struct PlayerView: NSViewRepresentable {
     }
     func updateNSView(_ view: ScreenView, context: Context) {
         view.setScriptPlaybackBlocked(transport.scriptPlaybackActive)
+        view.setSyncState(role: transport.syncRole, locked: transport.syncFollowerLocked)
     }
 }
 
@@ -1377,7 +1520,8 @@ final class GameWindowController: NSObject, NSWindowDelegate {
 
     func open(device: String, width: Int, height: Int, executable: String, displayName: String? = nil,
               quality: UInt8 = 1, dataDirectory: String? = nil,
-              launch: PlayerLaunchState = .running, onStartDevice: (() -> Void)? = nil) {
+              launch: PlayerLaunchState = .running, hidden: Bool = false,
+              onStartDevice: (() -> Void)? = nil) {
         guard width > 0, height > 0 else { return }
         deviceID = device
         displayTitle = displayName ?? device
@@ -1498,8 +1642,12 @@ final class GameWindowController: NSObject, NSWindowDelegate {
         screenChangeObserver = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main
         ) { [weak self] _ in self?.clampToVisibleScreen() }
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        if !hidden {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        } else {
+            transport.setDisplayVisible(false)
+        }
         transport.prepareStreaming(device: device, width: width, height: height,
                                    executable: executable, quality: quality)
         switch launch {
@@ -1552,6 +1700,7 @@ final class GameWindowController: NSObject, NSWindowDelegate {
     func focusFromMenu() {
         guard let window else { return }
         if window.isMiniaturized { window.deminiaturize(nil) }
+        transport.setDisplayVisible(true)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }

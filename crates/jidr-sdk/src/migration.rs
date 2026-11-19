@@ -264,16 +264,65 @@ pub fn validate_qcow_info(info: &serde_json::Value) -> io::Result<()> {
 /// emulator's own qemu-img. This only reads the staged copy and must run
 /// after all writers have stopped.
 pub fn validate_qcow_tree(staging: &Path, qemu_img: &Path) -> io::Result<usize> {
-    let root = staging.canonicalize()?;
     if !qemu_img.is_file() {
         return Err(invalid("qemu-img not found"));
     }
+    validate_qcow_tree_with_optional_tool(staging, Some(qemu_img))
+}
+
+/// Checks QCOW2 disks when any are present; succeeds with `0` if the tree
+/// contains no QCOW2 images at all (for example, before any device is created).
+pub fn validate_qcow_tree_with_optional_tool(
+    staging: &Path,
+    qemu_img: Option<&Path>,
+) -> io::Result<usize> {
+    let root = staging.canonicalize()?;
     let mut count = 0;
     inspect_qcow_dir(&root, &root, qemu_img, &mut count)?;
     Ok(count)
 }
 
-fn inspect_qcow_dir(root: &Path, dir: &Path, tool: &Path, count: &mut usize) -> io::Result<()> {
+/// Returns `true` if `dir` contains any QCOW2 file (by extension or magic).
+pub fn contains_qcow_images(dir: &Path) -> io::Result<bool> {
+    if !dir.is_dir() {
+        return Ok(false);
+    }
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let path = entry.path();
+        if ty.is_symlink() {
+            return Err(invalid("symbolic link in source data"));
+        }
+        if ty.is_dir() {
+            if contains_qcow_images(&path)? {
+                return Ok(true);
+            }
+        } else if ty.is_file()
+            && (path.extension().is_some_and(|ext| ext == "qcow2") || has_qcow_magic(&path)?)
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+/// Locates `emulator/qemu-img` in the configured custom, private, or external SDK.
+pub fn find_qemu_img(paths: &jidr_core::JidrPaths) -> Option<PathBuf> {
+    let sdks = crate::SdkSet::discover(paths);
+    [sdks.custom, Some(sdks.private), sdks.studio]
+        .into_iter()
+        .flatten()
+        .map(|sdk| sdk.root.join("emulator/qemu-img"))
+        .find(|p| p.is_file())
+}
+
+fn inspect_qcow_dir(
+    root: &Path,
+    dir: &Path,
+    tool: Option<&Path>,
+    count: &mut usize,
+) -> io::Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let ty = entry.file_type()?;
@@ -286,6 +335,9 @@ fn inspect_qcow_dir(root: &Path, dir: &Path, tool: &Path, count: &mut usize) -> 
         } else if ty.is_file()
             && (path.extension().is_some_and(|ext| ext == "qcow2") || has_qcow_magic(&path)?)
         {
+            let tool = tool
+                .filter(|p| p.is_file())
+                .ok_or_else(|| invalid("qemu-img not found"))?;
             let output = std::process::Command::new(tool)
                 .args(["info", "--backing-chain", "--output=json"])
                 .arg(&path)
@@ -603,27 +655,12 @@ pub struct PreparedCopy {
     pub qcow_disks: usize,
 }
 
-/// Prepares an inactive copy in a unique sibling of `destination`. Callers
-/// must stop every source writer and prevent daemon restarts for the entire
-/// operation. On error, the partial stage is retained for diagnosis; source
-/// and destination are never removed or overwritten.
-pub fn prepare_copy(
+/// Validates a proposed destination root and checks available disk space
+/// before stopping writers.
+pub fn validate_destination(
     source: &jidr_core::JidrPaths,
     destination: &Path,
-    qemu_img: &Path,
-    lease: &jidr_core::storage_lease::StorageLease,
-    #[cfg(unix)] barrier: &crate::legacy_barrier::LegacySocketBarrier,
-) -> io::Result<PreparedCopy> {
-    if !lease.covers(&source.data)? {
-        return Err(invalid("storage lease does not cover the source"));
-    }
-    ensure_avd_locks_inactive(source)?;
-    ensure_avd_files_closed(source)?;
-    ensure_snapshot_files_complete(source)?;
-    #[cfg(unix)]
-    if !barrier.covers(&source.socket()) {
-        return Err(invalid("legacy daemon socket is not protected"));
-    }
+) -> io::Result<(PathBuf, SpaceEstimate)> {
     if !destination.is_absolute()
         || destination
             .components()
@@ -635,9 +672,6 @@ pub fn prepare_copy(
         Ok(_) => return Err(invalid("destination already exists")),
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
         Err(e) => return Err(e),
-    }
-    if !qemu_img.is_file() {
-        return Err(invalid("qemu-img not found"));
     }
     let parent = destination
         .parent()
@@ -656,7 +690,57 @@ pub fn prepare_copy(
             }
         }
     }
-    estimate_space(source, &parent)?;
+    let estimate = estimate_space(source, &parent)?;
+    Ok((final_path, estimate))
+}
+
+/// Prepares an inactive copy in a unique sibling of `destination`. Callers
+/// must stop every source writer and prevent daemon restarts for the entire
+/// operation. On error, the partial stage is retained for diagnosis; source
+/// and destination are never removed or overwritten.
+pub fn prepare_copy(
+    source: &jidr_core::JidrPaths,
+    destination: &Path,
+    qemu_img: &Path,
+    lease: &jidr_core::storage_lease::StorageLease,
+    #[cfg(unix)] barrier: &crate::legacy_barrier::LegacySocketBarrier,
+) -> io::Result<PreparedCopy> {
+    if !qemu_img.is_file() {
+        return Err(invalid("qemu-img not found"));
+    }
+    prepare_copy_flexible(
+        source,
+        destination,
+        Some(qemu_img),
+        lease,
+        #[cfg(unix)]
+        barrier,
+    )
+}
+
+/// Variant of [`prepare_copy`] that only requires `qemu-img` if the staged
+/// data actually contains QCOW2 disk images.
+pub fn prepare_copy_flexible(
+    source: &jidr_core::JidrPaths,
+    destination: &Path,
+    qemu_img: Option<&Path>,
+    lease: &jidr_core::storage_lease::StorageLease,
+    #[cfg(unix)] barrier: &crate::legacy_barrier::LegacySocketBarrier,
+) -> io::Result<PreparedCopy> {
+    if !lease.covers(&source.data)? {
+        return Err(invalid("storage lease does not cover the source"));
+    }
+    ensure_avd_locks_inactive(source)?;
+    ensure_avd_files_closed(source)?;
+    ensure_snapshot_files_complete(source)?;
+    #[cfg(unix)]
+    if !barrier.covers(&source.socket()) {
+        return Err(invalid("legacy daemon socket is not protected"));
+    }
+    let (final_path, _) = validate_destination(source, destination)?;
+    let parent = final_path
+        .parent()
+        .ok_or_else(|| invalid("destination must have a parent"))?;
     let transaction_id = uuid::Uuid::new_v4();
     let staging = staging_path(&final_path, transaction_id)?;
     let journal_path = parent.join(format!(".jidr-migration-{transaction_id}.json"));
@@ -690,7 +774,7 @@ pub fn prepare_copy(
     }
     rewrite_known_references(&staged_data, &source.data, &final_path.join("data"))?;
     reject_stale_metadata(&staged_data, &source.data)?;
-    let qcow_disks = validate_qcow_tree(&staged_data, qemu_img)?;
+    let qcow_disks = validate_qcow_tree_with_optional_tool(&staged_data, qemu_img)?;
     ensure_avd_locks_inactive(source)?;
     ensure_avd_files_closed(source)?;
     ensure_snapshot_files_complete(source)?;
@@ -916,11 +1000,13 @@ pub fn rewrite_known_references(staging: &Path, old: &Path, new: &Path) -> io::R
         // instead of rewriting a path Jidr no longer uses (ToolPaths::load also
         // ignores it when reading older homes).
         object.remove("jdk_home");
-        if let Some(value) = values.pointer_mut("/android_sdk")
-            && let Some(path) = value.as_str()
-            && let Some(rewritten) = relocate_path(path, old, new)?
-        {
-            *value = serde_json::Value::String(rewritten);
+        for pointer in ["/android_sdk", "/jidr_sdk"] {
+            if let Some(value) = values.pointer_mut(pointer)
+                && let Some(path) = value.as_str()
+                && let Some(rewritten) = relocate_path(path, old, new)?
+            {
+                *value = serde_json::Value::String(rewritten);
+            }
         }
         write_changed(&tools, &serde_json::to_vec_pretty(&values)?)?;
     }
@@ -1657,5 +1743,38 @@ mod tests {
         fs::remove_file(root.path().join("absolute.qcow2")).unwrap();
         fs::remove_file(root.path().join("base.img")).unwrap();
         assert!(validate_qcow_tree(root.path(), &tool).is_err());
+    }
+
+    #[test]
+    fn flexible_copy_handles_empty_data_and_relocates_jidr_sdk() {
+        let root = tempfile::tempdir().unwrap();
+        let source = jidr_core::JidrPaths::under(root.path().join("src"));
+        fs::create_dir_all(&source.data).unwrap();
+        fs::write(
+            source.data.join("tool-paths.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "jidr_sdk": source.data.join("custom-sdk")
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let dest = root.path().join("dst");
+        let lease = jidr_core::storage_lease::StorageLease::acquire(&source.data).unwrap();
+        let barrier =
+            crate::legacy_barrier::LegacySocketBarrier::acquire(&source.socket()).unwrap();
+        let prepared = prepare_copy_flexible(&source, &dest, None, &lease, &barrier).unwrap();
+        assert_eq!(prepared.qcow_disks, 0);
+        let published = publish_copy(&prepared, &source, &lease, &barrier).unwrap();
+        let relocated: serde_json::Value =
+            serde_json::from_slice(&fs::read(published.root.join("data/tool-paths.json")).unwrap())
+                .unwrap();
+        assert_eq!(
+            relocated["jidr_sdk"].as_str().unwrap(),
+            published.root.join("data/custom-sdk").to_string_lossy()
+        );
+        // Any QCOW2 image without qemu-img must fail closed.
+        fs::write(source.data.join("disk.qcow2"), b"QFI\xfb").unwrap();
+        let dest2 = root.path().join("dst2");
+        assert!(prepare_copy_flexible(&source, &dest2, None, &lease, &barrier).is_err());
     }
 }

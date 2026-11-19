@@ -26,6 +26,24 @@ sign() {
         --sign "$JIDR_SIGNING_IDENTITY" "$@"
 }
 
+# Stapling downloads the notarization ticket from Apple's CDN (CloudKit), and
+# a transient connection failure there can fail a release after Apple has
+# already accepted the DMG (error 68). Notarization doesn't need repeating,
+# so retry only the staple, then confirm the ticket is attached.
+staple() {
+    local attempt
+    for attempt in 1 2 3 4; do
+        if xcrun stapler staple "$1"; then
+            xcrun stapler validate "$1"
+            return
+        fi
+        [ "$attempt" -eq 4 ] && break
+        echo "sign.sh: staple failed (attempt $attempt of 4), retrying in $((attempt * 15))s" >&2
+        sleep $((attempt * 15))
+    done
+    die "stapling $1 failed 4 times. Apple already accepted it: run xcrun stapler staple on the DMG again, or rerun the release job"
+}
+
 case "$kind" in
     app)
         # Inside-out: nested executables first, then the bundle. No --deep.
@@ -49,7 +67,7 @@ case "$kind" in
         # Check Apple's verdict, not only notarytool's exit code.
         grep -q "status: Accepted" <<<"$result" \
             || die "notarization was not accepted; run 'xcrun notarytool log <id>' with the same key for details"
-        xcrun stapler staple "$target"
+        staple "$target"
         ;;
     *)
         die "unknown kind '$kind' (app or dmg)"

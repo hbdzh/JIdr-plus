@@ -75,6 +75,26 @@ pub enum Event {
     ToolKey { key: String },
 }
 
+impl Event {
+    /// Whether the event is within the v1 format bounds (finite 0…1
+    /// coordinates, valid mapped-touch id, non-empty key within the size
+    /// limit, text within the size limit). Recording and input sync share this
+    /// check, so one malformed UI command can never poison a stream.
+    pub fn fits_format(&self) -> bool {
+        let unit = |v: f64| v.is_finite() && (0.0..=1.0).contains(&v);
+        match self {
+            Event::Touch { x, y, .. } => unit(*x) && unit(*y),
+            Event::MappedTouch { id, x, y, .. } => {
+                (MAPPED_ID_MIN..=MAPPED_ID_MAX).contains(id) && unit(*x) && unit(*y)
+            }
+            Event::Key { key, .. } | Event::ToolKey { key } => {
+                !key.is_empty() && key.len() <= MAX_KEY_BYTES
+            }
+            Event::Text { text } | Event::Paste { text } => text.len() <= MAX_TEXT_BYTES,
+        }
+    }
+}
+
 /// How many times (or how long) a script plays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]

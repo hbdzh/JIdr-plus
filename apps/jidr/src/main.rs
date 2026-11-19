@@ -13,8 +13,8 @@ use std::time::Duration;
 use clap::{CommandFactory, Parser};
 use cli::{
     AudioCmd, BaseCmd, CacheCmd, CertCmd, Cli, Cmd, DaemonCmd, DeviceCmd, GamepadCmd, Hardware,
-    ImageCmd, JobsCmd, NetworkCmd, PoolCmd, ProfileCmd, ProxyCmd, RootCmd, SdkCmd, Selection,
-    SettingsCmd, SnapshotCmd, SyncCmd,
+    ImageCmd, InputSyncCmd, JobsCmd, NetworkCmd, PoolCmd, ProfileCmd, ProxyCmd, RootCmd, SdkCmd,
+    Selection, SettingsCmd, SnapshotCmd, SyncCmd,
 };
 use jidr_client::{Client, SpawnOptions};
 use jidr_core::{ErrorCode, JidrError, JidrPaths, JidrResult, Job, JobState};
@@ -428,6 +428,43 @@ async fn dispatch(c: &Client, cmd: Cmd, out: Out) -> JidrResult<()> {
                     "file.sync.resolve",
                     json!({"id":id,"path":path,"resolution":keep.as_str()}),
                 ),
+            };
+            let v = c.call(method, params).await?;
+            out.ok(&v, output::pretty);
+        }
+        Cmd::InputSync { cmd } => {
+            let (method, params) = match cmd {
+                InputSyncCmd::Start {
+                    leader,
+                    followers,
+                    adaptation,
+                    no_keyboard,
+                    no_text,
+                    no_tool_keys,
+                    unlock_followers,
+                    jitter_ms,
+                } => (
+                    "sync.start",
+                    json!({
+                        "leader": leader,
+                        "followers": followers,
+                        "options": {
+                            "adaptation": adaptation.as_str(),
+                            "sync_keyboard": !no_keyboard,
+                            "sync_text": !no_text,
+                            "sync_tool_keys": !no_tool_keys,
+                            "lock_followers": !unlock_followers,
+                            "jitter_ms": jitter_ms,
+                        }
+                    }),
+                ),
+                InputSyncCmd::Stop => ("sync.stop", json!({})),
+                InputSyncCmd::Status => ("sync.status", json!({})),
+                InputSyncCmd::Add { device } => ("sync.add_follower", json!({ "device": device })),
+                InputSyncCmd::Remove { device } => {
+                    ("sync.remove_follower", json!({ "device": device }))
+                }
+                InputSyncCmd::Leader { device } => ("sync.set_leader", json!({ "device": device })),
             };
             let v = c.call(method, params).await?;
             out.ok(&v, output::pretty);

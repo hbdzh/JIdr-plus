@@ -139,3 +139,44 @@ async fn failed_jobs_carry_the_error() {
     assert_eq!(done["error"]["code"], "boot_timeout");
     h.stop().await;
 }
+
+#[tokio::test]
+async fn device_start_job_reports_boot_progress() {
+    let h = Harness::start().await;
+    let mut sub = h.client().await;
+    let mut c = h.client().await;
+    c.ok("device.create", json!({ "name": "Prog", "image": "35" }))
+        .await;
+    sub.ok(
+        "events.subscribe",
+        json!({ "topics": ["job.progress", "job.finished"] }),
+    )
+    .await;
+    let job = c.ok("device.start", json!({ "device": "Prog" })).await["job"].clone();
+    let mut messages = Vec::new();
+    loop {
+        let v = sub.read().await;
+        if v["method"] != "event" {
+            continue;
+        }
+        let topic = v["params"]["topic"].as_str().unwrap_or_default();
+        let data = &v["params"]["data"];
+        if topic == "job.progress" && data["job"] == job {
+            if let Some(msg) = data["message"].as_str() {
+                messages.push(msg.to_string());
+            }
+        } else if topic == "job.finished" && data["id"] == job {
+            assert_eq!(data["state"], "succeeded");
+            break;
+        }
+    }
+    assert!(
+        messages.iter().any(|m| m == "Starting emulator"),
+        "expected Starting emulator in {messages:?}"
+    );
+    assert!(
+        messages.iter().any(|m| m == "Booted"),
+        "expected Booted in {messages:?}"
+    );
+    h.stop().await;
+}

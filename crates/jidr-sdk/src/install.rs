@@ -234,9 +234,21 @@ pub async fn install(
         check_cancel(cancel)?;
         report(Phase::Extracting, 0, size);
         let (zp, ed) = (zip_path.clone(), extract_dir.clone());
-        let top = tokio::task::spawn_blocking(move || extract_single_root(&zp, &ed))
-            .await
-            .ctx(ErrorCode::Unexpected, "extract task")??;
+        let mut extract_task = tokio::task::spawn_blocking(move || extract_single_root(&zp, &ed));
+        let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));
+        heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        heartbeat.tick().await;
+        let top = loop {
+            tokio::select! {
+                res = &mut extract_task => {
+                    break res.ctx(ErrorCode::Unexpected, "extract task")??;
+                }
+                _ = heartbeat.tick() => {
+                    check_cancel(cancel)?;
+                    report(Phase::Extracting, 0, size);
+                }
+            }
+        };
         check_cancel(cancel)?;
         let marker = InstalledMarker {
             path: pkg.path.clone(),

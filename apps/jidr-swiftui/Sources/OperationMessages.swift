@@ -53,6 +53,52 @@ enum OperationMessages {
         for (prefix, translation) in prefixes where value.hasPrefix(prefix) { return translation + value.dropFirst(prefix.count) }
         return "操作失败：" + value
     }
+
+    static func storageError(code: String?, message: String, language: Int) -> String {
+        if let code {
+            switch code {
+            case "storage.env_override":
+                return language == 0
+                    ? "JIDR_HOME is set in the environment; unset it before changing the data folder."
+                    : "当前设置了 JIDR_HOME 环境变量，请先取消该变量后再更改数据目录。"
+            case "storage.destination_exists":
+                return language == 0
+                    ? "The chosen folder already contains a Jidr folder. Choose another folder."
+                    : "所选目录下已存在 Jidr 文件夹，请选择其他位置。"
+            case "storage.destination_overlap":
+                return language == 0
+                    ? "The chosen folder cannot overlap the current Jidr storage directory."
+                    : "目标目录不能与当前 Jidr 存储目录重叠。"
+            case "storage.insufficient_space":
+                return language == 0
+                    ? message
+                    : "目标磁盘空间不足：\(message)"
+            case "storage.missing_qemu_img":
+                return language == 0
+                    ? "qemu-img was not found; install or configure an Android SDK before migrating device disks."
+                    : "未找到 qemu-img 工具，无法校验设备磁盘镜像；请先安装或配置 Android SDK。"
+            case "storage.devices_active":
+                return language == 0
+                    ? "One or more devices are still running or have open files. Stop all devices and try again."
+                    : "仍有设备处于运行状态或磁盘文件被占用，请先停止所有设备后重试。"
+            case "storage.incomplete_snapshot":
+                return language == 0
+                    ? "An incomplete snapshot was found. Boot and cleanly save or remove it before migrating."
+                    : "发现不完整的快照文件，请先启动设备并完整保存或清理异常快照后再迁移。"
+            case "storage.symlink_unsupported":
+                return language == 0
+                    ? "Symbolic links inside the data directory cannot be migrated automatically."
+                    : "数据目录中包含符号链接，暂不支持自动迁移。"
+            case "storage.quit_timeout":
+                return language == 0
+                    ? "The background service did not exit cleanly in time. Try again."
+                    : "后台服务未在预期时间内退出，请重试。"
+            default:
+                break
+            }
+        }
+        return Self.error(message, language: language)
+    }
     static func progress(_ value:String, language:Int) -> String {
         guard language != 0 else { return value }
         let known = [
@@ -66,9 +112,27 @@ enum OperationMessages {
             "Verifying root":"正在验证 Root 权限",
             "su didn't answer as root; cold booting once more":"Root 暂未响应，正在再次冷启动",
             "Play Store: open the Magisk app to finish its setup, then grant root to Shell":"请在设备中打开 Magisk 完成设置，然后为 Shell 授权",
-            "Saving memory and disk":"正在保存内存和磁盘状态"
+            "Saving memory and disk":"正在保存内存和磁盘状态",
+            "Starting emulator":"正在启动模拟器",
+            "Connecting emulator control":"正在连接模拟器控制通道",
+            "Waiting for Android boot":"正在等待 Android 系统启动",
+            "Booted":"设备已就绪",
+            "Stopping background service":"正在停止后台服务",
+            "Copying and verifying device data":"正在复制并校验设备数据",
+            "Switching data location":"正在切换数据目录"
         ]
         if let translated = known[value] { return translated }
+        let slowSuffix = "; slow when the Mac is busy)"
+        if value.hasSuffix(slowSuffix), let openParen = value.lastIndex(of: "(") {
+            let base = String(value[..<openParen]).trimmingCharacters(in: .whitespaces)
+            let secs = String(value[value.index(after: openParen)..<value.endIndex])
+                .replacingOccurrences(of: slowSuffix, with: "")
+                .trimmingCharacters(in: .whitespaces)
+                .replacingOccurrences(of: " s", with: " 秒")
+            if let baseZh = known[base] {
+                return "\(baseZh)（已等待 \(secs)，高负载下可能较慢）"
+            }
+        }
         for (prefix, translated) in [("Downloading Magisk ","正在下载 Magisk "), ("Patching the ramdisk for Magisk ","正在修补 Magisk 启动镜像 "),
                                      ("Downloading ","正在下载 "), ("Verifying ","正在验证 "),
                                      ("Extracting ","正在解压 "), ("Done ","已完成 ")] {

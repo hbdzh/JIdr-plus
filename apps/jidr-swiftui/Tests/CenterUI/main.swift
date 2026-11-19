@@ -96,7 +96,7 @@ require(settingsScrolls.contains { scroll in
     guard let document = scroll.documentView else { return false }
     return scroll.hasVerticalScroller && document.frame.height > scroll.contentSize.height + 1
 }, "settings content scrolls when it exceeds the available height")
-model.settingsCategory = 4
+model.settingsCategory = 5
 pump(0.8)
 require(settingsWindow.frame.height < measuredDataHeight - 20, "settings window shrinks for a shorter pane")
 settingsController.close()
@@ -546,7 +546,7 @@ if ProcessInfo.processInfo.environment["JIDR_GLASS_PANEL_TEST_ONLY"] == "1" {
                    "older macOS uses a behind-window system material") }
     require(!descendants(glassSettings.contentView!, NSView.self).contains { $0.accessibilityIdentifier() == "settings-toolbar-blur" },
             "settings does not add a custom background filter over the native toolbar")
-    for category in 0..<5 {
+    for category in 0..<6 {
         model.settingsCategory = category
         pump(0.1)
         require(settingsGlass.window === glassSettings && glassSettings.toolbar?.selectedItemIdentifier?.rawValue == "jidr.preferences.\(category)",
@@ -804,7 +804,7 @@ model.present(.settings)
 require(model.settingsWindow === settings && model.settingsCategory == 2, "reopening preserves the same settings window and pane")
 pump()
 require(settings.window?.title.contains("Data & tools") == true, "native title reflects the selected pane")
-require(settings.window?.toolbar?.items.count == 5, "settings has five native toolbar categories")
+require(settings.window?.toolbar?.items.count == 6, "settings has six native toolbar categories")
 require(settings.window?.toolbar?.selectedItemIdentifier?.rawValue == "jidr.preferences.2", "toolbar selection follows the retained pane")
 require(!settings.window!.styleMask.contains(.miniaturizable) && !settings.window!.styleMask.contains(.resizable),
         "preferences do not offer minimize, zoom or full-screen controls")
@@ -814,11 +814,11 @@ pump()
 require(settings.window!.contentLayoutRect.height < dataHeight, "preferences adapt height to the selected pane")
 
 // Editable preferences must remain recognizable as controls in grouped forms.
-for category in [1, 3] {
+for (category, expectedFields) in [(1, 2), (3, 1), (4, 1)] {
     model.settingsCategory = category
     pump()
     let fields = descendants(settings.window!.contentView!, NSTextField.self).filter { $0.isEditable }
-    require(fields.count >= 2, "numeric and path preferences expose editable native fields")
+    require(fields.count >= expectedFields, "numeric and path preferences expose editable native fields")
     require(fields.allSatisfy { $0.isBezeled }, "editable preferences have a visible input border")
 }
 model.settingsCategory = 2

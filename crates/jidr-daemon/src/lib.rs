@@ -7,6 +7,7 @@ pub mod bundle;
 pub mod core_provider;
 pub mod hibernate;
 pub mod idle;
+pub mod input_sync;
 pub mod jobs;
 pub mod leases;
 pub mod lifecycle;
@@ -101,6 +102,7 @@ impl DaemonBuilder {
         registry.register(Arc::new(jobs::JobsProvider::new(jobs.clone())))?;
         registry.register(Arc::new(pool::PoolProvider::new(state.clone())))?;
         registry.register(Arc::new(sync::SyncProvider::new(state.clone())))?;
+        registry.register(Arc::new(input_sync::InputSyncProvider::new(state.clone())))?;
         for p in self.providers {
             registry.register(p)?;
         }

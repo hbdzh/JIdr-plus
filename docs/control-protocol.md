@@ -83,6 +83,7 @@ Subscribing again replaces the filter. Topics:
 | `device.hibernated` | `{device, name}`: saved and stopped by `device.hibernate` or auto-hibernate |
 | `device.hook_failed` | `{device, provider, error}`: a provider's after-boot hook failed |
 | `file.sync.started`, `file.sync.progress`, `file.sync.synced`, `file.sync.conflict`, `file.sync.error`, `file.sync.stopped` | Folder synchronization state, conflicts and progress. |
+| `sync.state`, `sync.follower_error` | `{session, reason?}`: the whole input-sync session, or `null` when it ended (`reason`: `stopped`, `the leader stopped`, `no follower is left`); `{device, name, message}`: a follower failed (see [sync.md](sync.md)) |
 | `pool.leased`, `pool.released` | `{lease, device, base?}`: a pool clone was leased, or released (by `pool.release` or the reaper) |
 | `job.started` | `{job, kind, device}` |
 | `job.progress` | `{job, progress, message}` |
@@ -1165,6 +1166,73 @@ Save a snapshot of a running device · long-running (job) · locks the device
 |---|---|---|---|
 | `device` | string | yes |  |
 | `name` | string | yes | Snapshot name. |
+
+### `sync.*`
+
+#### `sync.add_follower`
+
+Add a running device to the active sync session as a follower
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `device` | string | yes | Device name or id. |
+
+#### `sync.remove_follower`
+
+Remove a follower from the active sync session
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `device` | string | yes | Device name or id. |
+
+#### `sync.report`
+
+Relay-side report of a member's health, screen size and counters
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `device` | string | yes | Device name or id of a session member. |
+| `status` | FollowerStatus |  | The follower's health (not accepted for the leader). |
+| `display` | DisplaySize |  | The member's shown-screen size in pixels. |
+| `counters` | FollowerCounters |  | The follower's running totals (not accepted for the leader). |
+
+#### `sync.set_leader`
+
+Make a session member the leader; the old leader becomes a follower
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `device` | string | yes | Device name or id. |
+
+#### `sync.set_options`
+
+Change the active session's options (only the given fields)
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `options` | SyncOptionsPatch | yes | The fields to change; omitted fields stay as they are. |
+
+#### `sync.start`
+
+Start mirroring the input of a leader device on follower devices (one session at a time)
+
+| Param | Type | Required | Description |
+|---|---|---|---|
+| `leader` | string | yes | The device whose input is mirrored (name or id). It must be running. |
+| `followers` | string[] | yes | The devices that mirror it (names or ids). All must be running. |
+| `options` | SyncOptionsPatch |  | Options; omitted fields take their defaults. |
+
+#### `sync.status`
+
+The active input sync session, or null
+
+No params.
+
+#### `sync.stop`
+
+End the input sync session
+
+No params.
 <!-- commands:end -->
 
 `image.inventory` returns installed physical image copies, including separate
@@ -1184,6 +1252,7 @@ reported as errors.
 
 | Version | Change |
 |---|---|
+| 0.1 (additive) | Input synchronizer (D45): `sync.start`, `sync.stop`, `sync.status`, `sync.add_follower`, `sync.remove_follower`, `sync.set_leader`, `sync.set_options` and `sync.report` manage one session in which a leader device's input is mirrored on running follower devices; events `sync.state` and `sync.follower_error`. No new error codes: `usage`, `not_found` and `busy` are used. The session ends when the leader stops, crashes, hibernates or is deleted, or no follower is left. See [sync.md](sync.md). |
 | 0.1 (additive) | `file.sync.start` gains optional `direction` (`one_way` default, or `bidirectional`); `SyncInfo` and `file.sync.synced` gain `direction`, `pulled`, `removed_local`, and `conflicts`; new `file.sync.resolve {id, path, resolution}` resolves bidirectional conflicts and `file.sync.conflict` reports active conflicts. |
 | 0.1 (additive/change) | `network.shaping.set` accepts optional `dns` and `dns_delay_ms`, and shaping is stored on `Device` and restored on boot. `identity.get/set`, `input.gamepad.*`, `file.sync.*`, and `file.flash` add device identifiers, controller forwarding, one-way folder sync and ZIP classification. `media.record` gains optional `audio` (default true) and reports whether an audio track was included (`audio`) and any valid audio packet was received (`audio_received`). File sync events are published under the `file.sync.` prefix. |
 | 0.1 (additive) | `image.inventory` lists installed SDK image copies and their device references; destructive `image.remove` removes an unused image from a specified Jidr-owned SDK. |

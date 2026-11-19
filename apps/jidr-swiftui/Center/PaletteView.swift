@@ -96,6 +96,7 @@ private struct PaletteRow: View {
         case .settings: return WbIcon.settings
         case .toggleAppearance: return "circle.lefthalf.filled"
         case .tasks: return WbIcon.tasks
+        case .openSynchronizer: return "rectangle.on.rectangle"
         }
     }
 

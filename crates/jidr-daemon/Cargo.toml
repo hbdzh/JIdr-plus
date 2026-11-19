@@ -14,6 +14,7 @@ jidr-core.workspace = true
 jidr-sdk.workspace = true
 jidr-adb.workspace = true
 jidr-backend.workspace = true
+jidr-sync.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true

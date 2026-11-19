@@ -1749,6 +1749,49 @@ private struct SettingsPanelButtonStyle: ViewModifier {
     }
 }
 
+private struct AgentRobotBadge: View {
+    var body: some View {
+        VStack(spacing: 1) {
+            Rectangle()
+                .fill(WbColor.textSecondary)
+                .frame(width: 1.5, height: 3)
+            RoundedRectangle(cornerRadius: 3.5, style: .continuous)
+                .strokeBorder(WbColor.textSecondary, lineWidth: 1.4)
+                .frame(width: 16, height: 12)
+                .overlay(
+                    HStack(spacing: 4) {
+                        Circle().fill(WbColor.textSecondary).frame(width: 2.2, height: 2.2)
+                        Circle().fill(WbColor.textSecondary).frame(width: 2.2, height: 2.2)
+                    }
+                )
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+private struct AgentPillButtonStyle: ButtonStyle {
+    var prominent: Bool
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(prominent ? WbColor.raised : WbColor.textPrimary)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .background(
+                prominent ? AnyShapeStyle(WbColor.textPrimary) : AnyShapeStyle(Color.primary.opacity(0.035)),
+                in: Capsule()
+            )
+            .overlay(
+                Capsule()
+                    .strokeBorder(prominent ? .clear : WbColor.borderDefault.opacity(0.8), lineWidth: 1)
+            )
+            .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1.0) : 0.45)
+            .contentShape(Capsule())
+    }
+}
+
 private struct SettingsSection<Content: View>: View {
     private let title: String?
     private let content: Content
@@ -1792,9 +1835,14 @@ struct SettingsView: View {
     @State private var deviceUsage: [String:UInt64] = [:]
     @State private var about: AboutInfo?
     @State private var confirmCacheClear = false
+    @State private var pendingStorageMigration: StorageEstimateInfo?
+    @State private var migrationProgressMessage: String?
+    @State private var migrationProgressValue: Double?
     @State private var checkingUpdate = false
     @State private var updateMessage = ""
     @State private var releaseURL: URL?
+    private enum PolicyField { case budget, idle }
+    @FocusState private var policyFocus: PolicyField?
     func load() {
         tileURL = model.tileURL
         model.call("center.paths") { result in
@@ -1874,6 +1922,63 @@ struct SettingsView: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         tool(kind,path:url.path)
     }
+    func chooseDataLocation() {
+        guard !saving, !model.migratingStorage else { return }
+        if model.hasActiveRecording || !model.recording.isEmpty || model.hasActiveJobs {
+            message = model.text("请先等待当前录屏和后台任务完成。", "Wait for active recordings and background jobs to finish first.")
+            return
+        }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = model.text("选择位置", "Choose location")
+        panel.message = model.text("将在所选目录下创建 Jidr 文件夹，并把现有设备与数据完整迁移过去。", "A Jidr folder will be created inside the chosen folder and existing device data will be migrated there.")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let destination = url.appendingPathComponent("Jidr").path
+        saving = true
+        message = ""
+        model.estimateStorageMigration(to: destination) { result in
+            saving = false
+            switch result {
+            case .success(let estimate):
+                pendingStorageMigration = estimate
+            case .failure(let error):
+                message = storageErrorMessage(error)
+            }
+        }
+    }
+    func startStorageMigration(_ estimate: StorageEstimateInfo) {
+        guard !saving, !model.migratingStorage else { return }
+        saving = true
+        message = ""
+        migrationProgressValue = 0.05
+        migrationProgressMessage = model.text("正在准备迁移…", "Preparing migration…")
+        model.migrateStorage(to: estimate.destination, onProgress: { text, progress in
+            migrationProgressMessage = text
+            if let progress { migrationProgressValue = progress }
+        }) { result in
+            saving = false
+            migrationProgressMessage = nil
+            migrationProgressValue = nil
+            switch result {
+            case .success(let info):
+                let sizeText = ByteCountFormatter.string(fromByteCount: Int64(clamping: info.bytes), countStyle: .file)
+                message = model.text(
+                    "设备数据已迁移至 \(info.data)（\(info.files) 个文件，\(sizeText)）。旧位置 \(info.previous_data) 已保留作备份。",
+                    "Device data migrated to \(info.data) (\(info.files) files, \(sizeText)). The previous folder at \(info.previous_data) was kept as a backup."
+                )
+                load()
+            case .failure(let error):
+                message = storageErrorMessage(error)
+            }
+        }
+    }
+    private func storageErrorMessage(_ error: Error) -> String {
+        OperationMessages.storageError(code: (error as? CenterMessageError)?.code,
+                                       message: error.localizedDescription,
+                                       language: model.language)
+    }
     func showFolder(_ path:String?) {
         guard let path, FileManager.default.fileExists(atPath:path), NSWorkspace.shared.open(URL(fileURLWithPath:path)) else { message = model.text("无法打开目录。", "Cannot open the folder."); return }
     }
@@ -1949,6 +2054,23 @@ struct SettingsView: View {
                 }
             }
         } message: { Text("已下载的缓存文件会被删除，之后需要时可能重新下载。设备数据和快照不会删除。") }
+        .alert(model.text("迁移设备数据？", "Migrate device data?"),
+               isPresented: Binding(get: { pendingStorageMigration != nil },
+                                    set: { if !$0 { pendingStorageMigration = nil } }),
+               presenting: pendingStorageMigration) { estimate in
+            Button(model.text("取消", "Cancel"), role: .cancel) { pendingStorageMigration = nil }
+            Button(model.text("开始迁移", "Migrate")) {
+                pendingStorageMigration = nil
+                startStorageMigration(estimate)
+            }
+        } message: { estimate in
+            let currentSize = ByteCountFormatter.string(fromByteCount: Int64(clamping: estimate.source_bytes), countStyle: .file)
+            let requiredSize = ByteCountFormatter.string(fromByteCount: Int64(clamping: estimate.required_bytes), countStyle: .file)
+            Text(model.text(
+                "将把现有设备、镜像数据与设置复制并校验到：\n\(estimate.destination)\n\n当前大小 \(currentSize)，至少需要 \(requiredSize)。原有目录会保留作备份，如有运行中的设备会先停止。",
+                "Existing devices, disk images and settings will be copied and verified to:\n\(estimate.destination)\n\nCurrent size: \(currentSize), required space: \(requiredSize). The original folder is kept as a backup; running devices will be stopped first."
+            ))
+        }
     }
 
     // MARK: - Preference panes (navigation is the native window toolbar)
@@ -1967,6 +2089,23 @@ struct SettingsView: View {
                                     Text("English").tag(0)
                                 }
                                 .labelsHidden().modifier(SettingsGlassPicker()).frame(width: 180)
+                            }
+                            .padding(10)
+                        }
+                        GroupBox {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(model.text("录屏包含设备音频", "Include device audio in recordings"))
+                                    Text(model.text("关闭后录屏仅保存画面。", "When off, screen recordings save video only."))
+                                        .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                Spacer()
+                                Toggle("", isOn: Binding(get: { model.recordAudio }, set: { model.setRecordAudio($0) }))
+                                    .labelsHidden()
+                                    .toggleStyle(.switch)
+                                    .tint(WbColor.accent)
+                                    .accessibilityLabel(model.text("录屏包含设备音频", "Include device audio in recordings"))
                             }
                             .padding(10)
                         }
@@ -1991,7 +2130,8 @@ struct SettingsView: View {
                     switch category {
                     case 1: defaultsPage
                     case 2: dataPage
-                    case 3: advancedPage
+                    case 3: agentsPage
+                    case 4: advancedPage
                     default: aboutPage
                     }
                     if !message.isEmpty {
@@ -2075,48 +2215,100 @@ struct SettingsView: View {
     // MARK: - Device defaults
 
     @ViewBuilder private var defaultsPage: some View {
-        SettingsSection(model.text("新设备默认值", "Defaults for new devices")) {
-            LabeledContent(model.text("默认 Root 模式", "Default root mode")) {
-                Picker(model.text("默认 Root 模式", "Default root mode"), selection: $policy.root) {
-                    Text(model.text("无", "None")).tag("none")
-                    Text("Shell Root").tag("adb")
-                    Text(model.text("完整 Root", "Full Root")).tag("magisk")
-                }
-                .labelsHidden().modifier(SettingsGlassPicker()).frame(width: 180)
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(model.text("新设备默认值", "Defaults for new devices"))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(WbColor.textPrimary)
+                Text(model.text("默认 Root 模式 · 仅用于之后创建的设备。", "Default root mode · applies only to devices created later."))
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(WbColor.textSecondary)
             }
-            Text(model.text("默认 Root 模式仅用于之后创建的设备。", "The default Root mode applies only to devices created later."))
-                .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
+            HStack(spacing: 10) {
+                defaultRootRadioOption(
+                    value: "none",
+                    title: model.text("无", "None"),
+                    subtitle: model.text("不启用 Root", "Root disabled")
+                )
+                defaultRootRadioOption(
+                    value: "adb",
+                    title: "Shell Root",
+                    subtitle: model.text("通过 Root Shell 调试", "Via root shell")
+                )
+                defaultRootRadioOption(
+                    value: "magisk",
+                    title: model.text("完整 Root", "Full Root"),
+                    subtitle: model.text("配置 Magisk 权限", "Magisk full root")
+                )
+            }
         }
-        SettingsSection(model.text("全局运行策略", "Global device policies")) {
-            Toggle(model.text("停止设备时保存快速启动快照", "Save quick-boot snapshot when stopping"), isOn: $policy.quickBoot)
-                .toggleStyle(.switch)
-                .tint(WbColor.accent)
-            LabeledContent {
-                TextField("", text: $policy.budget)
-                    .textFieldStyle(.roundedBorder)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 92)
-                    .accessibilityLabel(model.text("模拟器总内存预算 (%)", "Total emulator memory budget (%)"))
-            } label: {
-                Text(model.text("模拟器总内存预算 (%)", "Total emulator memory budget (%)"))
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(OnboardingCardMaterial())
+        VStack(alignment: .leading, spacing: 14) {
+            Text(model.text("全局运行策略", "Global device policies"))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(WbColor.textPrimary)
+
+            HStack(alignment: .center, spacing: WbSpace.md) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(model.text("停止设备时保存快速启动快照", "Save quick-boot snapshot when stopping"))
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(WbColor.textPrimary)
+                    Text(model.text("关闭后，停止设备时仅保存必要状态。", "When off, only essential state is saved on stop."))
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(WbColor.textSecondary)
+                }
+                Spacer(minLength: WbSpace.sm)
+                HStack(spacing: 10) {
+                    Text(policy.quickBoot ? model.text("开启", "On") : model.text("关闭", "Off"))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(policy.quickBoot ? WbColor.positive : WbColor.textSecondary)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 3)
+                        .background(
+                            policy.quickBoot ? WbColor.positive.opacity(0.14) : Color.primary.opacity(0.06),
+                            in: Capsule()
+                        )
+                    Toggle(model.text("停止设备时保存快速启动快照", "Save quick-boot snapshot when stopping"), isOn: $policy.quickBoot)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .tint(WbColor.positive)
+                }
             }
-            LabeledContent {
-                TextField("", text: $policy.idleMinutes)
-                    .textFieldStyle(.roundedBorder)
-                    .multilineTextAlignment(.trailing)
-                    .frame(width: 92)
-                    .accessibilityLabel(model.text("自动休眠（分钟）", "Idle sleep (minutes)"))
-            } label: {
-                Text(model.text("自动休眠（分钟）", "Idle sleep (minutes)"))
-            }
+
+            Divider().opacity(0.65)
+
+            policyNumericRow(
+                title: model.text("模拟器总内存预算", "Total emulator memory budget"),
+                subtitle: model.text("所有设备共享的内存使用上限。", "Combined memory limit shared across all devices."),
+                text: $policy.budget,
+                unit: "%",
+                field: .budget,
+                accessibilityLabel: model.text("模拟器总内存预算 (%)", "Total emulator memory budget (%)")
+            )
+
+            Divider().opacity(0.65)
+
+            policyNumericRow(
+                title: model.text("自动休眠", "Idle sleep"),
+                subtitle: model.text("设备空闲达到设定时间后自动休眠，0 表示关闭。", "Sleep idle devices after this time; 0 disables it."),
+                text: $policy.idleMinutes,
+                unit: model.text("分钟", "min"),
+                field: .idle,
+                accessibilityLabel: model.text("自动休眠（分钟）", "Idle sleep (minutes)")
+            )
+
             if loaded && policy.parameters == nil {
                 Label(model.text("内存预算须为 10–100%，休眠分钟数须为非负整数。", "Use a 10–100% budget and a nonnegative whole number of idle minutes."), systemImage: WbIcon.warning)
                     .wbFont(WbType.caption).foregroundStyle(WbColor.negative)
             }
-            Text(model.text("内存预算占 Mac 总内存的 10–100%，用于所有设备的合计预算。自动休眠 0 为关闭。", "The combined device budget is 10–100% of your Mac’s RAM. Idle sleep 0 disables it."))
-                .wbFont(WbType.caption)
-                .foregroundStyle(WbColor.textSecondary)
         }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(OnboardingCardMaterial())
         SettingsSection {
             HStack(alignment: .center, spacing: WbSpace.md) {
                 Text(model.text("快速启动和休眠策略也适用于未单独覆盖设置的已有设备。", "Quick boot and idle sleep also apply to existing devices that follow global settings."))
@@ -2145,6 +2337,103 @@ struct SettingsView: View {
                 .disabled(!loaded || saving || !policyDirty || policy.parameters == nil)
             }
         }
+    }
+
+    private func policyNumericRow(
+        title: String,
+        subtitle: String,
+        text: Binding<String>,
+        unit: String,
+        field: PolicyField,
+        accessibilityLabel: String
+    ) -> some View {
+        HStack(alignment: .center, spacing: WbSpace.md) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(WbColor.textPrimary)
+                Text(subtitle)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(WbColor.textSecondary)
+            }
+            Spacer(minLength: WbSpace.sm)
+            HStack(spacing: unit == "%" ? 1 : 4) {
+                TextField("", text: text)
+                    .textFieldStyle(.plain)
+                    .focused($policyFocus, equals: field)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(WbColor.textPrimary)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(minWidth: 18)
+                    .accessibilityLabel(accessibilityLabel)
+                Text(unit)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(WbColor.textSecondary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 7)
+            .frame(width: 116)
+            .background(Color.primary.opacity(0.035), in: Capsule())
+            .overlay(
+                Capsule()
+                    .strokeBorder(
+                        policyFocus == field ? WbColor.accent : WbColor.borderDefault.opacity(0.8),
+                        lineWidth: 1
+                    )
+            )
+            .contentShape(Capsule())
+            .onTapGesture { policyFocus = field }
+        }
+    }
+
+    private func defaultRootRadioOption(value: String, title: String, subtitle: String) -> some View {
+        let selected = policy.root == value
+        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        return Button { policy.root = value } label: {
+            HStack(alignment: .top, spacing: 9) {
+                ZStack {
+                    Circle()
+                        .strokeBorder(selected ? WbColor.accent : WbColor.borderStrong, lineWidth: selected ? 1.8 : 1.3)
+                        .frame(width: 16, height: 16)
+                    if selected {
+                        Circle()
+                            .fill(WbColor.accent)
+                            .frame(width: 8, height: 8)
+                    }
+                }
+                .padding(.top, 1)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(WbColor.textPrimary)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(WbColor.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                selected ? WbColor.accentContainer.opacity(0.65) : Color.primary.opacity(0.035),
+                in: shape
+            )
+            .overlay(
+                shape.strokeBorder(
+                    selected ? WbColor.accentText.opacity(0.65) : WbColor.borderDefault.opacity(0.8),
+                    lineWidth: 1
+                )
+            )
+            .contentShape(shape)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityValue(selected ? model.text("已选择", "Selected") : "")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 
     // MARK: - Data and tools
@@ -2190,9 +2479,24 @@ struct SettingsView: View {
         SettingsSection(model.text("存储", "Storage")) {
             SettingsPathRow(title: model.text("数据目录", "Data folder"),
                             path: paths?.data ?? model.text("读取中…", "Loading…")) {
+                Button(model.text("更改位置…", "Change location…"), action: chooseDataLocation)
+                    .modifier(SettingsPanelButtonStyle())
+                    .disabled(paths == nil || saving || model.migratingStorage)
                 Button(model.text("显示数据目录", "Show data folder")) { showFolder(paths?.data) }
                     .modifier(SettingsPanelButtonStyle())
                     .disabled(paths == nil)
+            }
+            if let migrationProgressMessage {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(migrationProgressMessage)
+                        .wbFont(WbType.caption)
+                        .foregroundStyle(WbColor.textSecondary)
+                    if let migrationProgressValue {
+                        ProgressView(value: min(1, max(0, migrationProgressValue)))
+                    } else {
+                        ProgressView()
+                    }
+                }
             }
             HStack(alignment: .center, spacing: WbSpace.md) {
                 Text(storageSummary)
@@ -2219,6 +2523,176 @@ struct SettingsView: View {
         let used = deviceUsage.isEmpty ? "—" : ByteCountFormatter.string(fromByteCount:Int64(clamping:usedBytes),countStyle:.file)
         return model.text("已安装镜像 \(images) · 下载缓存 \(cache) · 设备占用 \(used)",
                           "\(images) images · \(cache) cache · \(used) devices")
+    }
+
+    // MARK: - Agents
+
+    @ViewBuilder private var agentsPage: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: WbSpace.md) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(model.text("智能体", "Agents"))
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(WbColor.textPrimary)
+                    Text(model.text("连接 AI 编程工具，通过 JIdr 控制 Android 设备", "Connect AI coding tools to control Android devices through JIdr"))
+                        .font(.system(size: 12))
+                        .foregroundStyle(WbColor.textSecondary)
+                }
+                Spacer(minLength: WbSpace.sm)
+                AgentRobotBadge()
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+
+            Divider().opacity(0.65)
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(model.text("MCP 服务", "MCP server"))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(WbColor.textPrimary)
+                    Spacer(minLength: WbSpace.sm)
+                    Text(model.text("服务连接设置", "Connection settings"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(WbColor.textTertiary)
+                }
+                Text(model.text("命令路径", "Command path"))
+                    .font(.system(size: 12))
+                    .foregroundStyle(WbColor.textSecondary)
+                HStack(spacing: 8) {
+                    TextField("", text: $mcpBinary, prompt: Text("jidr"))
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(WbColor.textPrimary)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(Color.primary.opacity(0.035), in: Capsule())
+                        .overlay(Capsule().strokeBorder(WbColor.borderDefault.opacity(0.8), lineWidth: 1))
+                        .accessibilityLabel(model.text("MCP 命令路径", "MCP command path"))
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(mcpBinary, forType: .string)
+                        message = model.text("MCP 命令路径已复制。", "MCP command path copied.")
+                    } label: {
+                        Image(systemName: WbIcon.copy)
+                            .font(.system(size: 12.5, weight: .medium))
+                            .foregroundStyle(WbColor.textSecondary)
+                            .frame(width: 40, height: 32)
+                            .background(Color.primary.opacity(0.035), in: Capsule())
+                            .overlay(Capsule().strokeBorder(WbColor.borderDefault.opacity(0.8), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(mcpBinary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .help(model.text("复制命令路径", "Copy command path"))
+                    .accessibilityLabel(model.text("复制命令路径", "Copy command path"))
+                }
+                Text(model.text("选择 JIdr 可执行文件，用于配置支持 MCP 的客户端。",
+                                "Choose the JIdr executable to configure MCP-compatible clients."))
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(WbColor.textSecondary)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+
+            Divider().opacity(0.65)
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text(model.text("客户端配置", "Client configuration"))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(WbColor.textPrimary)
+
+                agentClientRow(
+                    icon: "terminal",
+                    title: "Codex",
+                    subtitle: model.text("OpenAI 编程工具", "OpenAI coding tool"),
+                    onCopy: {
+                        guard let text = try? MCPConfiguration.configuration(command: mcpBinary) else { return }
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                        message = model.text("MCP 配置已复制。", "MCP configuration copied.")
+                    },
+                    onConfigure: { confirmCodexConfig = true }
+                )
+
+                Divider().opacity(0.65)
+
+                agentClientRow(
+                    icon: "desktopcomputer",
+                    title: "WorkBuddy",
+                    subtitle: model.text("AI 工作助手", "AI work assistant"),
+                    onCopy: {
+                        guard let data = try? MCPConfiguration.workBuddyConfiguration(command: mcpBinary),
+                              let text = String(data: data, encoding: .utf8) else { return }
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                        message = model.text("MCP 配置已复制。", "MCP configuration copied.")
+                    },
+                    onConfigure: { confirmWorkBuddyConfig = true }
+                )
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+
+            Divider().opacity(0.65)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: WbIcon.deviceEmpty)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(WbColor.textSecondary)
+                    Text(model.text("Android 沙盒与自动化", "Android sandbox & automation"))
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(WbColor.textPrimary)
+                }
+                Text(model.text("AI 智能体可以使用临时 Android 设备进行截图、点击、界面分析和自动化操作。会话结束后自动清理，不影响主力设备。",
+                                "AI agents can use ephemeral Android devices for screenshots, taps, UI inspection and automation. Sessions are cleaned up automatically without affecting your primary devices."))
+                    .font(.system(size: 12))
+                    .foregroundStyle(WbColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 16)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .modifier(OnboardingCardMaterial())
+    }
+
+    private func agentClientRow(
+        icon: String,
+        title: String,
+        subtitle: String,
+        onCopy: @escaping () -> Void,
+        onConfigure: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.primary.opacity(0.035))
+                .frame(width: 36, height: 36)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(WbColor.borderDefault.opacity(0.8), lineWidth: 1)
+                )
+                .overlay(
+                    Image(systemName: icon)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(WbColor.textPrimary)
+                )
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(WbColor.textPrimary)
+                Text(subtitle)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(WbColor.textSecondary)
+            }
+            Spacer(minLength: WbSpace.sm)
+            Button(model.text("复制配置", "Copy config"), action: onCopy)
+                .buttonStyle(AgentPillButtonStyle(prominent: false))
+            Button(model.text("配置…", "Configure…"), action: onConfigure)
+                .buttonStyle(AgentPillButtonStyle(prominent: true))
+                .disabled(saving)
+        }
+        .padding(.vertical, 2)
     }
 
     // MARK: - Advanced
@@ -2253,46 +2727,6 @@ struct SettingsView: View {
                 }
                 .modifier(SettingsPanelButtonStyle())
                 .disabled(saving)
-            }
-        }
-        SettingsSection("MCP") {
-            LabeledContent {
-                TextField("", text: $mcpBinary, prompt: Text("jidr"))
-                    .labelsHidden()
-                    .textFieldStyle(.roundedBorder)
-                    .multilineTextAlignment(.leading)
-                    .frame(width: 260)
-                    .accessibilityLabel(model.text("MCP 命令路径", "MCP command path"))
-            } label: {
-                Text(model.text("MCP 命令路径", "MCP command path"))
-            }
-            Text(model.text("填写 jidr 可执行文件的绝对路径，然后配置对应的客户端。",
-                            "Enter the absolute path to the jidr executable, then configure your client."))
-                .wbFont(WbType.caption)
-                .foregroundStyle(WbColor.textSecondary)
-            HStack(spacing: WbSpace.sm) {
-                Spacer(minLength: 0)
-                Button(model.text("配置 Codex…", "Configure Codex…")) { confirmCodexConfig = true }
-                    .modifier(SettingsPanelButtonStyle())
-                    .disabled(saving)
-                Button(model.text("复制 Codex MCP 配置", "Copy Codex MCP configuration")) {
-                    guard let text = try? MCPConfiguration.configuration(command:mcpBinary) else { return }
-                    NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text,forType:.string)
-                    message = model.text("MCP 配置已复制。", "MCP configuration copied.")
-                }
-                .modifier(SettingsPanelButtonStyle())
-            }
-            HStack(spacing: WbSpace.sm) {
-                Spacer(minLength: 0)
-                Button(model.text("配置 WorkBuddy…", "Configure WorkBuddy…")) { confirmWorkBuddyConfig = true }
-                    .modifier(SettingsPanelButtonStyle())
-                    .disabled(saving)
-                Button(model.text("复制 WorkBuddy MCP 配置", "Copy WorkBuddy MCP configuration")) {
-                    guard let data = try? MCPConfiguration.workBuddyConfiguration(command:mcpBinary), let text = String(data:data,encoding:.utf8) else { return }
-                    NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text,forType:.string)
-                    message = model.text("MCP 配置已复制。", "MCP configuration copied.")
-                }
-                .modifier(SettingsPanelButtonStyle())
             }
         }
     }

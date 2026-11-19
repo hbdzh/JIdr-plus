@@ -14,6 +14,7 @@ members = [
     "crates/jidr-root",
     "crates/jidr-helper",
     "crates/jidr-automation",
+    "crates/jidr-sync",
     "apps/jidr",
     "apps/jidr-swiftui/bridge",
     "xtask",
@@ -21,7 +22,7 @@ members = [
 default-members = ["apps/jidr"]
 
 [workspace.package]
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 rust-version = "1.99"
 license = "Apache-2.0"
@@ -48,6 +49,7 @@ jidr-cpio = { path = "crates/jidr-cpio" }
 jidr-root = { path = "crates/jidr-root" }
 jidr-helper = { path = "crates/jidr-helper" }
 jidr-automation = { path = "crates/jidr-automation" }
+jidr-sync = { path = "crates/jidr-sync" }
 
 # Runtime + serialization
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "net", "io-util", "process", "fs", "sync", "time", "signal"] }

@@ -1348,6 +1348,7 @@ dependencies = [
  "jidr-core",
  "jidr-root",
  "jidr-sdk",
+ "jidr-sync",
  "notify",
  "proptest",
  "schemars",
@@ -1475,11 +1476,26 @@ dependencies = [
  "jidr-core",
  "jidr-proto",
  "jidr-sdk",
+ "jidr-sync",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
  "tonic",
+ "uuid",
+]
+
+[[package]]
+name = "jidr-sync"
+version = "0.7.0"
+dependencies = [
+ "chrono",
+ "jidr-automation",
+ "jidr-core",
+ "proptest",
+ "schemars",
+ "serde",
+ "serde_json",
  "uuid",
 ]
 
