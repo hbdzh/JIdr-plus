@@ -34,6 +34,10 @@
 - 从 0.9.0 升级：数据目录改为 `~/Library/Application Support/miko`，旧数据和配置不会自动迁移；命令行改为 `miko`，环境变量改为 `MIKO_` 前缀。旧版操作录制文件不能直接使用，依赖旧 JSON 字段的脚本需要更新。
 - 快速启动快照原地保存失败时，旧快照仍可能受损。
 
+### 运行时源码
+
+- [定制核心源码、补丁和第三方许可证材料](https://github.com/hbdzh/miko-simulator/releases/download/v0.10.0/miko-runtime-source-review-0.10.0.tar.gz)。该附件为目前已整理的源码审计材料，部分上游二进制的完整对应源码仍在核实。
+
 ## 0.9.1 — miko 模拟器 (2026-11-20)
 
 ### 修复

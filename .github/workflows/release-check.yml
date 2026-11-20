@@ -23,7 +23,7 @@ jobs:
       - uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      # The pinned core must be hosted only after source/licence review.
+      # Reuse the verified published core, or an optional pinned HTTPS source.
       - name: Prepare required runtime
         uses: ./.github/actions/prepare-miko-runtime
         with:

@@ -2,8 +2,8 @@ name: Prepare pinned Miko runtime
 description: Reconstruct the locally reviewed runtime from pinned archives and a supplied core.
 inputs:
   core-url:
-    description: HTTPS URL for the separately maintained pinned arm64 core.
-    required: true
+    description: Optional HTTPS URL for the pinned arm64 core; defaults to the verified 0.10.0 DMG.
+    required: false
 runs:
   using: composite
   steps:
@@ -13,13 +13,26 @@ runs:
         MIKO_CORE_URL: ${{ inputs.core-url }}
       run: |
         set -euo pipefail
-        case "$MIKO_CORE_URL" in
-          https://*) ;;
-          *) echo '::error::Set repository variable MIKO_RUNTIME_CORE_URL to an HTTPS URL for the reviewed pinned core'; exit 1 ;;
-        esac
         work="$(mktemp -d "$RUNNER_TEMP/miko-runtime.XXXXXX")"
-        curl --fail --silent --show-error --location --retry 3 --proto '=https' --proto-redir '=https' \
-          "$MIKO_CORE_URL" --output "$work/core"
+        if [ -n "$MIKO_CORE_URL" ]; then
+          case "$MIKO_CORE_URL" in
+            https://*) ;;
+            *) echo '::error::The core URL must be an HTTPS URL'; exit 1 ;;
+          esac
+          curl --fail --silent --show-error --location --retry 3 --proto '=https' --proto-redir '=https' \
+            "$MIKO_CORE_URL" --output "$work/core"
+        else
+          # The already-published DMG is pinned byte-for-byte before mounting.
+          curl --fail --silent --show-error --location --retry 3 --proto '=https' --proto-redir '=https' \
+            'https://github.com/hbdzh/miko-simulator/releases/download/v0.10.0/miko-simulator-0.10.0-arm64.dmg' --output "$work/runtime.dmg"
+          echo "74393e4124b430537cf2f010df0192d72ff7d3ca4526b8e22b67e33de69a35cf  $work/runtime.dmg" | shasum -a 256 -c -
+          mkdir "$work/mount"
+          hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$work/mount" "$work/runtime.dmg" >/dev/null
+          trap 'hdiutil detach "$work/mount" >/dev/null || true' EXIT
+          cp "$work/mount/miko simulator.app/Contents/Resources/sdk/emulator/qemu/darwin-aarch64/qemu-system-aarch64-headless" "$work/core"
+          hdiutil detach "$work/mount" >/dev/null
+          trap - EXIT
+        fi
         expected="$(awk '$2 == "emulator/qemu/darwin-aarch64/qemu-system-aarch64-headless" {print $1}' "$GITHUB_WORKSPACE/packaging/runtime-source/runtime-sha256.txt")"
         actual="$(shasum -a 256 "$work/core" | awk '{print $1}')"
         if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then

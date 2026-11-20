@@ -59,3 +59,8 @@ prove correspondence to the distributed runtime binaries.
 checks pinned emulator Mach-O files and prints filename-based `NOTICE.csv`
 review leads. The saved `emulator-notice-inventory.json` is an inventory, not
 a completed source or license review.
+
+The [0.10.0 release](https://github.com/hbdzh/miko-simulator/releases/tag/v0.10.0)
+contains an incomplete source review bundle with the local QEMU snapshot, patch,
+selected dependency source candidates and licence notices. See the review above
+for unresolved correspondence and build issues.
