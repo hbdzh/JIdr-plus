@@ -48,3 +48,9 @@ run, but the new script itself has not yet run end to end and the rebuilt core
 was not byte-identical. The `--verify-only` check verifies the relevant macOS
 ARM64 Qt files using a separate temporary Git index; it does not repair or
 modify an existing checkout.
+
+Run `python3 scripts/audit-runtime-dependencies.py
+/path/to/aosp/prebuilts/android-emulator-build/archive` to check the source
+archive hashes and declared patch paths using the upstream checksum algorithms.
+It exits nonzero for unresolved entries; a successful run would not by itself
+prove correspondence to the distributed runtime binaries.
