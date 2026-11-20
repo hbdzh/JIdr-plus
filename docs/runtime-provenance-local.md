@@ -17,3 +17,10 @@ Status: local verification in progress; **not approved for public redistribution
 - `libselinux` is labeled `CC-PDDC OR UNKNOWN` by the generated inventory; its source NOTICE states it is public-domain software with a warranty exclusion. Other component-level obligations still need review.
 - The AOSP checkout's manifest export failed because the optional system-images project is absent. Existing project HEADs were recorded, but a clean rebuild and a fully pinned manifest are not yet verified. The locally built core is not currently reproducible by the repository's CI.
 - Until the above review is completed, the conditional clean-room rule prohibits publicly redistributing the bundled candidate. This record is technical evidence, not a legal conclusion.
+
+## Reproduction and verification performed
+
+- `scripts/prepare-bundled-runtime.py` successfully reconstructed the 215-file pinned runtime from independently downloaded official archives, the saved metadata and the locally built core. The release command now rejects a missing, modified, additional or incomplete input before building.
+- An ad-hoc local DMG built from the reconstructed runtime passed mounted-image validation, retained the original and generated core notices, and selected its embedded SDK from an isolated home. An isolated Android 36 device was created, started, stopped and deleted using the bundled runtime and a pre-existing read-only image.
+- The final candidate, verified input archives and core, and the incomplete source-review kit are retained locally under `target/miko-runtime-review/`; this ignored directory is not a public source distribution or a long-term source offer.
+- The published v0.10.0 tag and DMG predate this work and do not contain the runtime. The normal release command remains blocked pending review; CI has not yet been configured to acquire or build the pinned core.
