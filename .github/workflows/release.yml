@@ -123,11 +123,16 @@ jobs:
         if: env.HAVE_SIGNING == 'true'
         run: packaging/macos/verify.sh dist/miko-simulator-*-arm64.dmg
 
+      # Attach pinned source-review materials; this does not bypass the
+      # independent runtime redistribution review in cargo xtask release.
+      - name: Prepare runtime source-review materials
+        run: scripts/prepare-runtime-sources.sh dist
+
       - name: Upload to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
-        run: gh release upload "$RELEASE_TAG" dist/miko-simulator-*-arm64.dmg dist/miko-mcp-*.mcpb dist/SHA256SUMS.txt dist/mcp-registry.json --clobber
+        run: gh release upload "$RELEASE_TAG" dist/miko-simulator-*-arm64.dmg dist/miko-mcp-*.mcpb dist/SHA256SUMS.txt dist/mcp-registry.json dist/miko-runtime-source-review-0.10.0.tar.gz dist/miko-runtime-source-projects-0.10.0.tar --clobber
 
       - name: Publish the completed draft release
         env:
