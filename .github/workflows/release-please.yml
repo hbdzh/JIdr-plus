@@ -1,12 +1,11 @@
 name: Release Please
 
-# Every merge to main updates one open "chore: release vX.Y.Z" pull request:
-# the next version (from conventional commits) and CHANGELOG.md. Merging that
-# pull request tags the version, publishes the GitHub Release and builds the
-# signed, notarized DMG into it (release.yml).
+# Changes on master update the version and changelog pull request. Merging it
+# creates a draft GitHub Release and tag, then runs the packaging workflow.
+# The workflow publishes the draft only after its packaging steps succeed.
 on:
   push:
-    branches: [main]
+    branches: [master]
 
 permissions:
   contents: write
@@ -27,6 +26,7 @@ jobs:
           # token with contents and pull-requests write) lets the release PR
           # run the required checks.
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          target-branch: master
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
