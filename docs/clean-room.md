@@ -8,6 +8,7 @@ Jidr re-creates the *behaviour* of Genymotion Desktop's public feature set. It m
 |---|---|
 | Genymotion public docs (docs.genymotion.com, genymotion.com/pricing, /features) | Feature lists, user-visible behaviour, CLI command names, exit-code semantics |
 | AOSP emulator public protos (`emulator_controller.proto`, `snapshot_service.proto`, shipped in the SDK) | gRPC API; we generate code from them (Apache-2.0) |
+| AOSP emulator source (`platform/external/qemu`) | Separately licensed emulator build and source records; do not copy GPL code into Apache-licensed crates. Distribution requires the checks below. |
 | developer.android.com emulator docs (command line, console, AVD management) | Flags, console commands, config.ini keys |
 | Android SDK tools (`sdkmanager`, `avdmanager`, `adb`, `emulator`), run on the user's machine | Observed behaviour, outputs |
 | Magisk and rootAVD scripts (GPL-3.0) | **Read only**, to learn the documented ramdisk layout. Never copy or translate code. |
@@ -18,7 +19,7 @@ Jidr re-creates the *behaviour* of Genymotion Desktop's public feature set. It m
 
 - Decompiling, disassembling, string-dumping or otherwise inspecting Genymotion binaries, installers, images or network traffic.
 - Copying or line-by-line translating GPL code (Magisk, rootAVD) into Apache-2.0 crates.
-- Bundling or redistributing the Android SDK, emulator, system images or Magisk.
+- Bundling or redistributing Android system images or Magisk. Emulator and platform-tools binaries may be bundled only after their exact provenance, applicable component licences, corresponding-source obligations and notices have been verified and recorded; an unreviewed runtime remains prohibited from public redistribution.
 - Google, Android or Genymotion logos anywhere in the product or site.
 
 ## Log

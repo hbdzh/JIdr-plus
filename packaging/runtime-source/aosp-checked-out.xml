@@ -1,0 +1,75 @@
+<?xml version='1.0' encoding='utf-8'?>
+<manifest>
+  <remote name="aosp" fetch=".." review="https://android-review.googlesource.com/" />
+  <default revision="emu-main-dev" remote="aosp" sync-j="4" />
+  <project path="build/make" name="platform/build" revision="0984226dbac1a947ad34490e0647cf7e5c5e6d14" />
+  <project path="tools/buildSrc" name="platform/tools/buildSrc" revision="84f5a11087cc9fcd353ccd6cfc490fb2a226948e" />
+  <project path="external/libslirp" name="trusty/external/qemu-libslirp" revision="6559d5fa78a9afc4e21cffdad4b91e45265d359b" />
+  <project path="external/abseil-cpp" name="platform/external/abseil-cpp" revision="000dabbd0c985dae5c40eb3a9531d4c8ee3f9d18" />
+  <project path="external/adt-infra" name="platform/external/adt-infra" revision="eddf74d83a621b91f3e1fa8d7601359ac4b9a1f9" />
+  <project path="external/mobly-bundled-snippets" name="platform/external/mobly-bundled-snippets" revision="b0bdd3a435593ede2e353d4ff80cc3d949cf5529" />
+  <project path="external/angle" name="platform/external/angle" revision="901e32aa9923b05c3a2af846f8a28fc79c93d0be" />
+  <project path="external/astc-codec" name="platform/external/astc-codec" revision="17ae36822a8084f45ae51f9031e81f8318254f33" />
+  <project path="external/boringssl" name="platform/external/boringssl" revision="12a513beab0dfba3fa7e92baab5b7e473d5d52ce" />
+  <project path="external/cares" name="platform/external/c-ares" revision="42cf8dee534419f1826f474d2f5fd67ac94a1706" />
+  <project path="external/crashpad" name="platform/external/crashpad" revision="1967b1e3f928ce7660abc0966954c03e695011d6" />
+  <project path="build/bazel" name="platform/build/bazel" revision="0d382f91916499455604916a191e3bcf0cddf4fe">
+    <linkfile src="toplevel.bazelrc" dest=".bazelrc" />
+    <linkfile src="toplevel.bazelversion" dest=".bazelversion" />
+  </project>
+  <project path="third_party/pkg-config" name="platform/external/pkg-config" revision="110660333d9126a57154408fff5f675867cfd1f7" />
+  <project path="prebuilts/bazel/darwin-x86_64" name="platform/prebuilts/bazel/darwin-x86_64" groups="notdefault,platform-darwin" revision="b1630d780be4131f5bac61c5a9f7c9ee0387c5aa" />
+  <project path="external/curl" name="platform/external/curl" revision="1da4b04273638c8afe6f88bd7a7ccfb693640773" />
+  <project path="external/dtc" name="platform/external/dtc" revision="e895d82d389eaece070a27533936077d2c8f414b" />
+  <project path="external/deqp" name="platform/external/deqp" revision="aae810417e66486a01a1d9c7d83f020b7e06eb0e" />
+  <project path="external/fmtlib" name="platform/external/fmtlib" revision="7f2f1b11a568e3bda9663215515a7c0734d3240b" />
+  <project path="external/gfxstream-protocols" name="platform/external/gfxstream-protocols" revision="9bc1eed18fdb082e78966ecb9324a08f7cd8d76f" />
+  <project path="external/googletest" name="platform/external/googletest" revision="013ef6db94e3677b24b8e4c9fbdf1708ecea516b" />
+  <project path="external/google-benchmark" name="platform/external/google-benchmark" revision="1bff076dad8a0cbb740e7f68586d59c3bb3e1bfd" />
+  <project path="external/google-breakpad" name="platform/external/google-breakpad" revision="61a8ef3ca8494875cb37e28a69500ed366328810" />
+  <project path="external/grpc" name="platform/external/grpc-grpc" revision="fea7de5acfa2da17203f8eea78f974b41bcb6807" />
+  <project path="external/libusb" name="platform/external/libusb" revision="23f123a3f531572d14a253db3451c950e21d2447" />
+  <project path="external/libpng" name="platform/external/libpng" revision="9e617f38e8a384ccf0e2554d12d1aea2bcc08401" />
+  <project path="external/libxml2" name="platform/external/libxml2" revision="27570c2a5b96dc5aea1a0085f610f37ab744f643" />
+  <project path="external/lz4" name="platform/external/lz4" revision="649782b223e2d62ca5743140f3d4e6afccb85eb4" />
+  <project path="external/protobuf" name="platform/external/protobuf" revision="623d88a75a0b17ad2cc4be8fa79c3b97e7384a40" />
+  <project path="external/perfetto" name="platform/external/perfetto" revision="37518c39e3db120322359090db3d54f6ac100078" />
+  <project path="external/qemu" name="platform/external/qemu" revision="5e51202879523d4df1bca8ca6944129ff05df02b">
+    <copyfile src="android/vscode/emu.code-workspace" dest="emu.code-workspace" />
+    <linkfile src="toplevel.MODULE.bazel" dest="MODULE.bazel" />
+    <linkfile src="toplevel.MODULE.bazel.lock" dest="MODULE.bazel.lock" />
+  </project>
+  <project path="external/regex-re2" name="platform/external/regex-re2" revision="3b76205b4a5ab7fd9a11df8ac930d21cf52ad189" />
+  <project path="external/glib" name="platform/external/bluetooth/glib" revision="9f3ee561eee2bc195845201a4931d4709ff597e5" />
+  <project path="external/tinyobjloader" name="platform/external/tinyobjloader" revision="d16a940067fbc191364fc1d3e2a2d907209c9320" />
+  <project path="external/virglrenderer" name="platform/external/virglrenderer" revision="5d6e453751926c5209c7bad5ef7a6285feef5bb6" />
+  <project path="external/nasm" name="platform/external/nasm" revision="8d91dd49f13808eb2c9a25f899edcfef6f5930d7" />
+  <project path="external/wpa_supplicant_8" name="platform/external/wpa_supplicant_8" revision="db64ab725acee6991a7ee9746d960731cca0b563" />
+  <project path="external/zlib" name="platform/external/zlib" revision="5a4f1701693dff36e495d13dd14b70e15abe0d01" />
+  <project path="hardware/google/aemu" name="platform/hardware/google/aemu" groups="pdk" revision="36815ef31763c79dfc42b461e6ce35264ead08c4" />
+  <project path="hardware/google/gfxstream" name="platform/hardware/google/gfxstream" groups="pdk" revision="501867e6a3b1a3be7b935cc977d291150846edab" />
+  <project path="prebuilts/android-emulator-build/archive" name="platform/prebuilts/android-emulator-build/archive" revision="9b0bdade8b09267282fb901d21219ab6af013c60" />
+  <project path="prebuilts/android-emulator-build/common" name="platform/prebuilts/android-emulator-build/common" revision="5796f8ef2013c918988b37dd62f339e1f802f901" />
+  <project path="prebuilts/android-emulator-build/mesa" name="platform/prebuilts/android-emulator-build/mesa" revision="be7c00f399b415511d73308f0af0c0310512aced" />
+  <project path="prebuilts/android-emulator-build/mesa-deps" name="platform/prebuilts/android-emulator-build/mesa-deps" revision="17837fdb1889014fa01cbbbda56afc9b6034815f" />
+  <project path="prebuilts/android-emulator-build/qemu-android-deps" name="platform/prebuilts/android-emulator-build/qemu-android-deps" revision="b06aee625002d0738c5576bbf437b9378229bef0" />
+  <project path="prebuilts/android-emulator-build/qt" name="platform/prebuilts/android-emulator-build/qt" revision="f2d41b8d15c2a628e95c2e755ed92186d03b763c" />
+  <project name="device/google/cuttlefish" path="device/google/cuttlefish" revision="010fb1827e4c430a57dd1e75561a961b8ffc142e" />
+  <project path="tools/netsim" name="platform/tools/netsim" revision="6efc7b9852d5572abe1db6cf2011093cdcbeed7e" />
+  <project path="tools/rootcanal" name="platform/tools/rootcanal" revision="bba9b040de190d195ec34e52f8e722e43696b7dd" />
+  <project path="prebuilts/ninja/darwin-x86" name="platform/prebuilts/ninja/darwin-x86" groups="notdefault,platform-darwin" revision="c33943dfc7058ac5ff4021d031dae4cbd926c743" />
+  <project path="prebuilts/cmake/darwin-x86" name="platform/prebuilts/cmake/darwin-x86" groups="notdefault,platform-darwin" revision="d2cbb801268ab9d166f86f7c366a41ebea82b762" />
+  <project path="prebuilts/clang/host/darwin-x86" name="platform/prebuilts/clang/host/darwin-x86" groups="notdefault,platform-darwin" revision="77c2ecde61d855b7986af3d93fea241b77b11292" />
+  <project path="prebuilts/python/darwin-x86" name="platform/prebuilts/python/darwin-x86" groups="notdefault,platform-darwin" revision="8a7b323c92153acc4390bf71392dec2dbb10f4f5" />
+  <project path="prebuilts/studio/jdk" name="platform/prebuilts/studio/jdk" revision="ab98332f5597d8e2eecbe4c4b35a3d1272bc4783" />
+  <project path="external/tink" name="platform/external/tink" revision="f416fdeb6d1ebafda566d4ecff80eace51a750f2" />
+  <project path="external/rapidjson" name="platform/external/rapidjson" revision="4d42830893d6728eba192789c0629d76a359fca0" />
+  <project path="external/flex" name="platform/external/flex" groups="notdefault,platform-linux,platform-darwin" revision="104fbfc36067cd630eff3430ee9736febbe26956" />
+  <project path="external/m4" name="toolchain/m4" groups="notdefault,platform-linux,platform-darwin" revision="d79b8b9392a67dc22cfb096d16e6f06d24c80834" />
+  <project path="external/webrtc" name="platform/external/webrtc" revision="34c5ae008bf811fce3006818f26f922b3647237a" />
+  <project path="external/flatbuffers" name="platform/external/flatbuffers" revision="a551e2263a3f5036b46502aa6822257ed1a8a49f" />
+  <project path="external/mesa3d" name="platform/external/mesa3d" revision="6dd693f53274937097938284c89ee6e5ca088fcd" />
+  <project path="external/moltenvk" name="platform/external/moltenvk" revision="4d44e42aacc0734d4c55e26602e5aded66f73f6c" />
+  <project path="tools/emulator" name="platform/tools/emulator" revision="0861a1ad273555d0eb3bd1abffa4912d9d24bc2c" />
+  <project path="tools/repohooks" name="platform/tools/repohooks" groups="developers,tools" revision="ee593394dd36395f0f9433b738abf1859e92193d" />
+</manifest>

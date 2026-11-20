@@ -146,9 +146,28 @@ pub struct SdkSet {
     pub studio: Option<Sdk>,
     /// Former writable roots remain available for existing images, read-only.
     pub legacy: Vec<Sdk>,
+    /// Read-only runtime shipped inside the application bundle.
+    pub bundled: Option<Sdk>,
 }
 
 impl SdkSet {
+    /// Locate a packaged runtime only relative to the running app helper.
+    fn bundled_sdk_from_executable(executable: &Path) -> Option<Sdk> {
+        let contents = executable.parent()?.parent()?;
+        if contents.file_name()? != "Contents" || executable.parent()?.file_name()? != "Helpers" {
+            return None;
+        }
+        let resources = contents.join("Resources");
+        resources
+            .join(".miko-runtime-required")
+            .is_file()
+            .then(|| Sdk::read_only(resources.join("sdk")))
+    }
+
+    fn bundled_sdk() -> Option<Sdk> {
+        Self::bundled_sdk_from_executable(&std::env::current_exe().ok()?)
+    }
+
     /// Discovers the SDK set from `tool-paths.json` and the host defaults.
     pub fn discover(paths: &MikoPaths) -> Self {
         Self::discover_with(paths, None)
@@ -177,6 +196,7 @@ impl SdkSet {
                     custom,
                     studio,
                     legacy,
+                    bundled: Self::bundled_sdk(),
                 }
             }
             // Preserve a fail-closed selection if the configuration is unreadable.
@@ -185,6 +205,7 @@ impl SdkSet {
                 custom: None,
                 studio: Some(Sdk::configured(PathBuf::new())),
                 legacy: Vec::new(),
+                bundled: Self::bundled_sdk(),
             },
         }
     }
@@ -206,6 +227,18 @@ impl SdkSet {
 
     /// The managed SDK that provides `emulator` and `adb`.
     pub fn tools(&self) -> MikoResult<&Sdk> {
+        if let Some(bundled) = &self.bundled {
+            return if bundled.has_emulator()
+                && bundled.has_adb()
+                && crate::runtime::installed(&bundled.root.join("emulator"))
+            {
+                Ok(bundled)
+            } else {
+                Err(MikoError::sdk(
+                    "the bundled emulator runtime is missing or incomplete; reinstall miko",
+                ))
+            };
+        }
         self.custom
             .as_ref()
             .into_iter()
@@ -264,6 +297,48 @@ pub fn read_properties(path: &Path) -> Vec<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bundled_runtime_requires_complete_app_relative_sdk_and_takes_priority() {
+        let temp = tempfile::tempdir().unwrap();
+        let contents = temp.path().join("Example.app/Contents");
+        let executable = contents.join("Helpers/miko");
+        let sdk = contents.join("Resources/sdk");
+        std::fs::create_dir_all(sdk.join("emulator/qemu/darwin-aarch64")).unwrap();
+        std::fs::create_dir_all(sdk.join("platform-tools")).unwrap();
+        for name in [
+            "emulator/emulator",
+            "emulator/qemu/darwin-aarch64/qemu-system-aarch64-headless",
+            "emulator/.miko-runtime-37.3.10",
+        ] {
+            std::fs::write(sdk.join(name), b"x").unwrap();
+        }
+        assert!(SdkSet::bundled_sdk_from_executable(&executable).is_none());
+        std::fs::write(contents.join("Resources/.miko-runtime-required"), b"1").unwrap();
+        let bundled = SdkSet::bundled_sdk_from_executable(&executable).unwrap();
+        let private = Sdk::private(&MikoPaths::under(temp.path().join("home")));
+        let broken = SdkSet {
+            bundled: Some(bundled),
+            private,
+            custom: None,
+            studio: None,
+            legacy: vec![],
+        };
+        assert!(broken.tools().is_err());
+        std::fs::write(sdk.join("platform-tools/adb"), b"x").unwrap();
+        let bundled = SdkSet::bundled_sdk_from_executable(&executable).unwrap();
+        let private = Sdk::private(&MikoPaths::under(temp.path().join("home")));
+        let set = SdkSet {
+            bundled: Some(bundled),
+            private,
+            custom: None,
+            studio: None,
+            legacy: vec![],
+        };
+        assert_eq!(set.tools().unwrap().root, sdk);
+        assert!(set.tools().unwrap().ensure_writable().is_err());
+        assert!(SdkSet::bundled_sdk_from_executable(&temp.path().join("miko")).is_none());
+    }
 
     fn fake_image(root: &Path, image: &ImageRef, complete: bool) {
         let dir = root.join(image.sysdir());
@@ -346,6 +421,7 @@ mod tests {
         let studio = dir.path().join("studio");
         fake_image(&studio, &img(31, "google_apis"), true);
         let set = SdkSet {
+            bundled: None,
             legacy: Vec::new(),
             private: Sdk::private(&paths),
             custom: None,
@@ -440,6 +516,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let paths = MikoPaths::under(dir.path().join("miko"));
         let sdks = SdkSet {
+            bundled: None,
             legacy: Vec::new(),
             private: Sdk::private(&paths),
             custom: None,

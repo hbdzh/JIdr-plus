@@ -38,12 +38,12 @@ Dependency versions live in the root `[workspace.dependencies]`; crates use `foo
 
 ## Licensing (D18)
 
-- Apache-2.0 everywhere except the desktop GUI sources: `apps/miko-swiftui` Swift/AppKit code (GPL-3.0-only by choice, ADR-0003). The SwiftUI Rust bridge is Apache-2.0.
+- Apache-2.0 for project code except the desktop GUI sources: `apps/miko-swiftui` Swift/AppKit code (GPL-3.0-only by choice, ADR-0003). The SwiftUI Rust bridge is Apache-2.0. Third-party QEMU source records in `packaging/runtime-source/` retain their upstream licences and are separate from the Apache-licensed crates.
 - The CLI, the daemon, MCP and every other Apache crate must never reintroduce Slint or the retired GUI crates. `cargo xtask license-check` (part of `cargo xtask ci`) enforces this.
 
 ## Clean-room rules (non-negotiable)
 
-See [docs/clean-room.md](docs/clean-room.md). In short: use only Genymotion's public docs and the public AOSP emulator protos and docs, plus behaviour you observe by running the SDK tools. Never decompile, string-dump or inspect Genymotion binaries. Never copy GPL code (Magisk, rootAVD); you may read their scripts to learn the documented ramdisk layout. Never bundle Google SDK binaries, system images or Magisk. No Google, Android or Genymotion logos. Log any non-obvious source in the clean-room file.
+See [docs/clean-room.md](docs/clean-room.md). In short: use Genymotion's public docs, public AOSP emulator protos and docs, and behaviour observed by running the SDK tools. AOSP emulator source may be used for a separately licensed runtime and source records, never copied into Apache-licensed crates. Never decompile, string-dump or inspect Genymotion binaries. Never copy GPL code (Magisk, rootAVD); you may read their scripts to learn the documented ramdisk layout. Never bundle system images or Magisk. Bundling emulator and platform-tools binaries requires the verified component provenance, licences, corresponding source and notices described in `docs/clean-room.md`; do not publish unreviewed runtime material. No Google, Android or Genymotion logos. Log any non-obvious source in the clean-room file.
 
 ## Code rules
 

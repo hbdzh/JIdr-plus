@@ -1700,6 +1700,7 @@ mod tests {
 
         // Missing SDK tools require a managed runtime installation.
         let sdks = SdkSet {
+            bundled: None,
             legacy: Vec::new(),
             private: private.clone(),
             custom: Some(Sdk::custom_writable(&custom_root)),
@@ -1724,6 +1725,7 @@ mod tests {
         write_tools(&private.root);
         write_image(&private.root, &image);
         let sdks = SdkSet {
+            bundled: None,
             legacy: Vec::new(),
             private: private.clone(),
             custom: Some(Sdk::custom_writable(&empty_custom)),
@@ -1735,6 +1737,7 @@ mod tests {
         let read_only = dir.path().join("configured");
         std::fs::create_dir_all(&read_only).unwrap();
         let sdks = SdkSet {
+            bundled: None,
             legacy: Vec::new(),
             private: private.clone(),
             custom: Some(Sdk::custom_writable(&empty_custom)),
@@ -1750,6 +1753,7 @@ mod tests {
             ..image.clone()
         };
         let sdks = SdkSet {
+            bundled: None,
             legacy: Vec::new(),
             private: private.clone(),
             custom: Some(Sdk::custom_writable(&empty_custom)),
@@ -1762,6 +1766,7 @@ mod tests {
 
         // Without a custom root the private SDK stays the install target.
         let sdks = SdkSet {
+            bundled: None,
             legacy: Vec::new(),
             private: private.clone(),
             custom: None,
@@ -1782,6 +1787,7 @@ mod tests {
         std::fs::create_dir_all(&valid).unwrap();
 
         let sdks = SdkSet {
+            bundled: None,
             legacy: Vec::new(),
             private: private.clone(),
             custom: Some(Sdk::custom_writable(&valid)),
@@ -1793,6 +1799,7 @@ mod tests {
         // silently installing into the private SDK.
         for root in [PathBuf::from("relative/sdk"), dir.path().join("missing")] {
             let sdks = SdkSet {
+                bundled: None,
                 legacy: Vec::new(),
                 private: private.clone(),
                 custom: Some(Sdk::custom_writable(&root)),

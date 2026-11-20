@@ -1,0 +1,161 @@
+diff --git a/android/android-grpc/services/emulator-controller/server/src/android/emulation/control/EmulatorService.cpp b/android/android-grpc/services/emulator-controller/server/src/android/emulation/control/EmulatorService.cpp
+index 254d6d18..6b97eeaa 100644
+--- a/android/android-grpc/services/emulator-controller/server/src/android/emulation/control/EmulatorService.cpp
++++ b/android/android-grpc/services/emulator-controller/server/src/android/emulation/control/EmulatorService.cpp
+@@ -645,6 +645,9 @@ public:
+         guestConfig["androidVersion"] = bugreport.androidVer;
+         guestConfig["hypervisorVersion"] = bugreport.hypervisorVer;
+         guestConfig["avdDetails"] = bugreport.avdDetails;
++#if defined(__APPLE__)
++        guestConfig["mikoAudioInputFallback"] = "1";
++#endif
+         return Status::OK;
+     }
+ 
+diff --git a/android/scripts/unix/gen-android-sdk-toolchain.sh b/android/scripts/unix/gen-android-sdk-toolchain.sh
+index 4d2340fa..57ea7d12 100755
+--- a/android/scripts/unix/gen-android-sdk-toolchain.sh
++++ b/android/scripts/unix/gen-android-sdk-toolchain.sh
+@@ -782,7 +782,7 @@ get_osx_sysroot() {
+     OSX_VERSION=$(sw_vers -productVersion)
+     OSX_REQUIRED=13.3
+     MIN_XCODE=10
+-    OSX_SDK_SUPPORTED="13.3 15.2 15.5 26.0 26.2 26.4"
++    OSX_SDK_SUPPORTED="13.3 15.2 15.5 26.0 26.2 26.4 27.2"
+     OSX_XCODE=$(xcodebuild -version | tr '\n' ' ')
+     OSX_SDK_INSTALLED_LIST=$(xcodebuild -showsdks 2>/dev/null | \
+             egrep --color=never -o " macosx\d+.\d+$" | sed -e "s/.*macosx//g" | sort -n | \
+diff --git a/android/third_party/CMakeLists.txt b/android/third_party/CMakeLists.txt
+index a1da7e4f..a61d71d8 100644
+--- a/android/third_party/CMakeLists.txt
++++ b/android/third_party/CMakeLists.txt
+@@ -173,6 +173,7 @@ if(NOT TARGET flatc)
+   else()
+     set(EXTRA_FLATC_ARGS "-DCMAKE_TOOLCHAIN_FILE=${ANDROID_QEMU2_TOP_DIR}/android/build/cmake/toolchain-${ANDROID_HOST_TAG}.cmake")
+   endif()
++  list(APPEND EXTRA_FLATC_ARGS "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld")
+   externalproject_add(
+     flatbuffers-flatc
+     SOURCE_DIR ${AOSP_ROOT}/external/flatbuffers
+diff --git a/audio/audio.c b/audio/audio.c
+index a805d3ff..cc87b5c6 100644
+--- a/audio/audio.c
++++ b/audio/audio.c
+@@ -134,7 +134,12 @@ static struct {
+         }
+     },
+ 
++#ifdef CONFIG_AUDIO_COREAUDIO
++    /* Refill the host playback queue within a short CoreAudio period. */
++    .period = { .hertz = 200 },
++#else
+     .period = { .hertz = 100 },
++#endif
+     .try_poll_in = 1,
+     .try_poll_out = 1,
+ };
+diff --git a/audio/audio_template.h b/audio/audio_template.h
+index 7de227d2..5d9948cd 100644
+--- a/audio/audio_template.h
++++ b/audio/audio_template.h
+@@ -228,11 +228,12 @@ static HW *glue (audio_pcm_hw_find_specific_, TYPE) (
+     return NULL;
+ }
+ 
+-static HW *glue (audio_pcm_hw_add_new_, TYPE) (struct audsettings *as)
++static HW *glue (audio_pcm_hw_add_driver_, TYPE) (struct audsettings *as,
++                                                 struct audio_driver *drv,
++                                                 void *drv_opaque)
+ {
+     HW *hw;
+     AudioState *s = &glob_audio_state;
+-    struct audio_driver *drv = s->drv;
+ 
+     if (!glue (s->nb_hw_voices_, TYPE)) {
+         return NULL;
+@@ -262,7 +263,7 @@ static HW *glue (audio_pcm_hw_add_new_, TYPE) (struct audsettings *as)
+ #ifdef DAC
+     QLIST_INIT (&hw->cap_head);
+ #endif
+-    if (glue (hw->pcm_ops->init_, TYPE) (hw, as, s->drv_opaque)) {
++    if (glue (hw->pcm_ops->init_, TYPE) (hw, as, drv_opaque)) {
+         goto err0;
+     }
+ 
+@@ -299,6 +300,26 @@ static HW *glue (audio_pcm_hw_add_new_, TYPE) (struct audsettings *as)
+     return NULL;
+ }
+ 
++static HW *glue (audio_pcm_hw_add_new_, TYPE) (struct audsettings *as)
++{
++    AudioState *s = &glob_audio_state;
++    HW *hw = glue (audio_pcm_hw_add_driver_, TYPE) (as, s->drv, s->drv_opaque);
++#if defined(__APPLE__) && !defined(DAC)
++    /*
++     * A guest recording stream must open even when macOS has no usable
++     * input device. Give only that voice a silent backend so the gRPC
++     * forwarder can subsequently take it over. Leave playback on CoreAudio.
++     */
++    if (!hw && s->drv && !strcmp(s->drv->name, "coreaudio")) {
++        struct audio_driver *silent = audio_driver_lookup("none");
++        if (silent) {
++            hw = glue (audio_pcm_hw_add_driver_, TYPE) (as, silent, NULL);
++        }
++    }
++#endif
++    return hw;
++}
++
+ static HW *glue (audio_pcm_hw_add_, TYPE) (struct audsettings *as)
+ {
+     HW *hw;
+diff --git a/audio/coreaudio.c b/audio/coreaudio.c
+index 686287d6..aaec973d 100644
+--- a/audio/coreaudio.c
++++ b/audio/coreaudio.c
+@@ -455,27 +455,33 @@ static OSStatus ca_out_device_wconv_ioproc(
+         return kAudioHardwareNoError;
+     }
+ 
+-    const UInt32 requested_size_frames =
+-            outOutputData->mBuffers[0].mDataByteSize /
+-            core->hw_frame_size;
++    const AudioBuffer buffer = outOutputData->mBuffers[0];
++    const UInt32 frame_size = core->hw_frame_size;
++    const UInt32 requested_size_frames = buffer.mDataByteSize / frame_size;
+     UInt32 output_size_frames = requested_size_frames;
+ 
+-    OSStatus status =
++    /* The converter can shrink its output buffer when it runs out of input.
++     * Keep the HAL buffer size intact and clear any unwritten samples. */
++    AudioBufferList converted = {
++        .mNumberBuffers = 1,
++        .mBuffers = {buffer},
++    };
++    const OSStatus status =
+             AudioConverterFillComplexBuffer(core->converter,
+                                             ca_out_conv_proc_locked,
+                                             core,
+                                             &output_size_frames,
+-                                            outOutputData,
++                                            &converted,
+                                             NULL);
+     ca_voice_unlock(core);
+ 
+-    if ((status != kAudioHardwareNoError) ||
+-            (output_size_frames < requested_size_frames)) {
+-        const size_t filled_bytes = output_size_frames * core->hw_frame_size;
+-        ASSERT(filled_bytes <= outOutputData->mBuffers[0].mDataByteSize);
+-
+-        memset(((char *)outOutputData->mBuffers[0].mData) + filled_bytes, 0,
+-               outOutputData->mBuffers[0].mDataByteSize - filled_bytes);
++    const size_t filled_bytes = status == kAudioHardwareNoError
++            ? MIN(converted.mBuffers[0].mDataByteSize,
++                  MIN(output_size_frames, requested_size_frames) * frame_size)
++            : 0;
++    if (filled_bytes < buffer.mDataByteSize) {
++        memset((char *)buffer.mData + filled_bytes, 0,
++               buffer.mDataByteSize - filled_bytes);
+     }
+ 
+     return kAudioHardwareNoError;

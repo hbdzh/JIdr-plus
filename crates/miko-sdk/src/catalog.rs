@@ -138,6 +138,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo = Repository::parse(XML, "file:///x.xml").unwrap();
         let sdks = SdkSet {
+            bundled: None,
             legacy: Vec::new(),
             private: Sdk::private(&MikoPaths::under(dir.path())),
             custom: None,
@@ -177,6 +178,7 @@ mod tests {
             std::fs::write(d.join(f), b"x").unwrap();
         }
         let sdks = SdkSet {
+            bundled: None,
             legacy: Vec::new(),
             private: Sdk::private(&MikoPaths::under(dir.path().join("j"))),
             custom: None,

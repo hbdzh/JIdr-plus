@@ -70,6 +70,13 @@ pub fn run(args: &[String]) -> Result<()> {
     if opts.rehearsal {
         opts.scan = true;
     }
+    // The current runtime source kit is incomplete: keep publication builds
+    // closed until every component's corresponding source and licence is reviewed.
+    if !opts.rehearsal && !opts.dry_run {
+        bail!(
+            "bundled runtime redistribution review is incomplete; use --rehearsal for local verification only"
+        );
+    }
     let root = workspace_root();
     let version = workspace_version()?;
     let target = target_dir(&root);
@@ -92,6 +99,14 @@ fn run_swiftui(
     version: &str,
     opts: &Options,
 ) -> Result<()> {
+    let sdk_source = std::env::var_os("MIKO_BUNDLED_SDK")
+        .map(PathBuf::from)
+        .context("MIKO_BUNDLED_SDK is required for a release")?;
+    validate_required_runtime(&sdk_source)?;
+    verify_runtime_manifest(
+        &sdk_source,
+        include_str!("../../packaging/runtime-source/runtime-sha256.txt"),
+    )?;
     let bin = target.join("release");
     let helper = crate::helper::build(&["aarch64"])?
         .into_iter()
@@ -135,6 +150,7 @@ fn run_swiftui(
     let staging = out.join("staging");
     let app = staging.join("miko simulator.app");
     assemble_swiftui_app(root, &bin, &center, &app, version)?;
+    assemble_required_runtime(&app)?;
     copy(
         &helper,
         &app.join("Contents/Resources/helper/aarch64/miko-helper"),
@@ -173,7 +189,7 @@ fn run_swiftui(
             println!("xtask: scan: {}: {}", f.path.display(), f.reason);
         }
         bail!(
-            "{} forbidden file(s) in the release artifacts (Google SDK, system images or Magisk)",
+            "{} forbidden file(s) in the release artifacts",
             findings.len()
         );
     }
@@ -185,7 +201,9 @@ fn run_swiftui(
     std::fs::write(out.join("VERSION"), format!("{version}\n"))?;
     print!("{sums}");
     if opts.scan {
-        println!("xtask: scan ok: no Google SDK binaries, system images or Magisk");
+        println!(
+            "xtask: scan ok: no system images or Magisk; SDK tools confined to bundled runtime"
+        );
     }
     if opts.rehearsal {
         let artifacts = artifacts_from_sums(out, &sums)?;
@@ -420,6 +438,161 @@ fn assemble_swiftui_app(
     )?;
     std::fs::write(contents.join("PkgInfo"), "APPL????")?;
     tool("plutil", &["-lint", &path_str(&plist)?])
+}
+
+/// Fail closed if any required release input differs from the pinned runtime.
+fn verify_runtime_manifest(sdk: &Path, manifest: &str) -> Result<()> {
+    use sha2::{Digest, Sha256};
+    use std::collections::BTreeMap;
+    let mut expected = BTreeMap::new();
+    for line in manifest.lines().filter(|line| !line.is_empty()) {
+        let (hash, name) = line
+            .split_once("  ")
+            .context("malformed runtime manifest")?;
+        let relative = Path::new(name);
+        if hash.len() != 64
+            || !hash.bytes().all(|b| b.is_ascii_hexdigit())
+            || relative.is_absolute()
+            || relative
+                .components()
+                .any(|part| !matches!(part, std::path::Component::Normal(_)))
+            || expected.insert(relative.to_path_buf(), hash).is_some()
+        {
+            bail!("invalid runtime manifest entry: {name}");
+        }
+    }
+    let mut stack = vec![sdk.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if !kind.is_file() {
+                bail!("unsupported runtime entry: {}", path.display());
+            }
+            let relative = path.strip_prefix(sdk)?;
+            let wanted = expected
+                .remove(relative)
+                .with_context(|| format!("unexpected runtime file: {}", relative.display()))?;
+            let digest: String = Sha256::digest(std::fs::read(&path)?)
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect();
+            if digest != wanted {
+                bail!("runtime checksum mismatch: {}", relative.display());
+            }
+        }
+    }
+    if let Some((missing, _)) = expected.first_key_value() {
+        bail!("runtime file missing: {}", missing.display());
+    }
+    Ok(())
+}
+
+/// The release must carry the complete, separately provisioned runtime.
+/// System images are intentionally installed into the user's writable data root.
+fn assemble_required_runtime(app: &Path) -> Result<()> {
+    let source = std::env::var_os("MIKO_BUNDLED_SDK")
+        .map(PathBuf::from)
+        .context(
+            "MIKO_BUNDLED_SDK must point to the complete validated emulator and platform-tools",
+        )?;
+    validate_required_runtime(&source)?;
+    let destination = app.join("Contents/Resources/sdk");
+    std::fs::create_dir_all(&destination)?;
+    for component in ["emulator", "platform-tools"] {
+        tool(
+            "ditto",
+            &[
+                &path_str(&source.join(component))?,
+                &path_str(&destination.join(component))?,
+            ],
+        )?;
+    }
+    // Miko does not use the device skin overlay APKs. Keep Android packages
+    // outside the application, as with system images and Magisk.
+    let skins = destination.join("emulator/resources/skins");
+    if skins.is_dir() {
+        remove_skin_apks(&skins)?;
+    }
+    validate_required_runtime(&destination)?;
+    std::fs::write(
+        app.join("Contents/Resources/.miko-runtime-required"),
+        b"1\n",
+    )?;
+    let licences = app.join("Contents/Resources/licenses/runtime-core");
+    let records = workspace_root().join("packaging/runtime-source");
+    for name in [
+        "NOTICE-core.txt",
+        "NOTICE-core.csv",
+        "LICENSE-qemu.txt",
+        "COPYING-GPL-2.0",
+        "COPYING-LGPL-2.1",
+    ] {
+        copy(&records.join(name), &licences.join(name))?;
+    }
+    Ok(())
+}
+
+fn remove_skin_apks(root: &Path) -> Result<()> {
+    for entry in std::fs::read_dir(root)? {
+        let entry = entry?;
+        let path = entry.path();
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            remove_skin_apks(&path)?;
+        } else if ty.is_file()
+            && path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("apk"))
+        {
+            std::fs::remove_file(path)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_required_runtime(sdk: &Path) -> Result<()> {
+    for name in [
+        "emulator/emulator",
+        "emulator/qemu/darwin-aarch64/qemu-system-aarch64-headless",
+        "platform-tools/adb",
+    ] {
+        let path = sdk.join(name);
+        if !path_is_executable(&path) {
+            bail!(
+                "required runtime executable missing or not executable: {}",
+                path.display()
+            );
+        }
+    }
+    for name in [
+        "emulator/lib64/libandroid-emu-shared.dylib",
+        "emulator/lib64/libgfxstream_backend.dylib",
+        "emulator/lib64/gles_angle/libEGL.dylib",
+        "emulator/lib64/vulkan/libvk_swiftshader.dylib",
+        "emulator/LICENSE",
+        "emulator/NOTICE.txt",
+        "emulator/NOTICE.csv",
+        "emulator/source.properties",
+        "emulator/.miko-runtime-37.3.10",
+        "platform-tools/NOTICE.txt",
+        "platform-tools/source.properties",
+    ] {
+        require_file(&sdk.join(name), "required runtime metadata or notices")?;
+    }
+    let revision = std::fs::read_to_string(sdk.join("emulator/source.properties"))?;
+    if !revision
+        .lines()
+        .any(|line| line.trim() == "Pkg.Revision=37.3.10")
+    {
+        bail!("bundled runtime must be the validated emulator 37.3.10");
+    }
+    Ok(())
 }
 
 /// An MCPB bundle (a zip: `manifest.json`, `server/miko`, icon, licences)
@@ -750,17 +923,13 @@ fn verify_swiftui_dmg(
                         finding.reason
                     );
                 }
-                bail!(
-                    "{} forbidden file(s) in the mounted DMG (Google SDK, system images or Magisk)",
-                    found.len()
-                );
+                bail!("{} forbidden file(s) in the mounted DMG", found.len());
             }
             let (files, directories) = count_tree(mountpoint)?;
             evidence.line(
                 "Forbidden-content scan",
                 format!(
-                    "- PASS {files} files / {directories} directories: no Google SDK binary, \
-                     system image or Magisk. The rules are the same `classify_name`/\
+                    "- PASS {files} files / {directories} directories: no forbidden system image or Magisk. The rules are the same `classify_name`/\
                      `classify_content` set that `cargo xtask release --scan` uses."
                 ),
             );
@@ -824,6 +993,27 @@ fn check_swiftui_bundle(app: &Path, version: &str, evidence: &mut Evidence) -> R
         bail!("unexpected PkgInfo content: {:?}", pkginfo.trim());
     }
     let resources = contents.join("Resources");
+    validate_required_runtime(&resources.join("sdk"))?;
+    require_file(
+        &resources.join(".miko-runtime-required"),
+        "the required runtime marker",
+    )?;
+    for name in [
+        "NOTICE-core.txt",
+        "NOTICE-core.csv",
+        "LICENSE-qemu.txt",
+        "COPYING-GPL-2.0",
+        "COPYING-LGPL-2.1",
+    ] {
+        require_file(
+            &resources.join("licenses/runtime-core").join(name),
+            "the runtime core licence",
+        )?;
+    }
+    evidence.line(
+        "Bundle structure (mounted DMG)",
+        "- PASS complete required emulator 37.3.10 and platform-tools are bundled",
+    );
     let icon = resources.join("Miko.icns");
     require_file(&icon, "the app icon")?;
     let icon_bytes = std::fs::read(&icon)?;
@@ -1211,6 +1401,34 @@ fn rehearse_install_inner(
             "- PASS bundled `miko --json daemon status` → ok, version {reported_version}, \
              socket `{reported_socket}`"
         ),
+    );
+
+    let sdk_status = capture_env(
+        &path_str(&cli)?,
+        &["--json", "sdk", "status"],
+        &[("MIKO_HOME", &home)],
+        &["MIKO_DAEMON_BIN"],
+    )?;
+    let sdk_json: Value =
+        serde_json::from_str(&sdk_status.stdout).context("sdk status is not JSON")?;
+    let sdk_result = sdk_json.get("result").context("sdk status has no result")?;
+    let expected_sdk = install_app.join("Contents/Resources/sdk");
+    if !sdk_status.success
+        || sdk_result.get("tools_sdk").and_then(Value::as_str)
+            != Some(path_str(&expected_sdk)?.as_str())
+        || sdk_result
+            .get("runtime_needs_install")
+            .and_then(Value::as_bool)
+            != Some(false)
+    {
+        bail!(
+            "bundled runtime was not selected by the isolated daemon: {}",
+            sdk_status.output
+        );
+    }
+    evidence.line(
+        "Isolated launch (rehearsal)",
+        "- PASS sdk.status selects the app's bundled runtime without installing tools",
     );
 
     launched.stop();
@@ -1638,7 +1856,9 @@ fn scan_tree_with_helper(root: &Path, expected: &Path) -> Result<Vec<Finding>> {
             let meta = std::fs::symlink_metadata(&path)?;
             let name = entry.file_name().to_string_lossy().to_lowercase();
             if meta.is_dir() {
-                if let Some(reason) = classify_name(&name) {
+                if let Some(reason) =
+                    classify_name(&name).filter(|reason| !is_runtime_name(&path, reason))
+                {
                     findings.push(Finding {
                         path: path.clone(),
                         reason,
@@ -1646,8 +1866,10 @@ fn scan_tree_with_helper(root: &Path, expected: &Path) -> Result<Vec<Finding>> {
                 }
                 stack.push(path);
             } else if meta.is_file() {
-                let reason = classify_name(&name).or_else(|| {
-                    read_head(&path)
+                let reason = classify_name(&name)
+                    .filter(|reason| !is_runtime_name(&path, reason))
+                    .or_else(|| {
+                        read_head(&path)
                         .ok()
                         .and_then(|head| classify_content(&head))
                         .filter(|reason| {
@@ -1655,7 +1877,7 @@ fn scan_tree_with_helper(root: &Path, expected: &Path) -> Result<Vec<Finding>> {
                                 != "ELF binary (Android/Linux code has no place in the macOS app)"
                                 || !is_own_helper(&path, expected)
                         })
-                });
+                    });
                 if let Some(reason) = reason {
                     findings.push(Finding { path, reason });
                 }
@@ -1675,6 +1897,40 @@ fn is_own_helper(path: &Path, expected: &Path) -> bool {
             .ok()
             .zip(std::fs::read(expected).ok())
             .is_some_and(|(actual, expected)| Sha256::digest(actual) == Sha256::digest(expected))
+}
+
+// Permit SDK tool names only within the app's explicitly bundled runtime.
+// Images, Magisk and content checks remain enforced everywhere.
+fn is_runtime_name(path: &Path, reason: &str) -> bool {
+    use sha2::{Digest, Sha256};
+    if reason != "Android SDK / emulator binary (downloaded on the user's machine, never bundled)"
+        && reason != "Android SDK package metadata"
+    {
+        return false;
+    }
+    let Some(root) = path
+        .ancestors()
+        .find(|p| p.ends_with("Contents/Resources/sdk"))
+    else {
+        return false;
+    };
+    let Ok(relative) = path.strip_prefix(root) else {
+        return false;
+    };
+    if !relative.starts_with("emulator") && !relative.starts_with("platform-tools") {
+        return false;
+    }
+    let Some(source) = std::env::var_os("MIKO_BUNDLED_SDK") else {
+        return false;
+    };
+    let expected = PathBuf::from(source).join(relative);
+    if path.is_dir() {
+        return expected.is_dir();
+    }
+    match (std::fs::read(path), std::fs::read(expected)) {
+        (Ok(actual), Ok(reference)) => Sha256::digest(actual) == Sha256::digest(reference),
+        _ => false,
+    }
 }
 
 /// Enough of a file to see its magic numbers and an APK's first entries.
@@ -1768,6 +2024,27 @@ fn has_supported_cli_envelope(value: &Value) -> bool {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn pinned_runtime_manifest_rejects_tampering_extras_and_missing_files() {
+        let root =
+            std::env::temp_dir().join(format!("miko-runtime-manifest-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("emulator")).unwrap();
+        let file = root.join("emulator/core");
+        let manifest =
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824  emulator/core\n";
+        std::fs::write(&file, b"hello").unwrap();
+        assert!(super::verify_runtime_manifest(&root, manifest).is_ok());
+        std::fs::write(&file, b"changed").unwrap();
+        assert!(super::verify_runtime_manifest(&root, manifest).is_err());
+        std::fs::write(&file, b"hello").unwrap();
+        std::fs::write(root.join("extra"), b"x").unwrap();
+        assert!(super::verify_runtime_manifest(&root, manifest).is_err());
+        std::fs::remove_file(root.join("extra")).unwrap();
+        std::fs::remove_file(&file).unwrap();
+        assert!(super::verify_runtime_manifest(&root, manifest).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn mount_falls_back_to_read_only_diskutil_when_hdiutil_fails() {
         let mut calls = Vec::new();
