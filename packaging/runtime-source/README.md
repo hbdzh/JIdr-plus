@@ -54,3 +54,8 @@ Run `python3 scripts/audit-runtime-dependencies.py
 archive hashes and declared patch paths using the upstream checksum algorithms.
 It exits nonzero for unresolved entries; a successful run would not by itself
 prove correspondence to the distributed runtime binaries.
+
+`python3 scripts/inventory-runtime-notices.py --sdk /path/to/prepared-sdk`
+checks pinned emulator Mach-O files and prints filename-based `NOTICE.csv`
+review leads. The saved `emulator-notice-inventory.json` is an inventory, not
+a completed source or license review.

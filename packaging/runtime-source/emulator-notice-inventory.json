@@ -1,0 +1,1092 @@
+{
+  "status": "review leads only; source and licence correspondence not established",
+  "notices": [
+    {
+      "External Library Name": "glib-2.0",
+      "Link to License": "https://android.googlesource.com/platform/external/bluetooth/glib/+/refs/heads/emu-master-dev/COPYING",
+      "License Name": "LGPL-2.1-only",
+      "Binaries using the license": "./qemu-img ./nimble_bridge glib2_darwin-aarch64.dylib ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/bluetooth/glib/+/refs/heads/emu-master-dev/"
+    },
+    {
+      "External Library Name": "nlohmann_json",
+      "Link to License": "https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev/android/third_party/json/NOTICE",
+      "License Name": "MIT",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./crashreport ./qemu/darwin-aarch64/qemu-system-armel ./qsn ./qemu/darwin-aarch64/qemu-system-armel-headless ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev/android/third_party/json/"
+    },
+    {
+      "External Library Name": "grpc++_reflection",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless ./qemu/darwin-aarch64/qemu-system-armel ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "libcurl",
+      "Link to License": "https://android.googlesource.com/platform/external/curl/+/refs/heads/emu-master-dev/NOTICE",
+      "License Name": "curl",
+      "Binaries using the license": "android-emu-metrics.dylib ./qemu-img ./nimble_bridge emugl_common.dylib ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib ./emulator android-emu-curl.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/curl/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "upb_textformat_lib",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "bios",
+      "Link to License": "https://android.googlesource.com/platform/external/qemu-pc-bios/+/refs/heads/master/README",
+      "License Name": "LGPL-2.0-or-later",
+      "Binaries using the license": "./emulator",
+      "URL": "https://android.googlesource.com/platform/external/qemu-pc-bios/+/refs/heads/master/"
+    },
+    {
+      "External Library Name": "ext4_utils",
+      "Link to License": "https://android.googlesource.com/platform/system/extras/+/master/ext4_utils/NOTICE",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "android-emu-metrics.dylib ./qemu-img ./nimble_bridge ./emulator-check ./crashreport ./qemu/darwin-aarch64/qemu-system-armel ./qsn ./qemu/darwin-aarch64/qemu-system-armel-headless ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless ./emulator emugl_common.dylib android-emu-agents.dylib gfxstream_backend.dylib android-emu-shared.dylib",
+      "URL": "https://android.googlesource.com/platform/system/extras/+/master/ext4_utils/"
+    },
+    {
+      "External Library Name": "gtest",
+      "Link to License": "https://android.googlesource.com/platform/external/googletest/+/refs/heads/master/LICENSE",
+      "License Name": "BSD3",
+      "Binaries using the license": "./emulator",
+      "URL": "https://android.googlesource.com/platform/external/googletest/+/refs/heads/master"
+    },
+    {
+      "External Library Name": "mynewt-nimble",
+      "Link to License": "https://android.googlesource.com/platform/external/qemu/+/emu-master-dev/android/third_party/mynewt-nimble/LICENSE",
+      "License Name": "Apache=2.0",
+      "Binaries using the license": "./nimble_bridge",
+      "URL": ""
+    },
+    {
+      "External Library Name": "upb_wire_lib",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "gpr",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "upb_mini_table_lib",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "angle-renderer",
+      "Link to License": "https://chromium.googlesource.com/angle/angle/LICENSE",
+      "License Name": "BSD-3-Clause",
+      "Binaries using the license": "lib64/gles_angle/libswiftshader_libGLESv2.dylib lib64/gles_angle/libEGL.dylib lib64/gles_angle/libGLESv2.dylib ./emulator lib64/gles_angle/libswiftshader_libEGL.dylib lib64/gles_angle/libvk_swiftshader.dylib",
+      "URL": "https://chromium.googlesource.com/angle/angle"
+    },
+    {
+      "External Library Name": "upb_lex_lib",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "upb_base_lib",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "grpc++",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "tinyobjloader",
+      "Link to License": "https://android.googlesource.com/platform/external/tinyobjloader/+/refs/heads/master/LICENSE",
+      "License Name": "MIT",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib ./emulator emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/tinyobjloader/+/refs/heads/master"
+    },
+    {
+      "External Library Name": "vulkan-sdk",
+      "Link to License": "https://vulkan.lunarg.com/software/license/vulkan-1.3.290.0-linux-license-summary.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "lib64/vulkan/libvulkan_lvp.dylib lib64/vulkan/libz3.4.15.dylib lib64/vulkan/libLLVM.dylib lib64/vulkan/libvulkan_kosmickrisp.dylib lib64/vulkan/libMoltenVK.dylib lib64/vulkan/libzstd.1.dylib lib64/vulkan/layers/libVkLayer_khronos_validation.dylib lib64/vulkan/libvk_swiftshader.dylib ./emulator lib64/vulkan/libvulkan.dylib",
+      "URL": "https://vulkan.lunarg.com/sdk/home"
+    },
+    {
+      "External Library Name": "breakpad",
+      "Link to License": "https://android.googlesource.com/platform/external/google-breakpad/+/refs/heads/emu-master-dev/LICENSE",
+      "License Name": "BSD-3-Clause",
+      "Binaries using the license": "./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-aarch64 ./crashreport",
+      "URL": "https://android.googlesource.com/platform/external/google-breakpad/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "picosha2",
+      "Link to License": "https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev/android/third_party/picosha2/LICENSE",
+      "License Name": "MIT",
+      "Binaries using the license": "android-emu-metrics.dylib ./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib ./emulator emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev/android/third_party/picosha2/"
+    },
+    {
+      "External Library Name": "Qt Core",
+      "Link to License": "https://doc.qt.io/qt-6.5/qtCore-index.html#licenses-and-attributions",
+      "License Name": "LGPL-3.0-only",
+      "Binaries using the license": "./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-aarch64",
+      "URL": "https://android.googlesource.com/platform/external/qt5/+/refs/heads/upstream-6.5.3"
+    },
+    {
+      "External Library Name": "upb_descriptor_lib",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "keymaster-3",
+      "Link to License": "https://android.googlesource.com/platform/external/qemu/+/emu-master-dev/android/third_party/libkeymaster3/NOTICE",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/qemu/+/emu-master-dev/android/third_party/libkeymaster3"
+    },
+    {
+      "External Library Name": "e2fs",
+      "Link to License": "http://www.linfo.org/e2fsprogs.html",
+      "License Name": "GPL-2.0-only",
+      "Binaries using the license": "bin64/mkfs.ext4 bin64/resize2fs ./emulator bin64/fsck.ext4 bin64/tune2fs bin64/e2fsck",
+      "URL": "https://android.googlesource.com/platform/prebuilts/android-emulator-build/archive/+/refs/heads/emu-master-dev/e2fsprogs-1.42.13-patches.tar.xz"
+    },
+    {
+      "External Library Name": "flatbuffers",
+      "Link to License": "Apache-2.0",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless ./qemu/darwin-aarch64/qemu-system-armel ./emulator-check",
+      "URL": "https://github.com/google/flatbuffers"
+    },
+    {
+      "External Library Name": "pixman-1",
+      "Link to License": "https://gitlab.freedesktop.org/pixman/pixman/blob/master/COPYING",
+      "License Name": "MIT",
+      "Binaries using the license": "./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless ./qemu/darwin-aarch64/qemu-system-armel ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/prebuilts/android-emulator-build/archive/+/refs/heads/emu-master-dev/pixman-0.34.0.tar.gz"
+    },
+    {
+      "External Library Name": "abseil",
+      "Link to License": "https://android.googlesource.com/platform/external/abseil-cpp/+/refs/heads/emu-master-dev/LICENSE",
+      "License Name": "Apache-2",
+      "Binaries using the license": "abseil_dll.dylib",
+      "URL": "https://android.googlesource.com/platform/external/abseil-cpp/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "Qt Svg",
+      "Link to License": "https://doc.qt.io/qt-6.5/qtSvg-index.html#licenses-and-attributions",
+      "License Name": "LGPL-3.0-only",
+      "Binaries using the license": "./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-aarch64",
+      "URL": "https://android.googlesource.com/platform/external/qt5/+/refs/heads/upstream-6.5.3"
+    },
+    {
+      "External Library Name": "gfxstream",
+      "Link to License": "https://android.googlesource.com/platform/hardware/google/gfxstream/+/refs/heads/master/LICENSE",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "android-emu-metrics.dylib ./qemu-img ./nimble_bridge ./emulator-check emugl_common.dylib ./crashreport ./qemu/darwin-aarch64/qemu-system-armel ./qsn ./qemu/darwin-aarch64/qemu-system-armel-headless ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless ./emulator android-emu-curl.dylib android-emu-agents.dylib gfxstream_backend.dylib android-emu-shared.dylib",
+      "URL": "https://android.googlesource.com/platform/hardware/google/gfxstream/+/refs/heads/master"
+    },
+    {
+      "External Library Name": "grpc",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "ffmpeg",
+      "Link to License": "https://github.com/FFmpeg/FFmpeg/blob/master/LICENSE.md",
+      "License Name": "GPL-2.0-or-later",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib ./emulator emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/prebuilts/android-emulator-build/archive/+/refs/heads/emu-master-dev/ffmpeg-3.4.5.tar.xz"
+    },
+    {
+      "External Library Name": "tinygltf",
+      "Link to License": "https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev/android/android-emu/android/ver/src/third_party/tinygltf/LICENSE",
+      "License Name": "MIT",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib ./emulator emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev/android/android-emu/android/ver/src/third_party/tinygltf/"
+    },
+    {
+      "External Library Name": "upb_reflection_lib",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "protobuf",
+      "Link to License": "BSD-3-Clause",
+      "License Name": "BSD-3-Clause",
+      "Binaries using the license": "android-emu-metrics.dylib ./qemu-img ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless ./emulator ./qemu/darwin-aarch64/qemu-system-armel android-emu-shared.dylib ./nimble_bridge android-emu-tracing.dylib ./crashreport ./qemu/darwin-aarch64/qemu-system-armel-headless android-emu-protos.dylib emugl_common.dylib libprotobuf.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": ""
+    },
+    {
+      "External Library Name": "LibXml2",
+      "Link to License": "https://github.com/GNOME/libxml2/blob/mainline/Copyright",
+      "License Name": "MIT",
+      "Binaries using the license": "android-emu-metrics.dylib ./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib ./emulator emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/prebuilts/android-emulator-build/archive/+/refs/heads/emu-master-dev/libxml2-2.9.2.tar.gz"
+    },
+    {
+      "External Library Name": "Tink",
+      "Link to License": "https://android.googlesource.com/platform/external/tink/+/refs/heads/upstream-master/LICENSE",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/tink/+/refs/heads/upstream-master"
+    },
+    {
+      "External Library Name": "utf8_range_lib",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "Qt Widgets",
+      "Link to License": "https://doc.qt.io/qt-6.5/qtWidgets-index.html#licenses-and-attributions",
+      "License Name": "LGPL-3.0-only",
+      "Binaries using the license": "./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-aarch64",
+      "URL": "https://android.googlesource.com/platform/external/qt5/+/refs/heads/upstream-6.5.3"
+    },
+    {
+      "External Library Name": "upb_message_lib",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "lz4",
+      "Link to License": "https://android.googlesource.com/platform/external/lz4/+/refs/heads/emu-master-dev/LICENSE",
+      "License Name": "BSD-2-Clause",
+      "Binaries using the license": "android-emu-metrics.dylib ./qemu-img ./nimble_bridge ./emulator-check emugl_common.dylib ./crashreport ./qemu/darwin-aarch64/qemu-system-armel ./qsn ./qemu/darwin-aarch64/qemu-system-armel-headless ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless ./emulator android-emu-curl.dylib android-emu-agents.dylib gfxstream_backend.dylib android-emu-shared.dylib",
+      "URL": "https://android.googlesource.com/platform/external/lz4/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "qemu",
+      "Link to License": "https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev/LICENSE",
+      "License Name": "GPL-2.0-only",
+      "Binaries using the license": "./qemu/darwin-aarch64/qemu-system-armel-headless ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless ./qemu-img ./qemu/darwin-aarch64/qemu-system-armel",
+      "URL": "https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "libjpeg",
+      "Link to License": "https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev/android/third_party/jpeg-6b/NOTICE",
+      "License Name": "IJG",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib ./emulator emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev/android/third_party/jpeg-6b/"
+    },
+    {
+      "External Library Name": "hostapd",
+      "Link to License": "https://android.googlesource.com/platform/external/wpa_supplicant_8/+/refs/heads/emu-master-dev/NOTICE",
+      "License Name": "BSD",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/wpa_supplicant_8/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "dtc",
+      "Link to License": "https://kernel.googlesource.com/pub/scm/utils/dtc/dtc.git/+/refs/heads/master/README.license",
+      "License Name": "GPL-2.0-or-later",
+      "Binaries using the license": "./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless ./qemu/darwin-aarch64/qemu-system-armel ./emulator-check",
+      "URL": "https://kernel.googlesource.com/pub/scm/utils/dtc/dtc.git/+/refs/heads/master/"
+    },
+    {
+      "External Library Name": "Qt SvgWidgets",
+      "Link to License": "https://doc.qt.io/qt-6.5/qtSvgWidgets-index.html#licenses-and-attributions",
+      "License Name": "LGPL-3.0-only",
+      "Binaries using the license": "./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-aarch64",
+      "URL": "https://android.googlesource.com/platform/external/qt5/+/refs/heads/upstream-6.5.3"
+    },
+    {
+      "External Library Name": "Netsim",
+      "Link to License": "https://android.googlesource.com/platform/tools/netsim/+/refs/heads/main/LICENSE",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless ./qemu/darwin-aarch64/qemu-system-armel ./emulator-check",
+      "URL": ""
+    },
+    {
+      "External Library Name": "Qt Gui",
+      "Link to License": "https://doc.qt.io/qt-6.5/qtGui-index.html#licenses-and-attributions",
+      "License Name": "LGPL-3.0-only",
+      "Binaries using the license": "./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-aarch64",
+      "URL": "https://android.googlesource.com/platform/external/qt5/+/refs/heads/upstream-6.5.3"
+    },
+    {
+      "External Library Name": "libwebp",
+      "Link to License": "https://android.googlesource.com/platform/external/qemu/+/emu-master-dev/android/third_party/libwebp/third_party/chromium_headless/libwebp/LICENSE",
+      "License Name": "BSD-3-Clause",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/qemu/+/emu-master-dev/android/third_party/libwebp/third_party/chromium_headless/libwebp"
+    },
+    {
+      "External Library Name": "qemu-system",
+      "Link to License": "https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev/LICENSES/LICENSE.APACHE2",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-armel-headless ./qemu/darwin-aarch64/qemu-system-aarch64-headless",
+      "URL": "https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "libpng",
+      "Link to License": "https://android.googlesource.com/platform/external/libpng/+/refs/heads/emu-master-dev/LICENSE",
+      "License Name": "libpng",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib ./emulator emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/libpng/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "upb_mem_lib",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "libselinux",
+      "Link to License": "https://android.googlesource.com/platform/external/qemu/+/emu-master-dev/android/third_party/libselinux/NOTICE",
+      "License Name": "CC-PDDC OR UNKNOWN",
+      "Binaries using the license": "android-emu-metrics.dylib ./qemu-img ./nimble_bridge ./emulator-check ./crashreport ./qemu/darwin-aarch64/qemu-system-armel ./qsn ./qemu/darwin-aarch64/qemu-system-armel-headless ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless ./emulator emugl_common.dylib android-emu-agents.dylib gfxstream_backend.dylib android-emu-shared.dylib",
+      "URL": "https://android.googlesource.com/platform/external/qemu/+/emu-master-dev/android/third_party/libselinux"
+    },
+    {
+      "External Library Name": "libvpx",
+      "Link to License": "https://chromium.googlesource.com/webm/libvpx/+/refs/heads/master/LICENSE",
+      "License Name": "BSD-3-Clause",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://chromium.googlesource.com/webm/libvpx/"
+    },
+    {
+      "External Library Name": "Qt 6",
+      "Link to License": "https://doc.qt.io/qt-6.5/licensing.html",
+      "License Name": "LGPL-3.0-only",
+      "Binaries using the license": "lib64/qt/libexec/qtwebengine_devtools_resources.pak lib64/qt/plugins/imageformats/libqicnsAndroidEmu.dylib lib64/qt/libexec/qtwebengine_locales/ru.pak lib64/qt/translations/qtwebengine_locales/en-US.pak lib64/qt/libexec/qtwebengine_locales/fr.pak lib64/qt/libexec/qtwebengine_locales/tr.pak lib64/qt/libexec/qtwebengine_locales/ms.pak lib64/qt/libexec/qtwebengine_locales/sl.pak lib64/qt/libexec/qtwebengine_locales/ro.pak lib64/qt/libexec/qtwebengine_locales/vi.pak lib64/qt/translations/qtwebengine_locales/et.pak lib64/qt/plugins/styles/libqmacstyleAndroidEmu.dylib lib64/qt/translations/qtwebengine_locales/pt-BR.pak lib64/qt/lib/libQt6QuickAndroidEmu.6.5.3.dylib lib64/qt/libexec/qtwebengine_locales/pt-PT.pak lib64/qt/libexec/qtwebengine_locales/cs.pak lib64/qt/translations/qtwebengine_locales/nb.pak lib64/qt/libexec/qtwebengine_locales/ja.pak lib64/qt/translations/qtwebengine_locales/bn.pak lib64/qt/translations/qtwebengine_locales/kn.pak lib64/qt/libexec/qtwebengine_locales/hr.pak lib64/qt/lib/libQt6QmlAndroidEmu.6.5.3.dylib lib64/qt/translations/qtwebengine_locales/lv.pak lib64/qt/lib/libQt6WebChannelAndroidEmu.6.5.3.dylib lib64/qt/lib/libQt6SvgAndroidEmu.6.5.3.dylib lib64/qt/translations/qtwebengine_locales/pl.pak lib64/qt/translations/qtwebengine_locales/de.pak lib64/qt/libexec/qtwebengine_locales/fi.pak lib64/qt/plugins/imageformats/libqtgaAndroidEmu.dylib lib64/qt/resources/icudtl.dat lib64/qt/libexec/qtwebengine_locales/fil.pak lib64/qt/resources/qtwebengine_resources_100p.pak lib64/qt/libexec/icudtl.dat lib64/qt/translations/qtwebengine_locales/fa.pak lib64/qt/translations/qtwebengine_locales/sw.pak lib64/qt/libexec/qtwebengine_locales/id.pak lib64/qt/libexec/qtwebengine_locales/te.pak lib64/qt/plugins/imageformats/libqwbmpAndroidEmu.dylib lib64/qt/translations/qtwebengine_locales/ko.pak lib64/qt/translations/qtwebengine_locales/nl.pak lib64/qt/libexec/qtwebengine_locales/el.pak lib64/qt/lib/libQt6WebEngineCoreAndroidEmu.6.5.3.dylib lib64/qt/libexec/qtwebengine_locales/es.pak lib64/qt/lib/libQt6WidgetsAndroidEmu.6.5.3.dylib lib64/qt/libexec/qtwebengine_locales/ml.pak lib64/qt/translations/qtwebengine_locales/uk.pak lib64/qt/plugins/iconengines/libqsvgiconAndroidEmu.dylib lib64/qt/libexec/qtwebengine_locales/nl.pak lib64/qt/plugins/imageformats/libqsvgAndroidEmu.dylib lib64/qt/libexec/qtwebengine_locales/uk.pak lib64/qt/libexec/qtwebengine_locales/sv.pak lib64/qt/libexec/qtwebengine_locales/it.pak lib64/qt/translations/qtwebengine_locales/es.pak lib64/qt/libexec/qtwebengine_locales/zh-TW.pak lib64/qt/translations/qtwebengine_locales/el.pak lib64/qt/plugins/imageformats/libqwebpAndroidEmu.dylib lib64/qt/translations/qtwebengine_locales/te.pak lib64/qt/libexec/qtwebengine_locales/bg.pak lib64/qt/lib/libQt6PositioningAndroidEmu.6.5.3.dylib lib64/qt/resources/qtwebengine_resources.pak lib64/qt/translations/qtwebengine_locales/pt-PT.pak lib64/qt/lib/libQt6NetworkAndroidEmu.6.5.3.dylib lib64/qt/libexec/qtwebengine_locales/zh-CN.pak lib64/qt/translations/qtwebengine_locales/ms.pak lib64/qt/plugins/imageformats/libqmacjp2AndroidEmu.dylib lib64/qt/translations/qtwebengine_locales/sv.pak lib64/qt/libexec/qtwebengine_locales/ca.pak lib64/qt/libexec/qtwebengine_locales/sk.pak lib64/qt/translations/qtwebengine_locales/ja.pak lib64/qt/translations/qtwebengine_locales/da.pak lib64/qt/libexec/qtwebengine_locales/he.pak lib64/qt/translations/qtwebengine_locales/cs.pak lib64/qt/translations/qtwebengine_locales/it.pak lib64/qt/lib/libQt6SvgWidgetsAndroidEmu.6.5.3.dylib lib64/qt/libexec/qtwebengine_locales/es-419.pak lib64/qt/libexec/qtwebengine_locales/ar.pak lib64/qt/translations/qtwebengine_locales/hr.pak lib64/qt/translations/qtwebengine_locales/sl.pak lib64/qt/libexec/qtwebengine_locales/et.pak lib64/qt/libexec/qtwebengine_locales/lt.pak lib64/qt/libexec/qtwebengine_locales/kn.pak lib64/qt/translations/qtwebengine_locales/th.pak lib64/qt/lib/libQt6WebSocketsAndroidEmu.6.5.3.dylib lib64/qt/libexec/qtwebengine_locales/pl.pak lib64/qt/libexec/qtwebengine_locales/de.pak lib64/qt/libexec/qtwebengine_locales/bn.pak lib64/qt/translations/qtwebengine_locales/vi.pak lib64/qt/translations/qtwebengine_locales/ro.pak lib64/qt/translations/qtwebengine_locales/he.pak lib64/qt/libexec/qtwebengine_locales/hu.pak lib64/qt/translations/qtwebengine_locales/ml.pak lib64/qt/translations/qtwebengine_locales/id.pak lib64/qt/translations/qtwebengine_locales/fil.pak lib64/qt/resources/qtwebengine_devtools_resources.pak lib64/qt/libexec/qtwebengine_resources_100p.pak lib64/qt/translations/qtwebengine_locales/tr.pak lib64/qt/libexec/qtwebengine_locales/th.pak lib64/qt/plugins/imageformats/libqtiffAndroidEmu.dylib lib64/qt/translations/qtwebengine_locales/am.pak lib64/qt/translations/qtwebengine_locales/hi.pak lib64/qt/translations/qtwebengine_locales/ar.pak lib64/qt/plugins/imageformats/libqicoAndroidEmu.dylib lib64/qt/libexec/qtwebengine_locales/fa.pak lib64/qt/libexec/qtwebengine_locales/da.pak lib64/qt/libexec/qtwebengine_locales/nb.pak lib64/qt/translations/qtwebengine_locales/fi.pak lib64/qt/libexec/qtwebengine_locales/am.pak lib64/qt/plugins/imageformats/libqjpegAndroidEmu.dylib lib64/qt/translations/qtwebengine_locales/zh-TW.pak lib64/qt/translations/qtwebengine_locales/sk.pak lib64/qt/translations/qtwebengine_locales/hu.pak lib64/qt/lib/libQt6QuickWidgetsAndroidEmu.6.5.3.dylib lib64/qt/libexec/qtwebengine_locales/en-US.pak lib64/qt/translations/qtwebengine_locales/fr.pak lib64/qt/translations/qtwebengine_locales/mr.pak lib64/qt/libexec/qtwebengine_locales/mr.pak lib64/qt/resources/qtwebengine_resources_200p.pak lib64/qt/translations/qtwebengine_locales/sr.pak lib64/qt/libexec/qtwebengine_locales/gu.pak lib64/qt/translations/qtwebengine_locales/en-GB.pak lib64/qt/libexec/qtwebengine_locales/ko.pak lib64/qt/translations/qtwebengine_locales/ca.pak lib64/qt/lib/libQt6DBusAndroidEmu.6.5.3.dylib lib64/qt/translations/qtwebengine_locales/ta.pak lib64/qt/lib/libQt6CoreAndroidEmu.6.5.3.dylib lib64/qt/plugins/platforms/libqcocoaAndroidEmu.dylib lib64/qt/libexec/QtWebEngineProcess ./emulator lib64/qt/libexec/qtwebengine_locales/lv.pak lib64/qt/translations/qtwebengine_locales/ru.pak lib64/qt/translations/qtwebengine_locales/bg.pak lib64/qt/translations/qtwebengine_locales/lt.pak lib64/qt/libexec/qtwebengine_locales/hi.pak lib64/qt/lib/libQt6WebEngineWidgetsAndroidEmu.6.5.3.dylib lib64/qt/translations/qtwebengine_locales/gu.pak lib64/qt/libexec/qtwebengine_locales/ta.pak lib64/qt/plugins/imageformats/libqmacheifAndroidEmu.dylib lib64/qt/libexec/qtwebengine_locales/sw.pak lib64/qt/translations/qtwebengine_locales/zh-CN.pak lib64/qt/libexec/qtwebengine_resources.pak lib64/qt/lib/libQt6QmlModelsAndroidEmu.6.5.3.dylib lib64/qt/translations/qtwebengine_locales/es-419.pak lib64/qt/libexec/qtwebengine_resources_200p.pak lib64/qt/libexec/qtwebengine_locales/sr.pak lib64/qt/plugins/imageformats/libqgifAndroidEmu.dylib lib64/qt/libexec/qtwebengine_locales/pt-BR.pak lib64/qt/lib/libQt6GuiAndroidEmu.6.5.3.dylib lib64/qt/libexec/qtwebengine_locales/en-GB.pak",
+      "URL": "https://android.googlesource.com/platform/external/qt5/+/refs/heads/upstream-6.5.3"
+    },
+    {
+      "External Library Name": "upb_json_lib",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "angle",
+      "Link to License": "https://chromium.googlesource.com/angle/angle/LICENSE",
+      "License Name": "BSD-3-Clause",
+      "Binaries using the license": "gfxstream_backend.dylib lib64/libshadertranslator.dylib ./emulator",
+      "URL": "https://chromium.googlesource.com/angle/angle"
+    },
+    {
+      "External Library Name": "upb_mini_descriptor_lib",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    },
+    {
+      "External Library Name": "upb_hash_lib",
+      "Link to License": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev/NOTICE.txt",
+      "License Name": "Apache-2.0",
+      "Binaries using the license": "./qemu-img ./nimble_bridge ./qemu/darwin-aarch64/qemu-system-armel ./qemu/darwin-aarch64/qemu-system-armel-headless ./qsn ./qemu/darwin-aarch64/qemu-system-aarch64 ./qemu/darwin-aarch64/qemu-system-aarch64-headless android-emu-shared.dylib emugl_common.dylib gfxstream_backend.dylib ./emulator-check",
+      "URL": "https://android.googlesource.com/platform/external/grpc-grpc/+/refs/heads/emu-master-dev"
+    }
+  ],
+  "executables": [
+    {
+      "path": "emulator/bin64/e2fsck",
+      "sha256": "07aef7f380741fbaf0fa88fe05a2a76d14488e8c14e2e31863def7aa4d89977c",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        23
+      ]
+    },
+    {
+      "path": "emulator/bin64/fsck.ext4",
+      "sha256": "86ee6752a746e91b5e8c09e669faec74ab460bb2739b2de80a6dc46f5d43286a",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        23
+      ]
+    },
+    {
+      "path": "emulator/bin64/mkfs.ext4",
+      "sha256": "544ef592145c9e536acd7f835028cf98688d617fe2b0282ae36ba881a12665c8",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        23
+      ]
+    },
+    {
+      "path": "emulator/bin64/resize2fs",
+      "sha256": "18a256a0961241784ed1f01d3136d3ec4252ccae771cb82c820730f9dd543b2e",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        23
+      ]
+    },
+    {
+      "path": "emulator/bin64/tune2fs",
+      "sha256": "16f3e35e3fd525ddfc8629db059ee3f94fd1e211ee76893a90a84a1d6f8c42df",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        23
+      ]
+    },
+    {
+      "path": "emulator/crashpad_handler",
+      "sha256": "08ad8334b1a8b653fe6c2e00abcfe32c07fda25db7c424ed5509f5252cb5a22e",
+      "modified_core": false,
+      "notice_entry_indexes": []
+    },
+    {
+      "path": "emulator/crashreport",
+      "sha256": "f34dfa47455ceddf0f3e2d28154668179154e80c28da3054d6f75460d04b930d",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        1,
+        6,
+        18,
+        28,
+        33,
+        39,
+        51
+      ]
+    },
+    {
+      "path": "emulator/emulator",
+      "sha256": "0f68fca3fe79c8eb016ede9c3c0ffdba2b9d5b25c3165ec725c4bd5c28905f74",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        3,
+        5,
+        6,
+        7,
+        12,
+        16,
+        17,
+        19,
+        23,
+        28,
+        30,
+        31,
+        33,
+        34,
+        39,
+        41,
+        49,
+        51,
+        53,
+        55
+      ]
+    },
+    {
+      "path": "emulator/emulator-check",
+      "sha256": "d4018b40103f1cb0ede78417b23e781f565f56cb7184bf75ec1a7a9229f60ec2",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6,
+        9,
+        10,
+        11,
+        13,
+        14,
+        15,
+        16,
+        19,
+        21,
+        22,
+        24,
+        25,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        38,
+        39,
+        41,
+        42,
+        43,
+        45,
+        47,
+        49,
+        50,
+        51,
+        52,
+        54,
+        56,
+        57
+      ]
+    },
+    {
+      "path": "emulator/lib64/gles_angle/libEGL.dylib",
+      "sha256": "67440ac043a9ef02eb6855b68141be6f42410530fbc6855d9e6e854aebc512d0",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        12
+      ]
+    },
+    {
+      "path": "emulator/lib64/gles_angle/libGLESv2.dylib",
+      "sha256": "7b213202a314b6c9aa70595b20e85f396869cc4111696112ba8c2364bcf77313",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        12
+      ]
+    },
+    {
+      "path": "emulator/lib64/gles_angle/libswiftshader_libEGL.dylib",
+      "sha256": "299cec70b389c72a137354767090d5971f8df426ea80cc352a98afc605db0f0a",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        12
+      ]
+    },
+    {
+      "path": "emulator/lib64/gles_angle/libswiftshader_libGLESv2.dylib",
+      "sha256": "f12c4d8ce654ba43e30d490806295a334fbb42562c11cbbd3199c32dd6078076",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        12
+      ]
+    },
+    {
+      "path": "emulator/lib64/gles_angle/libvk_swiftshader.dylib",
+      "sha256": "b62798788340f5444e14ccb221a2be3f1fc38f1255d2ea565724409eb0895187",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        12
+      ]
+    },
+    {
+      "path": "emulator/lib64/libabseil_dll.dylib",
+      "sha256": "9dc9699bf03364031257dacd9fa9fc8d3f875359edad5743346c85d931bdfdd9",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        26
+      ]
+    },
+    {
+      "path": "emulator/lib64/libandroid-emu-agents.dylib",
+      "sha256": "547f5d7ab6dc09aeba434e45461168c5dfa2c1eda5c2a8b950886b46c5d169c8",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        6,
+        28,
+        39,
+        51
+      ]
+    },
+    {
+      "path": "emulator/lib64/libandroid-emu-base-logging.dylib",
+      "sha256": "13b2620733c9306d1add122f32bcaef4d0b5ecc8e60d606cd77e9cecec3fe04f",
+      "modified_core": false,
+      "notice_entry_indexes": []
+    },
+    {
+      "path": "emulator/lib64/libandroid-emu-curl.dylib",
+      "sha256": "260fe712396911fdc91466b5701383ea437d6fe8bb872945964e184bcfa6bd0c",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        3,
+        28,
+        39
+      ]
+    },
+    {
+      "path": "emulator/lib64/libandroid-emu-metrics.dylib",
+      "sha256": "256470d8b05951abc995b39c240ac872f266d3c901434c64cc8f46131f68057c",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        3,
+        6,
+        19,
+        28,
+        33,
+        34,
+        39,
+        51
+      ]
+    },
+    {
+      "path": "emulator/lib64/libandroid-emu-protos.dylib",
+      "sha256": "13969b31b555026c1decc997d8c945a2354d0c530465082c4ee95f0a69a8271a",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        33
+      ]
+    },
+    {
+      "path": "emulator/lib64/libandroid-emu-shared.dylib",
+      "sha256": "115f0620755cc6cc991d08defe01281fd7a187918fe8be127b86cd0f7c583ddf",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        0,
+        1,
+        3,
+        4,
+        6,
+        9,
+        10,
+        11,
+        13,
+        14,
+        15,
+        16,
+        19,
+        21,
+        22,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        36,
+        38,
+        39,
+        41,
+        42,
+        47,
+        49,
+        50,
+        51,
+        52,
+        54,
+        56,
+        57
+      ]
+    },
+    {
+      "path": "emulator/lib64/libandroid-emu-tracing.dylib",
+      "sha256": "3fc0f70b89fa0217af50327d18cc1067754feaf49e32c77db8b184c151306e5c",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        33
+      ]
+    },
+    {
+      "path": "emulator/lib64/libemugl_common.dylib",
+      "sha256": "25b0cc5f40b38fedf25db6b12a6e51eb26c17d02634259e55f0a95703e6282ba",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        0,
+        1,
+        3,
+        4,
+        6,
+        9,
+        10,
+        11,
+        13,
+        14,
+        15,
+        16,
+        19,
+        21,
+        22,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        36,
+        38,
+        39,
+        41,
+        42,
+        47,
+        49,
+        50,
+        51,
+        52,
+        54,
+        56,
+        57
+      ]
+    },
+    {
+      "path": "emulator/lib64/libgfxstream_backend.dylib",
+      "sha256": "37a4d3172a80ecc163151d32f8cf77a6a3e6cb76d3df60b9f53b784523f403b0",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        0,
+        1,
+        3,
+        4,
+        6,
+        9,
+        10,
+        11,
+        13,
+        14,
+        15,
+        16,
+        19,
+        21,
+        22,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        36,
+        38,
+        39,
+        41,
+        42,
+        47,
+        49,
+        50,
+        51,
+        52,
+        54,
+        55,
+        56,
+        57
+      ]
+    },
+    {
+      "path": "emulator/lib64/libglib2_darwin-aarch64.dylib",
+      "sha256": "0180cc5a18476e9d10938be2517bd795bdb56382665a7d643be250f48f0ca851",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        0
+      ]
+    },
+    {
+      "path": "emulator/lib64/libimage_converter.dylib",
+      "sha256": "1b1d3ff7996442d1248a427d645c33e59f82a6db2cc42b864c8129168aa5f57f",
+      "modified_core": false,
+      "notice_entry_indexes": []
+    },
+    {
+      "path": "emulator/lib64/libprotobuf.28.4.0.dylib",
+      "sha256": "687f60da820be3ae889e7feaba688b860791da5e2ec2cfade2db897af47eaa5e",
+      "modified_core": false,
+      "notice_entry_indexes": []
+    },
+    {
+      "path": "emulator/lib64/libprotobuf.dylib",
+      "sha256": "7c009e4de186d52bd49f9894703a2b57cfa8be02ead3271ebad6ef7f33f1da5b",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        33
+      ]
+    },
+    {
+      "path": "emulator/lib64/libshadertranslator.dylib",
+      "sha256": "5eb7d79e54739ca9055ff8218252ac7e8f930ef7dd73fbfa6ce765745e1c6e9a",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        55
+      ]
+    },
+    {
+      "path": "emulator/lib64/vulkan/glslangValidator",
+      "sha256": "29a67ee608cac636f1490fe6f7c1fedeacb4196f42c233033d6bb3c3889950c8",
+      "modified_core": false,
+      "notice_entry_indexes": []
+    },
+    {
+      "path": "emulator/lib64/vulkan/layers/libVkLayer_khronos_validation.dylib",
+      "sha256": "8c9007e7bbb27c11acdef738f18331ff53965e4f3e9330bfd2aa841566ca6922",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        17
+      ]
+    },
+    {
+      "path": "emulator/lib64/vulkan/libLLVM.dylib",
+      "sha256": "a140e3977d20b5a8fcdf585fb69f8bfcc35ccb0cb3274084be36568dfcac808d",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        17
+      ]
+    },
+    {
+      "path": "emulator/lib64/vulkan/libMoltenVK.dylib",
+      "sha256": "c4bbfb4dbd31c5f5eec5abd1bd6aa3ca3b91f273a7018a2ada28901ff1b48f5e",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        17
+      ]
+    },
+    {
+      "path": "emulator/lib64/vulkan/libvk_swiftshader.dylib",
+      "sha256": "5954c3df8a92e612837558597db90f6c25a366abc297db2e0dd2a957c7d8c808",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        17
+      ]
+    },
+    {
+      "path": "emulator/lib64/vulkan/libvulkan.dylib",
+      "sha256": "7cbeb89b26da96807e57ebfaab2a7dc8583a49ae10a1c09b0d5eaccfd283e15a",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        17
+      ]
+    },
+    {
+      "path": "emulator/lib64/vulkan/libvulkan_kosmickrisp.dylib",
+      "sha256": "32628d5615d6311b508ef3383517731b8681dc4889a12ac52506afa05d780641",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        17
+      ]
+    },
+    {
+      "path": "emulator/lib64/vulkan/libvulkan_lvp.dylib",
+      "sha256": "c445c740ff45e837a80cc123f247c6cce3837dec8eef39fe67670cbda39ac075",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        17
+      ]
+    },
+    {
+      "path": "emulator/lib64/vulkan/libz3.4.15.dylib",
+      "sha256": "f6fc6d49a7ca30d8e2873bf8abb42b51d0617da5d241f0673a5a171b9f76deb8",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        17
+      ]
+    },
+    {
+      "path": "emulator/lib64/vulkan/libzstd.1.dylib",
+      "sha256": "e370e25cf3060afbd199db240156fa06037eb2c124b8c5b05e63d393ce582a4b",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        17
+      ]
+    },
+    {
+      "path": "emulator/mksdcard",
+      "sha256": "29e22b30e39e00ee3a0627ce3910ada925efb8633a06642d764fa94136346871",
+      "modified_core": false,
+      "notice_entry_indexes": []
+    },
+    {
+      "path": "emulator/netsimd",
+      "sha256": "b0f44c59e88b595fec8fcd88b3279216eff2a362867ee3493ba82e706427340e",
+      "modified_core": false,
+      "notice_entry_indexes": []
+    },
+    {
+      "path": "emulator/nimble_bridge",
+      "sha256": "4a6496a902a4933151d7c8c16e7acb1ada93d7a1c1ee607380efc46ec512f76a",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        0,
+        1,
+        3,
+        4,
+        6,
+        8,
+        9,
+        10,
+        11,
+        13,
+        14,
+        15,
+        16,
+        19,
+        21,
+        22,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        38,
+        39,
+        41,
+        42,
+        47,
+        49,
+        50,
+        51,
+        52,
+        54,
+        56,
+        57
+      ]
+    },
+    {
+      "path": "emulator/qemu/darwin-aarch64/qemu-system-aarch64-headless",
+      "sha256": "1731317391dcb943fc4dc867133045b75755b30e7ad49a9ca1b83ddbf88f7dbd",
+      "modified_core": true,
+      "notice_entry_indexes": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6,
+        9,
+        10,
+        11,
+        13,
+        14,
+        15,
+        16,
+        19,
+        21,
+        22,
+        24,
+        25,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        45,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        54,
+        56,
+        57
+      ]
+    },
+    {
+      "path": "emulator/qemu-img",
+      "sha256": "ca96f331a7ff5cf164cf96f6ec388397073685541856706cfd4595b65a6957db",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        0,
+        1,
+        3,
+        4,
+        6,
+        9,
+        10,
+        11,
+        13,
+        14,
+        15,
+        16,
+        19,
+        21,
+        22,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        36,
+        38,
+        39,
+        40,
+        41,
+        42,
+        47,
+        49,
+        50,
+        51,
+        52,
+        54,
+        56,
+        57
+      ]
+    },
+    {
+      "path": "emulator/qsn",
+      "sha256": "35b77435bb0add8031bcdcb4794a908565b1cc269431fa1f2c8119a38852b354",
+      "modified_core": false,
+      "notice_entry_indexes": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        6,
+        9,
+        10,
+        11,
+        13,
+        14,
+        15,
+        16,
+        19,
+        21,
+        22,
+        24,
+        25,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        38,
+        39,
+        41,
+        42,
+        43,
+        45,
+        47,
+        49,
+        50,
+        51,
+        52,
+        54,
+        56,
+        57
+      ]
+    }
+  ]
+}
