@@ -30,7 +30,7 @@ miko simulator 是面向 Apple Silicon Mac 的开源 Android 模拟器管理工�
 
 ### 管理 Android 设备
 
-在设备中心创建、启动、停止和切换模拟器，管理设备配置、快照和内存预算。将 APK 拖入模拟器窗口即可安装。首次设置由 miko 准备模拟器和 ADB，创建设备时按需下载系统镜像。
+在设备中心创建、启动、停止和切换模拟器，管理设备配置、快照和内存预算。将 APK 拖入模拟器窗口即可安装。发行包内置模拟器运行时和 platform-tools，创建设备时按需下载系统镜像。
 
 ### 键位映射与手柄
 
@@ -75,7 +75,7 @@ miko simulator 是面向 Apple Silicon Mac 的开源 Android 模拟器管理工�
 
 1. 从 [GitHub Releases](https://github.com/hbdzh/miko-simulator/releases/latest) 下载 DMG。
 2. 打开 DMG，将 miko simulator 拖入“应用程序”文件夹。
-3. 启动 miko simulator，按提示准备模拟器和 ADB。创建设备时可使用已有镜像，或下载选中的镜像。
+3. 启动 miko simulator。创建设备时可使用已有镜像，或下载选中的镜像。
 
 设备、私有 SDK、下载缓存和日志默认保存在 `~/Library/Application Support/miko` 中，可在「设置 → 数据与工具」更改位置。
 
@@ -101,3 +101,11 @@ bash apps/miko-swiftui/build-center.sh
 ## 开源与致谢
 
 miko 模拟器 基于 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr) 开发，感谢原项目及其贡献者。Swift/AppKit 界面采用 [GPL-3.0-only](apps/miko-swiftui/LICENSE-GPL)，Rust 桥、CLI 和后台采用 [Apache-2.0](LICENSE-APACHE)。第三方组件许可见 [NOTICE](NOTICE)。
+
+发行包中的模拟器运行时源码、补丁和许可证材料：
+
+- [定制核心源码、补丁与许可证](https://github.com/hbdzh/miko-simulator/releases/download/v0.10.0/miko-runtime-source-review-0.10.0.tar.gz)
+- [AOSP 项目源码快照](https://github.com/hbdzh/miko-simulator/releases/download/v0.10.0/miko-runtime-source-projects-0.10.0.tar)
+- [AOSP 依赖源码候选包](https://github.com/hbdzh/miko-simulator/releases/download/v0.10.0/miko-runtime-dependency-sources-0.10.0.tar.gz)
+
+上述材料包含已整理的源码和许可证；部分上游二进制的完整对应源码仍在核实，详情见[运行时溯源记录](docs/runtime-provenance-local.md)。
