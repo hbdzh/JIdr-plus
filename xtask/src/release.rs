@@ -18,7 +18,7 @@ const USAGE: &str = "\
 usage: cargo xtask release [--dry-run] [--scan] [--out <dir>] [--rehearsal]
 
   --dry-run    build and package locally; never sign, even if secrets exist
-  --scan       fail if the artifacts contain Google SDK binaries, system images or Magisk
+  --scan       verify pinned runtime and reject system images, APKs and Magisk
   --out DIR    output directory (default: <target>/release-artifacts; with
                --rehearsal: <target>/release-rehearsal)
   --rehearsal  local rehearsal of the SwiftUI release chain: implies --scan,

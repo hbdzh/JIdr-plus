@@ -30,7 +30,7 @@ jobs:
         with:
           name: miko-plus-unsigned-test-packages
           path: |
-            dist/Miko-*-arm64.dmg
+            dist/miko-simulator-*-arm64.dmg
             dist/miko-mcp-*.mcpb
             dist/SHA256SUMS.txt
           if-no-files-found: error

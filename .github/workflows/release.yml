@@ -99,19 +99,19 @@ jobs:
           MCPB_SHA256: ${{ steps.sums.outputs.mcpb_sha256 }}
         run: |
           [ -n "$MCPB_SHA256" ] || { echo "::error::no MCP bundle checksum"; exit 1; }
-          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/jidr-mcp-${VERSION}-darwin-arm64.mcpb"
+          url="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/miko-mcp-${VERSION}-darwin-arm64.mcpb"
           jq --arg v "$VERSION" --arg u "$url" --arg s "$MCPB_SHA256" \
             '.version = $v | .packages[0].identifier = $u | .packages[0].fileSha256 = $s' \
             server.json > dist/mcp-registry.json
 
       - name: Gatekeeper check
         if: env.HAVE_SIGNING == 'true'
-        run: packaging/macos/verify.sh dist/Miko-*-arm64.dmg
+        run: packaging/macos/verify.sh dist/miko-simulator-*-arm64.dmg
 
       - name: Upload to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ inputs.tag }}" dist/Miko-*-arm64.dmg dist/miko-mcp-*.mcpb dist/SHA256SUMS.txt dist/mcp-registry.json --clobber
+        run: gh release upload "${{ inputs.tag }}" dist/miko-simulator-*-arm64.dmg dist/miko-mcp-*.mcpb dist/SHA256SUMS.txt dist/mcp-registry.json --clobber
 
       - name: Remove the signing keychain and the API key
         if: always() && env.HAVE_SIGNING == 'true'
