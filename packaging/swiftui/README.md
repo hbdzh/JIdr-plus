@@ -66,6 +66,6 @@ Miko data directory when launched normally. Development explicit arguments are
 `CENTER_BRIDGE PLAYER_BRIDGE` and require `MIKO_HOME`.
 
 The candidate scan matches bundled SDK tools against its input and rejects
-system images, APKs and Magisk. Ad-hoc
+system images and unapproved APKs; the pinned official Magisk APK, source and licence are bundled. Ad-hoc
 signatures are checked inside-out. Developer ID signing and notarization remain
 unimplemented for all helpers and must not be reported as passing.

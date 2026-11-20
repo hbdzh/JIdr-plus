@@ -46,6 +46,26 @@ pub fn patched_ramdisk_path(ctx: &CallCtx, device: &Device, version: &str) -> Pa
         .join(format!("ramdisk.magisk-{version}.img"))
 }
 
+/// Packaged helpers use the app's pinned Magisk APK without network access.
+fn bundled_apk_from_executable(executable: &Path) -> Option<PathBuf> {
+    let helpers = executable.parent()?;
+    let contents = helpers.parent()?;
+    (helpers.file_name()? == "Helpers" && contents.file_name()? == "Contents")
+        .then(|| contents.join("Resources/magisk/Magisk-v30.7.apk"))
+}
+
+fn import_bundled_apk(
+    cache: &DownloadCache,
+    pin: &MagiskPin,
+    executable: &Path,
+) -> MikoResult<Option<PathBuf>> {
+    let Some(apk) = bundled_apk_from_executable(executable) else {
+        return Ok(None);
+    };
+    let entry = cache.import(&apk, Some(&pin.sha256))?;
+    Ok(Some(entry.path))
+}
+
 /// Resolves the Magisk APK: either the pinned release (downloaded through the
 /// 5b cache, verified by SHA-256) or a local `--magisk <path>` imported into
 /// the cache. Returns the APK path, its SHA-256 and the Magisk version it
@@ -68,6 +88,15 @@ async fn resolve_apk(
             Ok((apk, sha.to_string(), version))
         }
         None => {
+            if let Some(apk) = cache.get_verified(&pin.sha256)? {
+                return Ok((apk, pin.sha256.clone(), pin.version.clone()));
+            }
+            if let Ok(executable) = std::env::current_exe()
+                && let Some(apk) = import_bundled_apk(&cache, pin, &executable)?
+            {
+                ctx.report(None, "Using bundled Magisk");
+                return Ok((apk, pin.sha256.clone(), pin.version.clone()));
+            }
             // A verified cached copy means no download, so the GPL licence and
             // source link are shown only before the first fetch.
             if cache.get_verified(&pin.sha256)?.is_none() {
@@ -187,6 +216,13 @@ pub(crate) async fn repatch(ctx: &CallCtx, device: &Device) -> MikoResult<Device
             found = Some((apk, sha));
             break;
         }
+    }
+    if found.is_none()
+        && let Some(pin) = pins::default_pin().ok().filter(|p| p.version == version)
+        && let Ok(executable) = std::env::current_exe()
+        && let Some(apk) = import_bundled_apk(&cache, &pin, &executable)?
+    {
+        found = Some((apk, pin.sha256));
     }
     let (apk, sha) = found.ok_or_else(|| {
         MikoError::usage(format!(
@@ -428,8 +464,16 @@ pub(crate) async fn on_booted(ctx: &CallCtx, device: &Device) -> MikoResult<()> 
     // Re-patch only when the pinned APK is already cached; never fetch here
     // (a boot must not block on, or be slowed by, the network).
     let cache = DownloadCache::new(ctx.daemon.paths().downloads());
-    let Ok(Some(apk)) = cache.get_verified(&pin.sha256) else {
-        return Ok(());
+    let apk = match cache.get_verified(&pin.sha256) {
+        Ok(Some(apk)) => apk,
+        Ok(None) => match std::env::current_exe()
+            .ok()
+            .and_then(|exe| import_bundled_apk(&cache, &pin, &exe).ok().flatten())
+        {
+            Some(apk) => apk,
+            None => return Ok(()),
+        },
+        Err(_) => return Ok(()),
     };
     let version = pin.version.clone();
     let Ok(patched) = ensure_patched(ctx, device, &version, &apk, &pin.sha256).await else {
@@ -560,7 +604,47 @@ fn parse_zygisk_setting(out: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_zygisk_setting;
+    use super::pins::MagiskPin;
+    use super::{bundled_apk_from_executable, import_bundled_apk, parse_zygisk_setting};
+    use miko_sdk::DownloadCache;
+    use sha2::{Digest, Sha256};
+
+    #[test]
+    fn bundled_apk_is_verified_and_reused_offline() {
+        let dir = tempfile::tempdir().unwrap();
+        let contents = dir.path().join("miko simulator.app/Contents");
+        let helpers = contents.join("Helpers");
+        let resource = contents.join("Resources/magisk/Magisk-v30.7.apk");
+        std::fs::create_dir_all(&helpers).unwrap();
+        std::fs::create_dir_all(resource.parent().unwrap()).unwrap();
+        std::fs::write(&resource, b"trusted fixture").unwrap();
+        let executable = helpers.join("miko");
+        let pin = MagiskPin {
+            version: "30.7".into(),
+            url: String::new(),
+            sha256: hex_digest(b"trusted fixture"),
+            license: String::new(),
+            source: String::new(),
+        };
+        let cache = DownloadCache::new(dir.path().join("cache"));
+        let copied = import_bundled_apk(&cache, &pin, &executable)
+            .unwrap()
+            .unwrap();
+        assert_eq!(std::fs::read(copied).unwrap(), b"trusted fixture");
+        assert!(cache.get_verified(&pin.sha256).unwrap().is_some());
+        std::fs::write(&resource, b"tampered fixture").unwrap();
+        assert!(import_bundled_apk(&cache, &pin, &executable).is_err());
+        std::fs::remove_file(&resource).unwrap();
+        assert!(import_bundled_apk(&cache, &pin, &executable).is_err());
+        assert!(bundled_apk_from_executable(&dir.path().join("miko")).is_none());
+    }
+
+    fn hex_digest(data: &[u8]) -> String {
+        Sha256::digest(data)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
+    }
 
     #[test]
     fn zygisk_is_on_unless_magisk_stores_zero() {

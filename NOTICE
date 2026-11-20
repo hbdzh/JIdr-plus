@@ -2,8 +2,9 @@ Jidr (جذر)
 Copyright 2026 Jidr contributors
 
 Licensing (decision D18):
-- Everything in this repository is licensed under the Apache License 2.0
-  (LICENSE-APACHE), except:
+- Project code is licensed under the Apache License 2.0 (LICENSE-APACHE),
+  except as stated below. Third-party license texts and source patches retain
+  their own upstream licences:
 - apps/jidr-swiftui, whose SwiftUI/AppKit sources are licensed under
   the GNU General Public License v3.0 only (see apps/jidr-swiftui/LICENSE-GPL);
   its Rust bridge under bridge/ is Apache-2.0.
@@ -11,9 +12,10 @@ Licensing (decision D18):
 The CLI, daemon and MCP server never link GPL code; `cargo xtask license-check`
 enforces this.
 
-Jidr does not bundle or redistribute the Android SDK, the Android Emulator,
-Android system images or Magisk. They are downloaded on the user's machine,
-from their official sources, after the user accepts their licenses.
+The macOS app bundles Android Emulator and platform-tools alongside their
+notices, and the unmodified official Magisk APK as a separate component with
+its GPL-3.0-or-later licence and source archive. Android system images are not
+bundled and are downloaded separately after user consent.
 
 Jidr is not affiliated with or endorsed by Google, the Android Open Source
 Project, Genymobile/Genymotion or the Magisk project. Android is a trademark
@@ -31,9 +33,10 @@ Third-party attributions:
   layout (payload extraction, `.backup/.magisk` config, `overlay.d/sbin`
   entries, su-policy grant) is ported from avdroot, Copyright (c) 2026
   ejfkdev, licensed under the MIT License
-  (https://github.com/ejfkdev/avdroot). Magisk itself is GPL-3.0-only and is
-  never bundled; only its documented, machine-observable ramdisk layout is
-  reproduced (see docs/clean-room.md).
+  (https://github.com/ejfkdev/avdroot). Magisk is distributed separately
+  under GPL-3.0-or-later with its licence and source; only its documented,
+  machine-observable ramdisk layout is reproduced in Miko's own code
+  (see docs/clean-room.md).
 
 - Lucide SVG sources in assets/lucide are ISC licensed; see assets/lucide/LICENSE-lucide.txt.
 - The on-device helper statically includes musl libc, Copyright 2005-2020

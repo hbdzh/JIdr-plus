@@ -26,8 +26,9 @@ miko root status <device>       # stored mode, health, Magisk version
 
 `root.set magisk` runs the whole setup as one job, with progress and cancel:
 
-1. **Fetch** the pinned Magisk release from the official GitHub release and
-   check its SHA-256 (see [below](#magisk-licence)).
+1. **Verify** the official Magisk APK bundled with the macOS app and import it
+   into the local cache. Standalone CLI builds may fetch the pinned release
+   from GitHub (see [below](#magisk-licence)).
 2. **Hash** the image's pristine `ramdisk.img`.
 3. **Patch** a *per-device* copy on the host with `miko-cpio`: `init` becomes
    `magiskinit`, the compressed payload goes under `overlay.d/sbin`, and the
@@ -114,6 +115,8 @@ boot hook) rebuilds the patched copy from the pristine image; a props change
 rebuilds it at once. Patches never stack.
 
 ## Offline Magisk
+
+The packaged macOS app includes the verified official Magisk APK and its source; Full root does not download Magisk. Standalone CLI builds can import a local APK as described below.
 
 To use Magisk without network access, import the official APK once:
 

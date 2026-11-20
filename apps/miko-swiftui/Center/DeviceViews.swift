@@ -1523,7 +1523,7 @@ struct NewDeviceView: View {
     private var rootExplanation: String {
         switch root {
         case "adb": return model.text("通过 Root Shell 使用高级功能。", "Use advanced features through a root shell.")
-        case "magisk": return model.text("创建后将下载并配置 Magisk，期间设备会启动并重启。", "After creation Magisk is downloaded and configured; the device starts and reboots in the process.")
+        case "magisk": return model.text("创建后将安装并配置 Magisk，期间设备会启动并重启。", "After creation Magisk is installed and configured; the device starts and reboots in the process.")
         default: return model.text("设备不会启用 Root。", "Root access is disabled.")
         }
     }

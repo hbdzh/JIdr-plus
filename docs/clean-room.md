@@ -19,7 +19,7 @@ Jidr re-creates the *behaviour* of Genymotion Desktop's public feature set. It m
 
 - Decompiling, disassembling, string-dumping or otherwise inspecting Genymotion binaries, installers, images or network traffic.
 - Copying or line-by-line translating GPL code (Magisk, rootAVD) into Apache-2.0 crates.
-- Bundling or redistributing Android system images or Magisk. Emulator and platform-tools binaries may be bundled only after their exact provenance, applicable component licences, corresponding-source obligations and notices have been verified and recorded; an unreviewed runtime remains prohibited from public redistribution.
+- Bundling or redistributing Android system images. An official, hash-pinned Magisk APK may be bundled as a separate GPL-licensed component with its licence, attribution and corresponding source materials; never copy GPL code into Apache-licensed crates. Emulator and platform-tools binaries may be bundled only after their exact provenance, applicable component licences, corresponding-source obligations and notices have been verified and recorded; an unreviewed runtime remains prohibited from public redistribution.
 - Google, Android or Genymotion logos anywhere in the product or site.
 
 ## Log

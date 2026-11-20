@@ -8,6 +8,7 @@ let t0 = Date(timeIntervalSince1970: 1_760_000_000)
 // The messages `root.set magisk` reports on a google_apis image, in order.
 let googleApis: [(String, RootStepKind)] = [
     ("Resolving the Magisk release", .download),
+    ("Using bundled Magisk", .download),
     ("Magisk 30.7 is GPL-3.0-only; source: https://github.com/topjohnwu/Magisk.", .download),
     ("Downloading Magisk 30.7", .download),
     ("Patching the ramdisk for Magisk 30.7", .patch),

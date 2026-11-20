@@ -96,6 +96,8 @@ enum RootSteps {
         let mapped: RootStepKind
         if m.hasPrefix("Resolving the Magisk release")
             || m.hasPrefix("Downloading Magisk")
+            || m.hasPrefix("Using bundled Magisk")
+            || m.hasPrefix("正在使用内置 Magisk")
             || (m.hasPrefix("Magisk ") && m.contains("GPL"))
             || m.hasPrefix("正在准备 Magisk")
             || m.hasPrefix("正在下载 Magisk")

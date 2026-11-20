@@ -51,7 +51,7 @@ struct DeviceRootControls: View {
                 ? t("设置“\(device.name)”的完整 Root？", "Set up Full Root for “\(device.name)”?")
                 : t("更改“\(device.name)”的 Root 模式？", "Change the Root mode for “\(device.name)”?")
             let detail = change.mode == nil || change.mode == "magisk"
-                ? t("将下载并配置 Magisk，设备可能重启。请先保存游戏进度。", "Downloads and configures Magisk; the device may restart. Save your game progress first.")
+                ? t("将安装并配置 Magisk，设备可能重启。请先保存游戏进度。", "Installs and configures Magisk; the device may restart. Save your game progress first.")
                 : t("设备可能需要冷启动，部分快照可能无法恢复。请先保存游戏进度。", "A cold boot may be needed, and some snapshots may become incompatible. Save your game progress first.")
             let action: Alert.Button = change.mode == "none"
                 ? .destructive(Text(t("更改", "Change"))) { perform(change) }

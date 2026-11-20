@@ -163,10 +163,10 @@
 "没有正在进行的 Root 配置。" = "No root setup is in progress.";
 "查看 Root 配置" = "View root setup";
 "重新连接" = "Reconnect";
-"创建后将下载并配置 Magisk，期间设备会启动并重启。" = "Magisk will be downloaded and configured after creation; the device will start and restart.";
+"创建后将安装并配置 Magisk，期间设备会启动并重启。" = "Magisk will be installed and configured after creation; the device will start and restart.";
 "设置或重试完整 Root…" = "Set up or retry full root…";
 "设置完整 Root？" = "Set up full root?";
-"将下载并配置 Magisk，设备可能重启。Play 商店镜像可能需要在设备窗口手动授权。请先保存游戏进度。" = "Magisk will be downloaded and configured, and the device may restart. Play Store images may require a manual grant in the device window. Save game progress first.";
+"将安装并配置 Magisk，设备可能重启。Play 商店镜像可能需要在设备窗口手动授权。请先保存游戏进度。" = "Magisk will be installed and configured, and the device may restart. Play Store images may require a manual grant in the device window. Save game progress first.";
 
 "电源" = "Power";
 "高级工具" = "Advanced tools";

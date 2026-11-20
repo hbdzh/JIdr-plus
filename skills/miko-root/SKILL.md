@@ -29,14 +29,14 @@ miko -q device create Rooted --image 35 --profile phone-6.1-fhd --root magisk --
 ## Switch and verify
 
 ```bash
-miko root set Phone magisk             # one job: fetch Magisk, patch this device's ramdisk, cold boot, set up, verify
+miko root set Phone magisk             # one job: use Magisk, patch this device's ramdisk, cold boot, set up, verify
 miko root verify Phone                 # runs `su -c id` (or `id` for adb) and checks uid 0 against the mode
 miko root set Phone none               # back to stock
 ```
 
 - A root change always forces a **cold boot** (D29): quick-boot state is not reused, so anything open on the device is gone. On a running device it is applied right away; on a stopped device, at the next start.
 - Snapshots are tagged with the root mode they were taken in. Take new ones after switching.
-- `root set … magisk` downloads the pinned Magisk release from GitHub and checks its SHA-256. Offline, or if the user has the APK, pass it: `miko root set Phone magisk --magisk /path/to/Magisk-v30.7.apk` (still checked).
+- `root set … magisk` uses the verified APK bundled with the macOS app without downloading. A standalone CLI may download the pinned release; to use another local APK, pass it: `miko root set Phone magisk --magisk /path/to/Magisk-v30.7.apk` (still checked).
 - `adb` on a Play Store image is refused with exit 2: use `magisk` instead.
 - Exit **7** means root failed. Read `miko root status Phone`, then retry `root set` or revert with `miko root set Phone none`. A failed Magisk setup is always revertable.
 

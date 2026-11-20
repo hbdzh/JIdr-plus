@@ -38,7 +38,7 @@ cargo nextest run -p miko-widgets --features emulator
 - **No `unsafe`** unless a crate truly needs it, allowed locally with a comment explaining why.
 - **Every bug fix comes with a regression test.**
 - **Split licensing.** The desktop GUI sources are GPL-3.0-only: `apps/miko-swiftui` Swift/AppKit code (by choice, ADR-0003). The SwiftUI Rust bridge, the CLI, the daemon and everything else are Apache-2.0 and must never depend on Slint or the GPL GUI crates. `cargo xtask license-check` enforces the Apache side.
-- **Clean room.** Use only Genymotion's public docs, the public AOSP emulator protos and docs, and behaviour you observe by running the SDK tools. Never decompile or inspect Genymotion binaries, never copy GPL code (Magisk, rootAVD), never bundle Google's SDK, system images or Magisk. Details in [docs/clean-room.md](docs/clean-room.md).
+- **Clean room.** Use only Genymotion's public docs, the public AOSP emulator protos and docs, and behaviour you observe by running the SDK tools. Never decompile or inspect Genymotion binaries, never copy GPL code (Magisk, rootAVD), never bundle system images. The official pinned Magisk APK may be bundled separately with its licence and corresponding source; emulator tools require the review described there. Details in [docs/clean-room.md](docs/clean-room.md).
 - **Protocol changes** that touch the wire format, an existing command, error codes or events need a row in the changelog of [docs/control-protocol.md](docs/control-protocol.md). Regenerate the command reference with `MIKO_UPDATE_DOCS=1 cargo nextest run -p miko-daemon protocol_doc`.
 - **Android Studio's SDK and AVDs stay read-only.** Tests create AVDs in temporary directories.
 

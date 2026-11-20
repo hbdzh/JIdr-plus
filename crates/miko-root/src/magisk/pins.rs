@@ -1,9 +1,8 @@
 //! The pinned Magisk releases the root engine may use (D30).
 //!
-//! The pin file is compiled into the binary, so `root.set magisk` works
-//! offline once the APK is in the download cache. Magisk is GPL-3.0-only, so
-//! Miko never bundles it: the release is downloaded at runtime from the
-//! official GitHub release and its SHA-256 is checked before use.
+//! The pin file is compiled into the binary. The app bundles the official APK
+//! as a separate GPL-3.0-or-later component; standalone CLI use can download it.
+//! Both sources are checked against the pinned SHA-256 before use.
 
 use miko_core::{MikoError, MikoResult};
 use serde::Deserialize;
@@ -52,7 +51,7 @@ pub fn default_pin() -> MikoResult<MagiskPin> {
 /// The licence + source notice shown once before the first download.
 pub fn notice(pin: &MagiskPin) -> String {
     format!(
-        "Magisk {} is {}; source: {}. Miko downloads it at runtime and never bundles it.",
+        "Magisk {} is {}; source: {}. The application includes the official APK; standalone CLI installations may download it.",
         pin.version, pin.license, pin.source
     )
 }

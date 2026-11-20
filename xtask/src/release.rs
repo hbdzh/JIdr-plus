@@ -18,7 +18,7 @@ const USAGE: &str = "\
 usage: cargo xtask release [--dry-run] [--scan] [--out <dir>] [--rehearsal]
 
   --dry-run    build and package locally; never sign, even if secrets exist
-  --scan       verify pinned runtime and reject system images, APKs and Magisk
+  --scan       verify pinned runtime and Magisk; reject system images and other APKs
   --out DIR    output directory (default: <target>/release-artifacts; with
                --rehearsal: <target>/release-rehearsal)
   --rehearsal  local rehearsal of the SwiftUI release chain: implies --scan,
@@ -151,6 +151,7 @@ fn run_swiftui(
     let app = staging.join("miko simulator.app");
     assemble_swiftui_app(root, &bin, &center, &app, version)?;
     assemble_required_runtime(&app)?;
+    assemble_magisk(root, &app)?;
     copy(
         &helper,
         &app.join("Contents/Resources/helper/aarch64/miko-helper"),
@@ -202,7 +203,7 @@ fn run_swiftui(
     print!("{sums}");
     if opts.scan {
         println!(
-            "xtask: scan ok: no system images or Magisk; SDK tools confined to bundled runtime"
+            "xtask: scan ok: pinned Magisk and SDK tools only; no system images or other APKs"
         );
     }
     if opts.rehearsal {
@@ -342,6 +343,62 @@ fn copy(from: &Path, to: &Path) -> Result<()> {
     std::fs::copy(from, to)
         .with_context(|| format!("copying {} to {}", from.display(), to.display()))?;
     Ok(())
+}
+
+const MAGISK_SHA256: &str = "e0d32d2123532860f97123d927b1bb86c4e08e6fd8a48bfc6b5bee0afae9ebd5";
+const MAGISK_RELATIVE: &str = "Contents/Resources/magisk/Magisk-v30.7.apk";
+const MAGISK_SOURCE_SHA256: &str =
+    "6210206eb9d5bdeee30ac6547d8f0ba600d07ffd7475c36fb8f17a741145d7bb";
+
+fn verify_magisk(path: &Path) -> Result<()> {
+    use sha2::{Digest, Sha256};
+    let bytes =
+        std::fs::read(path).with_context(|| format!("reading Magisk APK {}", path.display()))?;
+    if hex::encode(Sha256::digest(&bytes)) != MAGISK_SHA256 {
+        bail!("Magisk APK checksum does not match the pinned official release");
+    }
+    Ok(())
+}
+
+fn verify_magisk_source(path: &Path) -> Result<()> {
+    use sha2::{Digest, Sha256};
+    let bytes =
+        std::fs::read(path).with_context(|| format!("reading Magisk source {}", path.display()))?;
+    if hex::encode(Sha256::digest(&bytes)) != MAGISK_SOURCE_SHA256 {
+        bail!("Magisk source archive does not match the pinned official source and submodules");
+    }
+    Ok(())
+}
+
+fn assemble_magisk(root: &Path, app: &Path) -> Result<()> {
+    let input = std::env::var_os("MIKO_BUNDLED_MAGISK")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("target/magisk-input/Magisk-v30.7.apk"));
+    verify_magisk(&input)?;
+    let source = std::env::var_os("MIKO_MAGISK_SOURCE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| root.join("target/magisk-input/Magisk-v30.7-source.tar"));
+    verify_magisk_source(&source)?;
+    copy(&input, &app.join(MAGISK_RELATIVE))?;
+    copy(
+        &source,
+        &app.join("Contents/Resources/licenses/root-component/source.tar"),
+    )?;
+    for name in ["LICENSE-GPL-3.0", "NOTICE.txt"] {
+        copy(
+            &root.join("packaging/magisk").join(name),
+            &app.join("Contents/Resources/licenses/root-component")
+                .join(name),
+        )?;
+    }
+    Ok(())
+}
+
+fn is_bundled_magisk(path: &Path) -> bool {
+    if path.ends_with("Contents/Resources/magisk") {
+        return path.is_dir();
+    }
+    path.ends_with(MAGISK_RELATIVE) && verify_magisk(path).is_ok()
 }
 
 /// `miko simulator.app` layout for the SwiftUI device center (ADR-0003). It keeps the
@@ -933,7 +990,7 @@ fn verify_swiftui_dmg(
             evidence.line(
                 "Forbidden-content scan",
                 format!(
-                    "- PASS {files} files / {directories} directories: no forbidden system image or Magisk. The rules are the same `classify_name`/\
+                    "- PASS {files} files / {directories} directories: no forbidden system image or unapproved APK. The rules are the same `classify_name`/\
                      `classify_content` set that `cargo xtask release --scan` uses."
                 ),
             );
@@ -998,6 +1055,18 @@ fn check_swiftui_bundle(app: &Path, version: &str, evidence: &mut Evidence) -> R
     }
     let resources = contents.join("Resources");
     validate_required_runtime(&resources.join("sdk"))?;
+    verify_magisk(&app.join(MAGISK_RELATIVE))?;
+    verify_magisk_source(&resources.join("licenses/root-component/source.tar"))?;
+    for name in ["LICENSE-GPL-3.0", "NOTICE.txt"] {
+        require_file(
+            &resources.join("licenses/root-component").join(name),
+            "Magisk license",
+        )?;
+    }
+    evidence.line(
+        "Bundle structure (mounted DMG)",
+        "- PASS verified official Magisk APK, source and licence are bundled",
+    );
     require_file(
         &resources.join(".miko-runtime-required"),
         "the required runtime marker",
@@ -1864,6 +1933,10 @@ fn scan_tree_with_helper(root: &Path, expected: &Path) -> Result<Vec<Finding>> {
             let meta = std::fs::symlink_metadata(&path)?;
             let name = entry.file_name().to_string_lossy().to_lowercase();
             if meta.is_dir() {
+                if is_bundled_magisk(&path) {
+                    stack.push(path);
+                    continue;
+                }
                 if let Some(reason) =
                     classify_name(&name).filter(|reason| !is_runtime_name(&path, reason))
                 {
@@ -1874,6 +1947,9 @@ fn scan_tree_with_helper(root: &Path, expected: &Path) -> Result<Vec<Finding>> {
                 }
                 stack.push(path);
             } else if meta.is_file() {
+                if is_bundled_magisk(&path) {
+                    continue;
+                }
                 let reason = classify_name(&name)
                     .filter(|reason| !is_runtime_name(&path, reason))
                     .or_else(|| {
@@ -1908,7 +1984,7 @@ fn is_own_helper(path: &Path, expected: &Path) -> bool {
 }
 
 // Permit SDK tool names only within the app's explicitly bundled runtime.
-// Images, Magisk and content checks remain enforced everywhere.
+// Images and unapproved content checks remain enforced everywhere.
 fn is_runtime_name(path: &Path, reason: &str) -> bool {
     use sha2::{Digest, Sha256};
     if reason != "Android SDK / emulator binary (downloaded on the user's machine, never bundled)"
@@ -2212,6 +2288,19 @@ mod tests {
             output_dir(root, target, &rehearsal_out),
             PathBuf::from("/tmp/out")
         );
+    }
+
+    #[test]
+    fn magisk_allowlist_rejects_wrong_content_and_wrong_location() {
+        let dir = std::env::temp_dir().join(format!("miko-magisk-scan-{}", std::process::id()));
+        let path = dir.join(MAGISK_RELATIVE);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"not the official apk").unwrap();
+        assert!(!is_bundled_magisk(&path));
+        assert!(is_bundled_magisk(path.parent().unwrap()));
+        assert!(!is_bundled_magisk(&dir.join("magisk.apk")));
+        assert!(include_str!("../../assets/magisk-pins.toml").contains(MAGISK_SHA256));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

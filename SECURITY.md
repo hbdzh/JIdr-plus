@@ -25,4 +25,4 @@ Out of scope: the security of the Android images themselves (report those to Goo
 
 ## Telemetry
 
-Miko sends no telemetry and has no accounts (D17). It contacts Google's SDK servers, GitHub (only to download the pinned Magisk release) and OpenStreetMap's tile servers for the GPS map, and nothing else.
+Miko sends no telemetry and has no accounts (D17). It contacts Google's SDK servers and OpenStreetMap's tile servers for the GPS map; standalone CLI builds can also contact GitHub for the pinned Magisk release.

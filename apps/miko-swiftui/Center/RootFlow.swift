@@ -29,6 +29,7 @@ extension CenterModel {
         for (english, chinese) in exact where raw == english { return chinese }
         let pairs: [(String, String)] = [
             ("Resolving the Magisk release", "正在准备 Magisk 安装包"),
+            ("Using bundled Magisk", "正在使用内置 Magisk"),
             ("Downloading Magisk ", "正在下载 Magisk "),
             ("Patching the ramdisk for Magisk ", "正在修补 Magisk 启动镜像 "),
             ("Stopping before the cold boot", "正在安全停止设备，准备冷启动"),

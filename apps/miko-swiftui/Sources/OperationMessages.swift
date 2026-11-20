@@ -117,6 +117,7 @@ enum OperationMessages {
         guard language != 0 else { return value }
         let known = [
             "Resolving the Magisk release":"正在准备 Magisk 安装包",
+            "Using bundled Magisk":"正在使用内置 Magisk",
             "Installing the Magisk app":"正在安装 Magisk 应用",
             "Setting up Magisk's environment":"正在配置 Magisk 环境",
             "Stopping before the cold boot":"正在安全停止设备，准备冷启动",

@@ -60,6 +60,9 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       # Reuse the verified published core, or an optional pinned HTTPS source.
+      - name: Prepare bundled Magisk
+        uses: ./.github/actions/prepare-magisk
+
       - name: Prepare required runtime
         uses: ./.github/actions/prepare-miko-runtime
         with:

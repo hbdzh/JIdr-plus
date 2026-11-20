@@ -1,8 +1,7 @@
-# Pinned Magisk releases (D30). The root engine downloads the first entry at
-# runtime and checks its SHA-256 before anything is baked into a ramdisk.
-# Magisk is GPL-3.0-only, so Miko never bundles it: it is fetched from the
-# official GitHub release, and the licence and source link are shown to the
-# user before the download.
+# Pinned Magisk releases (D30). The root engine checks the first entry
+# against its SHA-256 before anything is baked into a ramdisk.
+# The official APK is bundled as a separate GPL-3.0-or-later component.
+# Standalone CLI installations can still fetch the same verified release.
 #
 # When a new Magisk release is tested and accepted, prepend a new [[magisk]]
 # table and keep the old one as a fallback. `version` must match the release
@@ -15,5 +14,5 @@ version = "30.7"
 url = "https://github.com/topjohnwu/Magisk/releases/download/v30.7/Magisk-v30.7.apk"
 # SHA-256 of the asset above (from the GitHub release's `digest` field).
 sha256 = "e0d32d2123532860f97123d927b1bb86c4e08e6fd8a48bfc6b5bee0afae9ebd5"
-license = "GPL-3.0-only"
+license = "GPL-3.0-or-later"
 source = "https://github.com/topjohnwu/Magisk"

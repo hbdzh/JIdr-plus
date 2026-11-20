@@ -30,7 +30,7 @@ miko simulator 是面向 Apple Silicon Mac 的开源 Android 模拟器管理工�
 
 ### 管理 Android 设备
 
-在设备中心创建、启动、停止和切换模拟器，管理设备配置、快照和内存预算。将 APK 拖入模拟器窗口即可安装。发行包内置模拟器运行时和 platform-tools，创建设备时按需下载系统镜像。
+在设备中心创建、启动、停止和切换模拟器，管理设备配置、快照和内存预算。将 APK 拖入模拟器窗口即可安装。发行包内置模拟器运行时、platform-tools 和 Magisk，创建设备时按需下载系统镜像；选择完整 Root 时无需另行下载 Magisk。
 
 ### 键位映射与手柄
 
@@ -109,3 +109,5 @@ miko 模拟器 基于 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr) 开发�
 - [AOSP 依赖源码候选包](https://github.com/hbdzh/miko-simulator/releases/download/v0.10.0/miko-runtime-dependency-sources-0.10.0.tar.gz)
 
 上述材料包含已整理的源码和许可证；部分上游二进制的完整对应源码仍在核实，详情见[运行时溯源记录](docs/runtime-provenance-local.md)。
+
+发行包内置的 Magisk 是独立的 GPL-3.0-or-later 组件，附带官方许可证及含固定子模块的源码；原项目见 [Magisk v30.7](https://github.com/topjohnwu/Magisk/tree/v30.7)。
