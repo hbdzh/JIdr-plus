@@ -52,6 +52,12 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      # The pinned core must be hosted only after source/licence review.
+      - name: Prepare required runtime
+        uses: ./.github/actions/prepare-miko-runtime
+        with:
+          core-url: ${{ vars.MIKO_RUNTIME_CORE_URL }}
+
       - name: Import the Developer ID certificate
         if: env.HAVE_SIGNING == 'true'
         env:

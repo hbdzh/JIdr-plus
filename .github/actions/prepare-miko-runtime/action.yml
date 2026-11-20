@@ -1,0 +1,35 @@
+name: Prepare pinned Miko runtime
+description: Reconstruct the locally reviewed runtime from pinned archives and a supplied core.
+inputs:
+  core-url:
+    description: HTTPS URL for the separately maintained pinned arm64 core.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Download and verify runtime inputs
+      shell: bash
+      env:
+        MIKO_CORE_URL: ${{ inputs.core-url }}
+      run: |
+        set -euo pipefail
+        case "$MIKO_CORE_URL" in
+          https://*) ;;
+          *) echo '::error::Set repository variable MIKO_RUNTIME_CORE_URL to an HTTPS URL for the reviewed pinned core'; exit 1 ;;
+        esac
+        work="$(mktemp -d "$RUNNER_TEMP/miko-runtime.XXXXXX")"
+        curl --fail --silent --show-error --location --retry 3 --proto '=https' --proto-redir '=https' \
+          "$MIKO_CORE_URL" --output "$work/core"
+        expected="$(awk '$2 == "emulator/qemu/darwin-aarch64/qemu-system-aarch64-headless" {print $1}' "$GITHUB_WORKSPACE/packaging/runtime-source/runtime-sha256.txt")"
+        actual="$(shasum -a 256 "$work/core" | awk '{print $1}')"
+        if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then
+          echo '::error::The supplied emulator core does not match the pinned SHA-256'; exit 1
+        fi
+        curl --fail --silent --show-error --location --retry 3 --proto '=https' --proto-redir '=https' \
+          'https://redirector.gvt1.com/edgedl/android/repository/emulator-darwin_aarch64-16970787.zip' --output "$work/emulator.zip"
+        curl --fail --silent --show-error --location --retry 3 --proto '=https' --proto-redir '=https' \
+          'https://redirector.gvt1.com/edgedl/android/repository/platform-tools_r37.0.3-darwin.zip' --output "$work/platform-tools.zip"
+        python3 "$GITHUB_WORKSPACE/scripts/prepare-bundled-runtime.py" \
+          --emulator-zip "$work/emulator.zip" --platform-tools-zip "$work/platform-tools.zip" \
+          --core "$work/core" --output "$work/sdk"
+        echo "MIKO_BUNDLED_SDK=$work/sdk" >> "$GITHUB_ENV"

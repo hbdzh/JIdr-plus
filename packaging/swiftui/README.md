@@ -28,6 +28,19 @@ repository. This is local development work only. The clean-room policy allows
 redistribution only after the component provenance, licences, corresponding-source
 obligations and notices are verified; this review remains open.
 
+For GitHub Actions, the shared `prepare-miko-runtime` action can fetch a
+separately hosted pinned core from repository variable `MIKO_RUNTIME_CORE_URL`,
+verify its SHA-256, download the two pinned official archives and reconstruct
+the runtime. The action was exercised locally with fixture downloads; it has
+not yet run on GitHub. No core URL is configured by this change. The public
+release gate remains closed and the packaging-check workflow deliberately does
+not upload its local test artifacts while redistribution review is incomplete.
+The action's local fixture test is `scripts/test-ci-runtime-action.sh` followed
+by the two archive paths and the core path. A core built from source must first
+be reviewed and made available at a stable HTTPS location with its complete
+corresponding source. See
+`docs/runtime-provenance-local.md`.
+
 `--rehearsal` uses ad-hoc signatures, isolated temporary data and install/uninstall
 checks, and writes `target/release-rehearsal/report.md`. It neither publishes nor
 replaces an installed app. `apps/miko-swiftui/package-test.sh` delegates to it;

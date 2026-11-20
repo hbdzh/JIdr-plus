@@ -1,0 +1,16 @@
+Additional local core build record (not a complete licence inventory)
+
+The local headless core was linked with static FFmpeg libraries whose
+libavcodec headers report 58.134.100 and match the FFmpeg 4.4.2 source
+archive. The captured configuration includes --enable-gpl. The build also
+passed an x264 build-148 static library to the linker and the FFmpeg build
+configuration refers to libx264; which x264 objects were retained remains
+unverified. The original generated NOTICE files are retained unmodified.
+
+FFmpeg source: https://ffmpeg.org/releases/ffmpeg-4.4.2.tar.gz
+x264 source candidate: x264-snapshot-20170103-2245.tar.bz2, SHA-1
+  e20b187fa3907c7a6e42354a6edcb8f8a5389f47, as listed in the pinned
+  AOSP prebuilts/android-emulator-build/archive/PACKAGES.TXT.
+
+This addendum and the accompanying licence texts do not establish a complete
+corresponding-source package. The distribution review remains incomplete.

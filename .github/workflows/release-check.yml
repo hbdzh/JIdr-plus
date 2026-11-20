@@ -23,9 +23,18 @@ jobs:
       - uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      # The pinned core must be hosted only after source/licence review.
+      - name: Prepare required runtime
+        uses: ./.github/actions/prepare-miko-runtime
+        with:
+          core-url: ${{ vars.MIKO_RUNTIME_CORE_URL }}
+
       - name: Build and scan
         run: cargo xtask release --dry-run --scan --out dist
+      # This public repository must not distribute the unreviewed runtime,
+      # even as a workflow artifact. Re-enable only after the release review.
       - name: Upload test packages
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: miko-plus-unsigned-test-packages

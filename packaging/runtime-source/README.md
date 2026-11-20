@@ -30,3 +30,21 @@ Apple linker. `qemu-local.patch` includes a machine-specific linker path; the
 recorded recipe and pinned manifest are starting points, not a demonstrated
 portable rebuild. Exact build dependency and corresponding-source review is
 still required.
+
+For a local source review, `scripts/collect-runtime-source.py --aosp-root
+/path/to/aosp --output /path/to/new-source-review` archives the checked-out
+source projects at their pinned revisions and verifies that the only recorded
+QEMU modification is the saved patch. The result is a review candidate, not a
+complete corresponding-source certification: it does not establish the exact
+source of the official SDK binaries, capture untracked build inputs or prove a
+clean rebuild.
+
+`python3 scripts/build-runtime-core.py --aosp-root /path/to/aosp --output
+/path/to/new-build --verify-only` checks the recorded source and local toolchain;
+remove `--verify-only` to attempt a new build. It refuses to overwrite output
+and rejects a rebuilt core whose hash differs from the pinned release input.
+The equivalent manual build and the script's input/toolchain preflight have
+run, but the new script itself has not yet run end to end and the rebuilt core
+was not byte-identical. The `--verify-only` check verifies the relevant macOS
+ARM64 Qt files using a separate temporary Git index; it does not repair or
+modify an existing checkout.

@@ -532,6 +532,10 @@ fn assemble_required_runtime(app: &Path) -> Result<()> {
         "LICENSE-qemu.txt",
         "COPYING-GPL-2.0",
         "COPYING-LGPL-2.1",
+        "NOTICE-build-addendum.txt",
+        "LICENSE-FFmpeg-4.4.2.md",
+        "COPYING-FFmpeg-GPLv2",
+        "COPYING-x264-GPLv2",
     ] {
         copy(&records.join(name), &licences.join(name))?;
     }
@@ -1004,6 +1008,10 @@ fn check_swiftui_bundle(app: &Path, version: &str, evidence: &mut Evidence) -> R
         "LICENSE-qemu.txt",
         "COPYING-GPL-2.0",
         "COPYING-LGPL-2.1",
+        "NOTICE-build-addendum.txt",
+        "LICENSE-FFmpeg-4.4.2.md",
+        "COPYING-FFmpeg-GPLv2",
+        "COPYING-x264-GPLv2",
     ] {
         require_file(
             &resources.join("licenses/runtime-core").join(name),
