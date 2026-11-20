@@ -132,7 +132,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.tag }}
-        run: gh release upload "$RELEASE_TAG" dist/miko-simulator-*-arm64.dmg dist/miko-mcp-*.mcpb dist/SHA256SUMS.txt dist/mcp-registry.json dist/miko-runtime-source-review-0.10.0.tar.gz dist/miko-runtime-source-projects-0.10.0.tar --clobber
+        run: gh release upload "$RELEASE_TAG" dist/miko-simulator-*-arm64.dmg dist/miko-mcp-*.mcpb dist/SHA256SUMS.txt dist/mcp-registry.json dist/miko-runtime-source-review-0.10.0.tar.gz dist/miko-runtime-source-projects-0.10.0.tar dist/miko-runtime-dependency-sources-0.10.0.tar.gz --clobber
 
       - name: Publish the completed draft release
         env:

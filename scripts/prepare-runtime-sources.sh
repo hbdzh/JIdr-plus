@@ -13,7 +13,8 @@ trap 'rm -rf "$work"' EXIT
 base='https://github.com/hbdzh/miko-simulator/releases/download/v0.10.0'
 review='miko-runtime-source-review-0.10.0.tar.gz'
 projects='miko-runtime-source-projects-0.10.0.tar'
-for file in "$review" "$projects"; do
+dependencies='miko-runtime-dependency-sources-0.10.0.tar.gz'
+for file in "$review" "$projects" "$dependencies"; do
   [ ! -e "$out/$file" ] || { echo "output already exists: $out/$file" >&2; exit 1; }
 done
 curl --fail --silent --show-error --location --retry 3 --proto '=https' --proto-redir '=https' "$base/$review" --output "$work/$review"
@@ -22,5 +23,7 @@ tar -xOf "$work/$review" miko-runtime-source/runtime-sha256.txt | cmp - "$root/p
 tar -xOf "$work/$review" miko-runtime-source/qemu-local.patch | cmp - "$root/packaging/runtime-source/qemu-local.patch"
 curl --fail --silent --show-error --location --retry 3 --proto '=https' --proto-redir '=https' "$base/$projects" --output "$work/$projects"
 echo "7ac094b68991d5fa8bf7074a4bbfe695ecc33c73acc32ad6fb49011adc80d13c  $work/$projects" | shasum -a 256 -c -
-mv "$work/$review" "$work/$projects" "$out/"
+curl --fail --silent --show-error --location --retry 3 --proto '=https' --proto-redir '=https' "$base/$dependencies" --output "$work/$dependencies"
+echo "76db58aa626bd6e4eb86309ded4c91ce68abbfc0305788ba24356a86fe9357d2  $work/$dependencies" | shasum -a 256 -c -
+mv "$work/$review" "$work/$projects" "$work/$dependencies" "$out/"
 printf '%s\n' 'Prepared incomplete source-review materials; the separate release review gate still applies.'
