@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/brand/app-icon.svg" width="112" alt="miko 模拟器 图标">
+<img src="assets/brand/app-icon-512.png" width="112" alt="miko 模拟器 图标">
 
 # miko 模拟器
 
