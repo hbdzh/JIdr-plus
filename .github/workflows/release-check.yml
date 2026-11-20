@@ -31,6 +31,8 @@ jobs:
 
       - name: Build and scan
         run: cargo xtask release --dry-run --scan --out dist
+      - name: Prepare runtime source-review materials
+        run: scripts/prepare-runtime-sources.sh dist
       # This public repository must not distribute the unreviewed runtime,
       # even as a workflow artifact. Re-enable only after the release review.
       - name: Upload test packages
