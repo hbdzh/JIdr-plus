@@ -43,9 +43,9 @@ clean rebuild.
 /path/to/new-build --verify-only` checks the recorded source and local toolchain;
 remove `--verify-only` to attempt a new build. It refuses to overwrite output
 and rejects a rebuilt core whose hash differs from the pinned release input.
-The equivalent manual build and the script's input/toolchain preflight have
-run, but the new script itself has not yet run end to end and the rebuilt core
-was not byte-identical. The `--verify-only` check verifies the relevant macOS
+The script has been run end to end: compilation and signature verification
+succeeded, but the rebuilt core was not byte-identical to the pinned input, so
+the hash gate rejected it. The `--verify-only` check verifies the relevant macOS
 ARM64 Qt files using a separate temporary Git index; it does not repair or
 modify an existing checkout.
 
