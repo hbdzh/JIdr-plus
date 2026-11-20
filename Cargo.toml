@@ -22,7 +22,7 @@ members = [
 default-members = ["apps/miko"]
 
 [workspace.package]
-version = "0.9.1"
+version = "0.10.0"
 edition = "2024"
 rust-version = "1.99"
 license = "Apache-2.0"

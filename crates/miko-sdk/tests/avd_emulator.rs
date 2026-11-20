@@ -49,6 +49,7 @@ fn create_clone_boot_delete() {
     let tmp = tempfile::tempdir().unwrap();
     let paths = MikoPaths::under(tmp.path());
     let sdks = SdkSet {
+        legacy: Vec::new(),
         private: Sdk::private(&paths),
         custom: None,
         studio: Some(Sdk::read_only(test_sdk())),
@@ -255,6 +256,7 @@ fn snapshot_clone_resumes_independently() {
     let tmp = tempfile::tempdir().unwrap();
     let paths = MikoPaths::under(tmp.path());
     let sdks = SdkSet {
+        legacy: Vec::new(),
         private: Sdk::private(&paths),
         custom: None,
         studio: Some(Sdk::read_only(test_sdk())),
@@ -383,6 +385,7 @@ fn migration_restores_guest_data_and_snapshot() {
         .unwrap();
     let source = MikoPaths::under(temp.path().join("source"));
     let sdks = SdkSet {
+        legacy: Vec::new(),
         private: Sdk::private(&source),
         custom: None,
         studio: Some(Sdk::read_only(test_sdk())),

@@ -159,8 +159,6 @@
 "源代码" = "Source code";
 "许可证" = "Licences";
 "安装" = "Install";
-"使用已有 SDK…" = "Use existing SDK…";
-"未找到可下载的镜像；请检查网络，或使用已有 SDK。" = "No downloadable images were found. Check your connection or use an existing SDK.";
 "打开设备窗口" = "Open device window";
 "没有正在进行的 Root 配置。" = "No root setup is in progress.";
 "查看 Root 配置" = "View root setup";

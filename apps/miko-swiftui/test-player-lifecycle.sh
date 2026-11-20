@@ -22,7 +22,8 @@ trap 'rm -rf "$miko_test_home"' EXIT
 # directory so a source checkout does not need its executable bit changed.
 cp "$root/apps/miko-swiftui/Tests/PlayerLifecycle/center-fixture.py" "$miko_test_home/center-fixture"
 cp "$root/apps/miko-swiftui/Tests/PlayerLifecycle/player-fixture.py" "$miko_test_home/player-fixture"
-chmod +x "$miko_test_home/center-fixture" "$miko_test_home/player-fixture"
+cp "$root/apps/miko-swiftui/Tests/PlayerLifecycle/frame-fixture.py" "$miko_test_home/frame-fixture"
+chmod +x "$miko_test_home/center-fixture" "$miko_test_home/player-fixture" "$miko_test_home/frame-fixture"
 MIKO_HOME="$miko_test_home" MIKO_PROTOTYPE_TEST_PASTEBOARD="miko.lifecycle.$$" \
   "$out/lifecycle-tests" "$miko_test_home/center-fixture" "$miko_test_home/player-fixture" \
-  "$root/target/debug/miko-swiftui-bridge"
+  "$root/target/debug/miko-swiftui-bridge" "$miko_test_home/frame-fixture"

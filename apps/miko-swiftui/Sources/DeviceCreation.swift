@@ -1,6 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 
+/// The selected folder contains all miko data; an internal subfolder lets
+/// us safely adopt a folder that already contains system images.
+enum MikoStorageRoot {
+    static func root(forData data: String) -> String {
+        let url = URL(fileURLWithPath: data).standardizedFileURL
+        guard url.lastPathComponent == "data" else { return url.path }
+        let parent = url.deletingLastPathComponent()
+        return parent.lastPathComponent == "miko-storage" ? parent.deletingLastPathComponent().path : parent.path
+    }
+    static func contains(root: String, path: String) -> Bool {
+        let base = URL(fileURLWithPath: root).standardizedFileURL.pathComponents
+        let child = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+        return child.starts(with: base)
+    }
+    static func destination(forRoot root: URL) -> String {
+        root.standardizedFileURL.appendingPathComponent("miko-storage", isDirectory: true).path
+    }
+}
+
 /// Wait for both independent SDK probes before selecting the first page.
 enum DeviceOnboardingRoute {
     static func useDeviceSetup(hasTools: Bool, installedImageCount: Int) -> Bool {
@@ -11,18 +30,6 @@ enum DeviceOnboardingRoute {
         if let preferred, installed.contains(preferred) { return preferred }
         if installed.contains(current) { return current }
         return installed.first ?? ""
-    }
-}
-
-/// Decide only after both SDK and installed-image checks have returned.
-struct DeviceSDKReuseCheck {
-    private var hasTools: Bool?
-    private var imageCount: Int?
-    mutating func recordTools(_ value: Bool) { hasTools = value }
-    mutating func recordImages(_ count: Int) { imageCount = count }
-    var ready: Bool? {
-        guard let hasTools, let imageCount else { return nil }
-        return DeviceOnboardingRoute.useDeviceSetup(hasTools: hasTools, installedImageCount: imageCount)
     }
 }
 

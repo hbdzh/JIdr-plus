@@ -617,10 +617,9 @@ final class PlayerTransport: ObservableObject, SyncBridgeTarget {
         decoderLock.lock()
         defer { decoderLock.unlock() }
         let valid = autoreleasepool {
-            decoder.consume(data) { frame in
-                // The decoder has already parsed this frame, so the stream and
-                // the bridge keep flowing; only the CGImage/presentation work is
-                // skipped while no part of the window is on screen.
+            decoder.consume(data, shouldDecode: { displayVisible }) { frame in
+                // Visibility may have changed while a frame was being read.
+                // The stream keeps flowing even when presentation is skipped.
                 guard displayVisible else {
                     frameLock.lock()
                     pendingFrame = nil

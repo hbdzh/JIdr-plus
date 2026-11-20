@@ -110,3 +110,48 @@ async fn inject_busy_and_stop() {
         .unwrap();
     assert_eq!(j.state, JobState::Succeeded, "{j:?}");
 }
+
+/// With no input device, do not invoke the emulator's crashing audio path.
+#[cfg(target_os = "macos")]
+#[tokio::test(flavor = "multi_thread")]
+async fn no_host_input_reports_error_and_keeps_device_running() {
+    fn has_input(value: &serde_json::Value) -> bool {
+        match value {
+            serde_json::Value::Object(fields) => {
+                fields.get("coreaudio_device_input").is_some_and(|v| {
+                    v.as_u64().is_some_and(|n| n > 0)
+                        || v.as_str()
+                            .and_then(|s| s.parse::<u64>().ok())
+                            .is_some_and(|n| n > 0)
+                }) || fields.values().any(has_input)
+            }
+            serde_json::Value::Array(items) => items.iter().any(has_input),
+            _ => false,
+        }
+    }
+    let status = std::process::Command::new("/usr/sbin/system_profiler")
+        .args(["SPAudioDataType", "-json"])
+        .output()
+        .unwrap();
+    assert!(status.status.success());
+    let info = serde_json::from_slice(&status.stdout).unwrap();
+    if has_input(&info) {
+        eprintln!("host has an audio input; no-input scenario not available");
+        return;
+    }
+    let env = common::Env::boot("no-input").await;
+    let wav = env.tmp.path().join("tone.wav");
+    std::fs::write(&wav, tone(1)).unwrap();
+    let err = env
+        .client
+        .run(
+            "audio.inject",
+            json!({ "device": env.device, "path": wav }),
+            |_| {},
+        )
+        .await
+        .unwrap_err();
+    assert!(err.message.contains("audio input device"), "{err}");
+    assert_eq!(env.shell("getprop sys.boot_completed").trim(), "1");
+    env.stop().await;
+}

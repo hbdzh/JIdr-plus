@@ -201,6 +201,22 @@ RunLoop.main.run(until: Date().addingTimeInterval(0.1))
 require(late.recording == .idle && late.recordingStateUnknown, "retired recording diagnostic cannot revive the pending phase")
 late.stop()
 
+// A continuous stream keeps its framing through hide/restore transitions.
+let streaming = PlayerTransport()
+var shownFrames = 0
+streaming.onFrame = { _, _ in shownFrames += 1 }
+try streaming.start(device: "fixture", width: 48, height: 64, executable: CommandLine.arguments[4])
+eventually("continuous fixture delivers frames") { shownFrames >= 3 }
+streaming.setDisplayVisible(false)
+RunLoop.main.run(until: Date().addingTimeInterval(0.12))
+let hiddenCount = shownFrames
+RunLoop.main.run(until: Date().addingTimeInterval(0.25))
+require(shownFrames == hiddenCount, "hidden frames are not presented")
+streaming.setDisplayVisible(true)
+eventually("fresh frames arrive after restore") { shownFrames > hiddenCount }
+require(streaming.frameWidth == 48 && streaming.frameHeight == 64, "restored frame dimensions are correct")
+_ = streaming.stop()
+
 // Run the real Rust fixture through the real window/transport. It must deliver
 // a first frame and report unsupported device commands, not silently consume
 // them. Pending recording must be released on that explicit rejection.

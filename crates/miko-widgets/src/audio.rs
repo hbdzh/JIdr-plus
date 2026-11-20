@@ -95,6 +95,64 @@ pub fn result(path: &std::path::Path, clip: &Clip, played: Played) -> Value {
     })
 }
 
+// Some Emulator builds crash inside injectAudio when macOS has no input
+// device. Check before opening the stream so the running guest stays intact.
+#[cfg(target_os = "macos")]
+fn has_audio_input(value: &Value) -> bool {
+    match value {
+        Value::Object(fields) => {
+            fields
+                .get("coreaudio_device_input")
+                .is_some_and(|channels| {
+                    channels.as_u64().is_some_and(|n| n > 0)
+                        || channels
+                            .as_str()
+                            .and_then(|s| s.parse::<u64>().ok())
+                            .is_some_and(|n| n > 0)
+                })
+                || fields.values().any(has_audio_input)
+        }
+        Value::Array(items) => items.iter().any(has_audio_input),
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "macos")]
+async fn ensure_audio_input(controller: &mut miko_proto::Controller) -> MikoResult<()> {
+    // Ask the running emulator. SDK settings may have changed since it booted.
+    if let Ok(Ok(status)) =
+        tokio::time::timeout(Duration::from_secs(2), controller.get_status(())).await
+        && status
+            .get_ref()
+            .guest_config
+            .get("mikoAudioInputFallback")
+            .is_some_and(|value| value == "1")
+    {
+        return Ok(());
+    }
+    let mut command = tokio::process::Command::new("/usr/sbin/system_profiler");
+    command
+        .args(["SPAudioDataType", "-json"])
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(Duration::from_secs(10), command.output())
+        .await
+        .map_err(|_| MikoError::sdk("could not check the Mac's audio input devices"))?
+        .map_err(|_| MikoError::sdk("could not check the Mac's audio input devices"))?;
+    if !output.status.success() {
+        return Err(MikoError::sdk(
+            "could not check the Mac's audio input devices",
+        ));
+    }
+    let value: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|_| MikoError::sdk("could not check the Mac's audio input devices"))?;
+    if !has_audio_input(&value) {
+        return Err(MikoError::sdk(
+            "audio injection requires an available Mac audio input device",
+        ));
+    }
+    Ok(())
+}
+
 pub async fn call(
     ctx: &CallCtx,
     injections: &Injections,
@@ -135,15 +193,11 @@ pub async fn call(
                 };
                 ctx.report(Some(f), &progress_text(at, total, loops, p.repeat));
             };
-            let played = audio::inject(
-                t.grpc().await?,
-                &clip,
-                play,
-                &reg.flag,
-                &ctx.cancel,
-                &report,
-            )
-            .await?;
+            let controller = t.grpc().await?;
+            #[cfg(target_os = "macos")]
+            ensure_audio_input(&mut controller.clone()).await?;
+            let played =
+                audio::inject(controller, &clip, play, &reg.flag, &ctx.cancel, &report).await?;
             Ok(result(&p.path, &clip, played))
         }
         "audio.stop" => {
@@ -161,6 +215,23 @@ mod tests {
 
     fn params(v: Value) -> InjectParams {
         parse_params(v).unwrap()
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn audio_input_detection_handles_empty_and_real_devices() {
+        assert!(!has_audio_input(
+            &json!({"SPAudioDataType":[{"_items":[{"coreaudio_device_output":2}]}]})
+        ));
+        assert!(has_audio_input(
+            &json!({"SPAudioDataType":[{"_items":[{"coreaudio_device_input":1}]}]})
+        ));
+        assert!(has_audio_input(
+            &json!({"SPAudioDataType":[{"_items":[{"coreaudio_device_input":"2"}]}]})
+        ));
+        assert!(!has_audio_input(
+            &json!({"SPAudioDataType":[{"_items":[{"coreaudio_device_input":0}]}]})
+        ));
     }
 
     #[test]

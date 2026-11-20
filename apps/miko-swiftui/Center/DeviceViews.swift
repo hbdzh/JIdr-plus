@@ -277,7 +277,7 @@ struct EditDeviceView: View {
                     LabeledContent(model.text("磁盘占用", "Disk usage"),
                                    value: details.disk_usage.map { ByteCountFormatter.string(fromByteCount:Int64(clamping:$0),countStyle:.file) } ?? "—")
                     LabeledContent(model.text("数据目录", "Data folder")) {
-                        Text(model.dataDirectory ?? "—")
+                        Text(model.dataDirectory.map(MikoStorageRoot.root(forData:)) ?? "—")
                             .wbFont(WbType.code)
                             .foregroundStyle(WbColor.textSecondary)
                             .lineLimit(1)
@@ -741,13 +741,14 @@ struct NewDeviceView: View {
     @State private var availableImagesLoading = false
     @State private var availableImagesError = ""
     @State private var installImageID = ""
-    @State private var installSelectionInitialized = false
     @State private var onboardingInstallRequested = false
     @State private var preparationAttempt = SDKPreparationAttempt()
     @State private var environmentReview = SDKLicenseReview()
     @State private var showingEnvironmentLicenses = false
     @State private var environmentLicenseLoading = false
     @State private var environmentLicenseError = ""
+    @State private var onboardingStorageEstimate: StorageEstimateInfo?
+    @State private var onboardingStorageProgress = ""
 
     init(model: CenterModel, initialStep: Int = 0, inline: Bool = false,
          initialShowAdvanced: Bool = false, automaticallySkipReadyEnvironment: Bool = true,
@@ -782,7 +783,7 @@ struct NewDeviceView: View {
 
     private func resolveInitialRoute() {
         guard resolvingInitialRoute, initialImagesChecked, initialSDKChecked else { return }
-        directDeviceSetup = DeviceOnboardingRoute.useDeviceSetup(hasTools: environmentStatus?.tools_sdk != nil,
+        directDeviceSetup = DeviceOnboardingRoute.useDeviceSetup(hasTools: environmentStatus?.tools_sdk != nil && !preparesRuntime,
                                                                   installedImageCount: images.count)
         if directDeviceSetup { step = 3 }
         initialRouteResolved = true
@@ -912,9 +913,13 @@ struct NewDeviceView: View {
         .sheet(isPresented: $showingEnvironmentLicenses) {
             EnvironmentLicensesView(language: model.language, licenses: environmentReview.licenses,
                                     loading: environmentLicenseLoading, error: environmentLicenseError,
-                                    canAgree: !environmentBusy && !sdkRootsOverlap && environmentReview.canAgree(to: environmentSelection),
-                                    retry: loadEnvironmentLicenses,
-                                    onAgree: { environmentReview.agree(to: environmentSelection) })
+                                    canAgree: !environmentBusy && environmentReview.canAgree(to: environmentSelection),
+                                    retry: { loadEnvironmentLicenses() },
+                                    onAgree: {
+                                        guard environmentReview.agree(to: environmentSelection) else { return false }
+                                        if preparesRuntime { DispatchQueue.main.async { beginEnvironmentInstallation() } }
+                                        return true
+                                    })
         }
         .sheet(isPresented: $showingCustomResolution) {
             let selected = profiles.first(where: { $0.id == profile })
@@ -947,10 +952,17 @@ struct NewDeviceView: View {
             loadImages()
             if initialImageInstall { openImageInstaller() } else { loadEnvironment() }
         }
-        .interactiveDismissDisabled(model.onboardingInstallForegroundRequired)
-        .onChange(of: installImageID) { _ in invalidateEnvironmentReview() }
-        .onChange(of: environmentStatus?.install_sdk ?? environmentStatus?.private_sdk) { _ in invalidateEnvironmentReview() }
-        .onChange(of: environmentStatus?.studio_sdk) { _ in invalidateEnvironmentReview() }
+        .alert(model.text("更改存储位置？", "Change storage location?"),
+               isPresented: Binding(get: { onboardingStorageEstimate != nil }, set: { if !$0 { onboardingStorageEstimate = nil } }),
+               presenting: onboardingStorageEstimate) { estimate in
+            Button(model.text("取消", "Cancel"), role: .cancel) { onboardingStorageEstimate = nil }
+            Button(model.text("开始迁移", "Move data")) { onboardingStorageEstimate = nil; moveOnboardingStorage(estimate) }
+        } message: { estimate in
+            Text(model.text("设备、镜像和缓存将迁移到所选目录。运行中的设备会先停止。", "Devices, images and cache will move to the selected folder. Running devices will be stopped first."))
+        }
+        .interactiveDismissDisabled(model.onboardingInstallForegroundRequired || model.migratingStorage)
+        .onChange(of: installImageID) { _ in environmentSelectionChanged() }
+        .onChange(of: environmentStatus?.install_sdk ?? environmentStatus?.private_sdk) { _ in environmentSelectionChanged() }
     }
 
     private var wizardHeader: some View {
@@ -998,6 +1010,9 @@ struct NewDeviceView: View {
             catch { environmentStatus = nil; environmentError = model.text("无法检查 SDK 状态：", "Unable to check SDK status: ") + error.localizedDescription; onStatus(false) }
             initialSDKChecked = true
             resolveInitialRoute()
+            if step == 0 && preparesRuntime && !environmentBusy && !environmentLicenseLoading && environmentReview.licenses == nil {
+                loadEnvironmentLicenses(automaticallyPrepare: true)
+            }
         }
         guard !availableImagesLoading else { return }
         availableImagesLoading = true; availableImagesError = ""
@@ -1005,89 +1020,95 @@ struct NewDeviceView: View {
             availableImagesLoading = false
             do {
                 availableImages = try model.decode(result.get(), as: [AvailableImage].self).filter { $0.installed_in == nil }
-                if !installSelectionInitialized {
-                    installImageID = availableImages.first?.id ?? ""
-                    installSelectionInitialized = true
-                } else if !installImageID.isEmpty && !availableImages.contains(where: { $0.id == installImageID }) {
-                    installImageID = ""
-                }
+                installImageID = SDKImageSelection.afterRefresh(current: installImageID, available: availableImages.map(\.id))
             } catch { availableImagesError = model.text("无法读取可下载镜像：", "Unable to load downloadable images: ") + error.localizedDescription }
         }
     }
 
-    private func chooseSDKLocation(install: Bool) {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true; panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false; panel.canCreateDirectories = install
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        setSDKLocation(url.path, install: install)
-    }
-
-    private var sdkRootsOverlap: Bool {
-        guard let external = environmentStatus?.studio_sdk,
-              let destination = environmentStatus?.install_sdk ?? environmentStatus?.private_sdk else { return false }
-        return SDKInstallPlan.rootsOverlap(external, destination)
-    }
-
-    private func setSDKLocation(_ path: String, install: Bool) {
-        guard environmentStatus != nil else { return }
-        let other = install ? environmentStatus?.studio_sdk : (environmentStatus?.install_sdk ?? environmentStatus?.private_sdk)
-        if let other, SDKInstallPlan.rootsOverlap(path, other) {
-            environmentError = model.text("安装目录和已有 SDK 目录不能重叠。", "The install location and existing SDK must not overlap.")
-            return
+    private func onboardingStorageButton(_ title: String) -> some View {
+        Button(action: chooseOnboardingStorage) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(WbColor.textPrimary)
+                .padding(.horizontal, 10).padding(.vertical, 7)
+                .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(WbColor.borderDefault.opacity(0.8)))
         }
-        invalidateEnvironmentReview()
+        .buttonStyle(.plain)
+        .disabled(saving || environmentBusy || model.migratingStorage || model.dataDirectory == nil)
+    }
+
+    private func chooseOnboardingStorage() {
+        guard !environmentBusy, !model.migratingStorage else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true; panel.canChooseFiles = false; panel.canCreateDirectories = true
+        panel.prompt = model.text("选择存储目录", "Choose storage folder")
+        panel.message = model.text("选择保存设备、系统镜像和缓存的目录。", "Choose the folder for devices, system images and cache.")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        if let data = model.dataDirectory, MikoStorageRoot.root(forData: data) == url.standardizedFileURL.path { return }
         environmentBusy = true; environmentError = ""
-        model.call("center.toolpath.set", ["kind": install ? "miko_sdk" : "sdk", "path": path]) { result in
+        model.estimateStorageMigration(to: MikoStorageRoot.destination(forRoot: url)) { result in
             environmentBusy = false
             switch result {
-            case .success:
-                model.refresh()
-                if !install && imageInstallReturnStep == nil {
-                    checkSelectedSDK()
-                } else { loadEnvironment(); loadImages() }
-            case .failure(let failure): environmentError = model.text("无法使用该目录：", "Unable to use this directory: ") + failure.localizedDescription
+            case .success(let estimate): onboardingStorageEstimate = estimate
+            case .failure(let error): environmentError = OperationMessages.storageError(code: (error as? CenterMessageError)?.code, message: error.localizedDescription, language: model.language)
             }
         }
     }
 
-    private func checkSelectedSDK() {
-        environmentBusy = true
-        var probe = DeviceSDKReuseCheck()
-        func finishIfReady() {
-            guard let ready = probe.ready else { return }
-            environmentBusy = false
-            guard ready else { return }
-            environmentReturnStep = nil
-            if standaloneSDKSetup { closePanel() } else { directDeviceSetup = true; step = 3 }
+    private func moveOnboardingStorage(_ estimate: StorageEstimateInfo) {
+        environmentBusy = true; onboardingStorageProgress = model.text("正在迁移数据…", "Moving data…")
+        model.migrateStorage(to: estimate.destination, onProgress: { message, _ in onboardingStorageProgress = message }) { result in
+            environmentBusy = false; onboardingStorageProgress = ""
+            switch result {
+            case .success: loadImages(); loadEnvironment()
+            case .failure(let error): environmentError = OperationMessages.storageError(code: (error as? CenterMessageError)?.code, message: error.localizedDescription, language: model.language)
+            }
         }
-        loadEnvironment { success in probe.recordTools(success && environmentStatus?.tools_sdk != nil); finishIfReady() }
-        loadImages { success in probe.recordImages(success ? images.count : 0); finishIfReady() }
+    }
+
+    private var preparesRuntime: Bool {
+        guard let status = environmentStatus, !standaloneImageInstall, imageInstallReturnStep == nil else { return false }
+        return status.tools_sdk == nil || status.runtime_needs_install == true
     }
 
     private var environmentSelection: SDKInstallSelection? {
         guard let status = environmentStatus, let destination = status.install_sdk ?? status.private_sdk else { return nil }
-        guard imageInstallReturnStep == nil || !installImageID.isEmpty else { return nil }
+        if preparesRuntime {
+            return SDKInstallSelection(imagePackage: nil, destination: destination)
+        }
         let selectedImage = availableImages.first(where: { $0.id == installImageID })
-        guard installImageID.isEmpty || selectedImage != nil else { return nil }
-        return SDKInstallSelection(imagePackage: selectedImage?.package, destination: destination, externalSDK: status.studio_sdk)
+        return SDKImageSelection.planSelection(selectedID: installImageID, selectedPackage: selectedImage?.package,
+                                               requiresImage: true,
+                                               destination: destination)
+    }
+
+    private func environmentSelectionChanged() {
+        guard let reviewed = environmentReview.selection, reviewed != environmentSelection else { return }
+        invalidateEnvironmentReview()
     }
 
     private func invalidateEnvironmentReview() {
         environmentReview.reset(); environmentLicenseLoading = false; environmentLicenseError = ""
     }
 
-    private func loadEnvironmentLicenses() {
-        guard !environmentLicenseLoading, let selection = environmentSelection, !sdkRootsOverlap else { return }
+    private func loadEnvironmentLicenses(automaticallyPrepare: Bool = false) {
+        guard !environmentLicenseLoading, let selection = environmentSelection else { return }
         let revision = environmentReview.begin(selection)
         environmentLicenseLoading = true; environmentLicenseError = ""
-        let packages = ["emulator", "platform-tools"] + (selection.imagePackage.map { [$0] } ?? [])
+        let packages = selection.imagePackage.map { [$0] } ?? ["emulator", "platform-tools"]
         model.call("sdk.license_details", ["packages": packages]) { result in
             guard environmentReview.revision == revision, environmentSelection == selection else { return }
             environmentLicenseLoading = false
             do {
                 let licenses = try model.decode(result.get(), as: [PendingLicense].self)
-                _ = environmentReview.complete(licenses, selection: selection, revision: revision)
+                guard environmentReview.complete(licenses, selection: selection, revision: revision),
+                      automaticallyPrepare else { return }
+                if licenses.allSatisfy({ $0.accepted == true }), environmentReview.agree(to: environmentSelection) {
+                    beginEnvironmentInstallation()
+                } else if !licenses.isEmpty {
+                    showingEnvironmentLicenses = true
+                }
             } catch {
                 environmentLicenseError = model.text("无法读取许可，请检查网络后重试。", "Unable to load licences. Check your connection and retry.") + "\n" + error.localizedDescription
             }
@@ -1095,9 +1116,9 @@ struct NewDeviceView: View {
     }
 
     private var canBeginEnvironmentInstallation: Bool {
-        environmentReview.canBeginInstallation(for: environmentSelection, busy: environmentBusy,
-                                               installing: model.sdkInstalling, overlappingRoots: sdkRootsOverlap,
-                                               imagesLoading: availableImagesLoading)
+        (preparesRuntime || environmentStatus?.tools_sdk != nil) && environmentReview.canBeginInstallation(for: environmentSelection, busy: environmentBusy,
+                                               installing: model.sdkInstalling,
+                                               imagesLoading: !preparesRuntime && availableImagesLoading)
     }
 
     private func beginEnvironmentInstallation() {
@@ -1116,7 +1137,6 @@ struct NewDeviceView: View {
             do {
                 let current = try model.decode(result.get(), as: SDKStatus.self)
                 guard (current.install_sdk ?? current.private_sdk) == selection.destination,
-                      current.studio_sdk == selection.externalSDK,
                       environmentSelection == selection,
                       environmentReview.authorizedPlan(for: selection) != nil else {
                     environmentBusy = false; model.onboardingInstallForegroundRequired = false
@@ -1143,6 +1163,17 @@ struct NewDeviceView: View {
             let installedImageID = plan.imagePackage == nil ? nil : installImageID
             model.startSDKInstall(plan) { succeeded in
                 if succeeded {
+                    if plan.imagePackage == nil {
+                        invalidateEnvironmentReview()
+                        imageInstallReturnStep = nil; environmentReturnStep = nil
+                        loadEnvironment()
+                        loadImages { _ in
+                            if standaloneSDKSetup { closePanel() }
+                            else if images.isEmpty { step = 0; onboardingInstallRequested = false }
+                            else { directDeviceSetup = true; step = 3 }
+                        }
+                        return
+                    }
                     loadImages(preferredImageID: installedImageID); loadEnvironment()
                     if SDKOnboardingInstallState.shouldDismissAfterSuccess(requested: onboardingInstallRequested, step: step, succeeded: succeeded, standalone: standaloneEnvironment) {
                         closePanel()
@@ -1188,50 +1219,26 @@ struct NewDeviceView: View {
             Text(imageInstallReturnStep == nil ? model.text("准备 Android 环境", "Prepare your Android environment") : model.text("安装其他系统镜像", "Install another system image"))
                 .font(.system(size: 28, weight: .semibold)).foregroundStyle(WbColor.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(model.text("检查现有 SDK，按需准备运行模拟器所需的组件。", "Check an existing SDK and prepare the components needed to run the emulator."))
+            Text(model.text("首次设置会准备模拟器和 ADB。系统镜像按需下载。", "Set up the emulator and ADB, then download system images as needed."))
                 .font(.system(size: 13)).foregroundStyle(WbColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true).padding(.top, 10)
 
-            environmentSectionHeader(model.text("已有 Android SDK", "Existing Android SDK"),
-                                     detail: model.text("可选 · 只读复用", "Optional · read-only"))
+            environmentSectionHeader(model.text("存储位置", "Storage location"), detail: "")
                 .padding(.top, 22).padding(.bottom, 9)
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 11) {
-                    environmentIcon("folder")
-                    VStack(alignment: .leading, spacing: 5) {
-                        if let existing = environmentStatus?.studio_sdk {
-                            HStack(spacing: 8) {
-                                Text(model.text("检测到 Android SDK", "Android SDK detected"))
-                                    .font(.system(size: 12, weight: .semibold))
-                                if environmentStatus?.tools_sdk == existing {
-                                    Text(model.text("正在使用", "In use"))
-                                        .font(.system(size: 10, weight: .semibold)).foregroundStyle(WbColor.positive)
-                                        .padding(.horizontal, 7).padding(.vertical, 4)
-                                        .background(WbColor.positive.opacity(0.10), in: RoundedRectangle(cornerRadius: 6))
-                                }
-                            }
-                            Text(existing).font(.system(size: 11, design: .monospaced)).foregroundStyle(WbColor.textSecondary)
-                                .lineLimit(1).truncationMode(.middle).textSelection(.enabled).help(existing)
-                        } else {
-                            Text(model.text("选择已有的 Android SDK", "Choose an existing Android SDK"))
-                                .font(.system(size: 12, weight: .semibold))
-                            Text(model.text("选择包含模拟器和 ADB 的目录。", "Choose a folder containing the emulator and ADB."))
-                                .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary).fixedSize(horizontal: false, vertical: true)
-                        }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        let location = model.dataDirectory.map(MikoStorageRoot.root(forData:)) ?? model.text("读取中…", "Loading…")
+                        Text(location)
+                            .font(.system(size: 11, design: .monospaced))
+                            .lineLimit(1).truncationMode(.middle).textSelection(.enabled).help(location)
+                        Text(model.text("设备、系统镜像和缓存保存在这里。", "Devices, system images and cache are stored here."))
+                            .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }.frame(maxWidth: .infinity, alignment: .leading)
+                    onboardingStorageButton(model.text("更改位置…", "Change location…"))
                 }
-                HStack(spacing: 14) {
-                    if let existing = environmentStatus?.studio_sdk {
-                        Button { setSDKLocation(existing, install: false) } label: {
-                            Label(environmentStatus?.tools_sdk == existing ? model.text("正在使用", "In use") : model.text("使用此 SDK", "Use this SDK"), systemImage: "checkmark")
-                                .font(.system(size: 11, weight: .semibold)).padding(.horizontal, 10).padding(.vertical, 7)
-                                .foregroundStyle(WbColor.accentText)
-                                .background(WbColor.accentContainer.opacity(0.75), in: RoundedRectangle(cornerRadius: 8))
-                        }.buttonStyle(.plain).disabled(environmentBusy || environmentStatus?.tools_sdk == existing)
-                    }
-                    Button(environmentStatus?.studio_sdk == nil ? model.text("选择 SDK 目录…", "Choose SDK folder…") : model.text("选择其他位置…", "Choose another location…")) { chooseSDKLocation(install: false) }
-                        .buttonStyle(.plain).font(.system(size: 11, weight: .semibold)).foregroundStyle(WbColor.accentText).disabled(environmentBusy)
-                }
+                if !onboardingStorageProgress.isEmpty { Text(onboardingStorageProgress).font(.caption) }
             }.padding(14).frame(maxWidth: .infinity, alignment: .leading).modifier(OnboardingCardMaterial())
 
             environmentSectionHeader(model.text("安装所需组件", "Install components"),
@@ -1241,15 +1248,16 @@ struct NewDeviceView: View {
                 HStack(alignment: .center, spacing: 11) {
                     environmentIcon("arrow.down.to.line")
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(model.text("模拟器工具与系统镜像", "Emulator tools and system image"))
+                        Text(preparesRuntime ? model.text("模拟器和 ADB", "Emulator and ADB") : model.text("系统镜像", "System image"))
                             .font(.system(size: 12, weight: .semibold))
-                        Text(model.text("安装到 miko 的目录，不修改外部 SDK。", "Install into the miko folder without changing the external SDK."))
+                        Text(preparesRuntime ? model.text("先准备运行工具，稍后再选择系统镜像。", "Prepare the tools, then choose a system image.") : model.text("系统镜像会保存在 miko 的目录。", "System images are stored in the miko folder."))
                             .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
+                if !preparesRuntime {
                 Picker(model.text("安装组件", "Components to install"), selection: $installImageID) {
-                    if imageInstallReturnStep == nil { Text(model.text("仅模拟器工具", "Emulator tools only")).tag("") }
-                    else if availableImages.isEmpty { Text(model.text("没有可安装的系统镜像", "No system images available to install")).tag("") }
+                    Text(availableImages.isEmpty ? model.text("没有可安装的系统镜像", "No system images available to install")
+                                                 : model.text("请选择要安装的镜像", "Choose a system image to install")).tag("")
                     ForEach(availableImages) { image in
                         Text("API \(image.api) · \(Device.imageTagLabel(image.tag)) · \(image.abi)").tag(image.id)
                     }
@@ -1258,46 +1266,25 @@ struct NewDeviceView: View {
                 .labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
                 .accessibilityLabel(model.text("安装组件", "Components to install"))
                 .disabled(environmentBusy)
-                Divider().opacity(0.65)
-                HStack(alignment: .center, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(model.text("安装位置", "Install location"))
-                            .font(.system(size: 10)).foregroundStyle(WbColor.textSecondary)
-                        if let location = environmentStatus?.install_sdk ?? environmentStatus?.private_sdk {
-                            Text(location).font(.system(size: 11, weight: .medium, design: .monospaced))
-                                .foregroundStyle(WbColor.textSecondary).lineLimit(1).truncationMode(.middle)
-                                .help(location).textSelection(.enabled)
-                        } else {
-                            Text(model.text("正在检查…", "Checking…")).font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                    Button { chooseSDKLocation(install: true) } label: {
-                        Text(model.text("更改位置…", "Change location…"))
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(WbColor.textPrimary)
-                            .padding(.horizontal, 10).padding(.vertical, 7)
-                            .background(Color.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(WbColor.borderDefault.opacity(0.8)))
-                    }
-                    .buttonStyle(.plain).disabled(environmentBusy || environmentStatus == nil)
                 }
                 HStack(alignment: .center, spacing: 8) {
-                    if availableImagesLoading {
+                    if preparesRuntime {
+                        Text(model.text("工具会安装到 miko 的目录。", "Tools will be installed in the miko folder."))
+                    } else if availableImagesLoading {
                         ProgressView().controlSize(.small)
                         Text(model.text("正在读取镜像列表…", "Loading images…"))
                     } else {
-                        Image(systemName: sdkRootsOverlap || !availableImagesError.isEmpty ? "exclamationmark.circle" : "checkmark.circle")
-                            .foregroundStyle(sdkRootsOverlap || !availableImagesError.isEmpty ? WbColor.negative : WbColor.positive)
-                        Text(sdkRootsOverlap ? model.text("安装目录与已有 SDK 重叠", "Install location overlaps the existing SDK")
-                             : !availableImagesError.isEmpty ? availableImagesError
-                             : installImageID.isEmpty ? (imageInstallReturnStep == nil ? model.text("仅安装模拟器工具", "Emulator tools only") : model.text("没有可安装的系统镜像", "No system images available to install"))
+                        Image(systemName: !availableImagesError.isEmpty ? "exclamationmark.circle" : "checkmark.circle")
+                            .foregroundStyle(!availableImagesError.isEmpty ? WbColor.negative : WbColor.positive)
+                        Text(!availableImagesError.isEmpty ? availableImagesError
+                             : installImageID.isEmpty ? (availableImages.isEmpty ? model.text("没有可安装的系统镜像", "No system images available to install") : model.text("请选择要安装的镜像", "Choose a system image to install"))
                              : model.text("已读取系统镜像列表", "System images loaded"))
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 4)
                     Button(model.text("重新检测", "Check again")) {
-                        if imageInstallReturnStep == nil { checkSelectedSDK() }
-                        else { loadEnvironment(); loadImages() }
+                        loadEnvironment()
+                        loadImages()
                     }
                         .buttonStyle(.plain).font(.system(size: 11, weight: .semibold)).foregroundStyle(WbColor.accentText)
                         .disabled(environmentBusy || availableImagesLoading)
@@ -1319,7 +1306,7 @@ struct NewDeviceView: View {
                     }
                 ))
                 .toggleStyle(OnboardingLicenseToggleStyle()).font(.system(size: 12, weight: .semibold))
-                .disabled(environmentBusy || environmentSelection == nil || sdkRootsOverlap || availableImagesLoading)
+                .disabled(environmentBusy || environmentSelection == nil || availableImagesLoading)
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text(model.text("安装组件可能涉及 Android SDK 许可。", "Installing components may require Android SDK licences."))
                         .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
@@ -1329,7 +1316,7 @@ struct NewDeviceView: View {
                         if environmentReview.licenses == nil { loadEnvironmentLicenses() }
                     }
                     .buttonStyle(.plain).font(.system(size: 11, weight: .semibold)).foregroundStyle(WbColor.accentText)
-                    .disabled(environmentBusy || environmentSelection == nil || sdkRootsOverlap || availableImagesLoading)
+                    .disabled(environmentBusy || environmentSelection == nil || availableImagesLoading)
                 }.padding(.leading, 27).frame(maxWidth: .infinity, alignment: .leading)
             }.padding(14).frame(maxWidth: .infinity, alignment: .leading).modifier(OnboardingCardMaterial())
             if environmentBusy { OnboardingEnvironmentChecking(language: model.language).padding(.top, 8) }
@@ -1342,8 +1329,7 @@ struct NewDeviceView: View {
         directDeviceSetup = true
         environmentError = ""; error = ""
         invalidateEnvironmentReview()
-        installImageID = availableImages.first?.id ?? ""
-        installSelectionInitialized = false
+        installImageID = ""
         step = 0
         loadEnvironment()
     }
@@ -1358,6 +1344,19 @@ struct NewDeviceView: View {
                 .font(.system(size: 13)).foregroundStyle(WbColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true).padding(.top, 10)
             VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(model.text("存储目录", "Storage folder"))
+                        Spacer()
+                        onboardingStorageButton(model.text("更改目录…", "Change folder…"))
+                    }
+                    Text(model.dataDirectory.map(MikoStorageRoot.root(forData:)) ?? model.text("读取中…", "Loading…"))
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(WbColor.textSecondary)
+                        .textSelection(.enabled)
+                    Text(model.text("设备数据、系统镜像和缓存保存在此目录。", "Device data, system images and caches are stored here."))
+                        .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
+                }
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(alignment: .center, spacing: 8) {
                             Image(systemName: "square.3.layers.3d")
@@ -1693,8 +1692,7 @@ struct NewDeviceView: View {
     }
 }
 
-struct ToolPaths: Decodable { let android_sdk: String?; let miko_sdk: String? }
-struct CenterPaths: Decodable { let data: String; let cache: String; let logs: String; let tools: ToolPaths }
+struct CenterPaths: Decodable { let data: String; let cache: String; let logs: String }
 struct DaemonSettings: Decodable {
     let default_root_mode: String
     let quick_boot: Bool
@@ -1703,12 +1701,12 @@ struct DaemonSettings: Decodable {
 }
 struct SDKStatus: Decodable {
     let tools_sdk: String?
-    let studio_sdk: String?
     let private_sdk: String?
     /// Writable SDK that Miko installs into (custom root or the private SDK).
     let install_sdk: String?
     /// Set only when the user selected a custom writable install root.
     let custom_sdk: String?
+    var runtime_needs_install: Bool? = nil
 }
 struct CacheEntry: Decodable { let size: UInt64 }
 struct AboutInfo: Decodable { let version: String; let repository: String }
@@ -1885,43 +1883,6 @@ struct SettingsView: View {
             catch { message = error.localizedDescription }
         }
     }
-    func tool(_ kind:String, path:Any) {
-        guard !saving else { return }; saving = true
-        model.call("center.toolpath.set",["kind":kind,"path":path]) { result in
-            saving = false
-            switch result {
-            case .success:
-                message = model.text("外部 Android SDK 路径已保存，下次启动设备时生效。", "External Android SDK path saved; it will apply on the next device start.")
-                load()
-            case .failure(let failure): message = failure.localizedDescription
-            }
-        }
-    }
-    func chooseMikoSDKLocation() {
-        let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
-        panel.canCreateDirectories = true
-        panel.prompt = model.text("选择安装位置", "Choose install location")
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        setMikoSDKLocation(url.path)
-    }
-    func restoreMikoSDKLocation() { setMikoSDKLocation(NSNull()) }
-    private func setMikoSDKLocation(_ path:Any) {
-        guard !saving else { return }; saving = true
-        model.call("center.toolpath.set",["kind":"miko_sdk","path":path]) { result in
-            saving = false
-            switch result {
-            case .success:
-                message = model.text("miko SDK 安装位置已保存。", "miko SDK install location saved.")
-                load()
-            case .failure(let failure): message = failure.localizedDescription
-            }
-        }
-    }
-    func choose(_ kind:String) {
-        let panel = NSOpenPanel(); panel.canChooseDirectories = true; panel.canChooseFiles = false
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        tool(kind,path:url.path)
-    }
     func chooseDataLocation() {
         guard !saving, !model.migratingStorage else { return }
         if model.hasActiveRecording || !model.recording.isEmpty || model.hasActiveJobs {
@@ -1932,10 +1893,11 @@ struct SettingsView: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
-        panel.prompt = model.text("选择位置", "Choose location")
-        panel.message = model.text("将在所选目录下创建 miko 文件夹，并把现有设备与数据完整迁移过去。", "A miko folder will be created inside the chosen folder and existing device data will be migrated there.")
+        panel.prompt = model.text("选择存储目录", "Choose storage folder")
+        panel.message = model.text("选择保存设备、系统镜像和缓存的目录。", "Choose the folder for devices, system images and cache.")
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        let destination = url.appendingPathComponent("miko").path
+        if let data = paths?.data, MikoStorageRoot.root(forData: data) == url.standardizedFileURL.path { return }
+        let destination = MikoStorageRoot.destination(forRoot: url)
         saving = true
         message = ""
         model.estimateStorageMigration(to: destination) { result in
@@ -2446,52 +2408,23 @@ struct SettingsView: View {
     // MARK: - Data and tools
 
     @ViewBuilder private var dataPage: some View {
-        SettingsSection(model.text("miko SDK（可写安装位置）", "miko SDK (writable install location)")) {
-            SettingsPathRow(title: model.text("安装位置", "Install location"),
-                            path: installSDKPath ?? model.text("读取中…", "Loading…")) {
-                Button(model.text("更改位置…", "Change location…"), action: chooseMikoSDKLocation)
-                    .modifier(SettingsPanelButtonStyle())
-                    .disabled(saving)
-                if sdkStatus?.custom_sdk != nil {
-                    Button(model.text("恢复默认", "Restore default"), action: restoreMikoSDKLocation)
-                        .modifier(SettingsPanelButtonStyle())
-                        .disabled(saving)
-                }
-                settingsActionButton(model.text("显示目录", "Show folder"), disabled: installSDKPath == nil) {
-                    showFolder(installSDKPath)
-                }
-            }
-            Text(model.text("新安装的 emulator 和系统镜像会保存到此目录；已有默认目录中的镜像仍可继续使用。",
-                            "Newly installed emulator files and system images go to this directory; images in the existing default directory remain available."))
-                .wbFont(WbType.caption)
-                .foregroundStyle(WbColor.textSecondary)
-        }
-        SettingsSection(model.text("外部 Android SDK（只读）", "External Android SDK (read-only)")) {
-            SettingsPathRow(title: model.text("外部 Android SDK", "External Android SDK"),
-                            path: paths?.tools.android_sdk ?? sdkStatus?.studio_sdk ?? model.text("自动选择", "Automatic")) {
-                Button(model.text("选择 SDK", "Choose SDK")) { choose("sdk") }
-                    .modifier(SettingsPanelButtonStyle())
-                    .disabled(paths == nil || saving)
-                Button(model.text("恢复自动选择", "Restore automatic")) { tool("sdk",path:NSNull()) }
-                    .modifier(SettingsPanelButtonStyle()).disabled(paths == nil || saving)
-                settingsActionButton(model.text("显示目录", "Show folder"), disabled: paths?.tools.android_sdk == nil && sdkStatus?.studio_sdk == nil) {
-                    showFolder(paths?.tools.android_sdk ?? sdkStatus?.studio_sdk)
-                }
-            }
-            Text(model.text("选择路径后立即生效。miko 只读取此 SDK，不会修改其中的文件。",
-                            "miko only reads this SDK; it never installs into or modifies it."))
-                .wbFont(WbType.caption)
-                .foregroundStyle(WbColor.textSecondary)
-        }
         SettingsSection(model.text("存储", "Storage")) {
-            SettingsPathRow(title: model.text("数据目录", "Data folder"),
-                            path: paths?.data ?? model.text("读取中…", "Loading…")) {
+            SettingsPathRow(title: model.text("存储目录", "Storage folder"),
+                            path: paths.map { MikoStorageRoot.root(forData: $0.data) } ?? model.text("读取中…", "Loading…")) {
                 Button(model.text("更改位置…", "Change location…"), action: chooseDataLocation)
                     .modifier(SettingsPanelButtonStyle())
                     .disabled(paths == nil || saving || model.migratingStorage)
-                Button(model.text("显示数据目录", "Show data folder")) { showFolder(paths?.data) }
+                Button(model.text("显示目录", "Show folder")) { showFolder(paths.map { MikoStorageRoot.root(forData: $0.data) }) }
                     .modifier(SettingsPanelButtonStyle())
                     .disabled(paths == nil)
+            }
+            if let data = paths?.data, let imageRoot = sdkStatus?.custom_sdk,
+               !MikoStorageRoot.contains(root: MikoStorageRoot.root(forData: data), path: imageRoot) {
+                Text(model.text("部分镜像位于其他位置。更改存储目录时可将它们一并迁移。", "Some images are stored elsewhere. Changing the storage folder can move them together."))
+                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
+            } else {
+                Text(model.text("设备、系统镜像和缓存统一存放在此目录。", "Devices, system images and cache are stored in this folder."))
+                    .wbFont(WbType.caption).foregroundStyle(WbColor.textSecondary)
             }
             if let migrationProgressMessage {
                 VStack(alignment: .leading, spacing: 6) {
@@ -2518,7 +2451,6 @@ struct SettingsView: View {
         }
     }
 
-    private var installSDKPath: String? { sdkStatus?.install_sdk ?? sdkStatus?.private_sdk }
 
     private var storageSummary: String {
         let images = imageCount.map(String.init) ?? "…"
@@ -2906,9 +2838,15 @@ struct DeviceMoreButton: NSViewRepresentable {
                 let item = NSMenuItem(title: model.text(zh, en), action: #selector(performAction(_:)), keyEquivalent: "")
                 item.target = self; item.tag = tag; item.isEnabled = enabled
                 let symbols = [6: "shield", 12: "arrow.clockwise", 13: "trash", 14: "moon.zzz"]
-                if let symbol = symbols[tag] {
-                    item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-                    item.image?.isTemplate = true
+                if let symbol = symbols[tag], let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) {
+                    if destructive && enabled,
+                       let redImage = image.withSymbolConfiguration(.init(paletteColors: [.systemRed])) {
+                        redImage.isTemplate = false
+                        item.image = redImage
+                    } else {
+                        image.isTemplate = true
+                        item.image = image
+                    }
                     #if compiler(>=6.4)
                     if #available(macOS 27.0, *) {
                         item.preferredImageVisibility = .visible

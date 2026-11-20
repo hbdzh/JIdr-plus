@@ -16,6 +16,8 @@ final class FrameDecoder {
     private var metadata: (width: Int, height: Int, rotation: Int)?
     private var pixels = Data()
     private var written = 0
+    private var payloadLength = 0
+    private var discarding = false
 
     /// Drops any partially buffered frame, e.g. when a bridge restarts.
     func reset() {
@@ -23,10 +25,12 @@ final class FrameDecoder {
         metadata = nil
         pixels = Data()
         written = 0
+        payloadLength = 0
+        discarding = false
     }
 
     /// Returns false on an invalid header; the caller must close the stream.
-    func consume(_ chunk: Data, onFrame: (DecodedFrame) -> Void) -> Bool {
+    func consume(_ chunk: Data, shouldDecode: () -> Bool = { true }, onFrame: (DecodedFrame) -> Void) -> Bool {
         chunk.withUnsafeBytes { source in
             guard let base = source.baseAddress else { return true }
             var offset = 0
@@ -48,29 +52,34 @@ final class FrameDecoder {
                     guard width > 0, height > 0, width <= 8192, height <= 8192,
                           count <= Self.maxBytes, width * height * 4 == count else { return false }
                     metadata = (width, height, rotation)
-                    // One allocation per frame is required: the CGImage data
-                    // provider downstream retains this Data, so the payload
-                    // buffer cannot be reused. Data(count:) also zero-fills,
-                    // keeping the buffer fully initialised for the chunk copies.
-                    pixels = Data(count: count)
+                    // Hidden frames must still be consumed and validated, but
+                    // do not need a retained pixel buffer. A visibility change
+                    // during a frame takes effect at the next frame boundary.
+                    discarding = !shouldDecode()
+                    payloadLength = count
+                    pixels = discarding ? Data() : Data(count: count)
                     written = 0
                     header.removeAll(keepingCapacity: true)
                 }
                 guard let current = metadata else { continue }
-                let n = min(pixels.count - written, source.count - offset)
-                pixels.withUnsafeMutableBytes { destination in
-                    guard let target = destination.baseAddress else { return }
-                    target.advanced(by: written).copyMemory(from: base.advanced(by: offset), byteCount: n)
+                let n = min(payloadLength - written, source.count - offset)
+                if !discarding {
+                    pixels.withUnsafeMutableBytes { destination in
+                        guard let target = destination.baseAddress else { return }
+                        target.advanced(by: written).copyMemory(from: base.advanced(by: offset), byteCount: n)
+                    }
                 }
                 written += n
                 offset += n
-                if written == pixels.count {
-                    let frame = DecodedFrame(width: current.width, height: current.height,
-                                             rotation: current.rotation, pixels: pixels)
+                if written == payloadLength {
+                    let frame = discarding ? nil : DecodedFrame(width: current.width, height: current.height,
+                                                               rotation: current.rotation, pixels: pixels)
                     metadata = nil
                     pixels = Data()
                     written = 0
-                    onFrame(frame)
+                    payloadLength = 0
+                    discarding = false
+                    if let frame { onFrame(frame) }
                 }
             }
             return true

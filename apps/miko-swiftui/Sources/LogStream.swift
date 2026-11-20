@@ -6,9 +6,22 @@ import Foundation
 struct LogLineBuffer {
     private(set) var lines: [String] = []
     let limit: Int
+    private(set) var errorCount = 0
+    private(set) var lastError = ""
     mutating func append(_ newLines: [String]) {
         lines.append(contentsOf: newLines)
-        if lines.count > limit { lines.removeFirst(lines.count - limit) }
+        for line in newLines where LogFilter.isError(line) {
+            errorCount += 1
+            lastError = line
+        }
+        if lines.count > limit {
+            let removedCount = lines.count - limit
+            for line in lines.prefix(removedCount) where LogFilter.isError(line) {
+                errorCount -= 1
+            }
+            lines.removeFirst(removedCount)
+            if errorCount == 0 { lastError = "" }
+        }
     }
 }
 
@@ -112,8 +125,8 @@ final class LogStream: ObservableObject {
                 buffer.append(newLines)
                 text = buffer.lines.joined(separator: "\n")
                 lines = buffer.lines
-                errorCount = buffer.lines.filter(LogFilter.isError).count
-                lastError = buffer.lines.last(where: LogFilter.isError) ?? ""
+                errorCount = buffer.errorCount
+                lastError = buffer.lastError
                 revision += 1
             } else if event["type"] as? String == "dropped" {
                 error = LogStreamDiagnosis.droppedLines.message

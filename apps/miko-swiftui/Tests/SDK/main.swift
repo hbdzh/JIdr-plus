@@ -26,6 +26,26 @@ precondition(SDKInstallPlan.validProgress(nil) == nil)
 precondition(SDKInstallPlan.validProgress(.infinity) == nil)
 precondition(SDKInstallPlan.validProgress(-0.1) == nil && SDKInstallPlan.validProgress(1.1) == nil)
 
+// A catalog refresh must not silently turn environment preparation into an image download.
+let newImageID = "36:google_apis_playstore_ps16k:arm64-v8a"
+let existingImageID = "36:google_apis_ps16k:arm64-v8a"
+let newImagePackage = "system-images;android-36;google_apis_playstore_ps16k;arm64-v8a"
+precondition(SDKImageSelection.afterRefresh(current: "", available: [newImageID]) == "")
+precondition(SDKImageSelection.afterRefresh(current: existingImageID, available: [newImageID]) == "")
+precondition(SDKImageSelection.afterRefresh(current: newImageID, available: [newImageID]) == newImageID)
+let toolsOnlySelection = SDKImageSelection.planSelection(selectedID: "", selectedPackage: nil, requiresImage: false,
+                                                          destination: "/tmp/sdk")!
+precondition(toolsOnlySelection.imagePackage == nil)
+precondition(SDKInstallPlan(imagePackage: toolsOnlySelection.imagePackage, licenses: []).method == "sdk.install")
+precondition(SDKImageSelection.planSelection(selectedID: "", selectedPackage: nil, requiresImage: true,
+                                             destination: "/tmp/sdk") == nil)
+precondition(SDKImageSelection.planSelection(selectedID: existingImageID, selectedPackage: nil, requiresImage: true,
+                                             destination: "/tmp/sdk") == nil)
+let selectedNew = SDKImageSelection.planSelection(selectedID: newImageID, selectedPackage: newImagePackage,
+                                                   requiresImage: true, destination: "/tmp/sdk")!
+precondition(SDKInstallPlan(imagePackage: selectedNew.imagePackage, licenses: []).method == "image.install")
+precondition(selectedNew.imagePackage == newImagePackage)
+
 let license = PendingLicense(id:"test-license",sha256:"test-hash",text:"Test-only licence text")
 let plan = SDKInstallPlan(imagePackage:"system-images;android-35;google_apis;arm64-v8a",licenses:[license])
 do { _ = try plan.consentRequests(reviewed:false); fatalError("unreviewed license accepted") } catch { }
@@ -52,21 +72,10 @@ let stoppedDevice = "Test Pixel is not running; start it first"
 precondition(OperationMessages.error(stoppedDevice, language: 1) == "设备“Test Pixel”未运行，请先启动设备。")
 precondition(OperationMessages.error(stoppedDevice, language: 0) == stoppedDevice)
 
-precondition(SDKInstallPlan.rootsOverlap("/tmp/sdk", "/tmp/sdk"))
-precondition(SDKInstallPlan.rootsOverlap("/tmp/sdk", "/tmp/sdk/images"))
-precondition(SDKInstallPlan.rootsOverlap("/tmp/sdk/images", "/tmp/sdk"))
-precondition(!SDKInstallPlan.rootsOverlap("/tmp/sdk", "/tmp/sdk-other"))
-let tempRoot = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("miko-sdk-path-test-" + UUID().uuidString)
-let realSDK = tempRoot.appendingPathComponent("sdk", isDirectory: true)
-let alias = tempRoot.appendingPathComponent("alias", isDirectory: true)
-try FileManager.default.createDirectory(at: realSDK, withIntermediateDirectories: true)
-defer { try? FileManager.default.removeItem(at: tempRoot) }
-try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: realSDK)
-precondition(SDKInstallPlan.rootsOverlap(realSDK.path, alias.appendingPathComponent("images").path))
 print("SDK installation plan tests passed")
 
-let selection = SDKInstallSelection(imagePackage: plan.imagePackage, destination: "/tmp/miko-sdk", externalSDK: "/tmp/studio-sdk")
-let otherSelection = SDKInstallSelection(imagePackage: nil, destination: selection.destination, externalSDK: selection.externalSDK)
+let selection = SDKInstallSelection(imagePackage: plan.imagePackage, destination: "/tmp/miko-sdk")
+let otherSelection = SDKInstallSelection(imagePackage: nil, destination: selection.destination)
 var review = SDKLicenseReview()
 let oldRevision = review.begin(selection)
 review.setAgreed(true)
@@ -112,9 +121,9 @@ precondition(SDKOnboardingInstallState.installing.displayedFraction(1.1) == nil)
 
 var gate = SDKLicenseReview()
 func canStart(_ selection: SDKInstallSelection?, busy: Bool = false, installing: Bool = false,
-              overlapping: Bool = false, loading: Bool = false) -> Bool {
+              loading: Bool = false) -> Bool {
     gate.canBeginInstallation(for: selection, busy: busy, installing: installing,
-                              overlappingRoots: overlapping, imagesLoading: loading)
+                              imagesLoading: loading)
 }
 precondition(!canStart(selection))
 let gateRevision = gate.begin(selection)
@@ -125,7 +134,7 @@ gate.setAgreed(true)
 precondition(canStart(selection))
 precondition(!canStart(otherSelection) && !canStart(nil))
 precondition(!canStart(selection, busy: true) && !canStart(selection, installing: true))
-precondition(!canStart(selection, overlapping: true) && !canStart(selection, loading: true))
+precondition(!canStart(selection, loading: true))
 gate.setAgreed(false)
 precondition(!canStart(selection))
 gate.setAgreed(true)
@@ -144,7 +153,7 @@ precondition(panelReview.complete([license], selection: selection, revision: pan
 precondition(panelReview.canAgree(to: selection))
 precondition(!panelReview.agree(to: otherSelection) && !panelReview.agreed)
 precondition(panelReview.agree(to: selection) && panelReview.agreed)
-precondition(panelReview.canBeginInstallation(for: selection, busy: false, installing: false, overlappingRoots: false, imagesLoading: false))
+precondition(panelReview.canBeginInstallation(for: selection, busy: false, installing: false, imagesLoading: false))
 panelReview.reset()
 precondition(!panelReview.canAgree(to: selection) && !panelReview.agreed)
 let invalidPanelRevision = panelReview.begin(selection)
@@ -174,3 +183,6 @@ precondition(OperationMessages.storageError(code: "storage.destination_overlap",
 precondition(OperationMessages.storageError(code: "storage.destination_exists", message: "", language: 1).contains("miko 文件夹"))
 precondition(OperationMessages.error("the Miko daemon did not start; see /tmp/Miko/log", language: 0) == "the miko simulator daemon did not start; see /tmp/Miko/log")
 precondition(OperationMessages.error("Miko SDK is unavailable", language: 1).contains("miko 模拟器 SDK"))
+
+precondition(OperationMessages.error("audio injection requires an available Mac audio input device", language: 1).contains("音频输入设备"))
+precondition(OperationMessages.error("Snapshot save is skipped: UNSUPPORTED_VK_APP", language: 1).contains("退出应用"))

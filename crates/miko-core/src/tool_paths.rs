@@ -1,6 +1,4 @@
-//! Per-library paths to independently installed developer tools.
-//! Existing (external) Android SDKs are always treated as read-only; the
-//! optional `miko_sdk` is a Miko-owned writable root Miko may install into.
+//! The writable Miko SDK install root and legacy path records.
 //!
 //! Miko used to persist a `jdk_home` selection. It has no JDK setting any more,
 //! so [`ToolPaths::load`] drops that legacy key from older `tool-paths.json`
@@ -12,6 +10,7 @@ use std::path::{Path, PathBuf};
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ToolPaths {
+    /// An old external SDK selection, kept for ownership checks during migrations.
     pub android_sdk: Option<PathBuf>,
     /// A Miko-owned, writable SDK root used as the install target for tools
     /// and system images instead of the private SDK. Unlike `android_sdk` it
@@ -40,6 +39,42 @@ impl ToolPaths {
             Err(e) => Err(e),
         }
     }
+    /// Previous writable SDKs remain discoverable for existing images.
+    pub fn previous_miko_sdks(paths: &crate::MikoPaths) -> io::Result<Vec<PathBuf>> {
+        match std::fs::read(paths.data.join("previous-sdk-roots.json")) {
+            Ok(data) => serde_json::from_slice(&data).map_err(io::Error::other),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
+            Err(error) => Err(error),
+        }
+    }
+
+    fn remember_previous_sdk(paths: &crate::MikoPaths, previous: &Path) -> io::Result<()> {
+        let mut roots = Self::previous_miko_sdks(paths)?;
+        if roots.iter().any(|root| root == previous) {
+            return Ok(());
+        }
+        roots.push(previous.to_path_buf());
+        let target = paths.data.join("previous-sdk-roots.json");
+        let tmp = paths
+            .data
+            .join(format!(".previous-sdk-roots-{}.tmp", uuid::Uuid::new_v4()));
+        let result = (|| {
+            let mut file = std::fs::OpenOptions::new()
+                .create_new(true)
+                .write(true)
+                .open(&tmp)?;
+            serde_json::to_writer_pretty(&mut file, &roots)?;
+            file.write_all(b"\n")?;
+            file.sync_all()?;
+            std::fs::rename(&tmp, target)?;
+            std::fs::File::open(&paths.data)?.sync_all()
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(tmp);
+        }
+        result
+    }
+
     pub fn validate_sdk(path: &Path) -> io::Result<()> {
         if !path.is_absolute()
             || !path.join("emulator/emulator").is_file()
@@ -88,6 +123,11 @@ impl ToolPaths {
                 io::ErrorKind::NotFound,
                 "Miko data directory is unavailable",
             ));
+        }
+        if self.miko_sdk != previous.miko_sdk
+            && let Some(old) = previous.miko_sdk.as_deref()
+        {
+            Self::remember_previous_sdk(paths, old)?;
         }
         let tmp = paths
             .data
@@ -184,9 +224,13 @@ mod tests {
             Some(install_root.clone())
         );
 
-        // Resetting to the default private SDK is allowed.
+        // Resetting preserves the old root for read-only image discovery.
         ToolPaths::default().save(&paths).unwrap();
         assert_eq!(ToolPaths::load(&paths).unwrap(), ToolPaths::default());
+        assert_eq!(
+            ToolPaths::previous_miko_sdks(&paths).unwrap(),
+            vec![install_root]
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 

@@ -234,22 +234,10 @@ pub async fn install(
         check_cancel(cancel)?;
         report(Phase::Extracting, 0, size);
         let (zp, ed) = (zip_path.clone(), extract_dir.clone());
-        let mut extract_task = tokio::task::spawn_blocking(move || extract_single_root(&zp, &ed));
-        let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));
-        heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        heartbeat.tick().await;
-        let top = loop {
-            tokio::select! {
-                res = &mut extract_task => {
-                    break res.ctx(ErrorCode::Unexpected, "extract task")??;
-                }
-                _ = heartbeat.tick() => {
-                    check_cancel(cancel)?;
-                    report(Phase::Extracting, 0, size);
-                }
-            }
-        };
-        check_cancel(cancel)?;
+        let extract_task = tokio::task::spawn_blocking(move || extract_single_root(&zp, &ed));
+        let top =
+            await_extraction(extract_task, cancel, || report(Phase::Extracting, 0, size)).await?;
+        crate::runtime::prepare(&top, &pkg.path, &sha1)?;
         let marker = InstalledMarker {
             path: pkg.path.clone(),
             revision: pkg.revision.to_string(),
@@ -265,13 +253,7 @@ pub async fn install(
             std::fs::create_dir_all(parent)
                 .ctx(ErrorCode::Sdk, format!("creating {}", parent.display()))?;
         }
-        if target.exists() {
-            let old = staging_root.join(format!("{id}.old"));
-            std::fs::rename(&target, &old)
-                .ctx(ErrorCode::Sdk, format!("moving old {}", target.display()))?;
-        }
-        std::fs::rename(&top, &target)
-            .ctx(ErrorCode::Sdk, format!("installing {}", target.display()))?;
+        publish_package(&top, &target, &staging_root.join(format!("{id}.old")))?;
         report(Phase::Done, size, size);
         Ok(target)
     }
@@ -280,9 +262,55 @@ pub async fn install(
     // always removed; the staging root goes too once no other install uses it.
     let _ = std::fs::remove_file(&zip_path);
     let _ = std::fs::remove_dir_all(&extract_dir);
-    let _ = std::fs::remove_dir_all(staging_root.join(format!("{id}.old")));
+    if result.is_ok() {
+        let _ = std::fs::remove_dir_all(staging_root.join(format!("{id}.old")));
+    }
     let _ = std::fs::remove_dir(&staging_root);
     result
+}
+
+/// Always join the blocking extractor before cleanup, even when cancelled.
+async fn await_extraction(
+    mut task: tokio::task::JoinHandle<MikoResult<PathBuf>>,
+    cancel: &Cancel,
+    heartbeat_report: impl Fn(),
+) -> MikoResult<PathBuf> {
+    let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));
+    heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    heartbeat.tick().await;
+    let result = loop {
+        tokio::select! {
+            result = &mut task => break result.ctx(ErrorCode::Unexpected, "extract task")?,
+            _ = heartbeat.tick() => {
+                if !cancel.is_cancelled() { heartbeat_report(); }
+            }
+        }
+    };
+    check_cancel(cancel)?;
+    result
+}
+
+/// Replace an existing package without deleting it if publishing the new one fails.
+fn publish_package(top: &Path, target: &Path, backup: &Path) -> MikoResult<()> {
+    let had_previous = target.exists();
+    if had_previous {
+        std::fs::rename(target, backup)
+            .ctx(ErrorCode::Sdk, format!("moving old {}", target.display()))?;
+    }
+    if let Err(error) = std::fs::rename(top, target) {
+        if had_previous && let Err(restore_error) = std::fs::rename(backup, target) {
+            return Err(MikoError::sdk(format!(
+                "installing {} failed: {error}; previous package retained at {} because restoring it failed: {restore_error}",
+                target.display(),
+                backup.display()
+            )));
+        }
+        return Err(MikoError::sdk(format!(
+            "installing {} failed: {error}",
+            target.display()
+        )));
+    }
+    Ok(())
 }
 
 /// Extracts `zip` into `dest` and returns its single top-level directory.
@@ -312,6 +340,42 @@ mod tests {
     use super::*;
     use crate::repo::Repository;
     use miko_core::MikoPaths;
+
+    #[test]
+    fn failed_publish_restores_the_previous_package() {
+        let tmp = tempfile::tempdir().unwrap();
+        let old = tmp.path().join("target");
+        std::fs::create_dir(&old).unwrap();
+        std::fs::write(old.join("previous"), b"unchanged").unwrap();
+        let backup = tmp.path().join("backup");
+        assert!(publish_package(&tmp.path().join("missing"), &old, &backup).is_err());
+        assert_eq!(std::fs::read(old.join("previous")).unwrap(), b"unchanged");
+        assert!(!backup.exists());
+    }
+
+    #[tokio::test]
+    async fn cancellation_waits_for_extractor_to_finish_before_cleanup() {
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let task = tokio::task::spawn_blocking(move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            Ok(PathBuf::from("complete"))
+        });
+        started_rx.recv().unwrap();
+        let cancel = Cancel::new();
+        cancel.cancel();
+        let waiter = tokio::spawn({
+            let cancel = cancel.clone();
+            async move { await_extraction(task, &cancel, || {}).await }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        assert!(!waiter.is_finished());
+        release_tx.send(()).unwrap();
+        assert!(miko_core::cancel::is_cancelled(
+            &waiter.await.unwrap().unwrap_err()
+        ));
+    }
 
     /// Builds `emu.zip` with `emulator/emulator` + `emulator/lib/x.txt` and a
     /// listing pointing at it via file://.

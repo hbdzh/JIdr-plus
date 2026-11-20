@@ -2,10 +2,13 @@
 
 `miko` drives everything the Miko app can do, from a terminal or a CI script. It talks to the Miko daemon, which it starts automatically when needed (D4). Run `miko --help` or `miko <command> --help` for every flag; `miko completions zsh|bash|fish` prints shell completions.
 
+The default macOS data folder is `~/Library/Application Support/miko`: its `sdk`, `avd`, `cache` and `logs` subdirectories hold the private SDK, devices, downloads and logs. Miko installs and manages the emulator, ADB and system images in that folder by default.
+
 ## Quick start
 
 ```bash
 miko image list                                   # images for this Mac
+miko sdk install emulator platform-tools          # prepare the runtime
 miko image install 35 --accept-licenses           # API 35 google_apis
 miko device create Phone --image 35               # rooted with adb by default (D7)
 miko device start Phone                           # waits until booted
@@ -44,7 +47,7 @@ miko --json device start Phone --timeout 300 || exit $?
 | `budget` | Host RAM, the device budget (`settings set --budget-percent`, 75% by default) and what each running device is expected to use and uses now (D42). |
 | `network loss <device> [percent]`, `network dns <device> [normal\|slow\|fail] [--delay-ms N]` | Control outgoing packet loss and DNS simulation. Requires root and netem; stored settings are restored on boot. See [on-device helper](on-device-helper.md). |
 | `root helper <device>` | Start the on-device helper if needed and report its version, protocol, uid and SELinux context. |
-| `sdk status`, `sdk licenses <pkgs…>`, `sdk install <pkgs…> [--accept-licenses]` | The SDK Miko uses (its private one by default, or a configured writable custom install root; Android Studio's is only read, D3). |
+| `sdk status`, `sdk licenses <pkgs…>`, `sdk install <pkgs…> [--accept-licenses]` | Inspect the managed SDK, review package licences and install components. |
 | `root set <name> none\|adb\|magisk`, `root verify <name>`, `root status <name>`, `root auto-grant <name> on\|off` | Root modes (provided by the root engine). `auto-grant` grants every app root without a prompt on a Full-root device (D22, off by default; `root.auto_grant`). |
 | `root writable-system <name> on\|off` | A writable `/system` on an `adb`-root device (`-writable-system` + `adb remount`); `off` goes back to the read-only stock image. Cold boots a running device (D29); refused with exit code 2 on `none`/`magisk` devices, Play Store images and images older than API 31. See docs/root.md. |
 | `snapshot list\|save\|load\|delete <name> [snapshot]` | Snapshots tagged with their root mode (provided by the widgets provider). |

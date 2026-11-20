@@ -55,6 +55,14 @@ swiftc -module-cache-path "$out/module-cache" \
   apps/miko-swiftui/Tests/LogFilter/main.swift -o "$out/log-filter-tests"
 "$out/log-filter-tests"
 swiftc -module-cache-path "$out/module-cache" \
+  apps/miko-swiftui/Center/CenterRequestWriter.swift \
+  apps/miko-swiftui/Tests/CenterRequestWriter/main.swift -o "$out/center-request-writer-tests"
+"$out/center-request-writer-tests"
+swiftc -module-cache-path "$out/module-cache" \
+  apps/miko-swiftui/Center/DeviceAppSearch.swift \
+  apps/miko-swiftui/Tests/DeviceAppSearch/main.swift -o "$out/device-app-search-tests"
+"$out/device-app-search-tests"
+swiftc -module-cache-path "$out/module-cache" \
   apps/miko-swiftui/Sources/PlayerInput.swift \
   apps/miko-swiftui/Tests/PlayerInput/main.swift -o "$out/player-input-tests"
 "$out/player-input-tests"

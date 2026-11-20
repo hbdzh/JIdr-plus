@@ -233,32 +233,34 @@ final class CenterModel: ObservableObject {
         }
     }
     @Published private(set) var appSearchMatches: [String: String] = [:]
-    private var appSearchGeneration = 0
     private var appSearchWork: DispatchWorkItem?
+    private var appSearchRefreshWork: DispatchWorkItem?
+    private lazy var appSearch = DeviceAppSearch(request: { [weak self] id, completion in
+        guard let self else { return }
+        self.callImpl("app.list", ["device": id], onProgress: nil, readTimeout: 30) { [weak self] result in
+            guard let self else { return }
+            completion(result.flatMap { value in
+                Result { try self.decode(value, as: AppList.self).apps.map { DeviceSearchApp(name: $0.name, package: $0.package) } }
+            })
+        }
+    }, publish: { [weak self] matches in
+        self?.appSearchMatches = matches
+    })
     var filteredDevices: [Device] {
         devices.filter { deviceQuery.isEmpty || $0.name.localizedCaseInsensitiveContains(deviceQuery) || appSearchMatches[$0.id] != nil }
     }
-    private func searchDeviceApps() {
-        appSearchGeneration += 1
-        let generation = appSearchGeneration
-        let query = deviceQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func searchDeviceApps(retryFailed: Bool = false) {
         appSearchWork?.cancel()
-        appSearchMatches = [:]
-        guard !query.isEmpty else { return }
-        let work = DispatchWorkItem { [weak self] in
-            guard let self, self.appSearchGeneration == generation else { return }
-            for device in self.devices where device.running {
-                self.call("app.list", ["device": device.id]) { [weak self] result in
-                    guard let self, self.appSearchGeneration == generation,
-                          self.devices.contains(where: { $0.id == device.id && $0.running }),
-                          let value = try? result.get(), let apps = try? self.decode(value, as: AppList.self),
-                          let match = apps.apps.first(where: { $0.name.localizedCaseInsensitiveContains(query) || $0.package.localizedCaseInsensitiveContains(query) }) else { return }
-                    self.appSearchMatches[device.id] = match.name
-                }
-            }
-        }
+        appSearchRefreshWork?.cancel()
+        appSearch.update(query: deviceQuery, running: devices.filter(\.running).map(\.id))
+        if retryFailed { appSearch.retryFailed() }
+        guard !deviceQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        let work = DispatchWorkItem { [weak self] in self?.appSearch.startRequests() }
         appSearchWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+        let refresh = DispatchWorkItem { [weak self] in self?.searchDeviceApps(retryFailed: true) }
+        appSearchRefreshWork = refresh
+        DispatchQueue.main.asyncAfter(deadline: .now() + 30, execute: refresh)
     }
     private func reconcileSearchSelection() {
         if let id = selected, !filteredDevices.contains(where: { $0.id == id }) {
@@ -315,7 +317,7 @@ final class CenterModel: ObservableObject {
     /// Methods answered by the bridge itself, without the daemon. A reply to
     /// one of them does not prove the daemon is reachable.
     private let localMethods: Set<String> = ["center.prefs.get", "center.prefs.set", "center.paths",
-                                             "center.about", "center.toolpath.set"]
+                                             "center.about"]
     private var requestMethods: [Int:String] = [:]
 
     // Background tasks (daemon jobs).
@@ -365,6 +367,7 @@ final class CenterModel: ObservableObject {
 
     private var process = Process()
     private var input = Pipe()
+    private var requestWriter: CenterRequestWriter?
     private var output = Pipe()
     private let parseQueue = DispatchQueue(label: "local.miko.center.parse", qos: .userInitiated)
     private let decodeQueue = DispatchQueue(label: "local.miko.center.decode", qos: .userInitiated)
@@ -465,9 +468,11 @@ final class CenterModel: ObservableObject {
         process.terminationHandler = { [weak self] _ in
             DispatchQueue.main.async { self?.bridgeTerminated(session: session) }
         }
-        try process.run()
+        let writer = try CenterRequestWriter(handle: input.fileHandleForWriting)
+        do { try process.run() } catch { writer.stop(); throw error }
         self.process = process
         self.input = input
+        self.requestWriter = writer
         self.output = output
     }
 
@@ -491,11 +496,13 @@ final class CenterModel: ObservableObject {
         refresh()
         refreshJobs()
         refreshSyncStatus()
+        if !deviceQuery.isEmpty { searchDeviceApps() }
     }
 
     private func bridgeTerminated(session: Int) {
         guard session == bridgeSession else { return }
         output.fileHandleForReading.readabilityHandler = nil
+        requestWriter?.stop(); requestWriter = nil
         appsLoading = false
         failPendingRequests()
         guard !stopping else { return }
@@ -513,6 +520,8 @@ final class CenterModel: ObservableObject {
     }
 
     private func failPendingRequests() {
+        appSearchWork?.cancel(); appSearchRefreshWork?.cancel()
+        appSearch.reset()
         resetRefreshTracking()
         let pending = Array(callbacks.values)
         for work in readDeadlines.values { work.cancel() }
@@ -562,6 +571,7 @@ final class CenterModel: ObservableObject {
         guard !stopping, reconnectWorkItem == nil else { return }
         appsLoading = false
         stopHeartbeat()
+        requestWriter?.stop(); requestWriter = nil
         failPendingRequests()
         noteSessionEnded()
         scheduleReconnect()
@@ -649,8 +659,12 @@ final class CenterModel: ObservableObject {
     // MARK: - Requests
 
     func call(_ method: String, _ params: [String:Any] = [:], onProgress: ((String,String?,Double?)->Void)? = nil, done: @escaping (Result<Any,Error>) -> Void) {
+        callImpl(method, params, onProgress: onProgress, readTimeout: nil, done: done)
+    }
+
+    private func callImpl(_ method: String, _ params: [String:Any], onProgress: ((String,String?,Double?)->Void)?, readTimeout: TimeInterval?, done: @escaping (Result<Any,Error>) -> Void) {
         sequence += 1; let id = sequence
-        guard process.isRunning, let data = try? JSONSerialization.data(withJSONObject:["id":id,"method":method,"params":params]) else {
+        guard process.isRunning, let writer = requestWriter, let data = try? JSONSerialization.data(withJSONObject:["id":id,"method":method,"params":params]) else {
             done(.failure(CenterMessageError(message: text("后台未连接", "The background service is not connected")))); return
         }
         callbacks[id] = done
@@ -659,23 +673,36 @@ final class CenterModel: ObservableObject {
         if let device = params["device"] as? String { requestDevices[id] = device }
         let readOnly = ["host.budget", "device.list", "device.details", "app.list", "app.inspect", "image.list", "image.inventory", "profile.list", "snapshot.list", "sdk.status", "sdk.license_details", "settings.get", "cache.list", "center.about", "center.paths", "center.prefs.get", "center.quit", "center.storage.estimate", "battery.get", "gps.get", "network.get", "network.proxy.get", "network.shaping.get", "identity.get", "file.sync.list", "input.gamepad.list", "input.gamepad.get", "sensor.get", "logcat.dump", "root.cacert.list", "device.props.get", "dev.get", "clipboard.get", "jobs.list", "jobs.get", "daemon.status"]
         if !readOnly.contains(method) { mutations.insert(id) }
-        if method == "device.details" || method == "host.budget" {
+        if method == "device.details" || method == "host.budget" || readTimeout != nil {
             let timeout = DispatchWorkItem { [weak self] in
                 guard let self, let completion = self.callbacks.removeValue(forKey: id) else { return }
                 self.readDeadlines.removeValue(forKey: id)
+                self.requestWriter?.cancel(id: id)
                 self.progressCallbacks.removeValue(forKey: id)
                 self.requestMethods.removeValue(forKey: id)
                 self.requestDevices.removeValue(forKey: id)
-                let message = method == "host.budget"
-                    ? self.text("读取内存预算超时，请重试。", "Loading the memory budget timed out. Try again.")
-                    : self.text("读取设备详情超时，请重试。", "Loading device details timed out. Try again.")
+                let message: String
+                if method == "host.budget" { message = self.text("读取内存预算超时，请重试。", "Loading the memory budget timed out. Try again.") }
+                else if method == "device.details" { message = self.text("读取设备详情超时，请重试。", "Loading device details timed out. Try again.") }
+                else { message = self.text("读取应用列表超时，请重试。", "Loading the app list timed out. Try again.") }
                 completion(.failure(CenterMessageError(message: message)))
             }
             readDeadlines[id] = timeout
-            DispatchQueue.main.asyncAfter(deadline: .now() + detailsReadTimeout, execute: timeout)
+            DispatchQueue.main.asyncAfter(deadline: .now() + (readTimeout ?? detailsReadTimeout), execute: timeout)
         }
-        do { try input.fileHandleForWriting.write(contentsOf:data + Data([10])) }
-        catch { readDeadlines.removeValue(forKey: id)?.cancel(); requestMethods.removeValue(forKey: id); callbacks.removeValue(forKey:id); progressCallbacks.removeValue(forKey:id); mutations.remove(id); requestDevices.removeValue(forKey:id); done(.failure(error)) }
+        let session = bridgeSession
+        let accepted = writer.send(id: id, data: data + Data([10])) { [weak self] _ in
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.bridgeSession == session else { return }
+                self.connectionLost()
+            }
+        }
+        if !accepted {
+            readDeadlines.removeValue(forKey: id)?.cancel()
+            requestMethods.removeValue(forKey: id); callbacks.removeValue(forKey: id)
+            progressCallbacks.removeValue(forKey: id); mutations.remove(id); requestDevices.removeValue(forKey: id)
+            done(.failure(CenterMessageError(message: text("后台请求队列已满，请稍后重试。", "The background request queue is full. Try again."))))
+        }
     }
     /// Split NDJSON and parse each event on the serial parse queue. Only the
     /// resulting dictionaries are handed to the main thread, keeping line
@@ -753,6 +780,7 @@ final class CenterModel: ObservableObject {
         }
         guard let id = event["id"] as? Int else { return }
         let method = requestMethods[id]
+        let requestDevice = requestDevices[id]
         if kind == "progress" {
             bridgeAnswered()
             let hasProgressHandler = progressCallbacks[id] != nil
@@ -776,6 +804,9 @@ final class CenterModel: ObservableObject {
             if let method, !localMethods.contains(method) { bridgeAnswered() }
             if !migratingStorage, ConnectionHealth.looksDisconnected(message) { connectionLost() }
         } else {
+            if let device = requestDevice, method == "file.install" || method == "app.uninstall" {
+                appSearch.invalidate(device)
+            }
             completion(.success(event["result"] ?? NSNull()))
             if let method, !localMethods.contains(method) { bridgeAnswered() }
         }
@@ -1391,7 +1422,9 @@ final class CenterModel: ObservableObject {
         let previousState = devices.first(where: { $0.id == previousID })?.status.state
         if devices != list {
             devices = list
-            if !deviceQuery.isEmpty { searchDeviceApps() }
+            // Track stops even while the search field is empty, so a restarted
+            // device cannot reuse the previous session's app cache.
+            searchDeviceApps()
         }
         if !deviceListLoaded { deviceListLoaded = true }
         for device in list where device.running || (device.stopped && !startingDevices.contains(device.id)) { bootProgress.removeValue(forKey: device.id) }
@@ -1593,6 +1626,9 @@ final class CenterModel: ObservableObject {
         }
     }
     func quickBootFailureMessage(_ error: Error) -> String {
+        if error.localizedDescription.contains("UNSUPPORTED_VK_APP") {
+            return text("当前 Vulkan 应用无法保存快速启动快照。设备仍在运行，请在安卓中退出该应用后重试。", "The Vulkan app cannot be saved in a quick-boot snapshot. The device is still running; close the app in Android and try again.")
+        }
         let data = (error as? CenterMessageError)?.data
         if data?["low_disk"] as? Bool == true {
             return text("保存快照失败，磁盘可用空间不足。设备仍在运行，请释放空间后重试。", "Could not save the snapshot because disk space is low. The device is still running; free space and try again.")
@@ -2332,10 +2368,8 @@ final class CenterModel: ObservableObject {
         reconnectAttempt = 0
         reconnectWorkItem?.cancel(); reconnectWorkItem = nil
         failPendingRequests()
-        if process.isRunning {
-            try? input.fileHandleForWriting.close()
-            process.terminate()
-        }
+        requestWriter?.stop(); requestWriter = nil
+        if process.isRunning { process.terminate() }
         do {
             try startBridge()
             bootstrapBridge()
@@ -2363,6 +2397,7 @@ final class CenterModel: ObservableObject {
         jobsTimer?.invalidate(); jobsTimer = nil
         toastDismissWork?.cancel(); toastDismissWork = nil
         reconnectWorkItem?.cancel(); reconnectWorkItem = nil
-        try? input.fileHandleForWriting.close()
+        appSearchWork?.cancel(); appSearchRefreshWork?.cancel(); appSearch.reset()
+        requestWriter?.stop(); requestWriter = nil
     }
 }

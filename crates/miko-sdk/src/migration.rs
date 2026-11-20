@@ -63,6 +63,9 @@ fn estimate_with_available(
     }
     let mut bytes = tree_bytes(&source.data)?;
     for dir in [&source.cache, &source.logs] {
+        if dir.starts_with(&source.data) {
+            continue;
+        }
         match fs::symlink_metadata(dir) {
             Ok(metadata) if metadata.file_type().is_dir() => {
                 bytes = bytes
@@ -88,6 +91,51 @@ fn estimate_with_available(
         required_bytes: required,
         available_bytes: available,
     })
+}
+
+/// Writable SDKs outside the data tree must follow a storage move. A root
+/// already containing the destination is shared with the destination and
+/// needs no copy (important when adopting an existing image directory).
+fn sdk_roots_to_copy(
+    source: &miko_core::MikoPaths,
+    destination: &Path,
+) -> io::Result<Vec<PathBuf>> {
+    let tools = miko_core::tool_paths::ToolPaths::load(source)?;
+    let mut roots = miko_core::tool_paths::ToolPaths::previous_miko_sdks(source)?;
+    if let Some(current) = tools.miko_sdk {
+        roots.push(current);
+    }
+    let source_data = source.data.canonicalize()?;
+    let destination_parent = destination
+        .parent()
+        .ok_or_else(|| invalid("destination must have a parent"))?
+        .canonicalize()?;
+    let mut copy = Vec::new();
+    let mut seen = Vec::new();
+    for root in roots {
+        if !root.is_absolute() {
+            return Err(invalid("invalid saved SDK path"));
+        }
+        // A not-yet-created SDK inside the data tree moves with that tree.
+        if root.starts_with(&source.data) {
+            continue;
+        }
+        let canonical = root.canonicalize()?;
+        if canonical.starts_with(&source_data) || canonical == destination_parent {
+            continue;
+        }
+        if let Some(external) = &tools.android_sdk
+            && let Ok(external) = external.canonicalize()
+            && (canonical.starts_with(&external) || external.starts_with(&canonical))
+        {
+            return Err(invalid("writable SDK overlaps the external SDK"));
+        }
+        if canonical.join("system-images").is_dir() && !seen.contains(&canonical) {
+            seen.push(canonical);
+            copy.push(root);
+        }
+    }
+    Ok(copy)
 }
 
 /// Read-only capacity and source-format preflight. The source must still be
@@ -307,10 +355,10 @@ pub fn contains_qcow_images(dir: &Path) -> io::Result<bool> {
     Ok(false)
 }
 
-/// Locates `emulator/qemu-img` in the configured custom, private, or external SDK.
+/// Locates `emulator/qemu-img` in a Miko-managed SDK.
 pub fn find_qemu_img(paths: &miko_core::MikoPaths) -> Option<PathBuf> {
     let sdks = crate::SdkSet::discover(paths);
-    [sdks.custom, Some(sdks.private), sdks.studio]
+    [sdks.custom, Some(sdks.private)]
         .into_iter()
         .flatten()
         .map(|sdk| sdk.root.join("emulator/qemu-img"))
@@ -690,7 +738,24 @@ pub fn validate_destination(
             }
         }
     }
-    let estimate = estimate_space(source, &parent)?;
+    let mut estimate = estimate_space(source, &parent)?;
+    for root in sdk_roots_to_copy(source, &final_path)? {
+        estimate.source_bytes = estimate
+            .source_bytes
+            .checked_add(tree_bytes(&root.join("system-images"))?)
+            .ok_or_else(|| invalid("source size overflow"))?;
+    }
+    estimate.required_bytes = estimate
+        .source_bytes
+        .checked_add(estimate.source_bytes / 20)
+        .and_then(|n| n.checked_add(256 * 1024 * 1024))
+        .ok_or_else(|| invalid("required space overflow"))?;
+    if estimate.available_bytes < estimate.required_bytes {
+        return Err(io::Error::other(format!(
+            "insufficient destination space: need {} bytes, have {} bytes",
+            estimate.required_bytes, estimate.available_bytes
+        )));
+    }
     Ok((final_path, estimate))
 }
 
@@ -752,28 +817,59 @@ pub fn prepare_copy_flexible(
     )?;
     fs::create_dir(&staging)?;
     let staged_data = staging.join("data");
-    let data = copy_verified(&source.data, &staged_data)?;
-    let cache = if source.cache.is_dir() {
-        Some(copy_verified(&source.cache, &staging.join("cache"))?)
-    } else {
-        fs::create_dir(staging.join("cache"))?;
-        None
-    };
-    let logs = if source.logs.is_dir() {
-        Some(copy_verified(&source.logs, &staging.join("logs"))?)
-    } else {
-        fs::create_dir(staging.join("logs"))?;
-        None
-    };
+    let mut data = copy_verified(&source.data, &staged_data)?;
     verify_tree(&source.data, &staged_data)?;
-    if cache.is_some() {
-        verify_tree(&source.cache, &staging.join("cache"))?;
+    let mut relocated_sdks = Vec::new();
+    for (index, old) in sdk_roots_to_copy(source, &final_path)?
+        .into_iter()
+        .enumerate()
+    {
+        let relative = PathBuf::from("previous-sdks").join(index.to_string());
+        let staged_sdk = staged_data.join(&relative);
+        fs::create_dir_all(&staged_sdk)?;
+        let copied = copy_verified(
+            &old.join("system-images"),
+            &staged_sdk.join("system-images"),
+        )?;
+        verify_tree(
+            &old.join("system-images"),
+            &staged_sdk.join("system-images"),
+        )?;
+        data.files = data
+            .files
+            .checked_add(copied.files)
+            .ok_or_else(|| invalid("file count overflow"))?;
+        data.bytes = data
+            .bytes
+            .checked_add(copied.bytes)
+            .ok_or_else(|| invalid("copy size overflow"))?;
+        relocated_sdks.push((old, final_path.join("data").join(relative)));
     }
-    if logs.is_some() {
-        verify_tree(&source.logs, &staging.join("logs"))?;
-    }
+    let copy_auxiliary = |source_dir: &Path, name: &str| -> io::Result<Option<CopyReport>> {
+        let target = staging.join(name);
+        if source_dir == source.data.join(name) && source_dir.is_dir() {
+            // The data tree already contains this directory. Move the verified
+            // staged copy to its portable-layout location instead of copying twice.
+            fs::rename(staged_data.join(name), &target)?;
+            verify_tree(source_dir, &target)?;
+            Ok(None)
+        } else if source_dir.is_dir() {
+            let report = copy_verified(source_dir, &target)?;
+            verify_tree(source_dir, &target)?;
+            Ok(Some(report))
+        } else {
+            fs::create_dir(target)?;
+            Ok(None)
+        }
+    };
+    let cache = copy_auxiliary(&source.cache, "cache")?;
+    let logs = copy_auxiliary(&source.logs, "logs")?;
     rewrite_known_references(&staged_data, &source.data, &final_path.join("data"))?;
     reject_stale_metadata(&staged_data, &source.data)?;
+    for (old, new) in &relocated_sdks {
+        rewrite_known_references(&staged_data, old, new)?;
+        reject_stale_metadata(&staged_data, old)?;
+    }
     let qcow_disks = validate_qcow_tree_with_optional_tool(&staged_data, qemu_img)?;
     ensure_avd_locks_inactive(source)?;
     ensure_avd_files_closed(source)?;
@@ -936,7 +1032,11 @@ pub fn cleanup_source_after_activation(
                 ));
             }
         }
-        if !to_remove.contains(&canon) {
+        if !to_remove
+            .iter()
+            .any(|parent: &PathBuf| canon.starts_with(parent))
+        {
+            to_remove.retain(|child| !child.starts_with(&canon));
             to_remove.push(canon);
         }
     }
@@ -1118,6 +1218,16 @@ pub fn rewrite_known_references(staging: &Path, old: &Path, new: &Path) -> io::R
         }
         write_changed(&tools, &serde_json::to_vec_pretty(&values)?)?;
     }
+    let history = staging.join("previous-sdk-roots.json");
+    if history.is_file() {
+        let mut roots: Vec<String> = serde_json::from_slice(&fs::read(&history)?)?;
+        for path in &mut roots {
+            if let Some(rewritten) = relocate_path(path, old, new)? {
+                *path = rewritten;
+            }
+        }
+        write_changed(&history, &serde_json::to_vec_pretty(&roots)?)?;
+    }
     let avd = staging.join("avd");
     if avd.is_dir() {
         rewrite_ini_tree(&avd, old, new)?;
@@ -1143,7 +1253,11 @@ fn relocate_path(path: &str, old: &Path, new: &Path) -> io::Result<Option<String
             _ => return Err(invalid("path escapes the old data directory")),
         }
     }
-    let updated = new.join(normalized);
+    let updated = if normalized.as_os_str().is_empty() {
+        new.to_path_buf()
+    } else {
+        new.join(normalized)
+    };
     Ok(Some(
         updated
             .to_str()
@@ -1884,6 +1998,185 @@ mod tests {
         fs::write(source.data.join("disk.qcow2"), b"QFI\xfb").unwrap();
         let dest2 = root.path().join("dst2");
         assert!(prepare_copy_flexible(&source, &dest2, None, &lease, &barrier).is_err());
+    }
+
+    #[test]
+    fn migration_moves_custom_images_and_rewrites_device_sdk_root() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = miko_core::MikoPaths::under(tmp.path().join("source"));
+        fs::create_dir_all(&source.data).unwrap();
+        let old_sdk = tmp.path().join("old-sdk");
+        let image = old_sdk.join("system-images/android-36/google_apis/arm64-v8a");
+        fs::create_dir_all(&image).unwrap();
+        for file in ["source.properties", "system.img", "ramdisk.img"] {
+            fs::write(image.join(file), b"image").unwrap();
+        }
+        fs::write(
+            source.data.join("devices.json"),
+            serde_json::to_vec(&serde_json::json!([{ "sdk_root": old_sdk }])).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            source.data.join("tool-paths.json"),
+            serde_json::to_vec(&serde_json::json!({"miko_sdk": old_sdk, "android_sdk": null}))
+                .unwrap(),
+        )
+        .unwrap();
+        let selected = tmp.path().join("selected-miko");
+        fs::create_dir(&selected).unwrap();
+        let destination = selected.join("miko-storage");
+        let (_, estimate) = validate_destination(&source, &destination).unwrap();
+        assert!(estimate.source_bytes >= 15);
+        let lease = miko_core::storage_lease::StorageLease::acquire(&source.data).unwrap();
+        #[cfg(unix)]
+        let barrier =
+            crate::legacy_barrier::LegacySocketBarrier::acquire(&source.socket()).unwrap();
+        let prepared = prepare_copy_flexible(
+            &source,
+            &destination,
+            None,
+            &lease,
+            #[cfg(unix)]
+            &barrier,
+        )
+        .unwrap();
+        let location = publish_copy(
+            &prepared,
+            &source,
+            &lease,
+            #[cfg(unix)]
+            &barrier,
+        )
+        .unwrap();
+        let next = miko_core::MikoPaths::under(&location.root);
+        let copied_root = next.data.join("previous-sdks/0");
+        let saved: serde_json::Value =
+            serde_json::from_slice(&fs::read(next.devices_file()).unwrap()).unwrap();
+        assert_eq!(saved[0]["sdk_root"], copied_root.to_string_lossy().as_ref());
+        let config = miko_core::tool_paths::ToolPaths::load(&next).unwrap();
+        assert_eq!(config.miko_sdk, Some(copied_root.clone()));
+        assert_eq!(
+            fs::read(copied_root.join("system-images/android-36/google_apis/arm64-v8a/system.img"))
+                .unwrap(),
+            b"image"
+        );
+        assert!(
+            image.join("system.img").exists(),
+            "source images are preserved"
+        );
+    }
+
+    #[test]
+    fn migration_adopts_existing_selected_image_root_without_copying_or_overwriting() {
+        let tmp = tempfile::tempdir().unwrap();
+        let source = miko_core::MikoPaths::under(tmp.path().join("source"));
+        fs::create_dir_all(&source.data).unwrap();
+        let selected = tmp.path().join("selected-miko");
+        let image = selected.join("system-images/android-36/google_apis/arm64-v8a");
+        fs::create_dir_all(&image).unwrap();
+        fs::write(image.join("system.img"), b"keep").unwrap();
+        fs::write(
+            source.data.join("tool-paths.json"),
+            serde_json::to_vec(&serde_json::json!({"miko_sdk": selected, "android_sdk": null}))
+                .unwrap(),
+        )
+        .unwrap();
+        let destination = selected.join("miko-storage");
+        assert!(sdk_roots_to_copy(&source, &destination).unwrap().is_empty());
+        let lease = miko_core::storage_lease::StorageLease::acquire(&source.data).unwrap();
+        #[cfg(unix)]
+        let barrier =
+            crate::legacy_barrier::LegacySocketBarrier::acquire(&source.socket()).unwrap();
+        let prepared = prepare_copy_flexible(
+            &source,
+            &destination,
+            None,
+            &lease,
+            #[cfg(unix)]
+            &barrier,
+        )
+        .unwrap();
+        let location = publish_copy(
+            &prepared,
+            &source,
+            &lease,
+            #[cfg(unix)]
+            &barrier,
+        )
+        .unwrap();
+        let next = miko_core::MikoPaths::under(&location.root);
+        assert_eq!(
+            miko_core::tool_paths::ToolPaths::load(&next)
+                .unwrap()
+                .miko_sdk,
+            Some(selected)
+        );
+        assert_eq!(fs::read(image.join("system.img")).unwrap(), b"keep");
+        assert!(!next.data.join("previous-sdks").exists());
+    }
+
+    #[test]
+    fn migration_moves_nested_default_cache_and_logs_without_double_counting() {
+        let root = tempfile::tempdir().unwrap();
+        let app_support = root.path().join("app_support");
+        let data = app_support.join("miko");
+        let source = miko_core::MikoPaths {
+            cache: data.join("cache"),
+            logs: data.join("logs"),
+            data,
+        };
+        fs::create_dir_all(source.data.join("avd/dev.avd")).unwrap();
+        fs::create_dir_all(source.data.join("sdk/system-images")).unwrap();
+        fs::create_dir_all(&source.cache).unwrap();
+        fs::create_dir_all(&source.logs).unwrap();
+        fs::write(source.data.join("avd/dev.avd/userdata.img"), b"disk").unwrap();
+        fs::write(source.data.join("sdk/system-images/image"), b"image").unwrap();
+        fs::write(source.cache.join("archive.zip"), b"zip").unwrap();
+        fs::write(source.logs.join("daemon.log"), b"log").unwrap();
+        let estimate = estimate_with_available(&source, u64::MAX).unwrap();
+        assert_eq!(estimate.source_bytes, 15);
+        let dest = root.path().join("external/miko");
+        fs::create_dir_all(dest.parent().unwrap()).unwrap();
+        let lease = miko_core::storage_lease::StorageLease::acquire(&source.data).unwrap();
+        #[cfg(unix)]
+        let barrier =
+            crate::legacy_barrier::LegacySocketBarrier::acquire(&source.socket()).unwrap();
+        let prepared = prepare_copy_flexible(
+            &source,
+            &dest,
+            None,
+            &lease,
+            #[cfg(unix)]
+            &barrier,
+        )
+        .unwrap();
+        let location = publish_copy(
+            &prepared,
+            &source,
+            &lease,
+            #[cfg(unix)]
+            &barrier,
+        )
+        .unwrap();
+        let pointer = app_support.join("miko-storage-location.json");
+        miko_core::paths::write_location_file(&pointer, &location).unwrap();
+        #[cfg(unix)]
+        drop(barrier);
+        drop(lease);
+        cleanup_source_after_activation(&source, &location, &pointer).unwrap();
+        assert!(!source.data.exists());
+        assert_eq!(
+            fs::read(dest.join("data/avd/dev.avd/userdata.img")).unwrap(),
+            b"disk"
+        );
+        assert_eq!(
+            fs::read(dest.join("data/sdk/system-images/image")).unwrap(),
+            b"image"
+        );
+        assert_eq!(fs::read(dest.join("cache/archive.zip")).unwrap(), b"zip");
+        assert_eq!(fs::read(dest.join("logs/daemon.log")).unwrap(), b"log");
+        assert!(!dest.join("data/cache").exists());
+        assert!(!dest.join("data/logs").exists());
     }
 
     #[test]

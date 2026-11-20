@@ -464,11 +464,20 @@ impl State {
             .resume_snapshot
             .clone()
             .filter(|_| !cold_boot && !device.launch.force_cold_boot);
+        let mut extra_args = Vec::new();
+        if spec
+            .emulator
+            .parent()
+            .is_some_and(miko_sdk::runtime::installed)
+        {
+            extra_args.extend(["-feature".into(), "VulkanSnapshots".into()]);
+        }
+        extra_args.extend(device.launch.extra_args.iter().cloned());
         let opts = LaunchOptions {
             ramdisk: device.launch.ramdisk.clone(),
             camera_back: device.launch.camera_back.clone(),
             camera_front: device.launch.camera_front.clone(),
-            extra_args: device.launch.extra_args.clone(),
+            extra_args,
             gpu: device.launch.gpu.clone(),
             audio: device.launch.audio.unwrap_or(true),
             cold_boot: cold_boot
@@ -685,14 +694,16 @@ impl State {
 
     fn launch_spec(&self, d: &Device) -> MikoResult<(LaunchSpec, Sdk)> {
         let sdks = self.sdks();
-        let image_sdk = sdks.find_image(&d.image).cloned().ok_or_else(|| {
-            MikoError::sdk(format!(
-                "system image {} is not installed; run `miko image install {}:{}`",
+        // A device must keep using the image copy it was created with, even
+        // when the selected SDK location changes or another copy exists.
+        let image_sdk = Sdk::read_only(&d.sdk_root);
+        if !image_sdk.has_image(&d.image) {
+            return Err(MikoError::sdk(format!(
+                "system image {} is unavailable in {}; restore the original SDK location",
                 d.image.package(),
-                d.image.api,
-                d.image.tag
-            ))
-        })?;
+                d.sdk_root.display()
+            )));
+        }
         let tools = sdks.tools()?.clone();
         Ok((
             LaunchSpec {

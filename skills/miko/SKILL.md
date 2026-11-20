@@ -75,4 +75,4 @@ If the Miko MCP server is connected (Claude Code: `claude mcp add miko -- miko m
 - Don't delete, reset or wipe a device you didn't create in this session (`device delete`, `device reset`, `app.uninstall`, `snapshot delete`) without asking. Devices you created are yours to clean up; say what you removed.
 - Don't stop a device the user is using or watching. Leave the user's devices as you found them.
 - Don't change the root mode of the user's devices: `miko root set` cold-boots them.
-- Don't create Miko devices with Android Studio's tools or in its AVD folder. Miko keeps its own SDK and devices and only reads Android Studio's.
+- Prepare Miko's runtime with `miko sdk install emulator platform-tools`, then install a system image with `miko image install`. Miko stores its devices and SDK in its own data folder.

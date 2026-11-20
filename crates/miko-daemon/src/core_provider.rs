@@ -12,7 +12,7 @@ use miko_core::provider::{
 };
 use miko_core::{Device, ImageRef, LaunchPrefs, MikoError, MikoResult, RootMode, RootState};
 use miko_sdk::{
-    AvdSpec, CatalogFilter, ConsentStore, Fetcher, Repository, Sdk, SdkKind, SdkSet, profiles, repo,
+    AvdSpec, CatalogFilter, ConsentStore, Fetcher, Repository, Sdk, SdkSet, profiles, repo,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -243,8 +243,7 @@ pub struct AcceptLicenseParams {
 #[derive(Debug, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ImageListParams {
-    /// Include images that aren't installed (needs network; falls back to
-    /// installed images when offline).
+    /// Include images that aren't installed (requires the remote catalog).
     #[serde(default = "yes")]
     pub available: bool,
 }
@@ -523,9 +522,8 @@ pub(crate) fn validate_device_name(name: &str) -> MikoResult<()> {
 }
 
 /// The writable root installs go to, checked before writing: a configured
-/// custom root must still be an absolute existing directory (the UI validates
-/// when setting it, but the config file can be edited by hand). The private
-/// root is created on first install and is not pre-checked.
+/// custom root must still be an absolute existing directory. The private
+/// root is created on first install.
 fn install_sdk(sdks: &SdkSet) -> MikoResult<Sdk> {
     let root = sdks.install_root().clone();
     if sdks.custom.is_some() {
@@ -536,27 +534,22 @@ fn install_sdk(sdks: &SdkSet) -> MikoResult<Sdk> {
             ))
         })?;
     }
-    Ok(root)
-}
-
-/// The packages `image.install` must install: the image itself plus, when the
-/// configured writable install root lacks them, `emulator` and
-/// `platform-tools` — installed into that same root, never silently into the
-/// private SDK. An explicitly configured read-only SDK keeps failing closed.
-fn image_install_plan(sdks: &SdkSet, image: &ImageRef) -> MikoResult<Vec<String>> {
-    let mut packages = Vec::new();
-    let install_root = sdks.install_root();
     if sdks
         .studio
         .as_ref()
-        .is_some_and(|sdk| sdk.kind == SdkKind::ConfiguredReadOnly)
+        .is_some_and(|external| sdk_roots_overlap(&root.root, &external.root))
     {
-        // An explicitly selected SDK must not silently trigger an
-        // installation to a different location when it disappears.
-        sdks.tools()?;
-    } else if !install_root.has_emulator() || !install_root.has_adb() {
-        packages.extend(["emulator".to_string(), "platform-tools".to_string()]);
+        return Err(MikoError::sdk("Miko SDK overlaps a read-only SDK"));
     }
+    Ok(root)
+}
+
+/// Installs just the requested image. Runtime tools are prepared separately.
+fn image_install_plan(sdks: &SdkSet, image: &ImageRef) -> MikoResult<Vec<String>> {
+    let mut packages = Vec::new();
+    // Reuse available SDK tools; installing an image never downloads or
+    // replaces the emulator and platform-tools behind the user's back.
+    sdks.tools()?;
     if sdks.find_image(image).is_none() {
         packages.push(image.package());
     }
@@ -616,12 +609,12 @@ impl CoreProvider {
         let pkgs = packages
             .iter()
             .map(|p| {
-                repo.latest(p, 0)
+                miko_sdk::runtime::package(repo, p)
                     .ok_or_else(|| MikoError::not_found(format!("no SDK package {p}")))
             })
             .collect::<MikoResult<Vec<_>>>()?;
         let consent = self.consent()?;
-        let pending = consent.pending(repo, &pkgs)?;
+        let pending = consent.pending(repo, &pkgs.iter().collect::<Vec<_>>())?;
         if !pending.is_empty() {
             return Err(MikoError::sdk(format!(
                 "accept these licenses first: {}",
@@ -1019,13 +1012,17 @@ impl CoreProvider {
 
     async fn image_list(&self, p: ImageListParams) -> MikoResult<Value> {
         let repo = if p.available {
-            match self.repository().await {
-                Ok(r) => r,
-                Err(e) => {
-                    tracing::warn!("offline image list: {e}");
-                    Repository::default()
-                }
+            let repository = self.repository().await?;
+            if !repository
+                .packages
+                .iter()
+                .any(|package| package.image.is_some())
+            {
+                return Err(MikoError::sdk(
+                    "system image catalog is unavailable; check the network and retry",
+                ));
             }
+            repository
         } else {
             Repository::default()
         };
@@ -1050,7 +1047,8 @@ impl CoreProvider {
                 .map(|s| ("custom", s))
                 .into_iter()
                 .chain(std::iter::once(("private", &sdks.private)))
-                .chain(sdks.studio.as_ref().map(|s| ("external", s)))
+                .chain(sdks.fixture().map(|s| ("external", s)))
+                .chain(sdks.legacy.iter().map(|s| ("external", s)))
             {
                 for image in sdk.installed_images() {
                     let path = image_directory(sdk, &image).ok();
@@ -1223,7 +1221,8 @@ impl CoreProvider {
                 .as_ref()
                 .into_iter()
                 .chain(std::iter::once(&sdks.private))
-                .chain(sdks.studio.as_ref())
+                .chain(sdks.fixture())
+                .chain(sdks.legacy.iter())
                 .flat_map(|sdk| sdk.installed_images())
                 .map(|image| image.package())
                 .filter(|package| seen.insert(package.clone()))
@@ -1234,11 +1233,12 @@ impl CoreProvider {
                 "install_sdk": sdks.install_root().root,
                 // additive: the configured custom root, or null when unset
                 "custom_sdk": sdks.custom.as_ref().map(|s| &s.root),
-                "studio_sdk": sdks.studio.as_ref().map(|s| &s.root),
+                "studio_sdk": null,
                 "tools_sdk": tools.as_ref().map(|s| &s.root),
                 "emulator_version": tools.as_ref().and_then(|s| s.emulator_version()),
                 "hypervisor": miko_sdk::host::hypervisor_available(),
                 "host_abi": miko_sdk::host::host_abi(),
+                "runtime_needs_install": miko_sdk::runtime::available() && !sdks.tools().is_ok_and(|s| miko_sdk::runtime::installed(&s.root.join("emulator"))),
                 "free_bytes": miko_sdk::host::free_space(&state.paths.data).unwrap_or(0),
                 "installed_images": installed_images,
             }))
@@ -1406,11 +1406,14 @@ impl CommandProvider for CoreProvider {
                     .packages
                     .iter()
                     .map(|n| {
-                        repo.latest(n, 0)
+                        miko_sdk::runtime::package(&repo, n)
                             .ok_or_else(|| MikoError::not_found(format!("no SDK package {n}")))
                     })
                     .collect::<MikoResult<Vec<_>>>()?;
-                json(self.consent()?.details(&repo, &pkgs)?)
+                json(
+                    self.consent()?
+                        .details(&repo, &pkgs.iter().collect::<Vec<_>>())?,
+                )
             }
             "sdk.licenses" => {
                 let p: PackagesParams = parse_params(params)?;
@@ -1419,11 +1422,14 @@ impl CommandProvider for CoreProvider {
                     .packages
                     .iter()
                     .map(|n| {
-                        repo.latest(n, 0)
+                        miko_sdk::runtime::package(&repo, n)
                             .ok_or_else(|| MikoError::not_found(format!("no SDK package {n}")))
                     })
                     .collect::<MikoResult<Vec<_>>>()?;
-                json(self.consent()?.pending(&repo, &pkgs)?)
+                json(
+                    self.consent()?
+                        .pending(&repo, &pkgs.iter().collect::<Vec<_>>())?,
+                )
             }
             "sdk.accept_license" => {
                 let p: AcceptLicenseParams = parse_params(params)?;
@@ -1692,20 +1698,14 @@ mod tests {
         let custom_root = dir.path().join("custom");
         std::fs::create_dir_all(&custom_root).unwrap();
 
-        // An empty custom root is the install target: tools and the image go there.
+        // Missing SDK tools require a managed runtime installation.
         let sdks = SdkSet {
+            legacy: Vec::new(),
             private: private.clone(),
             custom: Some(Sdk::custom_writable(&custom_root)),
             studio: None,
         };
-        assert_eq!(
-            image_install_plan(&sdks, &image).unwrap(),
-            vec![
-                "emulator".to_string(),
-                "platform-tools".to_string(),
-                image.package()
-            ]
-        );
+        assert!(image_install_plan(&sdks, &image).is_err());
 
         // Tools present in the custom root: only the image is missing.
         write_tools(&custom_root);
@@ -1718,51 +1718,51 @@ mod tests {
         write_image(&custom_root, &image);
         assert!(image_install_plan(&sdks, &image).unwrap().is_empty());
 
-        // An image installed in the private SDK does not stop the tools from
-        // being installed into the configured writable root.
+        // Existing tools and images are reused without another installation.
         let empty_custom = dir.path().join("custom-empty");
         std::fs::create_dir_all(&empty_custom).unwrap();
         write_tools(&private.root);
         write_image(&private.root, &image);
         let sdks = SdkSet {
+            legacy: Vec::new(),
             private: private.clone(),
             custom: Some(Sdk::custom_writable(&empty_custom)),
             studio: None,
         };
-        assert_eq!(
-            image_install_plan(&sdks, &image).unwrap(),
-            vec!["emulator".to_string(), "platform-tools".to_string()]
-        );
+        assert!(image_install_plan(&sdks, &image).unwrap().is_empty());
 
-        // Explicitly configured read-only SDKs keep failing closed.
+        // Saved external selections do not override managed tools.
         let read_only = dir.path().join("configured");
         std::fs::create_dir_all(&read_only).unwrap();
         let sdks = SdkSet {
+            legacy: Vec::new(),
             private: private.clone(),
             custom: Some(Sdk::custom_writable(&empty_custom)),
             studio: Some(Sdk::configured(&read_only)),
         };
-        let error = image_install_plan(&sdks, &image).expect_err("incomplete configured SDK");
-        assert_eq!(error.code, miko_core::ErrorCode::Sdk);
+        assert!(image_install_plan(&sdks, &image).unwrap().is_empty());
 
-        // A complete configured SDK provides the tools; only the image installs.
+        // An external SDK cannot supply missing runtime tools.
         write_tools(&read_only);
+        std::fs::remove_file(private.adb()).unwrap();
         let missing = ImageRef {
             api: 36,
             ..image.clone()
         };
         let sdks = SdkSet {
+            legacy: Vec::new(),
             private: private.clone(),
             custom: Some(Sdk::custom_writable(&empty_custom)),
             studio: Some(Sdk::configured(&read_only)),
         };
         assert_eq!(
-            image_install_plan(&sdks, &missing).unwrap(),
-            vec![missing.package()]
+            image_install_plan(&sdks, &missing).unwrap_err().code,
+            miko_core::ErrorCode::Sdk
         );
 
         // Without a custom root the private SDK stays the install target.
         let sdks = SdkSet {
+            legacy: Vec::new(),
             private: private.clone(),
             custom: None,
             studio: None,
@@ -1782,6 +1782,7 @@ mod tests {
         std::fs::create_dir_all(&valid).unwrap();
 
         let sdks = SdkSet {
+            legacy: Vec::new(),
             private: private.clone(),
             custom: Some(Sdk::custom_writable(&valid)),
             studio: None,
@@ -1792,6 +1793,7 @@ mod tests {
         // silently installing into the private SDK.
         for root in [PathBuf::from("relative/sdk"), dir.path().join("missing")] {
             let sdks = SdkSet {
+                legacy: Vec::new(),
                 private: private.clone(),
                 custom: Some(Sdk::custom_writable(&root)),
                 studio: None,

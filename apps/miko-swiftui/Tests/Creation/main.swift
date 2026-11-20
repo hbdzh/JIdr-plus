@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import Foundation
 
+precondition(MikoStorageRoot.root(forData: "/tmp/miko") == "/tmp/miko")
+precondition(MikoStorageRoot.root(forData: "/tmp/miko/miko-storage/data") == "/tmp/miko")
+precondition(MikoStorageRoot.root(forData: "/tmp/portable/data") == "/tmp/portable")
+precondition(MikoStorageRoot.destination(forRoot: URL(fileURLWithPath: "/tmp/miko")) == "/tmp/miko/miko-storage")
+precondition(MikoStorageRoot.contains(root: "/tmp/miko", path: "/tmp/miko/sdk"))
+precondition(!MikoStorageRoot.contains(root: "/tmp/miko", path: "/tmp/miko-other/sdk"))
 precondition(DeviceOnboardingRoute.useDeviceSetup(hasTools: true, installedImageCount: 1))
 precondition(DeviceOnboardingRoute.useDeviceSetup(hasTools: true, installedImageCount: 3))
 precondition(!DeviceOnboardingRoute.useDeviceSetup(hasTools: false, installedImageCount: 1))
@@ -10,20 +16,6 @@ precondition(DeviceOnboardingRoute.selectedImage(installed: ["old", "new"], curr
 precondition(DeviceOnboardingRoute.selectedImage(installed: ["old"], current: "old", preferred: "missing") == "old")
 precondition(DeviceOnboardingRoute.selectedImage(installed: ["new"], current: "old", preferred: nil) == "new")
 precondition(DeviceOnboardingRoute.selectedImage(installed: [], current: "old", preferred: "new") == "")
-var sdkFirst = DeviceSDKReuseCheck()
-sdkFirst.recordTools(true)
-precondition(sdkFirst.ready == nil, "do not leave setup before the image check")
-sdkFirst.recordImages(1)
-precondition(sdkFirst.ready == true)
-var imagesFirst = DeviceSDKReuseCheck()
-imagesFirst.recordImages(1)
-precondition(imagesFirst.ready == nil, "do not leave setup before the SDK check")
-imagesFirst.recordTools(false)
-precondition(imagesFirst.ready == false)
-var noImages = DeviceSDKReuseCheck()
-noImages.recordTools(true); noImages.recordImages(0)
-precondition(noImages.ready == false, "a reusable SDK without images still requires preparation")
-
 var form = DeviceCreation(name:" 测试设备 ",image:"35:google_apis:arm64-v8a",profile:"agent-lean",ram:"2048",cpus:"2",storage:"8",root:"adb",audio:false)
 let params = try form.parameters()
 precondition(params["name"] as? String == "测试设备")

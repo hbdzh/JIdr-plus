@@ -30,7 +30,7 @@ miko simulator 是面向 Apple Silicon Mac 的开源 Android 模拟器管理工�
 
 ### 管理 Android 设备
 
-在设备中心创建、启动、停止和切换模拟器，管理设备配置、快照和内存预算。将 APK 拖入模拟器窗口即可安装；也可以只读复用现有 Android SDK 和系统镜像。
+在设备中心创建、启动、停止和切换模拟器，管理设备配置、快照和内存预算。将 APK 拖入模拟器窗口即可安装。首次设置由 miko 准备模拟器和 ADB，创建设备时按需下载系统镜像。
 
 ### 键位映射与手柄
 
@@ -75,7 +75,9 @@ miko simulator 是面向 Apple Silicon Mac 的开源 Android 模拟器管理工�
 
 1. 从 [GitHub Releases](https://github.com/hbdzh/miko-simulator/releases/latest) 下载 DMG。
 2. 打开 DMG，将 miko simulator 拖入“应用程序”文件夹。
-3. 启动 miko simulator，按引导准备 Android SDK 和系统镜像，也可以复用已安装的 Android SDK。
+3. 启动 miko simulator，按提示准备模拟器和 ADB。创建设备时可使用已有镜像，或下载选中的镜像。
+
+设备、私有 SDK、下载缓存和日志默认保存在 `~/Library/Application Support/miko` 中，可在「设置 → 数据与工具」更改位置。
 
 ## AI 与自动化
 

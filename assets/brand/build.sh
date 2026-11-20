@@ -83,19 +83,12 @@ EOF
 
 # 5. Raster masters.
 rsvg-convert -w 1024 -h 1024 "$BRAND/app-icon.svg" -o "$BRAND/app-icon-1024.png"
-rsvg-convert -w 512 -h 512   "$BRAND/app-icon.svg" -o "$BRAND/app-icon-512.png"  # the MCP bundle icon
+sips -z 512 512 "$ROOT/assets/icon/Icon/Icon-iOS-Default-1024@1x.png" --out "$BRAND/app-icon-512.png" >/dev/null  # MCP bundle
 rsvg-convert -w 1024 -h 1024 "$BRAND/avatar.svg"   -o "$BRAND/avatar-1024.png"
 rsvg-convert -w 1200 -h 630  "$BRAND/social-card.svg" -o "$BRAND/social-card.png"
 
-# 6. macOS .icns (bold cut for 16/32 px).
-SET="$TMP/AppIcon.iconset"; mkdir -p "$SET"
-for s in 16 32 128 256 512; do
-  src="$BRAND/app-icon.svg"; [ "$s" -le 32 ] && src="$BRAND/app-icon-small.svg"
-  rsvg-convert -w $s -h $s "$src" -o "$SET/icon_${s}x${s}.png"
-  d=$((s*2)); src2="$BRAND/app-icon.svg"; [ "$d" -le 32 ] && src2="$BRAND/app-icon-small.svg"
-  rsvg-convert -w $d -h $d "$src2" -o "$SET/icon_${s}x${s}@2x.png"
-done
-iconutil -c icns "$SET" -o "$GUI/Miko.icns"
+# 6. The approved default artwork is also the macOS app icon.
+python3 "$BRAND/build-app-icon.py" "$ROOT/assets/icon/Icon/Icon-iOS-Default-1024@1x.png" "$GUI/Miko.icns"
 # 9. Standalone web assets.
 sed "s/currentColor/$BOTTOM/" "$BRAND/symbol-bold.svg" > "$WEB/favicon.svg"
 rsvg-convert -w 32 -h 32 "$BRAND/app-icon-small.svg" -o "$WEB/favicon-32.png"

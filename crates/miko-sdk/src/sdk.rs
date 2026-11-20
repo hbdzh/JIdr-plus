@@ -16,7 +16,7 @@ pub enum SdkKind {
     Private,
     /// Android Studio's SDK: read-only.
     StudioReadOnly,
-    /// An explicitly selected external SDK; never modified by Miko.
+    /// A previously selected external SDK, protected from writes.
     ConfiguredReadOnly,
 }
 
@@ -42,26 +42,6 @@ impl Sdk {
             root: root.into(),
             kind: SdkKind::Private,
         }
-    }
-
-    /// Android Studio's SDK, if present: `ANDROID_HOME`, `ANDROID_SDK_ROOT`,
-    /// then the platform default.
-    pub fn studio() -> Option<Self> {
-        let candidates = ["ANDROID_HOME", "ANDROID_SDK_ROOT"]
-            .iter()
-            .filter_map(std::env::var_os)
-            .map(PathBuf::from)
-            .chain(dirs::home_dir().map(|h| {
-                if cfg!(target_os = "macos") {
-                    h.join("Library/Android/sdk")
-                } else {
-                    h.join("Android/Sdk")
-                }
-            }));
-        candidates
-            .into_iter()
-            .find(|p| p.is_dir())
-            .map(Self::read_only)
     }
 
     /// Any SDK root, read-only.
@@ -164,6 +144,8 @@ pub struct SdkSet {
     pub custom: Option<Sdk>,
     /// Android Studio's SDK or an explicitly configured external SDK; read-only.
     pub studio: Option<Sdk>,
+    /// Former writable roots remain available for existing images, read-only.
+    pub legacy: Vec<Sdk>,
 }
 
 impl SdkSet {
@@ -172,41 +154,38 @@ impl SdkSet {
         Self::discover_with(paths, None)
     }
 
-    /// Like [`discover`](Self::discover), but keeps a caller-supplied Studio
-    /// SDK (used by the daemon's tests) when none is explicitly configured.
+    /// Discovers managed SDKs with an optional read-only fixture for tests.
     pub fn discover_with(paths: &MikoPaths, studio: Option<Sdk>) -> Self {
         match miko_core::tool_paths::ToolPaths::load(paths) {
-            Ok(config) => Self {
-                private: Sdk::private(paths),
-                custom: config.miko_sdk.map(Sdk::custom_writable),
-                studio: config
-                    .android_sdk
-                    .map(Sdk::configured)
-                    .or(studio)
-                    .or_else(Sdk::studio),
-            },
+            Ok(config) => {
+                let private = Sdk::private(paths);
+                let custom = config.miko_sdk.map(Sdk::custom_writable);
+                let studio = config.android_sdk.map(Sdk::configured).or(studio);
+                let legacy = miko_core::tool_paths::ToolPaths::previous_miko_sdks(paths)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|path| {
+                        path.is_absolute()
+                            && *path != private.root
+                            && custom.as_ref().is_none_or(|sdk| *path != sdk.root)
+                            && studio.as_ref().is_none_or(|sdk| *path != sdk.root)
+                    })
+                    .map(Sdk::read_only)
+                    .collect();
+                Self {
+                    private,
+                    custom,
+                    studio,
+                    legacy,
+                }
+            }
             // Preserve a fail-closed selection if the configuration is unreadable.
             Err(_) => Self {
                 private: Sdk::private(paths),
                 custom: None,
                 studio: Some(Sdk::configured(PathBuf::new())),
+                legacy: Vec::new(),
             },
-        }
-    }
-
-    pub fn configured_or_studio(paths: &MikoPaths) -> Option<Sdk> {
-        Self::configured_or(paths, None)
-    }
-
-    pub fn configured_or(paths: &MikoPaths, fallback: Option<Sdk>) -> Option<Sdk> {
-        match miko_core::tool_paths::ToolPaths::load(paths) {
-            Ok(config) => config
-                .android_sdk
-                .map(Sdk::configured)
-                .or(fallback)
-                .or_else(Sdk::studio),
-            // Preserve a fail-closed selection if the configuration is unreadable.
-            Err(_) => Some(Sdk::configured(PathBuf::new())),
         }
     }
 
@@ -217,40 +196,33 @@ impl SdkSet {
         self.custom.as_ref().unwrap_or(&self.private)
     }
 
-    /// The SDK that provides `emulator` and `adb`. An explicitly configured
-    /// read-only SDK fails closed when incomplete; otherwise the first complete
-    /// SDK wins: custom → private → Studio.
-    pub fn tools(&self) -> MikoResult<&Sdk> {
-        if let Some(selected) = self
-            .studio
+    /// A read-only fixture injected by the daemon's integration tests. A
+    /// legacy external selection is retained only for ownership checks.
+    pub fn fixture(&self) -> Option<&Sdk> {
+        self.studio
             .as_ref()
-            .filter(|sdk| sdk.kind == SdkKind::ConfiguredReadOnly)
-        {
-            return if selected.root.is_absolute() && selected.has_emulator() && selected.has_adb() {
-                Ok(selected)
-            } else {
-                Err(MikoError::sdk(format!(
-                    "configured Android SDK is unavailable or incomplete: {}",
-                    selected.root.display()
-                )))
-            };
-        }
+            .filter(|sdk| sdk.kind == SdkKind::StudioReadOnly)
+    }
+
+    /// The managed SDK that provides `emulator` and `adb`.
+    pub fn tools(&self) -> MikoResult<&Sdk> {
         self.custom
             .as_ref()
             .into_iter()
             .chain(std::iter::once(&self.private))
-            .chain(self.studio.as_ref())
+            .chain(self.fixture())
             .find(|s| s.has_emulator() && s.has_adb())
             .ok_or_else(|| MikoError::sdk("no Android emulator installed; run `miko sdk install`"))
     }
 
-    /// The SDK holding `image`: custom → private → Studio.
+    /// Finds an image in a current or former managed SDK.
     pub fn find_image(&self, image: &ImageRef) -> Option<&Sdk> {
         self.custom
             .as_ref()
             .into_iter()
             .chain(std::iter::once(&self.private))
-            .chain(self.studio.as_ref())
+            .chain(self.fixture())
+            .chain(self.legacy.iter())
             .find(|s| s.has_image(image))
     }
 }
@@ -258,7 +230,7 @@ impl SdkSet {
 fn is_complete_image(dir: &Path) -> bool {
     ["source.properties", "system.img", "ramdisk.img"]
         .iter()
-        .all(|f| dir.join(f).is_file())
+        .all(|f| std::fs::metadata(dir.join(f)).is_ok_and(|m| m.is_file() && m.len() > 0))
 }
 
 fn read_dirs(dir: &Path) -> Vec<PathBuf> {
@@ -312,6 +284,17 @@ mod tests {
     }
 
     #[test]
+    fn empty_image_files_are_not_installed() {
+        let dir = tempfile::tempdir().unwrap();
+        let image = img(36, "google_apis");
+        fake_image(dir.path(), &image, true);
+        std::fs::write(dir.path().join(image.sysdir()).join("system.img"), b"").unwrap();
+        let sdk = Sdk::read_only(dir.path());
+        assert!(!sdk.has_image(&image));
+        assert!(sdk.installed_images().is_empty());
+    }
+
+    #[test]
     fn lists_only_complete_images() {
         let dir = tempfile::tempdir().unwrap();
         fake_image(dir.path(), &img(31, "google_apis"), true);
@@ -331,27 +314,29 @@ mod tests {
     }
 
     #[test]
-    fn explicitly_selected_sdk_takes_priority_and_fails_closed() {
+    fn saved_external_sdk_is_not_used_for_tools_or_images() {
         let dir = tempfile::tempdir().unwrap();
         let paths = MikoPaths::under(dir.path().join("miko"));
         let selected = dir.path().join("sdk");
-        for root in [paths.sdk(), selected.clone()] {
-            std::fs::create_dir_all(root.join("emulator")).unwrap();
-            std::fs::create_dir_all(root.join("platform-tools")).unwrap();
-            std::fs::write(root.join("emulator/emulator"), b"x").unwrap();
-            std::fs::write(root.join("platform-tools/adb"), b"x").unwrap();
-        }
+        let image = img(31, "google_apis");
+        write_tools(&selected);
+        fake_image(&selected, &image, true);
+        std::fs::create_dir_all(&paths.data).unwrap();
         miko_core::tool_paths::ToolPaths {
-            android_sdk: Some(selected.clone()),
+            android_sdk: Some(selected),
             miko_sdk: None,
         }
         .save(&paths)
         .unwrap();
         let sdks = SdkSet::discover(&paths);
-        assert_eq!(sdks.tools().unwrap().root, selected);
-        assert!(sdks.tools().unwrap().ensure_writable().is_err());
-        std::fs::remove_file(selected.join("platform-tools/adb")).unwrap();
-        assert!(SdkSet::discover(&paths).tools().is_err());
+        assert!(sdks.tools().is_err());
+        assert!(sdks.find_image(&image).is_none());
+
+        write_tools(&paths.sdk());
+        fake_image(&paths.sdk(), &image, true);
+        let sdks = SdkSet::discover(&paths);
+        assert_eq!(sdks.tools().unwrap().root, paths.sdk());
+        assert_eq!(sdks.find_image(&image).unwrap().root, paths.sdk());
     }
 
     #[test]
@@ -361,6 +346,7 @@ mod tests {
         let studio = dir.path().join("studio");
         fake_image(&studio, &img(31, "google_apis"), true);
         let set = SdkSet {
+            legacy: Vec::new(),
             private: Sdk::private(&paths),
             custom: None,
             studio: Some(Sdk::read_only(&studio)),
@@ -454,6 +440,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let paths = MikoPaths::under(dir.path().join("miko"));
         let sdks = SdkSet {
+            legacy: Vec::new(),
             private: Sdk::private(&paths),
             custom: None,
             studio: None,

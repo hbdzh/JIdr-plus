@@ -14,6 +14,16 @@ mkdir -p "$app/Contents/Resources/licenses" "$app/Contents/MacOS" "$app/Contents
 for helper in miko miko-center-bridge miko-swiftui-bridge; do
   cp "$root/target/debug/$helper" "$app/Contents/Helpers/$helper"
 done
+# Local builds can supply only the self-built AOSP executable. SDK libraries,
+# platform-tools and images are prepared separately by the installer.
+runtime="$app/Contents/Resources/runtime"
+if [ -n "${MIKO_LOCAL_EMULATOR:-}" ]; then
+  codesign --verify "$MIKO_LOCAL_EMULATOR"
+  mkdir -p "$runtime"
+  cp "$MIKO_LOCAL_EMULATOR" "$runtime/qemu-system-aarch64-headless"
+else
+  rm -f "$runtime/qemu-system-aarch64-headless"
+fi
 swiftc -target "$miko_swift_target" -module-cache-path "$out/module-cache" \
   apps/miko-swiftui/Sources/*.swift \
   apps/miko-swiftui/Center/*.swift \

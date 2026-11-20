@@ -45,6 +45,7 @@ pub fn fixture(base: &str) -> Fixture {
     let tmp = tempfile::tempdir().unwrap();
     let paths = MikoPaths::under(tmp.path());
     let sdks = SdkSet {
+        legacy: Vec::new(),
         private: Sdk::private(&paths),
         custom: None,
         studio: Some(Sdk::read_only(test_sdk())),

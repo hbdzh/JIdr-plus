@@ -76,7 +76,8 @@ pub fn image_catalog(repo: &Repository, sdks: &SdkSet, filter: &CatalogFilter) -
         .as_ref()
         .into_iter()
         .chain(std::iter::once(&sdks.private))
-        .chain(sdks.studio.as_ref())
+        .chain(sdks.fixture())
+        .chain(sdks.legacy.iter())
     {
         for image in sdk
             .installed_images()
@@ -137,6 +138,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let repo = Repository::parse(XML, "file:///x.xml").unwrap();
         let sdks = SdkSet {
+            legacy: Vec::new(),
             private: Sdk::private(&MikoPaths::under(dir.path())),
             custom: None,
             studio: None,
@@ -175,6 +177,7 @@ mod tests {
             std::fs::write(d.join(f), b"x").unwrap();
         }
         let sdks = SdkSet {
+            legacy: Vec::new(),
             private: Sdk::private(&MikoPaths::under(dir.path().join("j"))),
             custom: None,
             studio: Some(Sdk::read_only(&studio)),

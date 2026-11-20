@@ -658,7 +658,7 @@ System images for this host, installed or available
 
 | Param | Type | Required | Description |
 |---|---|---|---|
-| `available` | boolean |  | Include images that aren't installed (needs network; falls back to installed images when offline). |
+| `available` | boolean |  | Include images that aren't installed (requires the remote catalog). |
 
 #### `image.remove`
 
@@ -1251,6 +1251,11 @@ reported as errors.
 
 ## Changelog
 
+- On macOS, `audio.inject` requires an available host audio input device unless the running emulator reports support for audio injection without one.
+
+- `image.list` with `available: true` returns an SDK error when the remote image catalog cannot be read; `available: false` still lists local images offline.
+- `image.install` reuses available emulator and ADB tools and installs only the requested system image.
+
 Snapshot save failures report resource observations; `device.snapshot_warning` signals low resources and prior incomplete or unclean sessions.
 
 | Version | Change |
@@ -1288,3 +1293,6 @@ Snapshot save failures report resource observations; `device.snapshot_warning` s
 | 0.1 (additive) | `app.list` lists launchable third-party applications for a running device, returning the package name, display name and an optional path to a cached icon. |
 | 0.1 (additive) | Custom SDK install root: `sdk.status` gains `install_sdk` (the writable SDK root installations go to: the user-configured `miko_sdk` root or the private SDK) and `custom_sdk` (the configured custom root, or `null`). `sdk.install` and `image.install` install into that root; `image.install` also installs `emulator` and `platform-tools` into it when they are missing. No existing field changed meaning. |
 | 0.1 (additive) | Quick-boot save failures during `device.stop` and `daemon.quit` carry `data.details.operation = "quick_boot_save"`; the device remains running and the original error details are retained under `cause`. |
+| 0.1 | `sdk.status.studio_sdk` is now always `null`. Runtime tools and new image selections use the Miko-managed SDK. |
+
+On Apple Silicon builds with a local miko runtime, `sdk.status.runtime_needs_install` indicates whether that runtime still needs setup. `sdk.install` prepares tools and `image.install` installs only the requested system image.

@@ -22,7 +22,6 @@ struct Request {
 #[derive(Default)]
 struct LocalStateLocks {
     preferences: Arc<tokio::sync::Mutex<()>>,
-    tools: Arc<tokio::sync::Mutex<()>>,
     storage: Arc<tokio::sync::Mutex<()>>,
 }
 
@@ -316,8 +315,7 @@ fn fixture_result(request: &Request, case: &str) -> Value {
             json!({"id":id,"type":"result","result":{"language":1,"appearance":0,"tile_url":"","record_audio":true}})
         }
         "center.paths" => json!({"id":id,"type":"result","result":{
-            "data":"/tmp/miko-fixture/data","cache":"/tmp/miko-fixture/cache","logs":"/tmp/miko-fixture/logs",
-            "tools":{"android_sdk":null,"miko_sdk":null}
+            "data":"/tmp/miko-fixture/data","cache":"/tmp/miko-fixture/cache","logs":"/tmp/miko-fixture/logs"
         }}),
         "center.about" => json!({"id":id,"type":"result","result":{
             "version":env!("CARGO_PKG_VERSION"),"repository":"https://github.com/hbdzh/miko-simulator"
@@ -481,7 +479,6 @@ async fn main() -> Result<()> {
         };
         let client = Arc::clone(&client);
         let prefs_lock = Arc::clone(&locks.preferences);
-        let tool_lock = Arc::clone(&locks.tools);
         let storage_lock = Arc::clone(&locks.storage);
         tokio::spawn(async move {
             let id = request.id;
@@ -534,58 +531,12 @@ async fn main() -> Result<()> {
                 }
                 return;
             }
-            if request.method == "center.paths" || request.method == "center.toolpath.set" {
-                let _guard = tool_lock.lock().await;
-                let result = (|| -> anyhow::Result<Value> {
-                    let paths = MikoPaths::discover()?;
-                    let mut tools = miko_core::tool_paths::ToolPaths::load(&paths)?;
-                    if request.method == "center.toolpath.set" {
-                        let kind = request
-                            .params
-                            .get("kind")
-                            .and_then(Value::as_str)
-                            .ok_or_else(|| {
-                                DiagnosticError::new(
-                                    "toolpath.missing_kind",
-                                    "The tool path kind is missing",
-                                )
-                            })?;
-                        let selected = match request.params.get("path") {
-                            Some(Value::String(p)) => Some(std::path::PathBuf::from(p)),
-                            Some(Value::Null) => None,
-                            _ => {
-                                return Err(DiagnosticError::new(
-                                    "toolpath.missing_path",
-                                    "The tool path is missing",
-                                )
-                                .into());
-                            }
-                        };
-                        match kind {
-                            "sdk" => tools.android_sdk = selected,
-                            "miko_sdk" => tools.miko_sdk = selected,
-                            _ => {
-                                return Err(DiagnosticError::new(
-                                    "toolpath.unknown_kind",
-                                    "The tool path kind is unknown",
-                                )
-                                .into());
-                            }
-                        }
-                        tools.save(&paths)?;
-                    }
-                    // JDK configuration was removed from the product; the bridge
-                    // only exposes the writable Miko root and the external SDK.
-                    Ok(json!({
-                        "data":paths.data,
-                        "cache":paths.cache,
-                        "logs":paths.logs,
-                        "tools":{"android_sdk":tools.android_sdk,"miko_sdk":tools.miko_sdk},
-                    }))
-                })();
-                match result {
-                    Ok(value) => send(json!({"id":id,"type":"result","result":value})),
-                    Err(error) => send(error_reply(id, &error)),
+            if request.method == "center.paths" {
+                match MikoPaths::discover() {
+                    Ok(paths) => send(json!({"id":id,"type":"result","result":{
+                        "data":paths.data, "cache":paths.cache, "logs":paths.logs
+                    }})),
+                    Err(error) => send(error_reply(id, &error.into())),
                 }
                 return;
             }
@@ -897,10 +848,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn preferences_do_not_block_tool_paths() {
+    async fn preferences_do_not_block_storage() {
         let locks = LocalStateLocks::default();
         let _preference_write = locks.preferences.lock().await;
-        assert!(locks.tools.try_lock().is_ok());
+        assert!(locks.storage.try_lock().is_ok());
         assert!(locks.preferences.try_lock().is_err());
     }
 

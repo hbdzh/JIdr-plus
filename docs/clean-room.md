@@ -43,3 +43,5 @@ Record any non-obvious source you used, so provenance can be audited later.
 
 | 2026-11-10 | SwiftUI validation | Magisk public [developer guide](https://topjohnwu.github.io/Magisk/guides.html) (module metadata and removal marker); no source code copied | An empty isolated test module and its removal after reboot. |
 | 2026-11-10 | Storage validation | QEMU public [qemu-img documentation](https://www.qemu.org/docs/master/tools/qemu-img.html) (check exit codes and leak-only repair); no source code copied | Diagnose an isolated disk-image copy without changing the original; leak-only findings remain a migration stop. |
+| 2026-11-20 | B | Android Emulator's public `EmulatorStatus.guestConfig` in `emulator_controller.proto` and an isolated Apple Silicon build from AOSP | A patched emulator reports its audio input fallback through `getStatus` so miko can inject audio without a host microphone. |
+| 2026-11-20 | Audio playback | Public AOSP emulator source at `5e5120287952` and isolated Android 36 playback on 44.1 kHz HDMI | Updated the standalone local emulator to preserve the CoreAudio output buffer size on short writes and refill playback every 5 ms. |

@@ -3,7 +3,7 @@
 `cargo xtask release` is the sole application packaging implementation. It builds
 `miko simulator.app`, an arm64 DMG, the MCP bundle and SHA256SUMS under `target/release-artifacts`.
 The source template is `Miko-Info.plist.in` (bundle identity `ly.miko.Miko`).
-Workspace version 0.7.0 supplies the CLI version, application plist version and
+The workspace version supplies the CLI version, application plist version and
 artifact filenames. The template deliberately keeps `@VERSION@` placeholders.
 
 ```bash

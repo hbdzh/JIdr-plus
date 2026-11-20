@@ -1454,7 +1454,7 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "miko"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -1480,7 +1480,7 @@ dependencies = [
 
 [[package]]
 name = "miko-adb"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "miko-core",
  "schemars",
@@ -1492,7 +1492,7 @@ dependencies = [
 
 [[package]]
 name = "miko-automation"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "chrono",
  "miko-core",
@@ -1504,7 +1504,7 @@ dependencies = [
 
 [[package]]
 name = "miko-backend"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1525,7 +1525,7 @@ dependencies = [
 
 [[package]]
 name = "miko-client"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "miko-backend",
  "miko-core",
@@ -1539,7 +1539,7 @@ dependencies = [
 
 [[package]]
 name = "miko-core"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1553,7 +1553,7 @@ dependencies = [
 
 [[package]]
 name = "miko-cpio"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "flate2",
  "liblzma",
@@ -1564,7 +1564,7 @@ dependencies = [
 
 [[package]]
 name = "miko-daemon"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1590,7 +1590,7 @@ dependencies = [
 
 [[package]]
 name = "miko-helper"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "hex",
  "miko-adb",
@@ -1606,7 +1606,7 @@ dependencies = [
 
 [[package]]
 name = "miko-mcp"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "base64 0.22.1",
  "miko-adb",
@@ -1627,7 +1627,7 @@ dependencies = [
 
 [[package]]
 name = "miko-proto"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "prost",
  "tempfile",
@@ -1638,7 +1638,7 @@ dependencies = [
 
 [[package]]
 name = "miko-root"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1667,7 +1667,7 @@ dependencies = [
 
 [[package]]
 name = "miko-sdk"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "chrono",
  "dirs",
@@ -1693,7 +1693,7 @@ dependencies = [
 
 [[package]]
 name = "miko-swiftui-bridge"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -1713,7 +1713,7 @@ dependencies = [
 
 [[package]]
 name = "miko-sync"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "chrono",
  "miko-automation",
@@ -1727,7 +1727,7 @@ dependencies = [
 
 [[package]]
 name = "miko-widgets"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "async-trait",
  "block2",
@@ -3911,7 +3911,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.9.1"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "clap",

@@ -131,9 +131,9 @@ pub fn write_location_file(path: &Path, location: &PortableLocation) -> MikoResu
 pub struct MikoPaths {
     /// `~/Library/Application Support/miko`
     pub data: PathBuf,
-    /// `~/Library/Caches/miko`
+    /// `~/Library/Application Support/miko/cache`
     pub cache: PathBuf,
-    /// `~/Library/Logs/miko`
+    /// `~/Library/Application Support/miko/logs`
     pub logs: PathBuf,
 }
 
@@ -149,17 +149,17 @@ impl MikoPaths {
         let data = dirs::data_dir()
             .ok_or_else(|| MikoError::unexpected("no data directory for this user"))?
             .join("miko");
-        let cache = dirs::cache_dir()
-            .ok_or_else(|| MikoError::unexpected("no cache directory for this user"))?
-            .join("miko");
-        let logs = if cfg!(target_os = "macos") {
-            dirs::home_dir()
-                .ok_or_else(|| MikoError::unexpected("no home directory"))?
-                .join("Library/Logs/miko")
-        } else {
-            data.join("logs")
-        };
-        Ok(Self { data, cache, logs })
+        Ok(Self::in_data_root(data))
+    }
+
+    /// The default layout retains the existing data directory while placing
+    /// the private SDK, devices, cache, and logs in that same directory.
+    fn in_data_root(data: PathBuf) -> Self {
+        Self {
+            cache: data.join("cache"),
+            logs: data.join("logs"),
+            data,
+        }
     }
 
     /// All directories under one root.
@@ -223,6 +223,17 @@ impl MikoPaths {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn default_layout_keeps_everything_in_the_data_root() {
+        let root = PathBuf::from("/tmp/default-miko");
+        let paths = MikoPaths::in_data_root(root.clone());
+        assert_eq!(paths.data, root);
+        assert_eq!(paths.sdk(), root.join("sdk"));
+        assert_eq!(paths.avd_home(), root.join("avd"));
+        assert_eq!(paths.downloads(), root.join("cache/downloads"));
+        assert_eq!(paths.device_logs("test"), root.join("logs/devices/test"));
+    }
 
     #[test]
     fn under_root_layout() {

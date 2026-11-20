@@ -83,6 +83,42 @@ async fn inventory_and_remove_preserve_external_and_referenced_images() {
 }
 
 #[tokio::test]
+async fn switching_install_roots_keeps_existing_images_and_devices_available() {
+    let h = Harness::start().await;
+    let old = h.tmp.path().join("old-writable-sdk");
+    let image = image_at(&old, "google_apis_ps16k");
+    miko_core::tool_paths::ToolPaths {
+        android_sdk: None,
+        miko_sdk: Some(old.clone()),
+    }
+    .save(&h.paths)
+    .unwrap();
+    let package = format!("35:google_apis_ps16k:{}", miko_sdk::host::host_abi());
+    let mut client = h.client().await;
+    client
+        .ok("device.create", json!({"name":"Pinned", "image": package}))
+        .await;
+    miko_core::tool_paths::ToolPaths::default()
+        .save(&h.paths)
+        .unwrap();
+    let rows = client.ok("image.list", json!({"available":false})).await;
+    assert!(
+        rows.as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["installed_in"] == old.to_string_lossy().as_ref())
+    );
+    // A second copy with the same package must not silently replace the
+    // original image used by an existing device.
+    image_at(&h.paths.sdk(), "google_apis_ps16k");
+    client.run("device.start", json!({"device":"Pinned"})).await;
+    assert_eq!(h.backend.specs().last().unwrap().sdk_root, old);
+    client.ok("device.stop", json!({"device":"Pinned"})).await;
+    assert!(image.join("system.img").is_file());
+    h.stop().await;
+}
+
+#[tokio::test]
 async fn image_removal_rejects_stale_roots_and_unsafe_paths() {
     let h = Harness::start().await;
     let private = h.paths.sdk();

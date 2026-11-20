@@ -1,6 +1,6 @@
 # Miko brand assets
 
-The symbol is a root (جذر) that grows into a phone outline. Everything here is generated from `source/appLogoOnPaper.jpg` by `build.sh`. Don't hand-edit outputs; change `build.sh` and re-run it.
+The symbol is a root (جذر) that grows into a phone outline. The legacy symbol and web assets are generated from `source/appLogoOnPaper.jpg` by `build.sh`. The app bundle and MCP icons use the approved default artwork in `../icon/Icon/`; `build.sh` regenerates them from that file.
 
 ```bash
 brew install potrace librsvg imagemagick   # once
@@ -24,8 +24,8 @@ These were sampled from the approved board (`source/brand-board.jpg`). When the 
 |---|---|---|
 | `symbol.svg` | the symbol, `fill="currentColor"` | everything; tint it |
 | `symbol-bold.svg` | thicker strokes for ≤32 px | small icons, favicon, menu bar |
-| `app-icon.svg` / `app-icon-1024.png` | macOS icon master (1024 canvas, 824 squircle, shadow) | `.icns`, docs |
-| `app-icon-small.svg` | 16/32 px cut (no shadow, larger body) | `.icns` small sizes, favicon |
+| `app-icon.svg` / `app-icon-1024.png` | legacy icon artwork | docs and legacy web assets |
+| `app-icon-small.svg` | legacy 16/32 px artwork | favicon |
 | `avatar.svg` / `avatar-1024.png` | circular avatar | GitHub org/repo, social profiles |
 | `social-card.svg` / `.png` | 1200×630 preview card | Open Graph / Twitter card |
 | `web/` | `favicon.svg`, `favicon.ico`, `favicon-32.png`, `apple-touch-icon.png`, `og-image.png`, `avatar-512.png`, `symbol.svg` | standalone web assets |
@@ -39,3 +39,5 @@ These were sampled from the approved board (`source/brand-board.jpg`). When the 
 - Ownership: this folder is shared and read-only for the work streams. Only `build.sh` changes it.
 
 The native app icon is generated at `apps/miko-swiftui/Resources/Miko.icns`. Retired Slint/menu-bar raster duplicates are no longer generated.
+
+The four approved artwork variants are retained under `../icon/Icon/`. The macOS bundle and MCP extension use the default variant; the iOS dark and clear variants are not automatically selected by the macOS `.icns` format.

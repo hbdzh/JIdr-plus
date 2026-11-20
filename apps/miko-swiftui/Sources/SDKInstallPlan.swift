@@ -54,20 +54,6 @@ struct SDKInstallPlan {
     var parameters: [String:Any] {
         imagePackage.map { ["image":$0] } ?? ["packages":["emulator", "platform-tools"]]
     }
-    /// Existing SDKs are read-only, including when a symlink points inside one.
-    static func rootsOverlap(_ first: String, _ second: String) -> Bool {
-        func components(_ path: String) -> [String] {
-            var url = URL(fileURLWithPath: path).standardizedFileURL
-            var missing: [String] = []
-            while !FileManager.default.fileExists(atPath: url.path) && url.path != "/" {
-                missing.insert(url.lastPathComponent, at: 0)
-                url.deleteLastPathComponent()
-            }
-            return url.resolvingSymlinksInPath().pathComponents + missing
-        }
-        let a = components(first), b = components(second)
-        return a.starts(with: b) || b.starts(with: a)
-    }
     static func wasCancelled(_ message: String, requested: Bool) -> Bool {
         let lower = message.lowercased()
         return requested && (lower.contains("cancelled") || lower.contains("canceled"))
@@ -78,11 +64,27 @@ struct SDKInstallPlan {
     enum PlanError: Error { case consentRequired, invalidLicense }
 }
 
+/// Only an explicit image choice can add a system image to an install plan.
+enum SDKImageSelection {
+    static func afterRefresh(current: String, available: [String]) -> String {
+        available.contains(current) ? current : ""
+    }
+
+    static func planSelection(selectedID: String, selectedPackage: String?, requiresImage: Bool,
+                              destination: String) -> SDKInstallSelection? {
+        if selectedID.isEmpty {
+            guard !requiresImage else { return nil }
+            return SDKInstallSelection(imagePackage: nil, destination: destination)
+        }
+        guard let selectedPackage, !selectedPackage.isEmpty else { return nil }
+        return SDKInstallSelection(imagePackage: selectedPackage, destination: destination)
+    }
+}
+
 /// Consent is bound to the exact packages and installation destination reviewed.
 struct SDKInstallSelection: Equatable {
     let imagePackage: String?
     let destination: String
-    let externalSDK: String?
 }
 
 struct SDKLicenseReview {
@@ -124,8 +126,8 @@ struct SDKLicenseReview {
         return SDKInstallPlan(imagePackage: current.imagePackage, licenses: licenses)
     }
     func canBeginInstallation(for current: SDKInstallSelection?, busy: Bool, installing: Bool,
-                              overlappingRoots: Bool, imagesLoading: Bool) -> Bool {
-        guard !busy, !installing, !overlappingRoots, !imagesLoading,
+                              imagesLoading: Bool) -> Bool {
+        guard !busy, !installing, !imagesLoading,
               let current, let plan = authorizedPlan(for: current) else { return false }
         return (try? plan.consentRequests(reviewed: true)) != nil
     }

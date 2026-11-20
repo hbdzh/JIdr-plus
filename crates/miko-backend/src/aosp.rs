@@ -503,27 +503,31 @@ impl Backend for AospBackend {
     }
 
     async fn stop_without_save(&self, instance: &InstanceInfo) -> MikoResult<()> {
-        // Only terminate after the VM acknowledged pause. Otherwise guest
-        // writes could still be in flight while the process is killed.
-        timeout(SHUTDOWN_REQUEST_TIMEOUT, async {
-            let (mut c, _) = grpc::connect(instance).await?;
-            c.set_vm_state(VmRunState {
-                state: RunState::Paused as i32,
+        if self.is_alive(instance).await {
+            // Only terminate a live emulator after it acknowledges pause.
+            // Android may already be shutting it down and close gRPC first.
+            let pause = timeout(SHUTDOWN_REQUEST_TIMEOUT, async {
+                let (mut c, _) = grpc::connect(instance).await?;
+                c.set_vm_state(VmRunState {
+                    state: RunState::Paused as i32,
+                })
+                .await
+                .map_err(|e| grpc::status_error("Pause", e))?;
+                Ok::<(), MikoError>(())
             })
             .await
-            .map_err(|e| grpc::status_error("Pause", e))?;
-            Ok::<(), MikoError>(())
-        })
-        .await
-        .map_err(|_| MikoError::sdk("timed out pausing emulator before stop"))??;
-        // The launcher's QEMU child first: killing only the launcher would
-        // orphan it.
-        kill_tree(instance.pid).await;
-        if !self.wait_exit(instance, Duration::from_secs(10)).await {
-            return Err(MikoError::unexpected(format!(
-                "emulator process {} did not exit after shutdown",
-                instance.pid
-            )));
+            .unwrap_or_else(|_| Err(MikoError::sdk("timed out pausing emulator before stop")));
+            if pause.is_ok() && self.is_alive(instance).await {
+                // The launcher's QEMU child can outlive the launcher.
+                kill_tree(instance.pid).await;
+            }
+            if !self.wait_exit(instance, SHUTDOWN_REQUEST_TIMEOUT).await {
+                pause?;
+                return Err(MikoError::unexpected(format!(
+                    "emulator process {} did not exit after shutdown",
+                    instance.pid
+                )));
+            }
         }
         self.exits
             .lock()
@@ -726,6 +730,32 @@ mod tests {
                 .wait_exit(&instance, Duration::from_millis(40))
                 .await
         );
+    }
+
+    #[tokio::test]
+    async fn stop_without_save_cleans_up_after_the_guest_already_exited() {
+        let backend = AospBackend::new();
+        let ports = backend.ports.allocate().unwrap();
+        let pid = std::process::id();
+        // The child exit watcher is authoritative, even if its PID has since
+        // been reused. No gRPC request should be needed to finish shutdown.
+        let (_sender, receiver) = watch::channel(Some(Some(0)));
+        backend.exits.lock().unwrap().insert(pid, receiver);
+        let instance = InstanceInfo {
+            avd: "test".into(),
+            pid,
+            console_port: ports.console,
+            adb_port: ports.adb,
+            grpc_port: ports.grpc,
+            adb_serial: ports.adb_serial(),
+            grpc_token: "test".into(),
+            started_at: Utc::now(),
+            log_path: None,
+        };
+        backend.stop_without_save(&instance).await.unwrap();
+        assert!(backend.exit_watch(pid).is_none());
+        let reused = backend.ports.allocate().unwrap();
+        assert_eq!(reused.console, ports.console);
     }
 
     #[tokio::test]

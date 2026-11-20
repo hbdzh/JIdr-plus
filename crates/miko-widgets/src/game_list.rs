@@ -203,14 +203,7 @@ pub async fn list(ctx: &CallCtx, p: DeviceParams) -> MikoResult<Value> {
     let adb = t.adb();
     let packages = adb.shell("pm list packages -3").await?;
     let launchers = adb.shell("cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER").await?;
-    let aapt = find_aapt(&t.info.adb_path)
-        .or_else(|| {
-            miko_core::tool_paths::ToolPaths::load(ctx.daemon.paths())
-                .ok()
-                .and_then(|p| p.android_sdk)
-                .and_then(|sdk| find_aapt_root(&sdk))
-        })
-        .or_else(|| find_aapt_root(&t.device.sdk_root));
+    let aapt = find_aapt(&t.info.adb_path).or_else(|| find_aapt_root(&t.device.sdk_root));
     let cache = ctx
         .daemon
         .paths()

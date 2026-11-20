@@ -14,6 +14,7 @@ pub mod migration;
 pub mod migration_journal;
 pub mod profiles;
 pub mod repo;
+pub mod runtime;
 pub mod sdk;
 
 pub use avd::{AvdInfo, AvdManager, AvdSpec, ConfigIni};

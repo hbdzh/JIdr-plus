@@ -27,6 +27,11 @@ enum OperationMessages {
                               ("Miko request", " request"), ("Miko tasks", " tasks")] {
             value = value.replacingOccurrences(of: old, with: product + suffix)
         }
+        if value.contains("UNSUPPORTED_VK_APP") {
+            return language == 0
+                ? "The current Vulkan app cannot be saved in a quick-boot snapshot. Close the app in Android and try again."
+                : "当前 Vulkan 应用无法保存到快速启动快照。请在安卓中退出应用后重试。"
+        }
         guard language != 0 else { return value }
         let stoppedSuffix = " is not running; start it first"
         if value.hasSuffix(stoppedSuffix) {
@@ -34,6 +39,8 @@ enum OperationMessages {
             return "设备“\(name)”未运行，请先启动设备。"
         }
         let exact = [
+            "audio injection requires an available Mac audio input device":"音频注入需要 Mac 上有可用的音频输入设备。",
+            "could not check the Mac's audio input devices":"无法检查 Mac 的音频输入设备。",
             "this needs root: set the device's root mode to adb (Shell root) or magisk (Full root)":"此功能需要 Root，请将设备设为 Shell Root 或完整 Root。",
             "on-device helper: this image's kernel has no netem (CONFIG_NET_SCH_NETEM)":"此系统镜像的内核不支持网络丢包模拟。",
             "on-device helper: no interface has a default route (is Wi-Fi or mobile data on?)":"没有可用的默认网络接口，请检查 Wi-Fi 或移动数据。",
