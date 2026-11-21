@@ -1,25 +1,9 @@
-# On-device helper and packet loss
+# 设备内辅助程序与丢包
 
-Miko builds a small Apache-2.0 Rust helper for the Android guest. It starts on
-demand under Shell Root or Magisk, exposes fixed typed operations over an
-abstract Unix socket, and is reached through an adb forward on host loopback.
-The guest checks peer credentials and accepts only root and the adb shell;
-the host checks the executable's SHA-256 and protocol before use. The helper
-does not offer an arbitrary command interface. The source and approach are
-adapted from upstream Jidr's [helper implementation](https://github.com/jidr-dev/jidr/commit/6f3f9a0364d6db770b4d41ceeb1c58e2fbc90d73).
+miko 为 Android 客体构建一个 Apache-2.0 许可的 Rust 辅助程序。它在 Shell Root 或 Magisk 环境下按需启动，通过抽象 Unix socket 提供固定的类型化操作，Mac 端经 adb 转发到本机回环地址访问。客体会检查对端凭据，只接受 root 和 adb shell；Mac 端使用前检查可执行文件的 SHA-256 与协议。辅助程序不提供任意命令接口。源码和方法改编自上游 Jidr 的[辅助程序实现](https://github.com/jidr-dev/jidr/commit/6f3f9a0364d6db770b4d41ceeb1c58e2fbc90d73)。
 
-`network.shaping.set` controls egress packet loss using the guest's `tc`
-and `netem` on interfaces with an IPv4 default route. It needs a running,
-rooted device and kernel support for netem. Miko stores the requested packet
-loss and DNS settings and attempts to restore them after boot. Slow or failed
-DNS is supported on ports 53 and 853. Changing interfaces or routes may require applying
-the setting again. A partial failure across interfaces can leave some changed;
-read the status and clear or retry. Setting loss replaces the selected
-interfaces' root qdisc; clearing removes a root netem qdisc. It is therefore
-not suitable for preserving a separately configured custom qdisc.
+`network.shaping.set` 使用客体中的 `tc` 和 `netem`，对具有 IPv4 默认路由的接口控制出站丢包。设备必须运行、具备 Root，内核也须支持 netem。miko 保存请求的丢包和 DNS 设置，并在启动后尝试恢复；53 和 853 端口支持模拟 DNS 延迟或失败。更改网络接口或路由后可能需要重新应用。多个接口部分失败时，部分设置可能已经生效，应读取状态后清除或重试。
 
-Development builds need `cargo xtask helper --arch aarch64` for arm64 guests
-or `--arch x86_64` for x86_64 guests. A release packages the arm64 helper in
-the app and MCP bundle; the release scanner permits it only at the intended
-paths and only when it matches the just-built helper. The helper is not an
-Android SDK binary or system image.
+设置丢包会替换所选接口的根 qdisc；清除操作会移除根 netem qdisc，因此不适合需要保留另行配置的自定义 qdisc 的场景。
+
+开发构建对 arm64 客体使用 `cargo xtask helper --arch aarch64`，对 x86_64 客体使用 `--arch x86_64`。发行包将 arm64 辅助程序放入应用和 MCP 包；扫描器只允许它位于预定路径且与本次构建的文件一致。该辅助程序不是 Android SDK 二进制文件或系统镜像。

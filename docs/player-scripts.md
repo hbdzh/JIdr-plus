@@ -1,26 +1,20 @@
-# Player operation recordings (v1)
+# 播放器操作录制（v1）
 
-Status: implemented in the player-window MVP. CLI/MCP playback is a
-later phase and is deliberately not part of this contract.
+状态：已在播放器窗口 MVP 中实现。CLI/MCP 播放属于后续阶段，不属于本约定。
 
-This is the MuMu-style "operation recording" feature: the player records the
-user's normalised input commands with timings, stores the timeline as JSON, and
-replays it locally in the player bridge. Scripts are data, not code.
+该功能以类似 MuMu 的方式记录用户归一化输入及时间，将时间线保存为 JSON，并在播放器桥中本地回放。脚本是数据，不是代码。
 
-## Scope (v1)
+## 范围（v1）
 
-- Entry point: the player window only.
-- Recorded events: touch, mapped touch, key down/up, text, paste, tool keys.
-- Not recorded: rotation, screen recording/screenshot/file operations, copy/cut,
-  select-all, app inspect/uninstall.
-- Playback options: count, duration, infinite loop, loop interval, speed
-  (0.25x–4x).
-- Closing the player window stops recording and playback (the bridge process
-  exits).
-- Scripts live in `<Miko data>/scripts/`; they are portable JSON files.
-- No daemon, CLI, MCP or protocol changes in v1.
+- 入口仅为播放器窗口。
+- 记录触摸、映射触摸、按键按下/抬起、文本、粘贴和工具键。
+- 不记录旋转、录屏、截图、文件操作、复制、剪切、全选、应用检查和卸载。
+- 回放可设置次数、时长、无限循环、循环间隔和速度（0.25x–4x）。
+- 关闭播放器窗口会停止录制和回放，桥进程随之退出。
+- 脚本存放在 `<Miko data>/scripts/`，使用可移植 JSON 文件。
+- v1 不修改 daemon、CLI、MCP 或控制协议。
 
-## Script format
+## 脚本格式
 
 ```json
 {
@@ -49,39 +43,29 @@ replays it locally in the player bridge. Scripts are data, not code.
 }
 ```
 
-Rules:
+规则：
 
-- `t` is milliseconds from the start, monotonically non-decreasing.
-- Touch coordinates are normalised shown-screen coordinates (0…1), exactly like
-  the bridge's `touch` command.
-- `mapped_touch` ids are 3…9.
-- Names are 1…80 characters; a script has 1…200,000 events and is at most 24 h
-  long.
-- `playback` is the last-used default; the UI may override it per run.
-- Display size is used only for a compatibility warning; normalized coordinates
-  still map to the current screen.
+- `t` 是从开始计算的毫秒数，单调不递减。
+- 触摸坐标使用显示屏幕的归一化坐标（0…1），与桥的 `touch` 命令相同；`mapped_touch` 的 id 为 3…9。
+- 名称为 1…80 字符；每个脚本包含 1…200,000 个事件，最长 24 小时。
+- `playback` 是上次使用的默认值；界面可在每次运行时覆盖。
+- 显示尺寸仅用于兼容性提示，归一化坐标仍映射到当前屏幕。
 
-## Core crate API (`crates/miko-automation`)
+## 核心 crate API（`crates/miko-automation`）
 
-Pure Rust, no UI/daemon dependencies. Public API used by the bridge:
+纯 Rust，不依赖界面或 daemon。桥使用的公开 API：
 
-- `Script`, `Event` (tagged `type`), `TimedEvent`, `DisplayInfo`,
-  `PlaybackOptions`, `PlaybackMode`, `ScriptSummary`
-- `validate(&Script) -> MikoResult<()>`
-- `Recorder`: `new(now)`, `record(event, now)`, `pause(now)`, `resume(now)`,
-  `is_paused()`, `event_count()`, `finish(name, device, display, playback, now)`
-  (finish appends release events for still-held touch/key state and validates).
-- `ScriptStore::new(data_dir)`: `list()`, `load(id)`, `save(&script)`,
-  `delete(id)`, `rename(id, name)`, `import(path)`, `export(id, path)`.
-- Errors use `miko_core::MikoError` (`usage`/`not found` semantics).
+- `Script`、`Event`（由 `type` 标记）、`TimedEvent`、`DisplayInfo`、`PlaybackOptions`、`PlaybackMode`、`ScriptSummary`。
+- `validate(&Script) -> MikoResult<()>`。
+- `Recorder`：`new(now)`、`record(event, now)`、`pause(now)`、`resume(now)`、`is_paused()`、`event_count()`、`finish(name, device, display, playback, now)`。结束时补充仍按住的触摸和按键的释放事件并验证。
+- `ScriptStore::new(data_dir)`：`list()`、`load(id)`、`save(&script)`、`delete(id)`、`rename(id, name)`、`import(path)`、`export(id, path)`。
+- 错误使用 `miko_core::MikoError`（`usage` / `not found` 语义）。
 
-## Player bridge protocol additions
+## 播放器桥协议扩展
 
-The player bridge is the Rust process spawned by the Swift player. stdin is
-NDJSON commands; stderr carries JSON notifications. The player bridge remains
-UI-agnostic so a future Windows/HarmonyOS UI can reuse it.
+播放器桥是 Swift 播放器启动的 Rust 进程：stdin 接收 NDJSON 命令，stderr 发送 JSON 通知。桥不依赖特定界面，以便未来 Windows/HarmonyOS 界面复用。
 
-### Commands (stdin)
+### 命令（stdin）
 
 ```text
 {"type":"script_record_start"}
@@ -100,17 +84,14 @@ UI-agnostic so a future Windows/HarmonyOS UI can reuse it.
 {"type":"script_play_stop"}
 ```
 
-Rules:
+规则：
 
-- Recording and playback are mutually exclusive; a conflicting command emits
-  `script.busy`.
-- While playback is active, ordinary input commands from the UI are ignored
-  (the UI disables input); script commands still work.
-- Rotation is rejected in v1: it is never recorded and a script containing one
-  is invalid.
-- On stop/cancel/pause/finish, held key/touch inputs are released.
+- 录制和回放互斥，冲突命令返回 `script.busy`。
+- 回放期间忽略来自界面的普通输入（界面禁用输入），脚本命令仍可用。
+- v1 不允许旋转：不会录制旋转，包含旋转的脚本无效。
+- 停止、取消、暂停或结束时释放仍按住的按键和触摸。
 
-### Notifications (stderr, `MIKO_SCRIPT:` + JSON)
+### 通知（stderr，`MIKO_SCRIPT:` + JSON）
 
 ```text
 {"op":"record","state":"recording"|"paused"|"progress"|"saved"|"stopped"|"failed","event_count":..., "name":..., "message":..., "script":{summary}}
@@ -119,33 +100,16 @@ Rules:
 {"op":"error","code":"script.busy","message":"..."}
 ```
 
-`message` is the English fallback (the Swift UI may translate common codes).
-Summaries contain `id,name,duration_ms,event_count,action_count,created_at,display`.
-`event_count` counts all recorded samples; `action_count` groups a touch gesture
-or key press and counts each text, paste or tool-key command. Only the summary
-changes: recording files and the playback timeline retain every event.
+`message` 为英文回退文本（Swift 界面可翻译常见错误码）。摘要包含 `id,name,duration_ms,event_count,action_count,created_at,display`。`event_count` 统计全部录制样本；`action_count` 将一次触摸手势或按键归为一个动作，每条文本、粘贴或工具键命令各算一个动作。只有摘要变化，录制文件和回放时间线仍保留全部事件。
 
-### Playback engine
+### 回放引擎
 
-The playback state lives in the bridge main loop (same controller as user
-input, so release/hold handling is shared). A ~5 ms tick advances due events;
-the loop remains responsive to frames and to pause/resume/stop commands. Event
-times are divided by `speed`; loop intervals are real time. The engine emits
-`play` notifications on start/loop/pause/resume/stop/finish.
+回放状态属于桥主循环，与用户输入使用同一控制器，因而共享按住和释放处理。约每 5 毫秒推进到期事件，同时保持对画面和暂停、继续、停止命令的响应。事件时间除以 `speed`，循环间隔使用真实时间。开始、循环、暂停、继续、停止和结束时发送 `play` 通知。
 
-## Swift UI
+## Swift 界面
 
-- Player side rail gains "操作录制"; it opens a non-modal script window so the
-  player remains usable while recording.
-- Script window: a compact list with a native New recording toolbar action,
-  direct playback, an on-demand playback-settings popover, and rename, delete,
-  import/export. Playback settings are retained on this Mac.
-- Running devices are offered as recording/playback targets. A player window is
-  opened if needed, and recording stops directly to a default-named file.
-- Floating player controls over the top of the Android screen show elapsed
-  time and event count during recording, and the current loop during playback,
-  with pause and stop controls. The window and device view keep their size;
-  the controls occupy a small part of the screen while visible. Recording
-  counts are coalesced by the bridge.
-- Closing the player window stops everything naturally (bridge exits).
-- All strings bilingual via the existing player localisation helper.
+- 播放器侧栏提供「操作录制」，以非模态窗口打开，录制时仍可使用播放器。
+- 窗口提供紧凑列表、原生新建录制工具栏操作、直接播放、按需显示的播放设置，以及重命名、删除和导入/导出；播放设置保存在本机。
+- 运行中的设备可作为录制和播放目标；必要时打开播放器，停止录制后直接保存为默认名称。
+- Android 屏幕顶部的浮动控件在录制时显示用时和事件数，播放时显示当前循环，并提供暂停、停止。窗口和设备视图尺寸不变，控件只占少量屏幕空间；桥会合并录制计数更新。
+- 关闭播放器会随桥退出自然停止所有操作；所有文案通过现有播放器本地化工具提供中英文。

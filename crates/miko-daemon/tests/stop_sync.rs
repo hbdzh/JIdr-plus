@@ -98,59 +98,59 @@ async fn stop_goes_ahead_when_the_guest_sync_fails() {
 }
 
 #[tokio::test]
-async fn normal_stop_keeps_device_running_when_snapshot_is_incomplete() {
+async fn stop_after_snapshot_failure_cold_boots_next_time() {
+    let h = Harness::start().await;
+    let mut c = h.client().await;
+    c.ok("device.create", json!({"name":"Safe", "image":"35"}))
+        .await;
+    c.run("device.start", json!({"device":"Safe"})).await;
+    let mut events = h.client().await;
+    events
+        .ok(
+            "events.subscribe",
+            json!({"topics":["device.snapshot_warning"]}),
+        )
+        .await;
+    h.backend.fail_saves();
+    let stopped = c.ok("device.stop", json!({"device":"Safe"})).await;
+    assert_eq!(stopped["status"]["state"], "stopped");
+    assert!(h.backend.running().is_empty());
+    assert_eq!(stopped["launch"]["force_cold_boot"], true);
+    let warning = events.read().await;
+    assert_eq!(warning["params"]["data"]["reason"], "stop_save_failed");
+    h.backend.allow_saves();
+    c.run("device.start", json!({"device":"Safe"})).await;
+    assert!(h.backend.launches().last().unwrap().1.cold_boot);
+    c.ok("device.stop", json!({"device":"Safe"})).await;
+    h.stop().await;
+}
+
+#[tokio::test]
+async fn stop_succeeds_when_device_directory_disappears() {
     let h = Harness::start().await;
     let mut c = h.client().await;
     let d = c
-        .ok(
-            "device.create",
-            json!({ "name": "Safe", "image": "35", "root_mode": "adb" }),
-        )
+        .ok("device.create", json!({"name":"Removed", "image":"35"}))
         .await;
-    let avd = d["avd"].as_str().unwrap().to_string();
-    c.run("device.start", json!({ "device": "Safe" })).await;
-    h.backend.fail_saves();
-    let err = c.err("device.stop", json!({ "device": "Safe" })).await;
-    assert_eq!(err["data"]["code"], "sdk");
-    assert_eq!(err["data"]["details"]["operation"], "quick_boot_save");
-    assert_eq!(h.backend.running().len(), 1);
-    assert_eq!(
-        c.ok("device.details", json!({"device":"Safe"})).await["device"]["status"]["state"],
-        "running"
-    );
-    h.backend.allow_saves();
-    c.ok("device.stop", json!({ "device": "Safe" })).await;
-    assert_eq!(
-        h.backend.saves().last().unwrap(),
-        &(avd, "default_boot".into())
-    );
+    c.run("device.start", json!({"device":"Removed"})).await;
+    let avd = d["avd"].as_str().unwrap();
+    std::fs::remove_dir_all(h.paths.avd_home().join(format!("{avd}.avd"))).unwrap();
+    let stopped = c.ok("device.stop", json!({"device":"Removed"})).await;
+    assert_eq!(stopped["status"]["state"], "stopped");
     assert!(h.backend.running().is_empty());
     h.stop().await;
 }
 
 #[tokio::test]
-async fn failed_save_reports_error_and_keeps_device_running() {
+async fn quit_stops_device_when_quick_boot_save_fails() {
     let h = Harness::start().await;
     let mut c = h.client().await;
-    let d = c
-        .ok("device.create", json!({"name":"Previous", "image":"35"}))
+    c.ok("device.create", json!({"name":"Quit", "image":"35"}))
         .await;
-    let avd = d["avd"].as_str().unwrap();
-    let ram = h
-        .paths
-        .avd_home()
-        .join(format!("{avd}.avd/snapshots/default_boot/ram.bin"));
-    c.run("device.start", json!({"device":"Previous"})).await;
-    c.ok("device.stop", json!({"device":"Previous"})).await;
-    assert!(!std::fs::read(&ram).unwrap().is_empty());
-    c.run("device.start", json!({"device":"Previous"})).await;
+    c.run("device.start", json!({"device":"Quit"})).await;
     h.backend.fail_saves();
-    let error = c.err("device.stop", json!({"device":"Previous"})).await;
-    assert_eq!(error["data"]["details"]["operation"], "quick_boot_save");
-    assert_eq!(h.backend.running().len(), 1);
-    assert!(std::fs::read(&ram).unwrap().is_empty());
-    h.backend.allow_saves();
-    c.ok("device.stop", json!({"device":"Previous"})).await;
+    c.ok("daemon.quit", json!({})).await;
+    assert!(h.backend.running().is_empty());
     h.stop().await;
 }
 

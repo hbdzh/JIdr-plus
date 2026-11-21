@@ -69,8 +69,7 @@ jobs:
 
   # SwiftUI/AppKit gate: the device center builds
   # with the Xcode toolchain and their Rust bridges, the Swift logic test groups
-  # and the localization gate pass (test.sh runs both), and the gate is also
-  # invoked directly so a localization failure stands out in the job list.
+  # and the localization gate pass (test.sh runs both).
   # Skipped when only docs/Markdown change, like clippy-macos.
   swift-macos:
     name: SwiftUI (macOS)
@@ -103,22 +102,11 @@ jobs:
         # generate-tokens.sh --check regenerates from docs/design/tokens.json
         # into the generated Swift files and fails when they differ.
         run: bash apps/miko-swiftui/generate-tokens.sh --check
-      - name: Localization gate (mechanisms a/b/c, AppKit sinks, both bridges)
-        # Fails only on leaks outside the audited baseline
-        # (Tests/i18n_allowlist.txt); .strings hygiene issues are warnings.
-        run: python3 apps/miko-swiftui/Tests/localization_coverage.py
-      - name: SwiftUI release rehearsal (needs a macOS GUI session; reported, not gating)
-        # Builds the release-profile centre + helpers, assembles and ad-hoc signs
-        # Miko.app, packs the DMG and runs the mount/signature/scan/CLI/isolated
-        # launch checks. Reported because signing/notarization need the
-        # maintainer's credentials and the launch needs a GUI session.
-        continue-on-error: true
-        run: cargo xtask release --rehearsal
       - name: Screenshot baselines (needs a macOS GUI session; reported, not gating)
         # Rendered offscreen at fixed size, appearance and locale and compared
         # pixel-for-pixel. Font/control metrics and the backing scale differ
         # between macOS runner images, so this is reported rather than gating
-        # until the runner image is pinned; see docs/swiftui-migration.md.
+        # until the runner image is pinned.
         continue-on-error: true
         run: bash apps/miko-swiftui/snapshot.sh --check --all
       - name: GUI window lifecycle (needs a macOS GUI session; reported, not gating)

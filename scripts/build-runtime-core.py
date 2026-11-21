@@ -34,8 +34,8 @@ def main():
         raise SystemExit(f'output parent does not exist: {output.parent}')
     if output == source or source in output.parents:
         raise SystemExit('output must be outside the source checkout')
-    subprocess.run(['python3', str(ROOT / 'scripts/collect-runtime-source.py'),
-                    '--aosp-root', str(source), '--verify-only'], check=True)
+    subprocess.run(['cargo', 'xtask', 'collect-runtime-source',
+                    '--aosp-root', str(source), '--verify-only'], cwd=ROOT, check=True)
     revisions = {}
     for line in (ROOT / 'packaging/runtime-source/checkout-revisions.txt').read_text().splitlines():
         if not line.startswith('MISSING '):
@@ -68,7 +68,11 @@ def main():
                 if status.strip():
                     raise SystemExit(f'arm64 Qt prebuilt files differ from the pinned checkout: {name}')
         else:
-            result = subprocess.run(['git', '-C', str(repo), 'diff', '--quiet', 'HEAD', '--'])
+            paths = ['.']
+            if name == 'prebuilts/android-emulator-build/common':
+                # Finder metadata is not a compiler input and may have been cleaned.
+                paths.append(':(exclude)x264/darwin-x86_64/.DS_Store')
+            result = subprocess.run(['git', '-C', str(repo), 'diff', '--quiet', 'HEAD', '--', *paths])
             if result.returncode:
                 raise SystemExit(f'prebuilt files differ from the pinned checkout: {name}')
     print('Pinned tracked macOS build prerequisites verified', flush=True)

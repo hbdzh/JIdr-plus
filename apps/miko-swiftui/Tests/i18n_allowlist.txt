@@ -1,8 +1,8 @@
 # Localization baseline allowlist for the SwiftUI/AppKit prototype.
 #
-# The M0 audit (docs/swiftui-localization.md) found Chinese user-visible
-# strings that the three mechanisms cannot translate, so English mode renders
-# them verbatim. Tests/localization_coverage.py fails on every finding that is
+# Chinese user-visible strings that the three mechanisms cannot translate
+# would otherwise render verbatim in English mode. The coverage gate
+# Tests/localization_coverage.py fails on every finding that is
 # NOT listed here, which keeps a new untranslated string from landing silently.
 # When a finding is gone the gate reports the row as stale - delete it then.
 #

@@ -36,4 +36,13 @@ let disconnected = try GameWindowStateStore(dataDirectory:missingRoot.path,devic
 _ = try disconnected.load()
 do { try disconnected.save(state); fatalError("missing data root recreated") } catch { }
 precondition(!FileManager.default.fileExists(atPath:missingRoot.path))
+let visible = CGRect(x: 0, y: 0, width: 1440, height: 900)
+let portrait = GameWindowDefaultSize.content(visible: visible, aspect: 0.5, side: 40, decorations: 48)
+precondition(portrait.height + 48 == 720 && portrait.width == 376,
+             "default frame should occupy 80 percent of available height and retain aspect")
+let landscape = GameWindowDefaultSize.content(visible: CGRect(x: 0, y: 0, width: 800, height: 900), aspect: 2, side: 40, decorations: 48)
+precondition(landscape.width <= 800 - GameWindowRestore.margin && landscape.width == landscape.height * 2 + 40,
+             "wide windows must fit the display without distorting the viewport")
+let fallback = GameWindowDefaultSize.content(visible: nil, aspect: 0.5, side: 40, decorations: 48)
+precondition(fallback.height == 740 && fallback.width == 410)
 print("Game window state tests passed")

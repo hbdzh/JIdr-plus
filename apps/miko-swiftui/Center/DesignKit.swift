@@ -8,6 +8,36 @@
 import AppKit
 import SwiftUI
 
+// MARK: - Actions
+
+/// Shared pill treatment for text actions across the centre and its panels.
+struct WbPillButtonStyle: ButtonStyle {
+    var prominent = false
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.controlSize) private var controlSize
+
+    func makeBody(configuration: Configuration) -> some View {
+        let compact = controlSize == .small || controlSize == .mini
+        let foreground = prominent ? WbColor.raised
+            : (configuration.role == .destructive ? WbColor.negative : WbColor.textPrimary)
+        configuration.label
+            .font(.system(size: compact ? 11 : 12, weight: .medium))
+            .foregroundStyle(foreground)
+            .padding(.horizontal, compact ? 10 : 14)
+            .padding(.vertical, compact ? 4 : 6)
+            .background(
+                prominent ? AnyShapeStyle(WbColor.textPrimary) : AnyShapeStyle(Color.primary.opacity(0.035)),
+                in: Capsule()
+            )
+            .overlay(
+                Capsule()
+                    .strokeBorder(prominent ? .clear : WbColor.borderDefault.opacity(0.8), lineWidth: 1)
+            )
+            .opacity(isEnabled ? (configuration.isPressed ? 0.8 : 1.0) : 0.45)
+            .contentShape(Capsule())
+    }
+}
+
 // MARK: - Surfaces
 
 /// A raised card: the base material for panels and sheets.

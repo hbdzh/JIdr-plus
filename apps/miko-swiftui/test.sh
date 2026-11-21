@@ -59,6 +59,20 @@ swiftc -module-cache-path "$out/module-cache" \
   apps/miko-swiftui/Tests/CenterRequestWriter/main.swift -o "$out/center-request-writer-tests"
 "$out/center-request-writer-tests"
 swiftc -module-cache-path "$out/module-cache" \
+  apps/miko-swiftui/Center/CenterRequestWriter.swift \
+  apps/miko-swiftui/Center/CenterBridgeProcess.swift \
+  apps/miko-swiftui/Tests/CenterBridge/main.swift -o "$out/center-bridge-process-tests"
+"$out/center-bridge-process-tests"
+swiftc -module-cache-path "$out/module-cache" \
+  apps/miko-swiftui/Center/CenterRequestTracker.swift \
+  apps/miko-swiftui/Tests/CenterRequestTracker/main.swift -o "$out/center-request-tracker-tests"
+"$out/center-request-tracker-tests"
+swiftc -module-cache-path "$out/module-cache" \
+  apps/miko-swiftui/Center/CenterDeviceLifecycle.swift \
+  apps/miko-swiftui/Center/CenterWindowRegistry.swift \
+  apps/miko-swiftui/Tests/CenterOwnership/main.swift -o "$out/center-ownership-tests"
+"$out/center-ownership-tests"
+swiftc -module-cache-path "$out/module-cache" \
   apps/miko-swiftui/Center/DeviceAppSearch.swift \
   apps/miko-swiftui/Tests/DeviceAppSearch/main.swift -o "$out/device-app-search-tests"
 "$out/device-app-search-tests"
@@ -77,6 +91,7 @@ swiftc -module-cache-path "$out/module-cache" \
 "$out/player-session-tests"
 swiftc -module-cache-path "$out/module-cache" \
   apps/miko-swiftui/Sources/SyncHub.swift \
+  apps/miko-swiftui/Center/CenterSyncSession.swift \
   apps/miko-swiftui/Tests/Sync/main.swift -o "$out/sync-hub-tests"
 "$out/sync-hub-tests"
 swiftc -module-cache-path "$out/module-cache" \

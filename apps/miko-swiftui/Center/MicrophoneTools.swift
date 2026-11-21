@@ -33,20 +33,20 @@ struct MicrophoneToolsView: View {
                     Text(t("音频文件", "Audio file")).fontWeight(.medium)
                     Spacer()
                     Button(t("选择 WAV…", "Choose WAV…"), action: choose)
+                        .buttonStyle(WbPillButtonStyle())
                         .disabled(busy).accessibilityIdentifier("microphone-choose")
                 }
                 Text(session.file?.lastPathComponent ?? t("尚未选择文件", "No file selected"))
                     .lineLimit(2).truncationMode(.middle).textSelection(.enabled)
                     .help(session.file?.path ?? "")
+                Text(t("支持 8–48 kHz、单声道或双声道 WAV。", "Supports mono or stereo WAV at 8–48 kHz."))
+                    .font(.caption).foregroundStyle(WbColor.textSecondary)
                 Divider()
                 Toggle(t("循环播放", "Loop playback"), isOn: $session.loop)
                     .disabled(busy).accessibilityIdentifier("microphone-loop")
-                Text(t("支持 8–48 kHz、单声道或双声道 WAV。音频作为 Android 麦克风输入，应用需打开麦克风才能接收。",
-                       "Supports mono or stereo WAV at 8–48 kHz. The audio feeds Android's microphone; the app must open its microphone to receive it."))
-                    .foregroundStyle(WbColor.textSecondary).fixedSize(horizontal: false, vertical: true)
-                Text(t("这是音频文件播放，不会使用 Mac 的实时麦克风。关闭此面板后任务继续，可重新打开停止。",
-                       "Plays an audio file. It does not use the Mac's live microphone. Playback continues when this panel closes; reopen it to stop."))
-                    .foregroundStyle(WbColor.textSecondary).fixedSize(horizontal: false, vertical: true)
+                Text(t("音频发送至 Android 麦克风，不使用 Mac 实时麦克风。关闭面板后继续播放，可重新打开停止。",
+                       "Audio feeds the Android microphone, not the Mac microphone. Playback continues after closing this panel; reopen it to stop."))
+                    .font(.caption).foregroundStyle(WbColor.textSecondary).fixedSize(horizontal: false, vertical: true)
                 if device?.launch.audio == false {
                     Label(t("设备声音已关闭，请先在设备配置中开启并重启。", "Device audio is disabled. Enable it in device settings and restart first."), systemImage: WbIcon.info)
                 }
@@ -61,6 +61,7 @@ struct MicrophoneToolsView: View {
                 if !capabilityError.isEmpty {
                     Text(capabilityError).foregroundStyle(WbColor.negative)
                     Button(t("重试", "Retry"), action: loadCapabilities)
+                        .buttonStyle(WbPillButtonStyle())
                 }
                 if busy {
                     HStack {
@@ -80,9 +81,11 @@ struct MicrophoneToolsView: View {
                     stopError = ""
                     session.start(device: id, client: model)
                 }
+                .buttonStyle(WbPillButtonStyle())
                 .disabled(busy || session.file == nil || supported != true || device?.running != true || device?.launch.audio == false)
                 .accessibilityIdentifier("microphone-start")
                 Button(t("停止", "Stop"), action: stop)
+                    .buttonStyle(WbPillButtonStyle())
                     .disabled(!busy || session.stopping || stoppingExternal)
                     .accessibilityIdentifier("microphone-stop")
             }

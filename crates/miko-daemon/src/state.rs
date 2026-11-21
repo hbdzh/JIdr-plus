@@ -181,38 +181,49 @@ impl State {
         }
         .await;
         result.map_err(|mut error| {
-            tracing::warn!(device = %device.name, error = %error, "quick-boot snapshot save failed; device remains running");
+            tracing::warn!(device = %device.name, error = %error, "quick-boot snapshot save failed");
             error.data = Some(json!({"operation": "quick_boot_save", "cause": error.data.take(), "low_disk": low_disk, "low_memory": low_memory}));
             error
         })
     }
-    /// Quit only after a confirmed guest flush and saved state.
-    /// On failure keep the instance owned so it can be inspected or retried.
+    fn mark_failed_stop_snapshot(&self, device: &Device) -> bool {
+        // Never resume a snapshot that may have been partially overwritten.
+        // A removed or unavailable data directory must not prevent shutdown.
+        if let Err(error) = self.with_store(|store| {
+            store.update(device.id, |d| {
+                d.launch.force_cold_boot = true;
+                d.launch.resume_snapshot = None;
+            })
+        }) {
+            tracing::warn!(device = %device.name, %error, "could not persist cold-boot requirement");
+            return false;
+        }
+        true
+    }
+    /// Flush the guest and save its state when possible, then stop the device.
     pub(crate) async fn stop_for_quit(&self, id: Uuid) -> MikoResult<()> {
         let device = self.with_store(|store| store.get(id).cloned())?;
         let info = self.instance(id).ok_or_else(|| {
             MikoError::unexpected(format!("{} has no running instance", device.name))
         })?;
-        Adb::new(self.adb_path()?)
-            .device(info.adb_serial.clone())
-            .with_timeout(STOP_SYNC_TIMEOUT)
-            .sync()
-            .await?;
+        self.flush_guest_storage(&device.name, &info).await;
         let verify_quick_boot = device
             .launch
             .quick_boot
             .unwrap_or(self.settings().quick_boot)
             && device.pool_base.is_none();
-        if verify_quick_boot {
-            self.save_stop_snapshot(&device, &info).await?;
-        }
+        let snapshot_failed =
+            verify_quick_boot && self.save_stop_snapshot(&device, &info).await.is_err();
+        let cold_boot_persisted = !snapshot_failed || self.mark_failed_stop_snapshot(&device);
         if let Some(watcher) = lock(&self.watchers).remove(&id) {
             watcher.abort();
         }
         lock(&self.instances).remove(&id);
         self.set_status(id, DeviceStatus::Stopping, None);
         let adopted = lock(&self.adopted).contains(&id);
-        let result = if adopted && verify_quick_boot {
+        let result = if snapshot_failed {
+            self.backend.stop(&info).await
+        } else if adopted && verify_quick_boot {
             self.backend.stop_without_save(&info).await
         } else {
             self.backend.stop_for_quit(&info).await
@@ -223,12 +234,20 @@ impl State {
             self.watch_crash(id, info);
             return Err(error);
         }
-        self.clear_session_marker(&device);
+        if cold_boot_persisted {
+            self.clear_session_marker(&device);
+        }
         lock(&self.resumed).remove(&id);
         lock(&self.adopted).remove(&id);
         self.finish_footprint(id);
         lock(&self.activity).remove(&id);
         self.set_status(id, DeviceStatus::Stopped, Some(None));
+        if snapshot_failed {
+            self.emit(
+                "device.snapshot_warning",
+                json!({"device": id, "reason": "stop_save_failed", "cold_boot_persisted": cold_boot_persisted}),
+            );
+        }
         Ok(())
     }
 
@@ -814,11 +833,9 @@ impl DaemonContext for State {
                 .quick_boot
                 .unwrap_or(self.settings().quick_boot)
                 && current.pool_base.is_none();
-            if quick_boot {
-                // Do not stop the device if the replacement state could not
-                // be saved and verified.
-                self.save_stop_snapshot(&current, &info).await?;
-            }
+            let snapshot_failed =
+                quick_boot && self.save_stop_snapshot(&current, &info).await.is_err();
+            let cold_boot_persisted = !snapshot_failed || self.mark_failed_stop_snapshot(&current);
             if let Some(w) = lock(&self.watchers).remove(&id) {
                 w.abort();
             }
@@ -826,7 +843,7 @@ impl DaemonContext for State {
             lock(&self.resumed).remove(&id);
             self.set_status(id, DeviceStatus::Stopping, None);
             let adopted = lock(&self.adopted).contains(&id);
-            let result = if adopted && quick_boot {
+            let result = if adopted && quick_boot && !snapshot_failed {
                 self.backend.stop_without_save(&info).await
             } else {
                 self.backend.stop(&info).await
@@ -842,7 +859,15 @@ impl DaemonContext for State {
                 return Err(e);
             }
             lock(&self.adopted).remove(&id);
-            self.clear_session_marker(&current);
+            if cold_boot_persisted {
+                self.clear_session_marker(&current);
+            }
+            if snapshot_failed {
+                self.emit(
+                    "device.snapshot_warning",
+                    json!({"device": id, "reason": "stop_save_failed", "cold_boot_persisted": cold_boot_persisted}),
+                );
+            }
         }
         self.finish_footprint(id);
         crate::state::lock(&self.activity).remove(&id);

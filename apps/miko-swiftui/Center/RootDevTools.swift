@@ -362,7 +362,7 @@ struct RootDevToolsView: View {
                         Label(t("已保存，下次启动（冷启动）时生效。", "Saved; applies on the next start (a cold boot)."),
                               systemImage: WbIcon.clock).font(.caption).foregroundStyle(WbColor.warning)
                         Button(t("立即重启", "Restart now")) { model.restart(id) }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(WbPillButtonStyle())
                             .controlSize(.small)
                             .disabled(!running || working)
                     }
@@ -403,7 +403,7 @@ struct RootDevToolsView: View {
                         }
                         .buttonStyle(.borderedProminent).tint(WbColor.accent).disabled(propsSaving)
                         Button(t("取消", "Cancel")) { propsEditing = false; propsError = "" }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(WbPillButtonStyle())
                             .disabled(propsSaving)
                         Spacer()
                         if !props.isEmpty {
@@ -412,7 +412,7 @@ struct RootDevToolsView: View {
                                                 title: t("恢复镜像默认值？", "Reset to stock values?"),
                                                 detail: t("移除 miko 保存的构建属性；下一次启动会冷启动。", "Removes the build props miko saved; the next start is a cold boot."))
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(WbPillButtonStyle())
                             .disabled(propsSaving)
                         }
                     }
@@ -475,7 +475,7 @@ struct RootDevToolsView: View {
                                             detail: t("将移除 \(cert.file) 并重启设备。请先保存游戏进度。",
                                                       "Remove \(cert.file) and reboot the device. Save your game first."))
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(WbPillButtonStyle())
                         .controlSize(.small)
                         .disabled(!running || working || certsBusy)
                     }

@@ -98,7 +98,7 @@
 ### 优化
 
 - 文件夹同步面板统一采用与“设备设置”一致的原生分组表单、下拉方向选择器与毛玻璃弹窗交互。
-- 同步更新协议文档、CLI 文档、MCP 文档、Agent Skill（`skills/jidr/SKILL.md`）以及同步、网络、标识、手柄和音视频相关测试。
+- 同步更新协议文档、CLI 文档、MCP 文档、智能体技能文档以及同步、网络、标识、手柄和音视频相关测试。
 
 ### 已知问题与验证限制
 
@@ -208,8 +208,8 @@ The [0.4.0 release](https://github.com/hbdzh/JIdr-plus/releases/tag/v0.4.0) was 
 * **sdk:** snapshot-keeping copy-on-write clones (Phase 13b, D42) ([3fe675d](https://github.com/AbdurahmanAlmehdi/jidr/commit/3fe675da6ce7cf71da6fbd78700296f836721899))
 * **site:** take the download's version, size and checksum from GitHub ([3f5f8d3](https://github.com/AbdurahmanAlmehdi/jidr/commit/3f5f8d3cb1356ca9455807447fbcc542e93f9862))
 * **site:** take the download's version, size and checksum from GitHub ([e287b93](https://github.com/AbdurahmanAlmehdi/jidr/commit/e287b9304b828ec634625d16882b21b4b757ae70))
-* **skills:** jidr and jidr-app-testing agent skills with xtask skills-check (D43) ([cec4fcb](https://github.com/AbdurahmanAlmehdi/jidr/commit/cec4fcb6b69f0e05744ff27c759d46552399b351))
-* **skills:** jidr and jidr-app-testing agent skills with xtask skills-check (D43) ([db26b30](https://github.com/AbdurahmanAlmehdi/jidr/commit/db26b30a3baaa7fca215bdacac8c5134aa71188f))
+* **skills:** jidr and jidr-app-testing agent skills ([cec4fcb](https://github.com/AbdurahmanAlmehdi/jidr/commit/cec4fcb6b69f0e05744ff27c759d46552399b351))
+* **skills:** jidr and jidr-app-testing agent skills ([db26b30](https://github.com/AbdurahmanAlmehdi/jidr/commit/db26b30a3baaa7fca215bdacac8c5134aa71188f))
 * **widgets:** set and clear a device's HTTP proxy ([8b44aab](https://github.com/AbdurahmanAlmehdi/jidr/commit/8b44aab0e957d6629e4c06c7569ea3bbebf41d94))
 * **widgets:** set and clear a device's HTTP proxy ([340e11d](https://github.com/AbdurahmanAlmehdi/jidr/commit/340e11d9778c5f572c61cc678201c3010a3d54de))
 

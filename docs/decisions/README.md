@@ -1,12 +1,12 @@
-# Decisions
+# 架构决策
 
-- [log.md](log.md): the product and architecture decisions D1–D44, cited in code and docs as `D<n>`.
-- Architecture decision records (ADRs): one file per decision made later from evidence, `NNNN-short-title.md` with **Status**, **Context**, **Decision**, **Consequences** and any measurements.
+- [log.md](log.md)：产品和架构决策，代码及文档以 `D<n>` 引用；编号保留历史沿革。
+- 架构决策记录（ADR）：每项后续决策独立成文，文件名为 `NNNN-short-title.md`，记录状态、背景、决策、影响和相关测量。
 
-| ADR | Title |
+| ADR | 标题 |
 |---|---|
-| [0001](0001-frame-transport.md) | Frame transport for the player (Phase 1 spike) |
-| [0002](0002-play-store-root.md) | Full root on Play Store images (Phase 9a) |
-| [0003](0003-swiftui-gui.md) | SwiftUI/AppKit as the production GUI (proposal) |
+| [0001](0001-frame-transport.md) | 播放器帧传输（第一阶段探索） |
+| [0002](0002-play-store-root.md) | Play Store 镜像的完整 Root（第 9a 阶段） |
+| [0003](0003-swiftui-gui.md) | 以 SwiftUI/AppKit 作为正式 GUI（提案） |
 
-To propose a new decision or change one, open an issue first.
+提出新决策或修改现有决策时，先创建 issue。

@@ -197,6 +197,7 @@ struct AllDevicesView: View {
                     ProgressView().controlSize(.small)
                 } else if budgetError {
                     Button(t("重试", "Retry")) { refreshBudget() }
+                        .buttonStyle(WbPillButtonStyle())
                 }
             }
             if let budget {
@@ -214,6 +215,7 @@ struct AllDevicesView: View {
                                         Text(DeviceBudget.gigabytes(usage.countedMB)).monospacedDigit()
                                         if let device = model.devices.first(where: { $0.id == usage.id }), device.running {
                                             Button(t("休眠", "Hibernate")) { model.hibernate(device.id) }
+                                                .buttonStyle(WbPillButtonStyle())
                                                 .disabled(model.busy.contains(device.id) || model.busyHolder(for: device.id) != nil)
                                         }
                                     }.font(.caption)

@@ -1,28 +1,26 @@
-# Security policy
+# 安全策略
 
-## Supported versions
+## 支持的版本
 
-Miko is pre-1.0. Security fixes go into the latest release only; please update before reporting.
+miko 模拟器尚未达到 1.0。安全修复只进入最新发行版；报告前请先更新。
 
-## Reporting a vulnerability
+## 报告漏洞
 
-Please **don't open a public issue** for a security problem. Report it privately through GitHub: on the repository's **Security** tab, choose **Report a vulnerability**. Include what you found, how to reproduce it, the Miko version, your macOS version, and the impact you expect.
+请**不要为安全问题创建公开 Issue**。请在仓库 GitHub 的 **Security** 页面选择 **Report a vulnerability**，私下提交问题。说明发现的问题、复现步骤、miko 版本、macOS 版本和预期影响。
 
-You can expect an acknowledgement within 7 days and an assessment within 30 days. We'll keep you updated, agree on a disclosure date with you, and credit you in the release notes unless you'd rather not be named.
+维护者目标是在 7 天内确认收到、30 天内完成初步评估，并与你沟通披露时间。除非你不希望署名，修复说明会致谢。
 
-## What's in scope
+## 安全关注范围
 
-Miko runs a local daemon and changes Android emulator images, so these areas matter most:
+- **后台 socket**：其他本地用户或无特权进程通过 Unix socket 控制设备。
+- **MCP 服务**：绕过破坏性操作策略（D5），例如未使用 `--allow-destructive` 就删除或重置非 `agent-owned` 设备。
+- **下载**：SDK 或系统镜像未校验仓库提供的校验值，内置 Magisk APK 未校验 `xtask/src/release.rs` 中固定的 SHA-256，或者下载路径可被攻击者篡改。
+- **Root 与 ramdisk 修改**：补丁影响其他设备或原始镜像，或 Root 权限越过模拟设备影响 Mac。
+- **文件处理**：拖入应用的 APK、ZIP、GPX/KML 或快照写入预期位置以外的路径。
+- **发行资源**：破坏 DMG 签名或公证的情况。
 
-- **The daemon's socket:** another local user, or an unprivileged process, controlling devices through the Unix socket.
-- **The MCP server:** an agent getting past the destructive-action policy (D5), for example deleting or resetting a device that isn't `agent-owned` without `--allow-destructive`.
-- **Downloads:** the SDK, system images or Magisk installed without checking their SHA-256 (Magisk is pinned in `assets/magisk-pins.toml`), or fetched over a path an attacker can tamper with.
-- **Root and ramdisk patching:** a patched ramdisk affecting another device or the original image, or root reaching beyond the emulated device onto the Mac.
-- **File handling:** APKs, zips, GPX/KML files or snapshots dropped on the app writing outside the places they belong.
-- **The release artifact:** anything that undermines the DMG's signature or notarization.
+Android 系统镜像本身的安全问题应向 Google 报告，Magisk 本身的问题应向其项目报告；模拟设备内拥有 Root 权限属于预期功能。
 
-Out of scope: the security of the Android images themselves (report those to Google), Magisk (report to its project), and the fact that a rooted emulator has root inside the emulator. That's the feature.
+## 遥测
 
-## Telemetry
-
-Miko sends no telemetry and has no accounts (D17). It contacts Google's SDK servers and OpenStreetMap's tile servers for the GPS map; standalone CLI builds can also contact GitHub for the pinned Magisk release.
+miko 不发送遥测数据，也不提供账号（D17）。它会连接 Google SDK 服务器以及 GPS 地图所需的 OpenStreetMap 瓦片服务器；独立 CLI 构建也可能连接 GitHub 获取固定版本的 Magisk。

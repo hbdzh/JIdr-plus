@@ -6,3 +6,28 @@ node_modules/
 .claude/worktrees/
 .claude/settings.local.json
 __pycache__/
+# 本机可选开发技能与历史演示产物不纳入版本控制。
+/.agents/skills/
+/AGENTS.md
+/CLAUDE.md
+/skills/
+/xtask/src/skills.rs
+/docs/images/demo.gif
+/docs/images/redesign/
+/docs/images/performance/
+/docs/design/system/components/*/
+/assets/lucide/*.svg
+/assets/brand/web/
+/crates/miko-widgets/examples/
+/crates/miko-sdk/examples/
+/demo/
+/assets/icon/Icon/Icon-iOS-Dark-1024@1x.png
+/assets/icon/Icon/Icon-iOS-ClearDark-1024@1x.png
+/assets/icon/Icon/Icon-iOS-ClearLight-1024@1x.png
+
+# 已替换的 README 截图保留在本地。
+/docs/assets/readme/automation.webp
+/docs/assets/readme/devices-dark.webp
+/docs/assets/readme/devices.webp
+/docs/assets/readme/keymapping.webp
+/docs/assets/readme/sync.webp

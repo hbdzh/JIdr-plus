@@ -98,7 +98,7 @@ struct SnapshotSaveDialog: View {
                 Spacer()
                 Button(t("取消", "Cancel")) { if let onCancel { onCancel() } else { dismiss() } }
                     .keyboardShortcut(.cancelAction)
-                    .buttonStyle(.bordered).controlSize(.regular)
+                    .buttonStyle(WbPillButtonStyle()).controlSize(.regular)
                     .disabled(saving)
                 Button(saving ? t("正在保存…", "Saving…") : t("保存", "Save")) { save() }
                     .buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)

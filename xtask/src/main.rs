@@ -2,8 +2,11 @@
 
 mod helper;
 mod license_check;
+mod notice_inventory;
 mod release;
-mod skills;
+mod runtime;
+mod source_archives;
+mod source_review;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
@@ -14,11 +17,14 @@ const USAGE: &str = "\
 usage: cargo xtask <task>
 
 tasks:
-  ci              fmt --check, clippy -D warnings, nextest, license-check, skills-check
+  ci              fmt --check, clippy -D warnings, nextest, license-check
   license-check   enforce Apache Rust crates and exclude retired GUI dependencies (D18)
-  skills-check    check skills/*/SKILL.md frontmatter and their `miko` commands (D43)
   helper          build the on-device helper for Android guests
   e2e-mac         full arm64 end-to-end gate on Apple Silicon (release gate, D28)
+  prepare-runtime-sources    download pinned source review archives
+  collect-runtime-source     verify or collect source review candidates
+  inventory-runtime-notices  list pinned runtime notice review leads
+  prepare-runtime reconstruct the pinned emulator runtime
   release         build the macOS release artifacts (Phase 12a)";
 
 fn main() -> ExitCode {
@@ -26,10 +32,13 @@ fn main() -> ExitCode {
     let result = match args.first().map(String::as_str) {
         Some("ci") => ci(),
         Some("license-check") => license_check::run(),
-        Some("skills-check") => skills::run(),
         Some("helper") => helper::run(&args[1..]),
         Some("e2e-mac") => e2e_mac(),
         Some("release") => release::run(&args[1..]),
+        Some("prepare-runtime") => runtime::run(&args[1..]),
+        Some("inventory-runtime-notices") => notice_inventory::run(&args[1..]),
+        Some("collect-runtime-source") => source_review::run(&args[1..]),
+        Some("prepare-runtime-sources") => source_archives::run(&args[1..]),
         Some("-h" | "--help" | "help") => {
             println!("{USAGE}");
             Ok(())
@@ -101,7 +110,6 @@ fn ci() -> Result<()> {
         ],
     )?;
     license_check::run()?;
-    skills::run()?;
     println!("xtask: ci ok");
     Ok(())
 }

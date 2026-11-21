@@ -15,9 +15,10 @@ use serde_json::Value;
 use crate::{cargo, workspace_root};
 
 const USAGE: &str = "\
-usage: cargo xtask release [--dry-run] [--scan] [--out <dir>] [--rehearsal]
+usage: cargo xtask release [--dry-run] [--scan] [--out <dir>] [--rehearsal] [--preflight]
 
-  --dry-run    build and package locally; never sign, even if secrets exist
+  --preflight  check whether formal release is permitted; build nothing
+  --dry-run    build and package locally with ad-hoc signing; never publish
   --scan       verify pinned runtime and Magisk; reject system images and other APKs
   --out DIR    output directory (default: <target>/release-artifacts; with
                --rehearsal: <target>/release-rehearsal)
@@ -32,6 +33,7 @@ const SIGNING_IDENTITY_ENV: &str = "MIKO_SIGNING_IDENTITY";
 
 #[derive(Debug, Default, PartialEq)]
 struct Options {
+    preflight: bool,
     dry_run: bool,
     scan: bool,
     out: Option<PathBuf>,
@@ -44,6 +46,7 @@ fn parse_args(args: &[String]) -> Result<Options> {
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         match arg.as_str() {
+            "--preflight" => opts.preflight = true,
             "--dry-run" => opts.dry_run = true,
             "--scan" => opts.scan = true,
             "--out" => {
@@ -55,7 +58,17 @@ fn parse_args(args: &[String]) -> Result<Options> {
             other => bail!("unknown argument `{other}`\n{USAGE}"),
         }
     }
+    if opts.preflight && (opts.dry_run || opts.scan || opts.out.is_some() || opts.rehearsal) {
+        bail!("--preflight cannot be combined with build options");
+    }
     Ok(opts)
+}
+
+fn check_release_policy() -> Result<()> {
+    // Keep the same gate for both preflight and the formal build.
+    bail!(
+        "bundled runtime redistribution review is incomplete; use --rehearsal for local verification only"
+    )
 }
 
 pub fn run(args: &[String]) -> Result<()> {
@@ -63,6 +76,9 @@ pub fn run(args: &[String]) -> Result<()> {
     if opts.help {
         println!("{USAGE}");
         return Ok(());
+    }
+    if opts.preflight {
+        return check_release_policy();
     }
     if !cfg!(target_os = "macos") {
         bail!("release builds the macOS app and DMG; run it on macOS (D15)");
@@ -73,9 +89,7 @@ pub fn run(args: &[String]) -> Result<()> {
     // The current runtime source kit is incomplete: keep publication builds
     // closed until every component's corresponding source and licence is reviewed.
     if !opts.rehearsal && !opts.dry_run {
-        bail!(
-            "bundled runtime redistribution review is incomplete; use --rehearsal for local verification only"
-        );
+        check_release_policy()?;
     }
     let root = workspace_root();
     let version = workspace_version()?;
@@ -347,8 +361,9 @@ fn copy(from: &Path, to: &Path) -> Result<()> {
 
 const MAGISK_SHA256: &str = "e0d32d2123532860f97123d927b1bb86c4e08e6fd8a48bfc6b5bee0afae9ebd5";
 const MAGISK_RELATIVE: &str = "Contents/Resources/magisk/Magisk-v30.7.apk";
-const MAGISK_SOURCE_SHA256: &str =
-    "6210206eb9d5bdeee30ac6547d8f0ba600d07ffd7475c36fb8f17a741145d7bb";
+const MAGISK_SOURCE_URL: &str =
+    "https://github.com/topjohnwu/Magisk/tree/e8a58776f1d7bdf852072ad0baa6eceb9a1e4aac";
+const MAGISK_SOURCE_COMMIT: &str = "e8a58776f1d7bdf852072ad0baa6eceb9a1e4aac";
 
 fn verify_magisk(path: &Path) -> Result<()> {
     use sha2::{Digest, Sha256};
@@ -360,12 +375,17 @@ fn verify_magisk(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn verify_magisk_source(path: &Path) -> Result<()> {
-    use sha2::{Digest, Sha256};
-    let bytes =
-        std::fs::read(path).with_context(|| format!("reading Magisk source {}", path.display()))?;
-    if hex::encode(Sha256::digest(&bytes)) != MAGISK_SOURCE_SHA256 {
-        bail!("Magisk source archive does not match the pinned official source and submodules");
+fn verify_magisk_notice(path: &Path) -> Result<()> {
+    let notice = std::fs::read_to_string(path)
+        .with_context(|| format!("reading Magisk notice {}", path.display()))?;
+    for required in [
+        MAGISK_SOURCE_URL,
+        MAGISK_SOURCE_COMMIT,
+        "git submodule update --init --recursive",
+    ] {
+        if !notice.contains(required) {
+            bail!("Magisk notice is missing source instructions: {required}");
+        }
     }
     Ok(())
 }
@@ -375,15 +395,8 @@ fn assemble_magisk(root: &Path, app: &Path) -> Result<()> {
         .map(PathBuf::from)
         .unwrap_or_else(|| root.join("target/magisk-input/Magisk-v30.7.apk"));
     verify_magisk(&input)?;
-    let source = std::env::var_os("MIKO_MAGISK_SOURCE")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| root.join("target/magisk-input/Magisk-v30.7-source.tar"));
-    verify_magisk_source(&source)?;
+    verify_magisk_notice(&root.join("packaging/magisk/NOTICE.txt"))?;
     copy(&input, &app.join(MAGISK_RELATIVE))?;
-    copy(
-        &source,
-        &app.join("Contents/Resources/licenses/root-component/source.tar"),
-    )?;
     for name in ["LICENSE-GPL-3.0", "NOTICE.txt"] {
         copy(
             &root.join("packaging/magisk").join(name),
@@ -570,8 +583,9 @@ fn assemble_required_runtime(app: &Path) -> Result<()> {
             ],
         )?;
     }
-    // Miko does not use the device skin overlay APKs. Keep Android packages
-    // outside the application, as with system images and Magisk.
+    remove_flatbuffers_headers(&destination)?;
+    // Miko does not use the device skin overlay APKs; system images are
+    // installed separately in the user's data directory.
     let skins = destination.join("emulator/resources/skins");
     if skins.is_dir() {
         remove_skin_apks(&skins)?;
@@ -595,6 +609,25 @@ fn assemble_required_runtime(app: &Path) -> Result<()> {
         "COPYING-x264-GPLv2",
     ] {
         copy(&records.join(name), &licences.join(name))?;
+    }
+    Ok(())
+}
+
+/// C++ development headers are not needed by the distributed runtime.
+fn remove_flatbuffers_headers(sdk: &Path) -> Result<()> {
+    let headers = sdk.join("emulator/include/flatbuffers");
+    match std::fs::symlink_metadata(&headers) {
+        Ok(metadata) if metadata.file_type().is_dir() => {
+            std::fs::remove_dir_all(&headers)
+                .with_context(|| format!("removing development headers {}", headers.display()))?;
+        }
+        Ok(_) => bail!("unexpected development header path: {}", headers.display()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error).context("checking development headers"),
+    }
+    let include = sdk.join("emulator/include");
+    if std::fs::read_dir(&include)?.next().is_none() {
+        std::fs::remove_dir(include)?;
     }
     Ok(())
 }
@@ -1055,8 +1088,11 @@ fn check_swiftui_bundle(app: &Path, version: &str, evidence: &mut Evidence) -> R
     }
     let resources = contents.join("Resources");
     validate_required_runtime(&resources.join("sdk"))?;
+    if resources.join("sdk/emulator/include/flatbuffers").exists() {
+        bail!("development headers must not be included in the application");
+    }
     verify_magisk(&app.join(MAGISK_RELATIVE))?;
-    verify_magisk_source(&resources.join("licenses/root-component/source.tar"))?;
+    verify_magisk_notice(&resources.join("licenses/root-component/NOTICE.txt"))?;
     for name in ["LICENSE-GPL-3.0", "NOTICE.txt"] {
         require_file(
             &resources.join("licenses/root-component").join(name),
@@ -1065,7 +1101,7 @@ fn check_swiftui_bundle(app: &Path, version: &str, evidence: &mut Evidence) -> R
     }
     evidence.line(
         "Bundle structure (mounted DMG)",
-        "- PASS verified official Magisk APK, source and licence are bundled",
+        "- PASS verified official Magisk APK and licence are bundled; source instructions are included",
     );
     require_file(
         &resources.join(".miko-runtime-required"),
@@ -2051,7 +2087,7 @@ fn classify_name(name: &str) -> Option<&'static str> {
         "product",
     ];
     if name.contains("magisk") {
-        return Some("Magisk (GPL-3.0, downloaded at runtime, never bundled)");
+        return Some("unapproved Magisk payload");
     }
     if SDK_TOOLS.contains(&name) || name.starts_with("qemu-system") || name.starts_with("libqemu") {
         return Some(
@@ -2226,6 +2262,7 @@ mod tests {
         assert_eq!(
             o,
             Options {
+                preflight: false,
                 dry_run: true,
                 scan: true,
                 out: Some(PathBuf::from("dist")),
@@ -2233,6 +2270,9 @@ mod tests {
                 help: false,
             }
         );
+        assert!(parse_args(&args(&["--preflight"])).unwrap().preflight);
+        assert!(parse_args(&args(&["--preflight", "--dry-run"])).is_err());
+        assert!(check_release_policy().is_err());
         assert!(parse_args(&args(&["--out"])).is_err());
         assert!(parse_args(&args(&["--sign"])).is_err());
         assert!(parse_args(&args(&["-h"])).unwrap().help);
@@ -2288,6 +2328,42 @@ mod tests {
             output_dir(root, target, &rehearsal_out),
             PathBuf::from("/tmp/out")
         );
+    }
+
+    #[test]
+    fn runtime_packaging_removes_only_flatbuffers_headers() {
+        let temp = tempfile::tempdir().unwrap();
+        let sdk = temp.path();
+        let include = sdk.join("emulator/include");
+        std::fs::create_dir_all(include.join("flatbuffers/pch")).unwrap();
+        std::fs::write(include.join("flatbuffers/pch/pch.h"), b"header").unwrap();
+        std::fs::write(include.join("keep.txt"), b"keep").unwrap();
+        remove_flatbuffers_headers(sdk).unwrap();
+        assert!(!include.join("flatbuffers").exists());
+        assert_eq!(std::fs::read(include.join("keep.txt")).unwrap(), b"keep");
+        remove_flatbuffers_headers(sdk).unwrap();
+        std::fs::remove_file(include.join("keep.txt")).unwrap();
+        std::fs::create_dir(include.join("flatbuffers")).unwrap();
+        remove_flatbuffers_headers(sdk).unwrap();
+        assert!(!include.exists());
+    }
+
+    #[test]
+    fn magisk_notice_requires_pinned_source_and_submodule_instructions() {
+        let directory = tempfile::tempdir().unwrap();
+        let notice = directory.path().join("NOTICE.txt");
+        std::fs::write(&notice, include_str!("../../packaging/magisk/NOTICE.txt")).unwrap();
+        assert!(verify_magisk_notice(&notice).is_ok());
+        assert!(include_str!("../../README.md").contains(MAGISK_SOURCE_URL));
+        assert!(include_str!("../../.github/workflows/release.yml").contains(MAGISK_SOURCE_URL));
+        std::fs::write(&notice, MAGISK_SOURCE_URL).unwrap();
+        assert!(verify_magisk_notice(&notice).is_err());
+        std::fs::write(
+            &notice,
+            format!("{MAGISK_SOURCE_URL}\n{MAGISK_SOURCE_COMMIT}"),
+        )
+        .unwrap();
+        assert!(verify_magisk_notice(&notice).is_err());
     }
 
     #[test]

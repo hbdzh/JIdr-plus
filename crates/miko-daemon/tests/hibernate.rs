@@ -106,7 +106,7 @@ async fn hibernate_keeps_running_when_the_save_is_empty() {
 }
 
 #[tokio::test]
-async fn resumed_device_stays_running_if_quick_boot_save_is_empty() {
+async fn resumed_device_stops_and_cold_boots_if_quick_boot_save_fails() {
     let h = Harness::start().await;
     let mut c = h.client().await;
     c.ok("device.create", json!({"name":"Safe resume", "image":"35"}))
@@ -116,13 +116,14 @@ async fn resumed_device_stays_running_if_quick_boot_save_is_empty() {
         .await;
     c.run("device.start", json!({"device":"Safe resume"})).await;
     h.backend.fail_saves();
-    let error = c.err("device.stop", json!({"device":"Safe resume"})).await;
-    assert_eq!(error["data"]["code"], "sdk");
-    let device = c
-        .ok("device.details", json!({"device":"Safe resume"}))
-        .await;
-    assert_eq!(device["device"]["status"]["state"], "running");
-    assert_eq!(h.backend.running().len(), 1);
+    let device = c.ok("device.stop", json!({"device":"Safe resume"})).await;
+    assert_eq!(device["status"]["state"], "stopped");
+    assert_eq!(device["launch"]["force_cold_boot"], true);
+    assert!(h.backend.running().is_empty());
+    h.backend.allow_saves();
+    c.run("device.start", json!({"device":"Safe resume"})).await;
+    assert!(h.backend.launches().last().unwrap().1.cold_boot);
+    c.ok("device.stop", json!({"device":"Safe resume"})).await;
     h.stop().await;
 }
 

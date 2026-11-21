@@ -2,7 +2,7 @@
 # Regenerates every Miko brand/icon asset from source/appLogoOnPaper.jpg.
 # Requires: potrace, rsvg-convert (librsvg), magick (ImageMagick), iconutil (macOS).
 #   brew install potrace librsvg imagemagick
-# Usage: assets/brand/build.sh   (run from anywhere; outputs are committed)
+# Usage: assets/brand/build.sh   (run from anywhere; web outputs stay local)
 set -euo pipefail
 
 BRAND="$(cd "$(dirname "$0")" && pwd)"
@@ -89,7 +89,7 @@ rsvg-convert -w 1200 -h 630  "$BRAND/social-card.svg" -o "$BRAND/social-card.png
 
 # 6. The approved default artwork is also the macOS app icon.
 python3 "$BRAND/build-app-icon.py" "$ROOT/assets/icon/Icon/Icon-iOS-Default-1024@1x.png" "$GUI/Miko.icns"
-# 9. Standalone web assets.
+# 9. Standalone web assets (local, ignored by Git).
 sed "s/currentColor/$BOTTOM/" "$BRAND/symbol-bold.svg" > "$WEB/favicon.svg"
 rsvg-convert -w 32 -h 32 "$BRAND/app-icon-small.svg" -o "$WEB/favicon-32.png"
 rsvg-convert -w 16 -h 16 "$BRAND/app-icon-small.svg" -o "$TMP/f16.png"

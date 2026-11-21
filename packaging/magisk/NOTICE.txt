@@ -1,14 +1,14 @@
 Magisk v30.7
 Copyright (C) topjohnwu and Magisk contributors.
 Official release: https://github.com/topjohnwu/Magisk/releases/tag/v30.7
-Source: https://github.com/topjohnwu/Magisk/tree/v30.7
+Source: https://github.com/topjohnwu/Magisk/tree/e8a58776f1d7bdf852072ad0baa6eceb9a1e4aac
 Source commit: e8a58776f1d7bdf852072ad0baa6eceb9a1e4aac
 The unmodified Magisk APK is a separate component, licensed by its authors
 under GPL version 3 or, at your option, any later version. See LICENSE-GPL-3.0.
-The source checkout requires the submodules recorded by the v30.7 commit:
-  git clone --recurse-submodules https://github.com/topjohnwu/Magisk.git
-  cd Magisk && git checkout v30.7 && git submodule update --init --recursive
-The complete tracked v30.7 checkout and seven pinned submodules are
-included in source.tar beside this notice.
+To obtain the matching source and its pinned submodules:
+  git clone https://github.com/topjohnwu/Magisk.git
+  cd Magisk
+  git checkout e8a58776f1d7bdf852072ad0baa6eceb9a1e4aac
+  git submodule update --init --recursive
 Build instructions: https://topjohnwu.github.io/Magisk/build.html
 Miko's Apache-licensed code does not incorporate Magisk source code.

@@ -526,7 +526,7 @@ private struct SyncDeviceRow: View {
 
             if !isLeader && (hovered || !isMember) {
                 Button(t("设为主控", "Set as leader", language), action: onSetLeader)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(WbPillButtonStyle())
                     .controlSize(.small)
             }
         }

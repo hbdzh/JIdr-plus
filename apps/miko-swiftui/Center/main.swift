@@ -114,14 +114,20 @@ final class Delegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return false
     }
 
-    /// Dock icon click (or AppleScript `reopen`) restores the hidden center;
-    /// when a window is already visible this only activates the app.
+    /// Restore the center and bring open player windows forward on a Dock click.
+    /// Windows explicitly minimized by the user remain minimized.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        let players = model?.players.values.compactMap(\.window) ?? []
+        let orderedPlayers = DockWindowActivation.visiblePlayers(players, orderedWindows: sender.orderedWindows)
         if !flag || window?.isVisible != true {
             showCenterWindow()
         } else {
-            NSApp.activate(ignoringOtherApps: true)
+            sender.activate(ignoringOtherApps: true)
         }
+        // AppKit orders windows front-to-back; raise back-to-front to retain
+        // the relative ordering when more than one emulator is open.
+        for player in orderedPlayers.reversed() { player.orderFront(nil) }
+        orderedPlayers.first?.makeKeyAndOrderFront(nil)
         return true
     }
 

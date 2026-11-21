@@ -23,29 +23,13 @@ jobs:
       - uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-      # Reuse the verified published core, or an optional pinned HTTPS source.
-      - name: Prepare bundled Magisk
-        uses: ./.github/actions/prepare-magisk
-
-      - name: Prepare required runtime
-        uses: ./.github/actions/prepare-miko-runtime
+      - name: Prepare release inputs
+        uses: ./.github/actions/prepare-release-inputs
         with:
           core-url: ${{ vars.MIKO_RUNTIME_CORE_URL }}
 
       - name: Build and scan
         run: cargo xtask release --dry-run --scan --out dist
       - name: Prepare runtime source-review materials
-        run: scripts/prepare-runtime-sources.sh dist
-      # This public repository must not distribute the unreviewed runtime,
-      # even as a workflow artifact. Re-enable only after the release review.
-      - name: Upload test packages
-        if: ${{ false }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: miko-plus-unsigned-test-packages
-          path: |
-            dist/miko-simulator-*-arm64.dmg
-            dist/miko-mcp-*.mcpb
-            dist/SHA256SUMS.txt
-          if-no-files-found: error
-          retention-days: 7
+        run: cargo xtask prepare-runtime-sources --out dist
+      # Test packages stay on the runner while redistribution review remains open.

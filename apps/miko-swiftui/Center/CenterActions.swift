@@ -226,9 +226,7 @@ extension CenterModel {
     /// Hands a launch state to an open window once; windows already in that
     /// state are left alone so a refresh never restarts their status.
     func applyLaunchState(_ state: PlayerLaunchState, to id: String) {
-        guard players[id] != nil else { return }
-        guard appliedLaunch[id] != state else { return }
-        appliedLaunch[id] = state
+        guard windowRegistry.markLaunchState(state, for: id) else { return }
         players[id]?.transport.applyLaunchState(state)
     }
 

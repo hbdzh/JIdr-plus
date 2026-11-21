@@ -139,7 +139,7 @@ struct DeviceToolActions<Content: View>: View {
         DeviceToolActionsLayout { content() }
             .font(.system(size: 12))
             .frame(maxWidth: .infinity, alignment: .trailing)
-            .buttonStyle(.bordered).controlSize(.regular)
+            .buttonStyle(WbPillButtonStyle()).controlSize(.regular)
     }
 }
 

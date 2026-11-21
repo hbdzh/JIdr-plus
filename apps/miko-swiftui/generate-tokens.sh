@@ -62,7 +62,7 @@ GENERATED_HEADER = (
 # ---------------------------------------------------------------------------
 # Lucide -> SF Symbol (SwiftUI) mapping used by the files this M3 line
 # owns. Kept here so the mapping is regenerated with the tokens and reviewed in
-# one place. Shared Lucide SVG sources live in assets/lucide (ISC).
+# one place. Lucide icon references use the ISC license.
 # ---------------------------------------------------------------------------
 # Font files shipped by the app (apps/miko-swiftui/Resources/fonts, OFL). The generator
 # checks every file exists and emits the PostScript names the app can register
@@ -91,7 +91,7 @@ FONT_POSTSCRIPT = {
 }
 
 # Semantic SwiftUI icon names (WbIcon.<name>) with the SF Symbol they render and
-# the Lucide source glyph (assets/lucide) where one exists. "SF-native"
+# the corresponding Lucide source glyph where one exists. "SF-native"
 # marks a symbol with no Lucide counterpart in the repository set. Every icon
 # literal in the files this line owns must go through WbIcon; the generated
 # Center/DesignTokens.swift documents the same table.
@@ -170,10 +170,10 @@ ICON_SYMBOLS = [
 EXACT_LUCIDE_FALLBACK = """\
 // MARK: - Exact-Lucide fallback (documented, not enabled in M3)
 //
-// SF Symbols above are used for native rendering; Lucide SVGs are shared with the demo.
+// SF Symbols above are used for native rendering.
 // If a glyph must match Lucide exactly (the design system treats badge-check,
 // key-round, circle-help and flask-conical as spec shapes), generate SwiftUI
-// Paths from assets/lucide/<name>.svg instead of adding a runtime
+// Paths from an independently obtained Lucide SVG instead of adding a runtime
 // SVG dependency:
 //
 //   1. Parse the 24x24 viewBox and its <path d="..."/> children (plus

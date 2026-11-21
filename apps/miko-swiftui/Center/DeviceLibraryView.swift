@@ -94,6 +94,7 @@ struct DeviceOverviewView: View {
                             Label(error, systemImage: WbIcon.warning).foregroundStyle(WbColor.negative)
                             Spacer()
                             Button(t("重新读取", "Retry")) { model.retryDetails() }
+                                .buttonStyle(WbPillButtonStyle())
                         }
                     }
                     if model.detailsLoading && details == nil {
@@ -133,10 +134,10 @@ struct DeviceOverviewView: View {
             DevicePreview(model: model, device: device, width: 64, height: 110)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 10) {
-                Text(device.name).font(.system(size: 30, weight: .bold)).lineLimit(2).textSelection(.enabled)
+                Text(device.name).font(.system(size: 30, weight: .bold)).lineLimit(2).textSelection(.enabled).help(device.name)
                 ActionFlowLayout(spacing: 8) {
                     overviewBadge(device.statusText(language: model.language),
-                                  symbol: "circle.fill", color: .secondary)
+                                  symbol: "circle.fill", color: statusTone.color)
                     Text(device.androidVersionShort).font(.system(size: 12, weight: .medium))
                         .padding(.horizontal, 10).padding(.vertical, 5)
                         .background(Color.primary.opacity(0.05), in: Capsule())
@@ -151,15 +152,15 @@ struct DeviceOverviewView: View {
                     primaryAction
                     Button(t("设备配置", "Device settings"), systemImage: "slider.horizontal.3") {
                         model.presentDeviceSheet(.edit, device: device.id)
-                    }.buttonStyle(.bordered).controlSize(.large)
+                    }.buttonStyle(WbPillButtonStyle()).controlSize(.large)
                         .disabled(details == nil || model.busy.contains(device.id))
                     Button(t("文件夹同步", "Folder sync"), systemImage: "arrow.triangle.2.circlepath") {
                         if model.selected != device.id { model.select(device.id) }
                         model.present(.folderSync)
-                    }.buttonStyle(.bordered).controlSize(.large)
+                    }.buttonStyle(WbPillButtonStyle()).controlSize(.large)
                     Button(t("工具箱", "Toolbox"), systemImage: "wrench.and.screwdriver") {
                         model.openAdvanced(device.id, name: device.name)
-                    }.buttonStyle(.bordered).controlSize(.large)
+                    }.buttonStyle(WbPillButtonStyle()).controlSize(.large)
                     DeviceMoreButton(model: model, device: device)
                         .frame(width: 34, height: 32)
                 }.padding(.top, 4)
@@ -172,6 +173,14 @@ struct DeviceOverviewView: View {
     private var rootBadgeText: String {
         let mode = device.root.mode == "magisk" ? t("已 Root", "Rooted") : "Shell Root"
         return mode + (device.root.magisk_version.map { " · Magisk \($0)" } ?? "")
+    }
+    private var statusTone: WbStatusTone {
+        switch device.status.state {
+        case "running": return .running
+        case "starting", "booting", "stopping": return .starting
+        case "crashed": return .error
+        default: return .stopped
+        }
     }
     private func overviewBadge(_ title: String, symbol: String, color: Color) -> some View {
         Label(title, systemImage: symbol).font(.system(size: 12, weight: .medium))
@@ -190,7 +199,7 @@ struct DeviceOverviewView: View {
                 .disabled(model.busy.contains(device.id))
         case .cancelStart:
             Button(t("取消启动", "Cancel start")) { model.stop(device.id) }
-                .buttonStyle(.bordered).controlSize(.large).disabled(model.busy.contains(device.id))
+                .buttonStyle(WbPillButtonStyle()).controlSize(.large).disabled(model.busy.contains(device.id))
         case .progress:
             ProgressView().controlSize(.small)
         }
@@ -227,20 +236,17 @@ struct DeviceOverviewView: View {
             } else if let error = model.appsError {
                 Text(error).font(.callout).foregroundStyle(.secondary)
                 Button(t("重试", "Retry")) { model.load(device.id) }
+                    .buttonStyle(WbPillButtonStyle())
             } else if filteredApps.isEmpty {
                 emptyState("square.grid.2x2", appQuery.isEmpty
                            ? t("尚未安装可启动的应用。", "No launchable apps installed yet.")
                            : t("没有匹配的应用。", "No matching apps."))
             } else {
-                Group {
-                    if filteredApps.count > 6 {
-                        ScrollView(.vertical) { appsGrid }
-                            .frame(height: 171)
-                    } else {
-                        appsGrid
-                    }
+                appsGrid
+                if filteredApps.count > 6 {
+                    Text(t("显示前 6 个应用，可在管理应用中查看全部。", "Showing the first 6 apps. Open Manage apps to see all."))
+                        .font(.caption).foregroundStyle(.secondary)
                 }
-
             }
             if device.running, let note = model.appsNote {
                 Text(note).font(.caption).foregroundStyle(.secondary)
@@ -263,16 +269,16 @@ struct DeviceOverviewView: View {
     }
     private var appsGrid: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 20)], spacing: 0) {
-            ForEach(filteredApps) { app in
+            ForEach(Array(filteredApps.prefix(6))) { app in
                 VStack(spacing: 0) {
                     HStack(spacing: 10) {
                         WbAppIcon(symbol: WbIcon.appEmpty, imagePath: app.icon, size: 36)
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(app.name).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                            Text(app.package).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                            Text(app.name).font(.system(size: 13, weight: .semibold)).lineLimit(1).help(app.name)
+                            Text(app.package).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1).help(app.package)
                         }.frame(maxWidth: .infinity, alignment: .leading)
                         Button { model.launch(app, device: device.id) } label: { Image(systemName: "play") }
-                            .buttonStyle(.bordered).disabled(!canOperate)
+                            .buttonStyle(WbPillButtonStyle()).disabled(!canOperate)
                             .help(t("启动", "Launch") + " " + app.name)
                             .accessibilityLabel(t("启动", "Launch") + " " + app.name)
                     }.padding(.vertical, 10)
@@ -296,7 +302,7 @@ struct DeviceOverviewView: View {
     private var installButton: some View {
         Button(t("安装 APK", "Install APK"), systemImage: "square.and.arrow.down") {
             model.chooseFile(device: device.id, apk: true)
-        }.buttonStyle(.bordered).controlSize(.large).disabled(!canOperate)
+        }.buttonStyle(WbPillButtonStyle()).controlSize(.large).disabled(!canOperate)
             .accessibilityIdentifier("overview-install-apk")
     }
     private func receiveAPK(_ providers: [NSItemProvider]) -> Bool {
@@ -331,7 +337,7 @@ struct DeviceOverviewView: View {
         .accessibilityIdentifier("overview-media-actions")
     }
     private var deviceInformationCard: some View {
-        OverviewInfoCard(title: t("设备信息", "Device information")) {
+        OverviewInfoCard(title: t("设备信息", "Device information"), compact: true) {
             infoRow("Android", device.androidVersion)
             Divider()
             infoRow("CPU", t("\(hardware.cores) 核", "\(hardware.cores) cores"))
@@ -376,9 +382,9 @@ struct DeviceOverviewView: View {
                 }
                 Spacer()
                 Button(t("创建快照", "Create snapshot")) { savingSnapshot = true }
-                    .buttonStyle(.bordered).controlSize(.large).disabled(!canOperate)
+                    .buttonStyle(WbPillButtonStyle()).controlSize(.large).disabled(!canOperate)
                 Button(t("管理快照", "Manage snapshots")) { model.present(.snapshots) }
-                    .buttonStyle(.bordered).controlSize(.large)
+                    .buttonStyle(WbPillButtonStyle()).controlSize(.large)
             }
             if snapshotsLoading {
                 ProgressView().controlSize(.small)
@@ -386,24 +392,25 @@ struct DeviceOverviewView: View {
                 HStack {
                     Text(error).foregroundStyle(.secondary)
                     Button(t("重试", "Retry"), action: loadSnapshots)
+                        .buttonStyle(WbPillButtonStyle())
                 }
             } else if namedSnapshots.isEmpty {
                 emptyState("square.3.layers.3d", t("暂无快照。设备运行时可保存快照，以便恢复。", "No snapshots yet. Save one while the device is running to restore it later."))
             } else {
+                snapshotRows
                 if namedSnapshots.count > 4 {
-                    ScrollView(.vertical) { snapshotRows }.frame(height: 100)
-                } else {
-                    snapshotRows
+                    Text(t("显示前 4 个快照，可在管理快照中查看全部。", "Showing the first 4 snapshots. Open Manage snapshots to see all."))
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
         }.font(.system(size: 13)).padding(.vertical, 2)
     }
     private var snapshotRows: some View {
         VStack(spacing: 10) {
-            ForEach(namedSnapshots) { snapshot in
+            ForEach(Array(namedSnapshots.prefix(4))) { snapshot in
                 HStack {
                     Image(systemName: "clock.arrow.circlepath").foregroundStyle(.secondary)
-                    Text(snapshot.name).lineLimit(1)
+                    Text(snapshot.name).lineLimit(1).help(snapshot.name)
                     Spacer()
                     Text(Snapshots.when(snapshot.created_at, language: model.language)).foregroundStyle(.secondary)
                     Text(Snapshots.size(snapshot.size_bytes)).foregroundStyle(.secondary)
@@ -758,7 +765,7 @@ struct DeviceAdvancedInformation: View {
                 } label: {
                     Image(systemName: WbIcon.copy)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(WbPillButtonStyle())
                 .help(model.text("复制", "Copy") + " " + label)
                 .accessibilityLabel(model.text("复制", "Copy") + " " + label)
             }

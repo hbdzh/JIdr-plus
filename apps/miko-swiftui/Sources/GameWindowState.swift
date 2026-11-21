@@ -78,6 +78,20 @@ enum GameWindowRestore {
     }
 }
 
+/// Default video viewport size for a new device window. Coordinates are
+/// screen points; changing them never changes the emulator's pixel resolution.
+enum GameWindowDefaultSize {
+    static func content(visible: CGRect?, aspect: CGFloat, side: CGFloat, decorations: CGFloat) -> CGSize {
+        guard let visible, visible.width > 0, visible.height > 0, aspect > 0 else {
+            return CGSize(width: 740 * aspect + side, height: 740)
+        }
+        let target = max(1, floor(visible.height * 0.8) - decorations)
+        let widthLimited = max(1, (visible.width - GameWindowRestore.margin - side) / aspect)
+        let height = floor(min(target, widthLimited))
+        return CGSize(width: round(height * aspect) + side, height: height)
+    }
+}
+
 enum GameReconnectPolicy {
     static func permits(disconnected:Bool, editing:Bool, recording:Bool, recordingUnknown:Bool) -> Bool {
         disconnected && !editing && !recording && !recordingUnknown

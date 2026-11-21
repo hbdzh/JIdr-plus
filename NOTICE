@@ -14,7 +14,7 @@ enforces this.
 
 The macOS app bundles Android Emulator and platform-tools alongside their
 notices, and the unmodified official Magisk APK as a separate component with
-its GPL-3.0-or-later licence and source archive. Android system images are not
+its GPL-3.0-or-later licence and instructions for obtaining its source. Android system images are not
 bundled and are downloaded separately after user consent.
 
 Jidr is not affiliated with or endorsed by Google, the Android Open Source
@@ -38,7 +38,7 @@ Third-party attributions:
   machine-observable ramdisk layout is reproduced in Miko's own code
   (see docs/clean-room.md).
 
-- Lucide SVG sources in assets/lucide are ISC licensed; see assets/lucide/LICENSE-lucide.txt.
+- Lucide icon references are ISC licensed; see assets/lucide/LICENSE-lucide.txt.
 - The on-device helper statically includes musl libc, Copyright 2005-2020
   Rich Felker and contributors, licensed under the MIT License
   (see LICENSE-MUSL; https://musl.libc.org, COPYRIGHT file).

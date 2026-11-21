@@ -18,10 +18,7 @@ miko simulator 是面向 Apple Silicon Mac 的开源 Android 模拟器管理工�
 [功能介绍](#功能介绍) · [安装与使用](#安装与使用) · [AI 与自动化](#ai-与自动化) · [文档](#文档)
 
 <p>
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/readme/devices-dark.webp">
-    <img src="docs/assets/readme/devices.webp" alt="miko 模拟器 设备中心" width="100%">
-  </picture>
+  <img src="docs/assets/readme/showcase.gif" alt="miko 模拟器功能界面展示" width="100%">
 </p>
 
 </div>
@@ -36,13 +33,9 @@ miko simulator 是面向 Apple Silicon Mac 的开源 Android 模拟器管理工�
 
 在画面上布置点击键位和虚拟摇杆，使用 WASD 或方向键操作。内置 MOBA、射击和街机模板，支持保存多套方案及导入导出；连接 Mac 的物理手柄也可以转发到 Android 设备。
 
-<p align="center"><img src="docs/assets/readme/keymapping.webp" alt="键位映射编辑与方案管理" width="360"></p>
-
 ### 多设备输入同步
 
 选择主控设备，将触控、按键和文字输入同步到多台跟随设备。支持拉伸或等比留黑的坐标适配、锁定跟随端输入，以及切换主控设备。
-
-<p align="center"><img src="docs/assets/readme/sync.webp" alt="多设备同步器及主控、跟随设备" width="700"></p>
 
 ### 操作录制与回放
 
@@ -51,8 +44,6 @@ miko simulator 是面向 Apple Silicon Mac 的开源 Android 模拟器管理工�
 ### 开发调试与 AI 自动化
 
 配置设备的 Root 模式，使用网络、日志、定位、传感器、摄像头、系统证书和文件同步等工具。通过 CLI 或 MCP，AI 智能体可以读取设备画面与界面结构，执行点击、滑动和文字输入，并使用临时设备池。
-
-<p align="center"><img src="docs/assets/readme/automation.webp" alt="智能体客户端配置与 Android 沙盒" width="800"></p>
 
 <details>
 <summary><strong>查看更多功能</strong></summary>
@@ -96,7 +87,7 @@ bash apps/miko-swiftui/build-center.sh
 
 ## 文档
 
-[设备中心](docs/device-center.md) · [命令行](docs/cli.md) · [MCP](docs/mcp.md) · [Root](docs/root.md) · [控制协议](docs/control-protocol.md) · [贡献指南](CONTRIBUTING.md)
+[文档总览](docs/README.md) · [设备中心](docs/device-center.md) · [命令行](docs/cli.md) · [MCP](docs/mcp.md) · [Root](docs/root.md) · [控制协议](docs/control-protocol.md) · [贡献指南](CONTRIBUTING.md)
 
 ## 开源与致谢
 
@@ -110,4 +101,4 @@ miko 模拟器 基于 [Jidr](https://github.com/AbdurahmanAlmehdi/jidr) 开发�
 
 上述材料包含已整理的源码和许可证；部分上游二进制的完整对应源码仍在核实，详情见[运行时溯源记录](docs/runtime-provenance-local.md)。
 
-发行包内置的 Magisk 是独立的 GPL-3.0-or-later 组件，附带官方许可证及含固定子模块的源码；原项目见 [Magisk v30.7](https://github.com/topjohnwu/Magisk/tree/v30.7)。
+发行包内置的 Magisk v30.7 是独立的 GPL-3.0-or-later 组件，附带许可证和源码获取说明。[对应源码](https://github.com/topjohnwu/Magisk/tree/e8a58776f1d7bdf852072ad0baa6eceb9a1e4aac)需包含该版本固定的子模块；获取和构建说明见 [Magisk 许可证声明](packaging/magisk/NOTICE.txt)。 发行期间需确保该版本源码及子模块持续可获取；如上游地址失效，应提供可用的镜像。

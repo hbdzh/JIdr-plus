@@ -820,6 +820,8 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
     defer { unsetenv("MIKO_UI_NO_TOOLS") }
     if page == "image-management-empty" { setenv("MIKO_UI_NO_MANAGED_IMAGES", "1", 1) }
     defer { unsetenv("MIKO_UI_NO_MANAGED_IMAGES") }
+    if page == "sync-panel-active" { setenv("MIKO_UI_SYNC_TWO_RUNNING", "1", 1) }
+    defer { unsetenv("MIKO_UI_SYNC_TWO_RUNNING") }
     if page == "tasks-active" { setenv("MIKO_UI_TASKS", "1", 1) }
     else { unsetenv("MIKO_UI_TASKS") }
     defer { unsetenv("MIKO_UI_TASKS") }
@@ -834,6 +836,12 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
     require(waitUpTo(5) { model.connection.isOnline && model.details != nil }, "UI fixture did not load")
     model.language = snapshotCase.language
     model.appearance = snapshotCase.appearance == .light ? 1 : 2
+    // The fixture's real home is a fresh temporary directory on every run.
+    // Use a stable display path for pages that show it; the bridge still uses
+    // the isolated MIKO_HOME for all filesystem access.
+    if page.hasPrefix("new-device-") || page.hasPrefix("onboarding-config") || page == "device-settings" {
+        model.dataDirectory = "/Users/Shared/miko/data"
+    }
     if page == "tasks-active" {
         model.refreshJobs()
         require(waitUpTo(5) { model.taskRows.count == 2 }, "task fixture did not load")
@@ -972,6 +980,9 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
                 ))
             }
         }
+        if page == "sync-panel-active" {
+            require(model.syncHub.session != nil, "active sync snapshot requires a leader and a running follower")
+        }
         syncState.seed(from: model.devices, session: model.syncHub.session, preselect: [])
         canvas.mount(SyncPanelView(model: model, hub: model.syncHub, state: syncState))
     case "device-preview-states":
@@ -1042,19 +1053,10 @@ func renderAuxiliary(_ snapshotCase: SnapshotCase, page: String) -> NSBitmapImag
     }
     if page == "center-many-content" {
         canvas.inspect { host, _ in
-            guard let appsScroll = nativeDescendants(host, NSScrollView.self).first(where: {
+            let appsScroll = nativeDescendants(host, NSScrollView.self).first(where: {
                 abs($0.bounds.height - 171) < 2 && ($0.documentView?.bounds.height ?? 0) > $0.contentView.bounds.height
-            }) else { fail("the 16-app overview needs a bounded, scrollable app list") }
-            let clip = appsScroll.contentView
-            let original = clip.bounds.origin
-            let bottom = max(0, (appsScroll.documentView?.bounds.height ?? 0) - clip.bounds.height)
-            clip.scroll(to: NSPoint(x: original.x, y: bottom))
-            appsScroll.reflectScrolledClipView(clip)
-            canvas.settle(0.1)
-            require(abs(clip.bounds.origin.y - original.y) > 1, "the app list scrolls to reveal additional apps")
-            clip.scroll(to: original)
-            appsScroll.reflectScrolledClipView(clip)
-            canvas.settle(0.1)
+            })
+            require(appsScroll == nil, "the app preview must not introduce a nested scroll view")
         }
     }
     if page == "all-devices-list" || page == "all-devices-grid" {

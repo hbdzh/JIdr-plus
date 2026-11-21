@@ -1,0 +1,8 @@
+{
+  "emulator_url": "https://redirector.gvt1.com/edgedl/android/repository/emulator-darwin_aarch64-16970787.zip",
+  "emulator_sha1": "3ec739595d44092e835f006d806dd380bc8d6dd7",
+  "platform_tools_url": "https://redirector.gvt1.com/edgedl/android/repository/platform-tools_r37.0.3-darwin.zip",
+  "platform_tools_sha1": "d48920e2650321710b4d15d3acd9e277d59cd55b",
+  "fallback_dmg_url": "https://github.com/hbdzh/miko-simulator/releases/download/v0.10.0/miko-simulator-0.10.0-arm64.dmg",
+  "fallback_dmg_sha256": "74393e4124b430537cf2f010df0192d72ff7d3ca4526b8e22b67e33de69a35cf"
+}

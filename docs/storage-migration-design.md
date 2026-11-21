@@ -1,34 +1,27 @@
-# Storage migration: implementation constraints
+# 存储迁移：实现约束
 
-Status: the GUI migration-target/preflight entry has been removed. The offline
-copy helpers and their tests remain internal/developer-only, are not wired to the
-application, and do not activate a destination. Do not present them as a user
-feature or use them as a complete migration tool.
+状态：界面中的迁移目标和预检查入口已移除。离线复制辅助函数及其测试仍仅供内部开发使用，未接入应用，也不会启用目标位置。不要将它们介绍为面向用户的功能或完整迁移工具。
 
-The former Storage settings page could save a proposed destination and run
-read-only preliminary checks for device status, SDK tools, target conflicts and
-free space. Those checks never stopped devices, created or activated a copy, or
-verified game data and snapshots; the entry was removed rather than leaving a
-non-functional control in Settings.
+旧版存储设置页面可以保存拟定目标，并只读检查设备状态、SDK 工具、目标冲突和可用空间；这些检查从未停止设备、创建或启用副本，也未验证游戏数据和快照。为避免在设置中保留不可用控件，入口已移除。
 
-A safe migration must quiesce all writers before copying: stop devices cleanly and verify that their emulator processes have exited, stop the daemon, and prevent clients from automatically restarting the old daemon until the transaction is finished. A status value in a stale device registry is not sufficient. Keep the original files untouched as a backup.
+安全迁移必须在复制前停止所有写入者：正常停止设备并确认模拟器进程退出，停止 daemon，并在事务结束前阻止客户端自动重启旧 daemon。过期设备注册表中的状态不足以证明进程已停止。保留原始文件作为备份，不得修改。
 
-Copy into a new, unique staging directory on the destination volume. Refuse symlinks and unsupported special files. Record and verify all file digests after copying. Rewrite recognized paths only in the copy; inspect complete QCOW2 backing chains and run integrity checks against the staged files. Snapshot metadata and resumability must be verified with a disposable emulator and then against a copied real device before activation. A successful byte copy alone does not demonstrate snapshot resumability.
+复制到目标卷上新的唯一暂存目录，拒绝符号链接和不支持的特殊文件；复制后记录并验证所有文件摘要。只在副本中改写已知路径，检查完整 QCOW2 后备链并对暂存文件执行完整性检查。启用前先用一次性模拟器验证快照元数据和可恢复性，再对真实设备副本验证。字节复制成功不代表快照可以恢复。
 
-Activation requires a stable, atomic location pointer understood by GUI, CLI and daemon. Persist a destination identity and fail closed when the external volume is missing, changes identity, or contains an incomplete migration. Never silently create a new empty device library when the selected disk is missing. The pointer must not live only inside the data directory being moved. Handle rollback and interrupted copies without overwriting either the source or an existing destination.
+启用需要 GUI、CLI 和 daemon 共识的稳定原子位置指针。持久化目标身份；外置卷缺失、身份变化或迁移未完成时必须安全拒绝。所选磁盘缺失时不得静默创建新的空设备库。位置指针不能只存放在正在迁移的数据目录内。回滚和中断复制的处理不得覆盖源文件或已有目标。
 
-SDK paths must distinguish the Miko-owned writable SDK (the private SDK or a custom install root) from an independently selected existing read-only Android SDK. Preserve image and emulator compatibility and never write to an Android Studio SDK. Miko has no JDK setting: its tools are native binaries and it must not persist or migrate a Java home, and a migrated configuration must drop any legacy JDK path. Ensure GUI and daemon agree on all selected paths after restart and when `MIKO_HOME` is explicitly set.
+SDK 路径必须区分 Miko 自有的可写 SDK（私有 SDK 或自定义安装根目录）和独立选择的现有只读 Android SDK。保持镜像和模拟器兼容，绝不写入 Android Studio SDK。Miko 没有 JDK 设置：工具为原生二进制，不得持久化或迁移 Java home，迁移后的配置须删除旧 JDK 路径。重启后以及显式设置 `MIKO_HOME` 时，确保 GUI 和 daemon 对所有选定路径一致。
 
-Required acceptance: independently boot a disposable copied device, write and read a guest data marker, save and restore a snapshot, compare hashes, simulate destination unavailable, source modification, failed copy and interrupted activation, and verify rollback. Only then stop the user's actual device, repeat validation on its copy, and switch the pointer. Keep the original until the user has confirmed the migrated device and snapshots work.
+所需验收：独立启动复制的一次性设备，写入并读取设备内数据标记，保存并恢复快照，比较哈希，模拟目标不可用、源发生修改、复制失败及启用中断，并验证回滚。全部通过后，才能停止用户真实设备，对其副本重复验证并切换位置指针。用户确认迁移设备和快照可用之前保留原文件。
 
-A disposable Android 35 arm64 AVD was exercised on 2026-11-09: its guest marker was snapshotted, changed afterward, the stopped AVD was copied from the internal temporary volume to a separate external volume, and the copied named snapshot loaded and restored the original marker. The Android SDK's public `snapshot.proto` describes `Snapshot.images`, `Image.path` and `Snapshot.launch_parameters`; the relocation implementation rewrites those fields while retaining unknown encoded fields, then rejects any remaining old paths in metadata. This does not validate an individual user's device or provide the missing quiescence/activation orchestration.
+2026-11-09 曾验证一次性 Android 35 arm64 AVD：为设备数据标记保存快照，之后更改标记，停止 AVD，将其从内部临时卷复制到独立外置卷，加载副本的具名快照并恢复原标记。Android SDK 公开的 `snapshot.proto` 定义了 `Snapshot.images`、`Image.path` 和 `Snapshot.launch_parameters`；迁移实现改写这些字段、保留未知编码字段，并拒绝元数据中仍存在旧路径的情况。这不能验证特定用户设备，也不提供缺失的停止写入和启用编排。
 
-The offline copy now requires a cooperative storage lease, which a new daemon holds for the lifetime of its state and outstanding operations. The preflight counts logical bytes, including sparse images, and reserves additional destination space. These protections do not stop an emulator process or a daemon from an older build: migration must still identify and stop legacy writers, prevent their restart, and hold the lease until validation and activation have finished. Do not rely on the lease as proof that the source is quiescent.
+离线复制现要求协作式存储租约，新版 daemon 在状态和未完成操作的整个生命周期内持有租约。预检查按逻辑字节数计算（包括稀疏镜像）并预留额外目标空间。这些保护不能停止模拟器进程或旧版 daemon：迁移仍须找到并停止旧写入者、阻止其重启，并在验证和启用完成前持有租约。不得将租约视为源已停止写入的证明。
 
-On Unix, copying and publishing also require a live barrier on the source daemon socket. It binds only after the old socket disappears and replies `busy` to legacy clients, so their normal reconnect cannot spawn a daemon while it is held. The barrier checks that its socket has not been removed or replaced, and the copy is rejected if protection is lost. A prepared copy is bound to the same continuously held lease and barrier; reacquiring either requires a fresh copy. This does not stop an already-running emulator, protect against legacy binaries launched after the barrier is released, or replace process shutdown and activation orchestration.
+Unix 上复制和发布还需要源 daemon socket 的实时屏障：只有旧 socket 消失后才绑定，并向旧客户端返回 `busy`，阻止其正常重连时启动 daemon。屏障检查自身 socket 未被删除或替换，保护丢失则拒绝复制。准备好的副本必须绑定同一次持续持有的租约和屏障；重新获取任一保护后都需要重新复制。屏障不能停止已运行的模拟器，不能防止释放后启动的旧版程序，也不能代替关闭进程和启用编排。
 
-Before rewriting any paths, the prepared tree is checked a second time against the entire source to catch changes made after an individual file was copied. QCOW2 detection checks file signatures as well as `.qcow2` names, because emulator data disks can have an `.img` extension. AVD locks and `lsof` open-file results are checked before and after copying and before publishing, including unregistered AVD directories; ambiguous results or an unavailable `lsof` fail closed. These are additional guards, not proof that every possible writer has stopped. Publishing a prepared tree uses an atomic no-replace rename and preserves an existing destination. Publishing is not activation and is not proof that a real device or its snapshots can be restored. An interrupted publish or sync must be inspected before retrying; never delete either tree automatically.
+改写路径前，再将准备好的目录树与整个源进行第二次比较，发现单个文件复制后发生的变化。QCOW2 检测同时检查文件签名和 `.qcow2` 名称，因为模拟器数据盘可能使用 `.img` 扩展名。复制前后及发布前检查 AVD 锁和 `lsof` 打开文件结果，包括未注册的 AVD 目录；结果不明确或无法使用 `lsof` 时安全拒绝。这些只是额外保护，不能证明所有可能的写入者均已停止。发布准备好的目录树使用原子的不覆盖重命名，保留已有目标；发布不等于启用，也不能证明真实设备或快照可恢复。发布或同步中断后须检查再重试，不得自动删除任一目录树。
 
-Snapshot metadata and nonempty memory files are checked before copying and publication. Android may leave an incomplete `default_boot` placeholder: it remains preserved, but copying is allowed only if another snapshot in that AVD has the required files. Incomplete named snapshots fail closed. These file checks are not proof that a snapshot can be loaded; copied devices must still be tested before activation.
+复制和发布前检查快照元数据及非空内存文件。Android 可能留下不完整的 `default_boot` 占位符：应保留，只有同一 AVD 另有包含必需文件的快照时才允许复制；不完整的具名快照则安全拒绝。这些文件检查不能证明快照可加载，启用前仍须测试复制后的设备。
 
-Each new copy creates a durable, private checkpoint in the destination's parent before writing the stage. Checkpoints progress through copying, prepared, publishing and published. The read-only inspection distinguishes a partial copy, prepared copy, interrupted rename, and an intact published copy by checking the stage, destination and identity marker. Ambiguous states require review; inspection never changes the location pointer or deletes files. A published checkpoint does not imply device recovery has been verified.
+每次新复制会在写入暂存目录前，在目标父目录创建持久、私有的检查点，依次经历 copying、prepared、publishing、published。只读检查通过暂存目录、目标和身份标记区分部分复制、准备完成、中断重命名及完好的已发布副本。状态不明确时须人工检查；检查不会改变位置指针或删除文件。已发布的检查点不代表已验证设备恢复。

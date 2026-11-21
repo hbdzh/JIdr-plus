@@ -56,7 +56,7 @@ struct FolderSyncView: View {
                                     remotePath = ""
                                     customRemote = false
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(WbPillButtonStyle())
                                 .controlSize(.small)
                             }
                         } else {
@@ -67,7 +67,7 @@ struct FolderSyncView: View {
                                 Button(t("自定义", "Custom")) {
                                     customRemote = true
                                 }
-                                .buttonStyle(.bordered)
+                                .buttonStyle(WbPillButtonStyle())
                                 .controlSize(.small)
                             }
                         }
@@ -131,7 +131,7 @@ struct FolderSyncView: View {
 
             DeviceSheetFooter(note: t("同步仅在设备运行期间保持活动。", "Sync stays active while the device is running.")) {
                 Button(t("关闭", "Close")) { closePanel() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(WbPillButtonStyle())
                     .controlSize(.regular)
                     .keyboardShortcut(.cancelAction)
             }
@@ -171,7 +171,7 @@ struct FolderSyncView: View {
                 Button { load() } label: {
                     Image(systemName: WbIcon.refresh)
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(WbPillButtonStyle())
                 .controlSize(.regular)
                 .disabled(working)
                 .help(t("刷新", "Refresh"))
@@ -197,7 +197,7 @@ struct FolderSyncView: View {
         if running && !working {
             button.buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
         } else {
-            button.buttonStyle(.bordered).controlSize(.regular)
+            button.buttonStyle(WbPillButtonStyle()).controlSize(.regular)
         }
     }
 
@@ -268,7 +268,7 @@ struct FolderSyncView: View {
                         } label: {
                             Image(systemName: WbIcon.folder)
                         }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(WbPillButtonStyle())
                         .controlSize(.small)
                         .help(t("在访达中显示", "Reveal in Finder"))
                         .accessibilityLabel(t("在访达中显示", "Reveal in Finder"))
@@ -276,7 +276,7 @@ struct FolderSyncView: View {
 
                     if !syncID.isEmpty {
                         Button(t("停止", "Stop")) { stopSync(syncID) }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(WbPillButtonStyle())
                             .controlSize(.small)
                             .disabled(working)
                     }
@@ -307,13 +307,13 @@ struct FolderSyncView: View {
                                 Spacer(minLength: WbSpace.xs)
                                 Button(t("保留 Mac", "Keep Mac")) {
                                     resolveConflict(id: syncID, path: path, resolution: "keep_local")
-                                }.controlSize(.small).disabled(working)
+                                }.buttonStyle(WbPillButtonStyle()).controlSize(.small).disabled(working)
                                 Button(t("保留设备", "Keep device")) {
                                     resolveConflict(id: syncID, path: path, resolution: "keep_remote")
-                                }.controlSize(.small).disabled(working)
+                                }.buttonStyle(WbPillButtonStyle()).controlSize(.small).disabled(working)
                                 Button(t("保留两者", "Keep both")) {
                                     resolveConflict(id: syncID, path: path, resolution: "keep_both")
-                                }.controlSize(.small).disabled(working)
+                                }.buttonStyle(WbPillButtonStyle()).controlSize(.small).disabled(working)
                             }
                         }
                     }

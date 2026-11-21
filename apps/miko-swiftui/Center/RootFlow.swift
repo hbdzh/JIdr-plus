@@ -440,7 +440,7 @@ struct FullRootView: View {
                     .foregroundStyle(WbColor.warning)
             }
             Button(t("关闭", "Close")) { dismiss() }
-                .buttonStyle(.bordered)
+                .buttonStyle(WbPillButtonStyle())
                 .keyboardShortcut(.cancelAction)
         }.padding(WbSpace.lg)
     }
@@ -676,27 +676,27 @@ struct FullRootView: View {
             switch presentation.phase {
             case .progress:
                 Button(t("停止并回退", "Stop and revert"), role: .destructive) { store.stopAndRevert() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(WbPillButtonStyle())
                 Spacer()
                 Button(t("在后台继续", "Continue in background")) { dismiss() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(WbPillButtonStyle())
             case .grant:
                 Button(t("取消", "Cancel"), role: .destructive) { store.cancelGrant() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(WbPillButtonStyle())
                 Spacer()
                 Button(t("在后台继续", "Continue in background")) { dismiss() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(WbPillButtonStyle())
             case .success:
                 Button(showSteps ? t("隐藏步骤", "Hide steps") : t("显示步骤", "Show steps")) { showSteps.toggle() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(WbPillButtonStyle())
                 if presentation.canOpenPlayer {
                     Button(t("打开设备窗口", "Open device window")) { model.openGame(target.id) }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(WbPillButtonStyle())
                 }
                 Spacer()
                 if snapshotDevice != nil {
                     Button(t("保存快照…", "Save snapshot…")) { showSnapshotSave = true }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(WbPillButtonStyle())
                 }
                 Button(t("完成", "Done")) { dismiss() }
                     .buttonStyle(.borderedProminent)
@@ -708,17 +708,17 @@ struct FullRootView: View {
                     pasteboard.setString(store.copyLog(), forType: .string)
                     model.notice = t("已复制 Root 配置日志。", "Copied the root setup log.")
                 }
-                .buttonStyle(.bordered)
+                .buttonStyle(WbPillButtonStyle())
                 Spacer()
                 Button(t("回退到无 Root", "Revert to unrooted"), role: .destructive) { confirmRevert = true }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(WbPillButtonStyle())
                 Button(t("重试", "Try again")) { store.retry() }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
             case .unverified:
                 Spacer()
                 Button(t("回退到无 Root", "Revert to unrooted"), role: .destructive) { confirmRevert = true }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(WbPillButtonStyle())
                 Button(t("重试", "Try again")) { store.retry() }
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
@@ -729,7 +729,7 @@ struct FullRootView: View {
             case .idle:
                 Spacer()
                 Button(t("关闭", "Close")) { dismiss() }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(WbPillButtonStyle())
             }
         }
         .padding(WbSpace.lg)

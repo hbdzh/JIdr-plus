@@ -15,6 +15,10 @@ final class DeviceAppSearch {
     private let clock: () -> TimeInterval
     private let ttl: TimeInterval
     private let limit: Int
+    private let debounceInterval: TimeInterval
+    private let retryInterval: TimeInterval
+    private var debounceWork: DispatchWorkItem?
+    private var retryWork: DispatchWorkItem?
     private var cache: [String: Entry] = [:]
     private var epochs: [String: Int] = [:]
     private var inFlight: [String: Int] = [:]
@@ -26,8 +30,10 @@ final class DeviceAppSearch {
 
     init(ttl: TimeInterval = 30, limit: Int = 3,
          clock: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+         debounceInterval: TimeInterval = 0.3, retryInterval: TimeInterval = 30,
          request: @escaping Request, publish: @escaping ([String: String]) -> Void) {
         self.ttl = ttl; self.limit = max(1, limit); self.clock = clock
+        self.debounceInterval = debounceInterval; self.retryInterval = retryInterval
         self.request = request; self.publish = publish
     }
 
@@ -43,6 +49,28 @@ final class DeviceAppSearch {
         publishMatches()
     }
 
+    /// Updates cached matches immediately and owns the debounced request and retry timers.
+    func scheduleUpdate(query: String, running: [String], retryFailed: Bool = false) {
+        cancelScheduled()
+        update(query: query, running: running)
+        if retryFailed { self.retryFailed() }
+        guard !self.query.isEmpty else { return }
+        let work = DispatchWorkItem { [weak self] in self?.startRequests() }
+        debounceWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + debounceInterval, execute: work)
+        let refresh = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.scheduleUpdate(query: self.query, running: self.running, retryFailed: true)
+        }
+        retryWork = refresh
+        DispatchQueue.main.asyncAfter(deadline: .now() + retryInterval, execute: refresh)
+    }
+
+    private func cancelScheduled() {
+        debounceWork?.cancel(); debounceWork = nil
+        retryWork?.cancel(); retryWork = nil
+    }
+
     func retryFailed() { failed.removeAll() }
 
     func startRequests() {
@@ -53,6 +81,7 @@ final class DeviceAppSearch {
     }
 
     func reset() {
+        cancelScheduled()
         requestsEnabled = false
         for id in running { invalidateData(id) }
         publishMatches()

@@ -3,7 +3,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
-source "$root/apps/miko-swiftui/swift-target.sh"
+source "$root/apps/miko-swiftui/swift-compile.sh"
 cargo build -p miko -p miko-swiftui-bridge
 cargo xtask helper --arch aarch64
 out="${MIKO_CENTER_OUT:-$root/target/swiftui-center}"
@@ -24,10 +24,7 @@ if [ -n "${MIKO_LOCAL_EMULATOR:-}" ]; then
 else
   rm -f "$runtime/qemu-system-aarch64-headless"
 fi
-swiftc -target "$miko_swift_target" -module-cache-path "$out/module-cache" \
-  apps/miko-swiftui/Sources/*.swift \
-  apps/miko-swiftui/Center/*.swift \
-  -o "$app/Contents/MacOS/Miko"
+miko_compile_swift "$app/Contents/MacOS/Miko" "$out/module-cache" debug
 mkdir -p "$app/Contents/Resources/en.lproj" "$app/Contents/Resources/zh-Hans.lproj"
 cp apps/miko-swiftui/Resources/en.lproj/InfoPlist.strings "$app/Contents/Resources/en.lproj/InfoPlist.strings"
 cp apps/miko-swiftui/Resources/zh-Hans.lproj/InfoPlist.strings "$app/Contents/Resources/zh-Hans.lproj/InfoPlist.strings"

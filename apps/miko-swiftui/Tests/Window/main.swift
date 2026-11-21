@@ -16,6 +16,14 @@ player?.onClose = {
 player?.open(device:"test-device",width:720,height:1280,executable:"/usr/bin/false",displayName:"Test device")
 precondition(player?.window?.title == "Test device — miko simulator")
 precondition(player?.window?.isReleasedWhenClosed == false)
+if let window = player?.window, let visible = window.screen?.visibleFrame {
+    let decorations = window.frame.height - window.contentLayoutRect.height + (player?.titlebarInset ?? 0)
+    let expected = GameWindowDefaultSize.content(visible: visible, aspect: 720.0 / 1280.0,
+                                                  side: WbLayout.windowDeviceToolbarWidth, decorations: decorations)
+    precondition(abs(window.frame.height - (expected.height + decorations)) <= 2,
+                 "new player window must use the screen-relative default height")
+}
+
 player?.window?.performClose(nil)
 precondition(closeCount == 1 && player == nil)
 RunLoop.main.run(until:Date().addingTimeInterval(0.2))

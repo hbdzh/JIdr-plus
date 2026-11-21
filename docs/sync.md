@@ -1,41 +1,41 @@
-# Multi-device input synchronizer
+# 多设备输入同步
 
-Run several emulators as one: input on the **leader** device is replayed on every **follower** in real time (tap, swipe, multi-finger touch, keys, text, paste and the back/home/recents/volume/power keys). Design: [docs/design/sync-plan.md](design/sync-plan.md), decision D45.
+同步器把**主控设备**上的输入实时转发给各个**跟随设备**，包括点击、滑动、多点触控、按键、文字、粘贴，以及返回、主页、最近任务、音量和电源键。架构决策见 [D45](decisions/log.md)。
 
-> Status: implemented across the daemon (`sync.*`), CLI (`miko input-sync`), MCP (`sync_start`/`sync_stop`/`sync_status`), player bridges, and the SwiftUI Synchronizer panel (`⇧⌘Y`). Real-emulator latency and stress benchmarks have not been run in this environment yet (no local Android SDK system image).
+> 当前已在 daemon（`sync.*`）、CLI（`miko input-sync`）、MCP（`sync_start` / `sync_stop` / `sync_status`）、播放器桥和 SwiftUI 同步器面板（`⇧⌘Y`）中实现。原记录中的真实模拟器延迟和压力基准尚未在该环境运行，不能据此推断实机性能。
 
-## Using the Synchronizer
+daemon 管理同步会话及成员状态；输入事件由主控播放器桥经界面的同步组件转发到跟随播放器桥。输入坐标使用归一化表示，移动事件可以合并，按下和抬起事件不能丢弃。控制命令和事件沿用 [控制协议](control-protocol.md)。
 
-- **GUI:** Open **同步器… / Synchronizer…** from the menu bar (`⇧⌘Y`), the Command Palette (`⌘K`), or the Synchronizer button in any player window toolbar. Select two or more running devices, pick a leader, choose coordinate adaptation (`Stretch` or `Letterbox`) and input filters, then click **Start sync**.
-- **In-player indicators:** Each participating window shows a corner glass pill (`Syncing · Leader` or `Syncing · Following`). Followers are locked by default so stray clicks don't desynchronize; clicking a locked follower offers **Take over** to promote it to leader. Followers without an open window run in a hidden background player session managed by `SyncHub`.
-- **CLI & MCP:** `miko input-sync start --leader <dev> --follower <dev>…`, `stop`, `status`, `add`, `remove`, `leader`; MCP `sync_start`, `sync_stop`, `sync_status`. Input flows while the leader has an open player window.
+## 使用同步器
 
-## Concepts
+- **界面**：从菜单栏（`⇧⌘Y`）、命令面板（`⌘K`）或播放器窗口工具栏打开「同步器…」。选择至少两台运行中的设备、指定主控端，选择坐标适配方式（拉伸或等比留黑）与输入过滤选项，再开始同步。
+- **窗口提示**：参与同步的窗口显示主控或跟随状态。跟随端默认锁定，避免误触造成不同步；点击已锁定的跟随端可选择「接管」，将其设为主控端。没有打开窗口的跟随端由 `SyncHub` 管理隐藏的后台播放器会话。
+- **CLI 与 MCP**：CLI 使用 `miko input-sync start --leader <dev> --follower <dev>…`、`stop`、`status`、`add`、`remove` 和 `leader`；MCP 使用 `sync_start`、`sync_stop`、`sync_status`。输入转发要求主控端的播放器窗口已打开。
 
-- **Session.** At most one session at a time, with one leader and at least one follower. Every member must be a running device.
-- **Leader.** The device whose input is mirrored. Any member can become the leader with `sync.set_leader`; the old leader becomes a follower. The leader can also record or play back operation scripts while syncing, mirroring playback events to every follower in real time.
-- **Follower.** A device that receives the leader's input. Followers are locked by default (`lock_followers`), so stray input on them does not desynchronize the group. Followers cannot record or play back scripts while participating in a sync session.
-- **End of a session.** `sync.stop`, or automatically when the leader stops, crashes, hibernates or is deleted, or when fewer than two members remain. A follower that stops is simply removed.
+## 概念
 
-## Options
+- **会话**：同一时间最多一个会话，包含一个主控和至少一个跟随设备；所有成员都必须处于运行状态。
+- **主控端**：输入被同步的设备。可通过 `sync.set_leader` 将其他成员设为主控，原主控变为跟随端。主控端可以录制或回放操作脚本，回放事件会实时同步给跟随端。
+- **跟随端**：接收主控输入的设备。默认锁定直接输入（`lock_followers`），参与同步时不能录制或回放脚本。
+- **结束会话**：调用 `sync.stop`；主控停止、崩溃、休眠或删除，以及成员少于两台时也会自动结束。跟随端停止时只移除该成员。
 
-| Option | Default | Meaning |
+## 选项
+
+| 选项 | 默认值 | 说明 |
 |---|---|---|
-| `adaptation` | `stretch` | `stretch` keeps the same relative position on every screen. `letterbox` fits the leader's screen inside the follower's, keeping its aspect ratio, so a tap lands on the same pixel of the scaled-down picture. |
-| `sync_keyboard` | `true` | Forward key presses and releases. |
-| `sync_text` | `true` | Forward committed text and paste. |
-| `sync_tool_keys` | `true` | Forward back, home, recents, volume and power. |
-| `lock_followers` | `true` | Ignore direct input on followers while the session is active. |
-| `jitter_ms` | `0` | Random extra delay of 0 to 20 ms per follower. |
+| `adaptation` | `stretch` | `stretch` 在各屏幕使用相同相对位置；`letterbox` 将主控画面按比例放入跟随端，使点击落在缩放后画面的对应位置。 |
+| `sync_keyboard` | `true` | 转发按键按下和释放。 |
+| `sync_text` | `true` | 转发已提交文字和粘贴。 |
+| `sync_tool_keys` | `true` | 转发返回、主页、最近任务、音量和电源键。 |
+| `lock_followers` | `true` | 同步期间忽略跟随端的直接输入。 |
+| `jitter_ms` | `0` | 每个跟随端增加 0～20 毫秒的随机延迟。 |
 
-## Commands and events
+## 命令、事件与限制
 
-See the generated reference in [control-protocol.md](control-protocol.md): `sync.start`, `sync.stop`, `sync.status`, `sync.add_follower`, `sync.remove_follower`, `sync.set_leader`, `sync.set_options` and `sync.report`. Events: `sync.state` (the whole session, or `null` when it ended) and `sync.follower_error`.
+命令参考见[控制协议](control-protocol.md)：`sync.start`、`sync.stop`、`sync.status`、`sync.add_follower`、`sync.remove_follower`、`sync.set_leader`、`sync.set_options` 和 `sync.report`。`sync.state` 事件包含完整会话，结束时为 `null`；`sync.follower_error` 报告跟随端错误。
 
-Errors reuse the existing codes: `usage` (bad selection or options), `not_found` (no session, unknown device) and `busy` (a session is already active). A follower whose queue overflows is reported as `error` in its status instead of failing a call.
+错误使用现有代码：`usage` 表示设备选择或选项无效，`not_found` 表示会话或设备不存在，`busy` 表示已有活动会话。跟随端队列溢出时，其状态会报告 `error`，不会直接令调用失败。
 
-## Limits
-
-- Different aspect ratios or orientations can make taps land differently. Rotation is not synchronized.
-- Devices must be in the same app state for identical taps to do the same thing.
-- Latency and stress figures are not measured yet.
+- 不同屏幕比例或方向可能使点击位置有所差异；旋转不会同步。
+- 相同输入要产生相同结果，各设备需要处于相同的应用状态。
+- 原记录尚未测量延迟和压力数据。

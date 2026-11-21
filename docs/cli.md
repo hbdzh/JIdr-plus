@@ -1,73 +1,75 @@
-# `miko` command line
+# `miko` 命令行
 
-`miko` drives everything the Miko app can do, from a terminal or a CI script. It talks to the Miko daemon, which it starts automatically when needed (D4). Run `miko --help` or `miko <command> --help` for every flag; `miko completions zsh|bash|fish` prints shell completions.
+`miko` 可从终端或 CI 脚本操作 Miko 功能，通过 daemon 通信，并在需要时自动启动 daemon（D4）。运行 `miko --help` 或 `miko <command> --help` 查看参数；`miko completions zsh|bash|fish` 输出 shell 补全。
 
-The default macOS data folder is `~/Library/Application Support/miko`: its `sdk`, `avd`, `cache` and `logs` subdirectories hold the private SDK, devices, downloads and logs. Miko installs and manages the emulator, ADB and system images in that folder by default.
+macOS 默认数据目录为 `~/Library/Application Support/miko`；其中 `sdk`、`avd`、`cache` 和 `logs` 分别存放私有 SDK、设备、下载和日志。Miko 默认在该目录管理模拟器、ADB 和系统镜像。
 
-## Quick start
+## 快速开始
 
 ```bash
-miko image list                                   # images for this Mac
-miko sdk install emulator platform-tools          # prepare the runtime
-miko image install 35 --accept-licenses           # API 35 google_apis
-miko device create Phone --image 35               # rooted with adb by default (D7)
-miko device start Phone                           # waits until booted
+miko image list                                   # 适用于此 Mac 的镜像
+miko sdk install emulator platform-tools          # 准备运行时
+miko image install 35 --accept-licenses           # API 35 的 google_apis 镜像
+miko device create Phone --image 35               # 默认使用 adb Root（D7）
+miko device start Phone                           # 等待启动完成
 miko install Phone app.apk
 miko logcat Phone -n 100
 miko device stop Phone
 ```
 
-In CI, add `--json` and check the exit code:
+在 CI 中添加 `--json` 并检查退出码：
 
 ```bash
 miko --json device start Phone --timeout 300 || exit $?
 ```
 
-## Commands
+## 命令
 
-| Command | What it does |
+| 命令 | 用途 |
 |---|---|
-| `device create <name> --image <img> [--profile id] [--ram MB] [--cpus N] [--width px] [--height px] [--density dpi] [--data-mb MB] [--root none\|adb\|magisk] [--agent-owned]` | Create a device. `<img>` is `35`, `35:google_apis`, `35:google_apis_playstore`, `35:google_apis:arm64-v8a` or a full `system-images;…` package. |
-| `device start <names…> \| --all [--cold-boot] [--no-wait] [--timeout s] [--force]` | Start and wait for boot. `--timeout` cancels the boot and exits 5. `--no-wait` returns the boot job id. Past the host RAM budget it exits 9 unless `--force`. |
-| `device stop <names…> \| --all` | Stop, saving quick-boot state (D29). Flushes the guest's storage (`sync`) first, so settings changed just before the stop survive the next start. |
-| `device hibernate <names…> \| --all` | Save each running device's whole state under the snapshot `miko-hibernate`, check it holds memory, then stop it without the quick-boot save (D42). It uses no RAM; `device start` resumes it in seconds. `device stop` leaves it hibernated; `device reset` discards the state. Auto-hibernate after idle minutes: `settings set --auto-hibernate-minutes N` (off by default) or per device `device edit <name> --auto-hibernate N` (`0` = never, `--auto-hibernate-default` follows the setting). Idle means no Miko command for the device and no player attached. |
-| `device list`, `device details <name>`, `device connect-info <name>` | Status, settings and disk usage; the gRPC endpoint/token and adb serial of a running device. |
-| `device clone <name> <new> [--keep-snapshot snap]`, `device edit <name> [--rename n] [--ram …] [--agent-owned bool] [--auto-hibernate N \| --auto-hibernate-default]` | Copy or change a stopped device. With `--keep-snapshot` the copy is a copy-on-write clone (APFS / reflink; a full copy after a disk check elsewhere) that keeps that snapshot and resumes it on its first start, in seconds (D42); without it the copy cold-boots. |
-| `device reset <name> --yes`, `device delete <names…> \| --all --yes` | Destructive: wipe data, or delete. Without `--yes` they ask on a terminal and refuse otherwise. |
-| `install <name> <apk> [--no-replace] [--grant] [--downgrade]` | Install an APK. A signature mismatch fails with `details.signature_mismatch = true`. |
-| `push <name> <local> [remote]`, `pull <name> <remote> <local>` | Copy files (push defaults to `/sdcard/Download/`). |
-| `logcat <name> [-n N] [--filter spec…] [-f] [--clear]` | Dump, follow (`-f`) or clear the log. |
-| `flash <name> <zip>` | Install Magisk/Zygisk modules on Full-root devices, or copy other supported ZIPs to Download. Recovery, Riru and partition-image archives are refused. |
-| `sync start <device> <folder> [remote] [--bidirectional]`, `sync list [device]`, `sync resolve <id> <path> --keep local\|remote\|both`, `sync stop <id>` | One-way or bidirectional folder synchronization. One-way copies host changes and deletions to the device while preserving device-only files; `--bidirectional` syncs changes and deletions both ways and preserves conflicts for `sync resolve`. Start returns before the first copy finishes. |
-| `input-sync start --leader <dev> --follower <dev>… [--adaptation stretch\|letterbox] [--no-keyboard] [--no-text] [--no-tool-keys] [--unlock-followers] [--jitter-ms N]`, `input-sync stop`, `input-sync status`, `input-sync add\|remove\|leader <dev>` | Mirror player input from a leader device onto running followers (D45, [sync.md](sync.md)). The CLI manages the session; input flows while the leader has an open player window. |
-| `gamepad list`, `gamepad connect <device> [--controller id]`, `gamepad disconnect <device>` | Forward a Mac game controller to a running emulator; connect returns a job ID. |
-| `identity <device> [--android-id ID]` | Read Android ID and IMEI, or set a 16-digit hexadecimal Android ID with root. Setting restarts Android's framework. IMEI is read-only. |
-| `image list [--installed]`, `image install <img> [--accept-licenses]` | System images. |
-| `profile list` | Built-in hardware profiles (D24). `agent-lean` (720×1280, 2 GB, 2 cores, no audio or cameras) costs ~4 GB of host RAM instead of ~7.6 GB. |
-| `budget` | Host RAM, the device budget (`settings set --budget-percent`, 75% by default) and what each running device is expected to use and uses now (D42). |
-| `network loss <device> [percent]`, `network dns <device> [normal\|slow\|fail] [--delay-ms N]` | Control outgoing packet loss and DNS simulation. Requires root and netem; stored settings are restored on boot. See [on-device helper](on-device-helper.md). |
-| `root helper <device>` | Start the on-device helper if needed and report its version, protocol, uid and SELinux context. |
-| `sdk status`, `sdk licenses <pkgs…>`, `sdk install <pkgs…> [--accept-licenses]` | Inspect the managed SDK, review package licences and install components. |
-| `root set <name> none\|adb\|magisk`, `root verify <name>`, `root status <name>`, `root auto-grant <name> on\|off` | Root modes (provided by the root engine). `auto-grant` grants every app root without a prompt on a Full-root device (D22, off by default; `root.auto_grant`). |
-| `root writable-system <name> on\|off` | A writable `/system` on an `adb`-root device (`-writable-system` + `adb remount`); `off` goes back to the read-only stock image. Cold boots a running device (D29); refused with exit code 2 on `none`/`magisk` devices, Play Store images and images older than API 31. See docs/root.md. |
-| `snapshot list\|save\|load\|delete <name> [snapshot]` | Snapshots tagged with their root mode (provided by the widgets provider). |
-| `base create <device> <name>`, `base ls`, `base rm <name> --yes` | Bases (D42): `create` saves a running device (including Magisk root) as a read-only base with snapshot `miko-base` and stops the device. Its animation settings are preserved; pool clones disable animations before delivery. Magisk requires a valid per-device patched ramdisk and a working shell `su` grant. A base can't be started; `rm` refuses while clones of it are leased. |
-| `pool get <base> [--ttl 2h] [--timeout s]`, `pool release <lease\|device>`, `pool renew <lease> [--ttl 2h]`, `pool ls` | Throwaway clones of a base for agents and CI (D42): `get` resumes a copy-on-write clone and prints its serial. The lease lasts `--ttl` (default 2 h) from delivery, then the daemon stops and deletes the clone. TTL leases retain their IDs and deadlines across daemon restarts. A full RAM budget makes `get` wait up to `--timeout` (120 s), then exit 9. The daemon stays up while leases exist (D4). |
-| `cert install <name> <file>`, `cert list <name>`, `cert verify <name>`, `cert remove <name> <cert>\|--all` | CA certificates in a Full-root device's system store (root engine, `root.cacert.*`); install and remove restart the device. See docs/root.md. |
-| `proxy set <name> [host:]port`, `proxy clear <name>`, `proxy show <name>` | The device's global HTTP proxy (widgets provider, `network.proxy.*`). The host defaults to `10.0.2.2`, this Mac. |
-| `audio inject <name> <file> [--loop] [--rate Hz [--channels 1\|2]] [--no-wait]`, `audio stop <name>` | Play a WAV as the device's microphone (widgets provider, `audio.*`); `--rate` reads the file as headerless 16-bit PCM. See [Microphone](#microphone). |
-| `jobs list [--all]`, `jobs wait <job>`, `jobs cancel <job>` | Long-running operations. |
-| `commands` | Every protocol command (what the GUI and MCP see). |
-| `call <method> [params-json]` | Call any protocol command directly, e.g. `miko call device.start '{"device":"Phone","cold_boot":true}'`. Follows jobs. |
-| `daemon [run]`, `daemon stop`, `daemon status` | Run the daemon in the foreground, stop it (devices keep running), or show it. |
-| `shell [script]` | Interactive shell, or run a script of commands; see [Shell](#shell). |
-| `completions <shell>` | Shell completions. |
+| `device create <name> --image <img> [--profile id] [--ram MB] [--cpus N] [--width px] [--height px] [--density dpi] [--data-mb MB] [--root none\|adb\|magisk] [--agent-owned]` | 创建设备。`<img>` 可为 `35`、`35:google_apis`、`35:google_apis_playstore`、`35:google_apis:arm64-v8a` 或完整 `system-images;…` 包名。 |
+| `device start <names…> \| --all [--cold-boot] [--no-wait] [--timeout s] [--force]` | 启动并等待设备完成启动；超时取消启动并返回 5，`--no-wait` 返回启动任务 ID；超出主机内存预算时返回 9，除非指定 `--force`。 |
+| `device stop <names…> \| --all` | 停止设备并保存快速启动状态（D29）；先执行 `sync` 刷新设备存储，保留停止前修改的设置。 |
+| `device hibernate <names…> \| --all` | 将完整状态保存到 `miko-hibernate` 快照、确认包含内存后停止设备，不保存快速启动状态（D42）。休眠不占内存，`device start` 可在数秒内恢复；`device stop` 保持休眠，`device reset` 丢弃状态。`settings set --auto-hibernate-minutes N` 设置空闲自动休眠（默认关闭）；每台设备可用 `device edit <name> --auto-hibernate N`（`0` 为从不）或 `--auto-hibernate-default` 跟随全局设置。空闲指设备没有 Miko 命令且没有连接播放器。 |
+| `device list`, `device details <name>`, `device connect-info <name>` | 查看状态、设置、磁盘占用，或运行中设备的 gRPC 地址、令牌和 adb 序列号。 |
+| `device clone <name> <new> [--keep-snapshot snap]`, `device edit <name> [--rename n] [--ram …] [--agent-owned bool] [--auto-hibernate N \| --auto-hibernate-default]` | 复制或修改已停止设备。`--keep-snapshot` 创建保留指定快照的写时复制克隆（APFS / reflink；其他文件系统在检查磁盘后完整复制），首次启动数秒内从快照恢复（D42）；否则冷启动。 |
+| `device reset <name> --yes`, `device delete <names…> \| --all --yes` | 破坏性操作：清除数据或删除设备。缺少 `--yes` 时会在终端询问，在非交互环境拒绝。 |
+| `install <name> <apk> [--no-replace] [--grant] [--downgrade]` | 安装 APK；签名不匹配时失败并返回 `details.signature_mismatch = true`。 |
+| `push <name> <local> [remote]`, `pull <name> <remote> <local>` | 复制文件；push 默认目标为 `/sdcard/Download/`。 |
+| `logcat <name> [-n N] [--filter spec…] [-f] [--clear]` | 输出、持续跟随（`-f`）或清除日志。 |
+| `flash <name> <zip>` | 在完整 Root 设备安装 Magisk/Zygisk 模块，或把其他支持的 ZIP 复制到 Download；拒绝 Recovery、Riru 和分区镜像包。 |
+| `sync start <device> <folder> [remote] [--bidirectional]`, `sync list [device]`, `sync resolve <id> <path> --keep local\|remote\|both`, `sync stop <id>` | 单向或双向文件夹同步。单向同步主机修改和删除，保留仅存在于设备的文件；`--bidirectional` 双向同步修改和删除，并保留冲突以供 `sync resolve` 处理。启动命令会在首次复制完成前返回。 |
+| `input-sync start --leader <dev> --follower <dev>… [--adaptation stretch\|letterbox] [--no-keyboard] [--no-text] [--no-tool-keys] [--unlock-followers] [--jitter-ms N]`, `input-sync stop`, `input-sync status`, `input-sync add\|remove\|leader <dev>` | 将主设备的播放器输入镜像到运行中的跟随设备（D45，[sync.md](sync.md)）。CLI 管理会话；主设备播放器窗口打开时才传送输入。 |
+| `gamepad list`, `gamepad connect <device> [--controller id]`, `gamepad disconnect <device>` | 将 Mac 游戏手柄转发至运行中的模拟器；连接命令返回任务 ID。 |
+| `identity <device> [--android-id ID]` | 读取 Android ID 和 IMEI，或通过 Root 设置 16 位十六进制 Android ID；设置会重启 Android 框架。IMEI 只读。 |
+| `image list [--installed]`, `image install <img> [--accept-licenses]` | 列出或安装系统镜像。 |
+| `profile list` | 内置硬件配置（D24）。`agent-lean`（720×1280、2 GB、2 核、不启用音频或相机）约占用 4 GB 主机内存，而非约 7.6 GB。 |
+| `budget` | 查看主机内存、设备预算（`settings set --budget-percent`，默认 75%）和运行设备预估及实际占用（D42）。 |
+| `network loss <device> [percent]`, `network dns <device> [normal\|slow\|fail] [--delay-ms N]` | 控制出站丢包及 DNS 模拟；需要 Root 和 netem，启动时恢复已保存设置。见[设备内辅助程序](on-device-helper.md)。 |
+| `root helper <device>` | 按需启动设备内辅助程序，报告版本、协议、uid 和 SELinux 上下文。 |
+| `sdk status`, `sdk licenses <pkgs…>`, `sdk install <pkgs…> [--accept-licenses]` | 查看托管 SDK、审核软件包许可证并安装组件。 |
+| `root set <name> none\|adb\|magisk`, `root verify <name>`, `root status <name>`, `root auto-grant <name> on\|off` | Root 模式（由 Root 引擎提供）。`auto-grant` 使完整 Root 设备上的所有应用无需提示即可获得 Root（D22，默认关闭；`root.auto_grant`）。 |
+| `root writable-system <name> on\|off` | 在 `adb` Root 设备上启用可写 `/system`（`-writable-system` + `adb remount`）；`off` 恢复原版只读镜像。运行中设备会冷启动（D29）；`none`/`magisk`、Play Store 镜像和 API 31 以下镜像返回退出码 2。详见 docs/root.md。 |
+| `snapshot list\|save\|load\|delete <name> [snapshot]` | 带 Root 模式标记的快照（由工具组件提供）。 |
+| `base create <device> <name>`, `base ls`, `base rm <name> --yes` | 基底（D42）：`create` 将运行设备（包括 Magisk Root）保存为含 `miko-base` 快照的只读基底，并停止设备。基底保留动画设置，设备池克隆交付前关闭动画。Magisk 需要有效的设备独立修补 ramdisk 和可用的 shell `su` 授权；基底不能启动，克隆仍被租用时 `rm` 会拒绝删除。 |
+| `pool get <base> [--ttl 2h] [--timeout s]`, `pool release <lease\|device>`, `pool renew <lease> [--ttl 2h]`, `pool ls` | 为智能体和 CI 提供一次性基底克隆（D42）。`get` 恢复写时复制克隆并输出序列号；租约从交付开始按 `--ttl` 计时（默认 2 小时），到期后 daemon 停止并删除克隆。daemon 重启后保留租约 ID 和期限。内存预算已满时 `get` 最多等待 `--timeout`（默认 120 秒），然后返回 9。存在租约时 daemon 保持运行（D4）。 |
+| `cert install <name> <file>`, `cert list <name>`, `cert verify <name>`, `cert remove <name> <cert>\|--all` | 管理完整 Root 设备系统证书库中的 CA 证书（Root 引擎，`root.cacert.*`）；安装和删除会重启设备。详见 docs/root.md。 |
+| `proxy set <name> [host:]port`, `proxy clear <name>`, `proxy show <name>` | 设置、清除或查看设备全局 HTTP 代理（工具组件，`network.proxy.*`）；主机默认 `10.0.2.2`，即本机 Mac。 |
+| `audio inject <name> <file> [--loop] [--rate Hz [--channels 1\|2]] [--no-wait]`, `audio stop <name>` | 将 WAV 作为设备麦克风播放（工具组件，`audio.*`）；`--rate` 将文件作为无头 16 位 PCM 读取。见[麦克风](#microphone)。 |
+| `jobs list [--all]`, `jobs wait <job>`, `jobs cancel <job>` | 查看、等待或取消长时间运行的任务。 |
+| `commands` | 列出全部协议命令（与 GUI 和 MCP 所见相同）。 |
+| `call <method> [params-json]` | 直接调用任意协议命令，例如 `miko call device.start '{"device":"Phone","cold_boot":true}'`，并跟踪任务。 |
+| `daemon [run]`, `daemon stop`, `daemon status` | 前台运行 daemon、停止 daemon（设备保持运行）或查看其状态。 |
+| `shell [script]` | 交互式 shell 或执行命令脚本，见 [Shell](#shell)。 |
+| `completions <shell>` | 输出 shell 补全。 |
 
-Global flags: `--json`, `-q/--quiet` (no progress), `--restart-stale` (or `MIKO_RESTART_STALE=1`).
+全局参数：`--json`、`-q/--quiet`（不显示进度）、`--restart-stale`（或 `MIKO_RESTART_STALE=1`）。
+
+<a id="shell"></a>
 
 ## Shell
 
-`miko shell` is an interactive shell, Miko's take on Genymotion Shell. Each line is a `miko` command without the `miko` (a leading `miko` is ignored, so pasted lines work). It uses the CLI's own command definitions over one daemon connection, so every command, flag, output and exit code is the same as in the one-shot CLI, and it adds nothing to the protocol.
+`miko shell` 是交互式 shell，借鉴 Genymotion Shell。每行输入省略 `miko` 的命令；也会忽略开头的 `miko`，便于直接粘贴。它通过一条 daemon 连接使用 CLI 自身的命令定义，因此命令、参数、输出和退出码与单次 CLI 相同，不增加协议命令。
 
 ```text
 $ miko shell
@@ -81,20 +83,20 @@ miko (Phone)> --json device details
 miko (Phone)> exit
 ```
 
-| Builtin | What it does |
+| 内置命令 | 用途 |
 |---|---|
-| `use <device>` | Make it the current device, shown in the prompt; `use` alone clears it. |
-| `source <file>` | Run a script (below) inside the shell. |
-| `help [command]` | The builtins and commands, or a command's `--help`. |
-| `exit [code]`, `quit`, Ctrl-D | Leave the shell. |
+| `use <device>` | 设置提示符中显示的当前设备；单独输入 `use` 清除。 |
+| `source <file>` | 在 shell 中执行脚本。 |
+| `help [command]` | 显示内置命令及命令列表，或指定命令的 `--help`。 |
+| `exit [code]`、`quit`、Ctrl-D | 退出 shell。 |
 
-**The current device** is filled in for commands that take a device first (`device start`, `proxy set`, `snapshot save`, `install`, `logcat`, `root`, `cert` …) when the line doesn't name one: if the first argument is an existing device's name or id it is used as it is, otherwise the current device is put in front of the arguments (`proxy set 8080` runs `proxy set Phone 8080`). Lines with `--all` are left alone. `call <method> [params]` gets `"device"` added to its params when the method takes one and the params don't name it.
+**当前设备：** 对设备作为第一个参数的命令（如 `device start`、`proxy set`、`snapshot save`、`install`、`logcat`、`root`、`cert`），未指定设备时自动填入当前设备。如果第一个参数是已有设备名称或 ID，则直接使用；否则将当前设备插到参数之前（例如 `proxy set 8080` 实际执行 `proxy set Phone 8080`）。包含 `--all` 的命令不改变。`call <method> [params]` 在方法需要设备且参数未指定时加入 `"device"`。
 
-**Words** split like a POSIX shell without expansion: `'…'` is literal, `"…"` honours `\"` and `\\`, `\` escapes one character, and `#` at the start of a word begins a comment. There are no variables, pipes or `$(…)`; use your own shell for those.
+**分词：** 类似 POSIX shell，但不做展开：单引号为字面值，双引号识别反斜杠转义的引号和反斜杠，反斜杠转义一个字符，词首 `#` 开始注释。不支持变量、管道或 `$(…)`；需要时使用外部 shell。
 
-**Completion and history.** Tab completes builtins, subcommands, flags, value choices (`root set Phone <Tab>`), device names, protocol methods from `commands.list` after `call`, and file paths. History is kept in `shell_history` in Miko's data directory (`~/Library/Application Support/miko`, or `$MIKO_HOME/data`). Ctrl-C stops the running command (a job it started keeps running in the daemon, as when Ctrl-C ends a one-shot `miko`; `jobs cancel` stops it) and the shell carries on.
+**补全与历史：** Tab 可补全内置命令、子命令、参数、可选值（如 `root set Phone <Tab>`）、设备名称、`call` 后 `commands.list` 中的协议方法及文件路径。历史保存在 Miko 数据目录的 `shell_history`（`~/Library/Application Support/miko` 或 `$MIKO_HOME/data`）。Ctrl-C 中断当前命令但 shell 继续运行；已启动的 daemon 任务会继续，使用 `jobs cancel` 停止。
 
-**Scripts.** `miko shell setup.miko`, piped input (`miko shell < setup.miko`, or `-` for stdin) and `source` run the lines in order, skipping blank lines and `#` comments, so `#!/usr/bin/env -S miko shell` works as a first line. The first failing line stops the script: stderr says `setup.miko:5: stopped here (exit code 3)` and `miko shell` exits with that command's [exit code](#exit-codes). `exit <code>` ends a script early. `--json` and `-q` given before `shell` apply to every line; with `--json`, each command prints its own envelope line.
+**脚本：** `miko shell setup.miko`、管道输入（`miko shell < setup.miko` 或以 `-` 表示 stdin）和 `source` 按顺序运行各行，跳过空行与 `#` 注释，因此可用 `#!/usr/bin/env -S miko shell` 作为首行。第一条失败命令停止脚本，stderr 输出如 `setup.miko:5: stopped here (exit code 3)`，shell 返回该命令的[退出码](#exit-codes)。`exit <code>` 可提前结束脚本。`shell` 前的 `--json` 和 `-q` 对所有行生效；`--json` 下每条命令输出自己的 JSON 封套行。
 
 ```bash
 # setup.miko
@@ -105,88 +107,104 @@ proxy set 8080
 snapshot save clean
 ```
 
-## HTTP proxy
+<a id="http-proxy"></a>
 
-Point a running device at Burp, mitmproxy or any HTTP proxy on your Mac:
+## HTTP 代理
+
+将运行中的设备连接到 Mac 上的 Burp、mitmproxy 或其他 HTTP 代理：
 
 ```bash
-miko proxy set Phone 8080             # 10.0.2.2:8080, the Mac's port 8080
-miko proxy set Phone 192.168.1.5:3128 # a proxy elsewhere on the network
+miko proxy set Phone 8080             # 10.0.2.2:8080，即此 Mac 的 8080 端口
+miko proxy set Phone 192.168.1.5:3128 # 网络中另一台主机的代理
 miko proxy show Phone
 miko proxy clear Phone
 ```
 
-Inside the emulator `10.0.2.2` is the Mac's `127.0.0.1`, so Burp's default listener (`127.0.0.1:8080`) works as it is; `127.0.0.1` on the device is the device itself. The proxy is Android's global `http_proxy` setting: apps that use the system proxy (most HTTP stacks, WebView, Chrome) send their traffic through it, on Wi-Fi and mobile data. It takes effect at once and stays across restarts and snapshots until you clear it. To read HTTPS, apps must also trust the proxy's CA as a system certificate: `miko cert install` on a Full-root device (see [CA certificates](#ca-certificates)).
+模拟器中的 `10.0.2.2` 是 Mac 的 `127.0.0.1`，因此 Burp 默认监听地址 `127.0.0.1:8080` 可直接使用；设备内的 `127.0.0.1` 则指设备自身。该代理使用 Android 全局 `http_proxy` 设置：使用系统代理的应用（多数 HTTP 栈、WebView、Chrome）通过 Wi-Fi 和移动数据发送流量。设置立即生效并跨重启、快照保留，直到清除。读取 HTTPS 还需要应用信任代理 CA；可在完整 Root 设备使用 `miko cert install`，见 [CA 证书](#ca-certificates)。
 
-## CA certificates
+<a id="ca-certificates"></a>
 
-To read HTTPS from apps, trust the proxy's CA as a system certificate on a Full-root (Magisk) device:
+## CA 证书
+
+要读取应用 HTTPS，将代理 CA 作为系统证书安装到完整 Root（Magisk）设备：
 
 ```bash
-miko root set Phone magisk                   # once
-miko cert install Phone ~/Downloads/cacert.der   # Burp's CA (PEM or DER); restarts the device
+miko root set Phone magisk                   # 执行一次
+miko cert install Phone ~/Downloads/cacert.der   # Burp 的 CA（PEM 或 DER）；重启设备
 miko cert list Phone
-miko cert remove Phone a4ac454c.0            # or --all
+miko cert remove Phone a4ac454c.0            # 也可使用 --all
 ```
 
-`install` restarts the device and fails with exit code 7 (root failed) unless the certificate ends up in the store apps read. How it works on each Android version is in docs/root.md.
+`install` 重启设备；如果证书未进入应用读取的证书库，返回退出码 7（Root 失败）。各 Android 版本的工作方式见 docs/root.md。
 
-## Microphone
+<a id="microphone"></a>
 
-Play an audio file into a running device's microphone, for voice input, speech recognition or call tests:
+## 麦克风
+
+将音频文件播放到运行中设备的麦克风，可用于语音输入、识别或通话测试：
 
 ```bash
-miko audio inject Phone ~/Desktop/hello.wav           # waits until it has played
+miko audio inject Phone ~/Desktop/hello.wav           # 等待播放完成
 miko audio inject Phone ~/Desktop/hello.wav --loop --no-wait
 miko audio stop Phone
-miko audio inject Phone capture.pcm --rate 16000      # headerless 16-bit little-endian PCM, mono
+miko audio inject Phone capture.pcm --rate 16000      # 无文件头的 16 位小端 PCM，单声道
 ```
 
-Miko streams the file over the emulator's gRPC `injectAudio`. WAV files can be 8- or 16-bit PCM (sent as they are), or 24/32-bit PCM or 32/64-bit float (converted to 16-bit), mono or stereo, at 8–48 kHz. Other files, other rates and more channels exit 2; convert them first, e.g. `afconvert -f WAVE -d LEI16@44100 in.m4a out.wav`. The audio plays as the device reads its microphone: start the app's recording before or after, and if nothing records, playback waits (the progress stops) until something does or you stop it. `--loop` repeats until `audio stop`; `jobs cancel` also ends it. One file plays at a time per device; a second `audio inject` exits 4. The Mac's own microphone isn't routed to the device (yet).
+Miko 通过模拟器 gRPC `injectAudio` 流式发送文件。支持单声道或立体声 8–48 kHz WAV：8/16 位 PCM 原样发送，24/32 位 PCM 或 32/64 位浮点转换为 16 位。其他文件、采样率或更多声道返回 2；可先转换，例如 `afconvert -f WAVE -d LEI16@44100 in.m4a out.wav`。设备读取麦克风时才会播放：应用可在播放前后开始录音；没有应用读取时进度暂停，直到开始读取或停止。`--loop` 持续循环至 `audio stop`；`jobs cancel` 也可结束。每台设备同时只能播放一个文件，第二个 `audio inject` 返回 4。当前不转发 Mac 实时麦克风。
 
-## Licenses (D8)
+<a id="licenses-d8"></a>
 
-Images and the emulator are downloaded from Google on your machine, after you accept their license. On a terminal, `miko image install` shows each license and asks. Headless, `--accept-licenses` prints each license id and the SHA-256 of its text, then records your consent. Read the texts first with `miko sdk licenses <package>`. When a license text changes, Miko asks again.
+## 许可证（D8）
 
-## JSON output (`--json`)
+从 Google 下载的镜像和模拟器须由用户接受许可证。终端中 `miko image install` 显示并逐项询问；无界面时 `--accept-licenses` 输出每个许可证 ID 和文本 SHA-256，再记录用户同意。请先用 `miko sdk licenses <package>` 阅读文本；文本变化时 Miko 重新询问。
 
-Every command prints exactly one JSON line (`logcat -f` prints one per log line):
+<a id="json-output---json"></a>
+
+## JSON 输出（`--json`）
+
+每条命令输出一行 JSON（`logcat -f` 每条日志输出一行）：
 
 ```json
 {"miko_json": 2, "ok": true, "result": …}
 {"miko_json": 2, "ok": false, "error": {"code": "not_found", "exit_code": 3, "message": "no device named \"x\"", "data": null}}
 ```
 
-`miko_json` is the envelope version; it changes only on breaking changes (see the changelog below). `result` is the protocol result of the underlying command (docs/control-protocol.md). Commands that act on several devices (`device start|stop|delete`) return an array.
+`miko_json` 是封套版本，仅在不兼容变更时改变，见下方变更记录。`result` 是底层命令的协议结果（docs/control-protocol.md）。作用于多个设备的命令（`device start|stop|delete`）返回数组。
 
-## Exit codes
+<a id="exit-codes"></a>
 
-| Code | Meaning |
+## 退出码
+
+| 代码 | 含义 |
 |---|---|
-| 0 | OK |
-| 1 | Unexpected error |
-| 2 | Usage: bad arguments or params, unknown command, missing `--yes` |
-| 3 | Not found (device, image, job…), or the device isn't running |
-| 4 | Busy: another operation holds the device (`error.data.holder` is the job) |
-| 5 | Boot timeout |
-| 6 | SDK, emulator, download or license problem |
-| 7 | Root failed |
-| 8 | Daemon stale: a daemon of another version is running (use `--restart-stale`) |
-| 9 | Resource exhausted: starting would go past the host RAM budget (`error.data.devices` lists what uses it; see `miko budget`) |
+| 0 | 成功 |
+| 1 | 意外错误 |
+| 2 | 用法错误：参数无效、未知命令或缺少 `--yes` |
+| 3 | 未找到设备、镜像或任务等，或设备未运行 |
+| 4 | 忙：另一操作持有设备（`error.data.holder` 为任务） |
+| 5 | 启动超时 |
+| 6 | SDK、模拟器、下载或许可证问题 |
+| 7 | Root 失败 |
+| 8 | daemon 版本过期：其他版本的 daemon 正在运行（使用 `--restart-stale`） |
+| 9 | 资源不足：启动会超出主机内存预算（`error.data.devices` 列出占用，参见 `miko budget`） |
 
-## Environment
+<a id="environment"></a>
 
-| Variable | Effect |
+## 环境变量
+
+| 变量 | 作用 |
 |---|---|
-| `MIKO_HOME` | Put all Miko data under this directory (tests, portable setups) |
-| `MIKO_LOG` | Daemon log filter, e.g. `debug` |
-| `MIKO_DAEMON_BIN` | The `miko` binary used to auto-start the daemon |
-| `MIKO_SDK_REPO` | SDK repository mirror (default Google's) |
-| `MIKO_RESTART_STALE` | Same as `--restart-stale` |
+| `MIKO_HOME` | 将所有 Miko 数据放在指定目录，用于测试或便携环境 |
+| `MIKO_LOG` | daemon 日志过滤条件，如 `debug` |
+| `MIKO_DAEMON_BIN` | 自动启动 daemon 所使用的 `miko` 二进制文件 |
+| `MIKO_SDK_REPO` | SDK 仓库镜像（默认 Google） |
+| `MIKO_RESTART_STALE` | 与 `--restart-stale` 相同 |
 
-## Changelog
+<a id="changelog"></a>
 
-| `miko_json` | Change |
+## 变更记录
+
+| `miko_json` | 变更 |
 |---|---|
-| 2 | Renamed the envelope version field to `miko_json`. |
-| 1 | Initial format used the previous envelope field. |
+| 2 | 将封套版本字段改名为 `miko_json`。 |
+| 1 | 初始格式使用之前的封套字段。 |

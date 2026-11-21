@@ -104,8 +104,6 @@ snapshots, player lifecycle checks, 65 benchmark self-tests and 4 runner tests.
 
 ## Before/after verification (2026-11-12)
 
-![Before/after summary](images/performance/before-after-2026-11-12.png)
-
 Two verifications were run after the center/visibility changes. They answer
 different questions and are not interchangeable with the earlier scenarios.
 
@@ -224,6 +222,10 @@ its immediate default behavior during startup before inputs can be delivered.
 for rollback; `fifo` is the default. Both branches use the current release-safety
 fixes. This is a same-binary comparison of scheduling/connection isolation.
 
+The Android input fixture described in the historical results below was removed;
+those optional smoke tests and animated comparison cannot currently be rerun.
+The historical measurements remain for context.
+
 ### Controlled real-emulator evidence
 
 Revision `c8f7dab`, Release, same benchmark and bridge hashes for all six runs.
@@ -266,7 +268,7 @@ only; it cannot establish a general tail-latency improvement.
 
 ### Native input/release checks and regression tests
 
-Before timing, the production bridge drives a debug APK built from the checked-in
+Before timing, the production bridge drives a debug APK built from the then-available
 Android fixture using the already installed SDK/JDK and an ephemeral test key.
 The fixture records its actual Android events/text in private files read by
 `adb run-as`. Its normal Copy handler is enabled for functional checks. All six
@@ -296,40 +298,8 @@ records method/status/timing only, is enabled for the native functional check,
 and is disabled in timing runs and normal launches. The test app was uninstalled;
 device, daemon and isolated home were removed. The test SDK ramdisk hash matched.
 
-Earlier results remain available:
-
-- `input-fifo-ab-20261112`: ordinary Home/static-screen series, 178/180 touches
-  in each mode. Both paths had misses. Content-change demand confounded input-
-  phase receive-rate measurements, so this series did not prove independence.
-- `input-fifo-controlled-20261112`: aborted initial animated-fixture input check;
-  no timed runs. The harness subsequently added window-focus readiness and
-  explicit initial-touch delivery checks, plus saved layout/text diagnostics.
-- `input-fifo-controlled-v2-20261112`: Unicode paste passed, then animated Copy
-  failed before its chord reached Android with the shared connection. No timed
-  runs. Input transport was subsequently isolated before the successful v3 check.
-
 Hardware macOS IME composition, games, free rotation during gestures,
 fullscreen/Space and long-duration stability remain separate acceptance. These
 results cover the real emulator and the current native player rendering path;
 they exclude physical input delivery and GPU scanout and do not prove those
 broader scenarios or whole-application memory savings.
-
-## Historical Slint measurements (2026-11-09)
-
-The implementation and command described below were retired on 2026-11-11; this is
-retained measurement evidence, not a runnable current entry point.
-
-
-`cargo run -p miko-ui --example display_bench -- "<running device name>"` opens a separate, read-only window connected to an already running device. It does not send keys, touch, clipboard operations or application launches. The test requests half the device's width and height. It measures three 10-second intervals: visible, minimized, and restored. Set `MIKO_DISPLAY_BENCH_SECS` to 3–60 to change each interval. CPU is process CPU as a percentage of one core; on systems without `ps` it is reported as unavailable. Frame rate and throughput are receiver-side measurements, not the Android game's own render rate. Minimize/restore transitions can cause a few frames in the adjacent interval.
-
-The source uses the same `Session` and native occlusion notification used by the game window. Compare runs on the same device, screen, window size, game scene and machine; record emulator CPU and RAM separately. This benchmark does not prove touch latency, audio playback, game correctness, or long-running memory stability. It briefly creates an additional screenshot stream, which adds load to the running emulator.
-
-A local debug-build observation on 2026-11-09, Android 15 arm64, 1080×2400 device, 540×1200 stream, 8 seconds per interval:
-
-| Interval | Received fps | Displayed fps | MB/s | GUI CPU, one core = 100% |
-| --- | ---: | ---: | ---: | ---: |
-| Visible | 59.97 | 58.72 | 155.45 | 61.3% |
-| Minimized, including animation | 4.37 | 0.25 | 11.34 | 0.7% |
-| Restored, including animation | 56.00 | 55.88 | 145.15 | 55.8% |
-
-This measures the optimization for a minimized/occluded window. It is not a claim that foreground streaming uses less CPU than the previous version. For a separate foreground baseline, hold a comparable scene and window size constant, and compare builds in isolated runs.

@@ -14,6 +14,8 @@ if os.environ.get("MIKO_UI_ROOT")=="magisk":
 if os.environ.get("MIKO_UI_ROOT") in ("adb", "adb-writable"):
  for d in devices: d['root']={"mode":"adb","health":"ok","writable_system":os.environ.get("MIKO_UI_ROOT")=="adb-writable"}
 if state.exists(): devices=json.loads(state.read_text())
+if os.environ.get("MIKO_UI_SYNC_TWO_RUNNING") == "1" and len(devices) > 1:
+ devices[1]=device(2,devices[1]["name"],"running")
 managed_images=[
  {"api":35,"tag":"google_apis","abi":"arm64-v8a","package":"system-images;android-35;google_apis;arm64-v8a","source":"private","root":"/Users/Shared/Miko/sdk","size_bytes":2147483648,"used_by":[{"id":devices[0]["id"],"name":devices[0]["name"]}] if devices else [],"can_delete":not devices},
  {"api":36,"tag":"google_apis_ps16k","abi":"arm64-v8a","package":"system-images;android-36;google_apis_ps16k;arm64-v8a","source":"custom","root":"/Volumes/External/Miko SDK","size_bytes":1879048192,"used_by":[],"can_delete":True},

@@ -157,7 +157,7 @@ struct AdvancedToolsView: View {
                     Spacer(minLength: 8)
                     // Keep Escape in the native responder chain for IME cancellation.
                     Button(t("关闭", "Close"), action: onClose)
-                        .buttonStyle(.bordered).controlSize(.regular)
+                        .buttonStyle(WbPillButtonStyle()).controlSize(.regular)
                         .accessibilityIdentifier("device-tools-close")
                 }
                 .padding(.horizontal, 24).padding(.top, 8).padding(.bottom, 14)
@@ -401,7 +401,7 @@ struct AdvancedToolsView: View {
                 }
             } header: { Text(t("位置", "Location")) }
             DeviceToolPageGroup(t("路线回放", "Route playback")) {
-                HStack { Button(t("选择 GPX / KML", "Choose GPX / KML")) { choose(["gpx","kml"]) { routePath = $0.path } }; Text(routePath.isEmpty ? t("未选择文件", "No file selected") : URL(fileURLWithPath:routePath).lastPathComponent).lineLimit(1) }
+                HStack { Button(t("选择 GPX / KML", "Choose GPX / KML")) { choose(["gpx","kml"]) { routePath = $0.path } }.buttonStyle(WbPillButtonStyle()); Text(routePath.isEmpty ? t("未选择文件", "No file selected") : URL(fileURLWithPath:routePath).lastPathComponent).lineLimit(1) }
                 Group {
                     toolField(t("速度倍率", "Speed"), placeholder: "1", text: $routeSpeed, width: 110, alignment: .trailing)
                     Toggle(t("循环", "Loop"), isOn: $routeLoop)
@@ -788,6 +788,7 @@ struct GPSMapSheet: View {
                 Text(t("在地图上选择位置", "Pick a location on the map")).wbFont(WbType.title)
                 Spacer()
                 Button(t("关闭", "Close")) { dismiss() }
+                    .buttonStyle(WbPillButtonStyle())
             }
             Text(t("点击地图选择新的定位点，确认后会发送到设备。滚轮可以缩放。",
                    "Click the map to choose a new fix; it is sent to the device after you confirm. Scroll to zoom."))

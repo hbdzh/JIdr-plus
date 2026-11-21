@@ -1,26 +1,28 @@
-# Clean-room policy
+# 洁净室开发规则
 
-Jidr re-creates the *behaviour* of Genymotion Desktop's public feature set. It must never derive from Genymotion's code, or from GPL code we don't want to inherit.
+本项目重新实现 Genymotion Desktop 公开功能的*行为*，不得从其代码或不打算继承许可的 GPL 代码派生实现。
 
-## Allowed sources
+## 允许参考的来源
 
-| Source | Use |
+| 来源 | 用途 |
 |---|---|
-| Genymotion public docs (docs.genymotion.com, genymotion.com/pricing, /features) | Feature lists, user-visible behaviour, CLI command names, exit-code semantics |
-| AOSP emulator public protos (`emulator_controller.proto`, `snapshot_service.proto`, shipped in the SDK) | gRPC API; we generate code from them (Apache-2.0) |
-| AOSP emulator source (`platform/external/qemu`) | Separately licensed emulator build and source records; do not copy GPL code into Apache-licensed crates. Distribution requires the checks below. |
-| developer.android.com emulator docs (command line, console, AVD management) | Flags, console commands, config.ini keys |
-| Android SDK tools (`sdkmanager`, `avdmanager`, `adb`, `emulator`), run on the user's machine | Observed behaviour, outputs |
-| Magisk and rootAVD scripts (GPL-3.0) | **Read only**, to learn the documented ramdisk layout. Never copy or translate code. |
-| avdroot (MIT) | Prior art; may be ported with attribution in `NOTICE` |
-| Public specs (cpio newc, gzip, lz4 legacy, xz) | Format implementations |
+| Genymotion 公开文档（docs.genymotion.com、genymotion.com/pricing、/features） | 功能列表、用户可见行为、CLI 命令名称和退出码语义 |
+| AOSP 模拟器公开协议（SDK 附带的 `emulator_controller.proto`、`snapshot_service.proto`） | gRPC API；据此生成代码（Apache-2.0） |
+| AOSP 模拟器源码（`platform/external/qemu`） | 独立许可的模拟器构建及源码记录；不得将 GPL 代码复制到 Apache 许可的 crate 中，发行须通过下述检查。 |
+| developer.android.com 模拟器文档（命令行、控制台、AVD 管理） | 参数、控制台命令及 config.ini 键 |
+| 用户机器上运行的 Android SDK 工具（`sdkmanager`、`avdmanager`、`adb`、`emulator`） | 观察行为和输出 |
+| Magisk 和 rootAVD 脚本（GPL-3.0） | **只读**，了解公开记录的 ramdisk 布局；不得复制或翻译代码。 |
+| avdroot（MIT） | 可参考并移植，但须在 `NOTICE` 中注明来源。 |
+| 公开规范（cpio newc、gzip、lz4 legacy、xz） | 格式实现 |
 
-## Forbidden
+## 禁止事项
 
-- Decompiling, disassembling, string-dumping or otherwise inspecting Genymotion binaries, installers, images or network traffic.
-- Copying or line-by-line translating GPL code (Magisk, rootAVD) into Apache-2.0 crates.
-- Bundling or redistributing Android system images. An official, hash-pinned Magisk APK may be bundled as a separate GPL-licensed component with its licence, attribution and corresponding source materials; never copy GPL code into Apache-licensed crates. Emulator and platform-tools binaries may be bundled only after their exact provenance, applicable component licences, corresponding-source obligations and notices have been verified and recorded; an unreviewed runtime remains prohibited from public redistribution.
-- Google, Android or Genymotion logos anywhere in the product or site.
+- 反编译、反汇编、提取字符串或以其他方式检查 Genymotion 的二进制文件、安装包、镜像或网络流量。
+- 向 Apache-2.0 crate 复制或逐行翻译 GPL 代码（Magisk、rootAVD）。
+- 捆绑或再发行 Android 系统镜像。可以将固定哈希的官方 Magisk APK 作为独立 GPL 组件捆绑，附上许可证、署名以及获取对应源码的说明；不得将 GPL 代码复制进 Apache 许可的 crate。只有在核实并记录模拟器和 platform-tools 二进制文件的准确来源、适用的组件许可证、对应源码义务和声明后，才能捆绑它们；未经审核的运行时不得公开再发行。
+- 在产品或网站的任何位置使用 Google、Android 或 Genymotion 标志。
+
+<a id="log"></a>
 
 ## Log
 

@@ -294,6 +294,22 @@ func testLeaderReleaseClearsPendingAndReleasesFollowers() {
     assertTrue(f1.inputSnapshot().isEmpty && f2.inputSnapshot().isEmpty, "pre-release queued inputs discarded")
 }
 
+func testCenterSessionUpdates() {
+    let hub = SyncHub()
+    let session = SyncSessionModel(id: "test", leader: "leader", leader_display: nil,
+                                   followers: [], options: SyncOptionsModel(), started_at: "2026-11-19T00:00:00Z")
+    let encoded = try! JSONEncoder().encode(session)
+    let object = try! JSONSerialization.jsonObject(with: encoded)
+    hub.recordError("old error")
+    CenterSyncSession.apply(object, to: hub)
+    assertTrue(hub.session?.id == "test" && hub.lastError == nil, "valid center state updates session and clears error")
+    CenterSyncSession.apply(["unexpected": "data"], to: hub)
+    assertTrue(hub.session?.id == "test", "malformed center state preserves the active session")
+    CenterSyncSession.apply(NSNull(), to: hub)
+    assertTrue(hub.session == nil, "null center state ends the active session")
+}
+
+testCenterSessionUpdates()
 testRelayOrderingAndFiltering()
 testBackgroundSessionLifecycleAndTeardown()
 testDisplayMismatchDetection()

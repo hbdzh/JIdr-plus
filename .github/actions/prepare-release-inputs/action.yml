@@ -1,0 +1,15 @@
+name: Prepare release inputs
+description: Prepare the pinned Magisk and emulator inputs used by package builds.
+inputs:
+  core-url:
+    description: Optional HTTPS URL for the pinned emulator core.
+    required: false
+runs:
+  using: composite
+  steps:
+    - name: Prepare bundled Magisk
+      uses: ./.github/actions/prepare-magisk
+    - name: Prepare required runtime
+      uses: ./.github/actions/prepare-miko-runtime
+      with:
+        core-url: ${{ inputs.core-url }}

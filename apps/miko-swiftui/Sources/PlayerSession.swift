@@ -11,8 +11,7 @@ func t(_ chinese: String, _ english: String, _ language: Int) -> String {
 // MARK: - Window state
 
 /// What the player window is doing. The window owns booting/stopped/disconnected
-/// presentation because this migration keeps standalone device windows instead
-/// of a workbench device tab (docs/swiftui-parity.md, structural finding 1).
+/// presentation because each device has a standalone player window.
 enum PlayerLinkState: Equatable {
     case connecting
     /// The device center opened the window before the device was running and

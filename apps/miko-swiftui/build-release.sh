@@ -8,14 +8,9 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
-source "$root/apps/miko-swiftui/swift-target.sh"
+source "$root/apps/miko-swiftui/swift-compile.sh"
 out="$root/target/swiftui-center-release"
 binary="$out/Miko"
-mkdir -p "$out/module-cache"
-CLANG_MODULE_CACHE_PATH="$out/module-cache" \
-  swiftc -O -target "$miko_swift_target" -module-cache-path "$out/module-cache" \
-  apps/miko-swiftui/Sources/*.swift \
-  apps/miko-swiftui/Center/*.swift \
-  -o "$binary"
+miko_compile_swift "$binary" "$out/module-cache" release
 python3 "$root/apps/miko-swiftui/check-deployment.py" "$binary" "$root/packaging/swiftui/Miko-Info.plist.in"
 printf 'Built %s\n' "$binary"

@@ -156,7 +156,7 @@ struct SnapshotsView: View {
         if running && !busy {
             button.buttonStyle(.borderedProminent).controlSize(.regular).tint(WbColor.accent)
         } else {
-            button.buttonStyle(.bordered).controlSize(.regular)
+            button.buttonStyle(WbPillButtonStyle()).controlSize(.regular)
         }
     }
 
@@ -256,7 +256,7 @@ struct SnapshotsView: View {
                         .fixedSize()
                 }
                 Button(t("恢复", "Restore")) { requestRestore(snapshot) }
-                    .buttonStyle(.bordered).controlSize(.regular)
+                    .buttonStyle(WbPillButtonStyle()).controlSize(.regular)
                     .fixedSize()
                     .disabled(!running || busy || !snapshot.restorable)
                     .help(snapshot.restorable ? t("恢复此快照", "Restore this snapshot") : refusalLine(snapshot))
@@ -323,7 +323,7 @@ struct SnapshotsView: View {
                 .lineLimit(1)
             Spacer(minLength: WbSpace.md)
             Button(t("关闭", "Close")) { closePanel() }
-                .buttonStyle(.bordered)
+                .buttonStyle(WbPillButtonStyle())
                 .keyboardShortcut(.cancelAction)
                 .disabled(busy)
         }

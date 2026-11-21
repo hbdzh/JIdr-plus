@@ -49,4 +49,23 @@ failedCallbacks.removeFirst()(.failure(NSError(domain:"test",code:1)))
 check(failureRequests == 1, "failure does not loop")
 retry.update(query:"x",running:["a"]); retry.retryFailed(); retry.startRequests()
 check(failureRequests == 2, "scheduled retry")
+// Scheduling belongs to the search coordinator: cancelled or superseded typing
+// must not start a stale request, and a later retry can recover a failed request.
+var scheduledRequests: [String] = []
+var scheduledCallback: ((Result<[DeviceSearchApp], Error>) -> Void)?
+let scheduled = DeviceAppSearch(debounceInterval: 0.02, retryInterval: 0.08, request: { id, done in
+    scheduledRequests.append(id); scheduledCallback = done
+}, publish: { _ in })
+scheduled.scheduleUpdate(query: "first", running: ["old"])
+scheduled.scheduleUpdate(query: "second", running: ["new"])
+RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+check(scheduledRequests == ["new"], "only latest debounced search starts")
+scheduledCallback?(.failure(NSError(domain: "test", code: 1)))
+RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+check(scheduledRequests == ["new", "new"], "timer retries failed requests")
+scheduled.reset()
+scheduled.scheduleUpdate(query: "cancel", running: ["cancelled"])
+scheduled.reset()
+RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+check(!scheduledRequests.contains("cancelled"), "reset cancels pending debounce")
 print("Device app search tests passed")

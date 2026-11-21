@@ -14,10 +14,10 @@
 
 // MARK: - Exact-Lucide fallback (documented, not enabled in M3)
 //
-// SF Symbols above are used for native rendering; Lucide SVGs are shared with the demo.
+// SF Symbols above are used for native rendering.
 // If a glyph must match Lucide exactly (the design system treats badge-check,
 // key-round, circle-help and flask-conical as spec shapes), generate SwiftUI
-// Paths from assets/lucide/<name>.svg instead of adding a runtime
+// Paths from an independently obtained Lucide SVG instead of adding a runtime
 // SVG dependency:
 //
 //   1. Parse the 24x24 viewBox and its <path d="..."/> children (plus

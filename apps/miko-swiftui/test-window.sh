@@ -3,6 +3,7 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$root"
+bash "$root/apps/miko-swiftui/test-dock-activation.sh"
 source "$root/apps/miko-swiftui/swift-target.sh"
 out="$root/target/swiftui-tests"
 mkdir -p "$out/module-cache"

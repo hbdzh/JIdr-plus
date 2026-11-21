@@ -1,114 +1,130 @@
-# Miko control protocol (v0.1)
+# miko 控制协议（v0.1）
 
-The daemon (`miko daemon`) owns every device. The GUI, the CLI (`miko`) and the MCP server (`miko mcp`) are clients of this protocol and nothing else, so anything one client can do, all can. Reference client: `crates/miko-client`.
+后台服务（`miko daemon`）管理所有设备。GUI、CLI（`miko`）和 MCP 服务（`miko mcp`）都是此协议的客户端；参考客户端为 `crates/miko-client`。
 
-Frozen as **v0.1** at the git tag `protocol-v0.1`. A change after the tag needs an entry in the [changelog](#changelog).
+协议在 Git 标签 `protocol-v0.1` 固定为 **v0.1**。标签之后的变更需要写入[变更记录](#changelog)。
 
-## Transport
+<a id="transport"></a>
 
-- **Socket:** a Unix domain socket at `~/Library/Application Support/miko/daemon.sock` (`$MIKO_HOME/data/daemon.sock` when `MIKO_HOME` is set), mode `0600`. One daemon per user; a second one refuses to start.
-- **Framing:** [JSON-RPC 2.0](https://www.jsonrpc.org/specification), one JSON object per line (newline-delimited JSON, as in MCP's stdio transport). Lines are at most 4 MB.
-- **Concurrency:** requests on one connection run concurrently; match answers by `id`. Notifications from the daemon have no `id`.
-- **Lifetime (D4):** clients start the daemon on demand (`miko daemon`, detached). It exits after 10 minutes with no running device, no connected client, no active job and no pool lease. Emulators that outlive a daemon are re-adopted by the next one.
+## 传输
 
-## Handshake
+- **Socket**：Unix domain socket，默认位于 `~/Library/Application Support/miko/daemon.sock`；设置 `MIKO_HOME` 后使用 `$MIKO_HOME/data/daemon.sock`。权限为 `0600`；每个用户只运行一个 daemon，第二个实例会拒绝启动。
+- **分帧**：使用 [JSON-RPC 2.0](https://www.jsonrpc.org/specification)，每行一个 JSON 对象（与 MCP stdio 相同的换行分隔格式），单行最多 4 MB。
+- **并发**：同一连接中的请求并发执行，按 `id` 匹配响应；daemon 通知没有 `id`。
+- **生命周期（D4）**：客户端按需启动后台 `miko daemon`。没有运行设备、连接客户端、活动任务和设备池租约持续 10 分钟后退出；若模拟器仍在运行，下一个 daemon 会重新接管。
 
-The first request on a connection must be `hello`. Anything else before it gets `-32600`.
+<a id="handshake"></a>
+
+## 握手
+
+连接的第一个请求必须是 `hello`，此前的其他请求会返回 `-32600`。
 
 ```json
 → {"jsonrpc":"2.0","id":1,"method":"hello","params":{"version":"0.1.0","client":"cli"}}
 ← {"jsonrpc":"2.0","id":1,"result":{"version":"0.1.0","protocol":"0.1","pid":4242}}
 ```
 
-Clients ship with the daemon, so versions must be equal; there's no negotiation. A mismatch means a stale daemon from an older install:
+客户端随 daemon 一起发行，版本必须一致，不进行版本协商。版本不同时表示旧版 daemon 仍在运行：
 
 ```json
 ← {"jsonrpc":"2.0","id":1,"error":{"code":-32008,"message":"the running daemon is 0.1.0 but this client is 0.2.0; restart the daemon","data":{"code":"daemon_stale","exit_code":8,"details":{"daemon_version":"0.1.0","client_version":"0.2.0"}}}}
 ```
 
-`daemon.shutdown` is the one method allowed before `hello`: it lets a newer client replace a stale daemon. Running emulators keep running and are re-adopted.
+`daemon.shutdown` 是唯一允许在 `hello` 之前调用的方法，用于让新客户端替换旧 daemon；运行中的模拟器继续运行，并由新 daemon 接管。
 
-## Errors
+<a id="errors"></a>
 
-Protocol errors use the standard JSON-RPC codes. Miko errors carry one of nine codes, which are also the CLI's exit codes, in `error.data.code`; `error.data.details` holds structured extras.
+## 错误
 
-| `data.code` | JSON-RPC code | CLI exit | Meaning |
+协议错误使用标准 JSON-RPC 错误码。miko 错误在 `error.data.code` 中携带九种代码之一，对应 CLI 退出码；`error.data.details` 包含结构化补充信息。
+
+| `data.code` | JSON-RPC 代码 | CLI 退出码 | 含义 |
 |---|---|---|---|
-| — | -32700 | 2 | Not valid JSON |
-| — | -32600 | 2 | Not a valid request (wrong `jsonrpc`, no `hello` yet) |
-| — | -32601 | 2 | Unknown method |
-| `usage` | -32602 | 2 | Invalid params; the message names the offending key |
-| `unexpected` | -32001 | 1 | A bug, or an error we didn't classify |
-| `not_found` | -32003 | 3 | No such device, image, profile, job or snapshot (or the device isn't running) |
-| `busy` | -32004 | 4 | Another operation holds the device: `details: {holder, op, device}` |
-| `boot_timeout` | -32005 | 5 | The device didn't boot in time |
-| `sdk` | -32006 | 6 | SDK, emulator, adb, download or license problem (`details.pending_licenses` lists what to accept) |
-| `root_failed` | -32007 | 7 | Rooting, verifying or reverting root failed |
-| `daemon_stale` | -32008 | 8 | Client and daemon versions differ |
-| `resource_exhausted` | -32009 | 9 | Starting would go past the host RAM budget (D42): `details: {needed_mb, used_mb, budget_mb, total_mb, devices: [{id, name, expected_mb, measured_mb?}], suggestions}`. `device.start {force: true}` overrides it |
+| — | -32700 | 2 | JSON 无效 |
+| — | -32600 | 2 | 请求无效，例如 `jsonrpc` 错误或尚未调用 `hello` |
+| — | -32601 | 2 | 未知方法 |
+| `usage` | -32602 | 2 | 参数无效，消息会指出对应键 |
+| `unexpected` | -32001 | 1 | 程序错误或未分类错误 |
+| `not_found` | -32003 | 3 | 设备、镜像、配置、任务或快照不存在，或设备未运行 |
+| `busy` | -32004 | 4 | 设备被其他操作占用，详情为 `details: {holder, op, device}` |
+| `boot_timeout` | -32005 | 5 | 设备启动超时 |
+| `sdk` | -32006 | 6 | SDK、模拟器、adb、下载或许可证问题；待接受的许可见 `details.pending_licenses` |
+| `root_failed` | -32007 | 7 | Root、验证或恢复失败 |
+| `daemon_stale` | -32008 | 8 | 客户端与 daemon 版本不一致 |
+| `resource_exhausted` | -32009 | 9 | 启动将超过主机内存预算（D42）；详情包含 `needed_mb`、`used_mb`、`budget_mb`、`total_mb`、`devices: [{id, name, expected_mb, measured_mb?}]` 和 `suggestions`。`device.start {force: true}` 可覆盖。 |
 
-Params are checked against the command's JSON Schema before anything runs: unknown keys, missing required keys and wrong primitive types are all `-32602`.
+执行前按命令的 JSON Schema 检查参数；未知键、缺少必填键或基本类型错误均返回 `-32602`。
 
-## Devices and locks
+<a id="devices-and-locks"></a>
 
-Commands take a device as `"device": "<name or id>"`; names are unique, case-insensitive. Commands marked *locks the device* take a per-device single-writer lock. A conflicting call fails immediately with `busy`; it doesn't queue. Reads never lock.
+## 设备与锁
 
-## Jobs
+命令使用 `"device": "<名称或 ID>"` 指定设备；名称唯一且不区分大小写。标记为 *locks the device* 的命令取得设备级单写入锁；冲突调用立即返回 `busy`，不会排队。只读操作不加锁。
 
-Commands marked *long-running* don't block. After validation and locking they answer:
+<a id="jobs"></a>
+
+## 任务
+
+标记为 *long-running* 的命令不阻塞；验证并取得锁后返回：
 
 ```json
 ← {"jsonrpc":"2.0","id":7,"result":{"job":"4b0c…","pending":true}}
 ```
 
-The job holds the device lock until it ends. Follow it with `jobs.wait` (blocks until it ends, or `timeout_s`), `jobs.get`, or events. Cancel it with `jobs.cancel`: the work stops and the device stays as it was. A job ends `succeeded` (with `result`), `failed` (with `error`, same shape as above) or `cancelled`.
+任务持锁直到结束。使用 `jobs.wait` 等待结束或 `timeout_s` 超时，也可使用 `jobs.get` 或事件查询。`jobs.cancel` 停止工作并保持设备原状。结果状态为 `succeeded`（含 `result`）、`failed`（含与上述格式相同的 `error`）或 `cancelled`。
 
-## Events
+<a id="events"></a>
 
-`events.subscribe {"topics": ["device.", "job."]}` (prefixes; empty = everything) makes the daemon push notifications on that connection:
+## 事件
+
+`events.subscribe {"topics": ["device.", "job."]}` 按前缀订阅事件，空列表表示全部事件；daemon 通过该连接推送：
 
 ```json
 ← {"jsonrpc":"2.0","method":"event","params":{"topic":"device.boot","data":{"device":"…","stage":"adb_online","progress":0.5}}}
 ```
 
-Subscribing again replaces the filter. Topics:
+再次订阅会替换原过滤条件：
 
-| Topic | Data |
+| 主题 | 数据 |
 |---|---|
-| `device.status` | `{device, name, status}`: status is `{state: stopped\|starting\|booting\|running\|stopping\|hibernated\|crashed, …}` |
+| `device.status` | `{device, name, status}`；状态为 `stopped\|starting\|booting\|running\|stopping\|hibernated\|crashed` 等 |
 | `device.boot` | `{device, stage: spawned\|grpc_ready\|adb_online\|booted, progress}` |
 | `device.boot_failed` | `{device, error}` |
-| `device.snapshot_warning` | `{device, reason, low_disk?, low_memory?}`: low resources, an incomplete quick-boot snapshot, or a previous unclean exit. |
-| `device.crashed` | `{device, report: {kind, reason, exit_code, log, …}}`; never restarted (D9) |
-| `device.created`, `device.deleted`, `device.updated` | `{device, name}` |
-| `device.hibernated` | `{device, name}`: saved and stopped by `device.hibernate` or auto-hibernate |
-| `device.hook_failed` | `{device, provider, error}`: a provider's after-boot hook failed |
-| `file.sync.started`, `file.sync.progress`, `file.sync.synced`, `file.sync.conflict`, `file.sync.error`, `file.sync.stopped` | Folder synchronization state, conflicts and progress. |
-| `sync.state`, `sync.follower_error` | `{session, reason?}`: the whole input-sync session, or `null` when it ended (`reason`: `stopped`, `the leader stopped`, `no follower is left`); `{device, name, message}`: a follower failed (see [sync.md](sync.md)) |
-| `pool.leased`, `pool.released` | `{lease, device, base?}`: a pool clone was leased, or released (by `pool.release` or the reaper) |
+| `device.snapshot_warning` | `{device, reason, low_disk?, low_memory?, cold_boot_persisted?}`：资源不足、快速启动快照不完整、上次未正常退出，或停止时快照保存失败（`stop_save_failed`；设备仍会停止，`cold_boot_persisted` 表示冷启动设置是否写入磁盘） |
+| `device.crashed` | `{device, report: {kind, reason, exit_code, log, …}}`；不会自动重启（D9） |
+| `device.created`、`device.deleted`、`device.updated` | `{device, name}` |
+| `device.hibernated` | `{device, name}`：由 `device.hibernate` 或自动休眠保存并停止 |
+| `device.hook_failed` | `{device, provider, error}`：provider 的启动后钩子失败 |
+| `file.sync.started`、`file.sync.progress`、`file.sync.synced`、`file.sync.conflict`、`file.sync.error`、`file.sync.stopped` | 文件夹同步状态、冲突和进度 |
+| `sync.state`、`sync.follower_error` | `{session, reason?}`：完整同步会话，结束时为 `null`，`reason` 为 `stopped`、`the leader stopped` 或 `no follower is left`；或 `{device, name, message}`：跟随端失败，见[同步指南](sync.md) |
+| `pool.leased`、`pool.released` | `{lease, device, base?}`：设备池克隆已租用或释放 |
 | `job.started` | `{job, kind, device}` |
 | `job.progress` | `{job, progress, message}` |
-| `job.finished` | the full job |
+| `job.finished` | 完整任务 |
 | `job.cancelling` | `{job}` |
-| `logcat` | `{device, line}` (only after `logcat.follow`) |
-| `events.lagged` | `{missed}`: the connection fell behind and events were dropped |
+| `logcat` | `{device, line}`，仅在 `logcat.follow` 后推送 |
+| `events.lagged` | `{missed}`：连接处理落后，事件被丢弃 |
 
-## Connection-scoped methods
+<a id="connection-scoped-methods"></a>
 
-These act on the calling connection and aren't in `commands.list`:
+## 连接级方法
 
-| Method | Params | Effect |
+以下方法针对当前连接，不列在 `commands.list` 中：
+
+| 方法 | 参数 | 作用 |
 |---|---|---|
-| `hello` | `{version, client?}` | Handshake (above) |
-| `commands.list` | — | Every command below, with its params schema |
-| `events.subscribe` | `{topics?: string[]}` | Push matching events to this connection |
-| `logcat.follow` | `{device, filter?: string[]}` | Push `logcat` events for a running device until the connection closes |
-| `daemon.shutdown` | — | Stop the daemon (allowed before `hello`) |
-| `daemon.quit` | — | Gracefully stop devices and then stop the daemon; refuses active jobs or unverified shutdown |
+| `hello` | `{version, client?}` | 握手 |
+| `commands.list` | — | 下列所有命令及其参数 schema |
+| `events.subscribe` | `{topics?: string[]}` | 向该连接推送匹配事件 |
+| `logcat.follow` | `{device, filter?: string[]}` | 推送运行设备的 `logcat`，直到连接关闭 |
+| `daemon.shutdown` | — | 停止 daemon，可在 `hello` 前调用 |
+| `daemon.quit` | — | 安全停止设备后退出 daemon；存在活动任务或未确认关闭时拒绝 |
 
-## Commands
+<a id="commands"></a>
 
-Providers register commands with an id, a label, a params JSON Schema and three flags: `destructive` (MCP refuses it unless allowed, D5), `longRunning` and `locksDevice`. The daemon core provides the commands below; `miko-widgets` (sensors, phone, network, media, microphone, snapshots) and `miko-root` (root modes) add theirs when they land. `commands.list` is always the source of truth.
+## 命令
+
+Provider 使用 ID、标签、JSON Schema 和 `destructive`、`longRunning`、`locksDevice` 三个标记注册命令。`destructive` 默认受 MCP 限制（D5）；daemon 核心、`miko-widgets` 和 `miko-root` 分别提供命令。以下命令表由程序生成并保留其原文；`commands.list` 始终是权威来源。
 
 <!-- commands:begin (generated from commands.list; MIKO_UPDATE_DOCS=1 cargo nextest run -p miko protocol_doc) -->
 
@@ -1256,7 +1272,7 @@ reported as errors.
 - `image.list` with `available: true` returns an SDK error when the remote image catalog cannot be read; `available: false` still lists local images offline.
 - `image.install` reuses available emulator and ADB tools and installs only the requested system image.
 
-Snapshot save failures report resource observations; `device.snapshot_warning` signals low resources and prior incomplete or unclean sessions.
+Snapshot warnings report low resources, incomplete or unclean sessions, and `stop_save_failed` when a device stops without a verified quick-boot snapshot. The next start uses a cold boot when `cold_boot_persisted` is true; otherwise the client should advise the user to select a cold boot.
 
 | Version | Change |
 |---|---|

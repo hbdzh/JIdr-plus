@@ -89,7 +89,7 @@ struct ImageManagementView: View {
                     }
                 }
                 .font(.system(size: 11)).foregroundStyle(WbColor.textSecondary)
-                Text(image.root).font(.system(size: 10, design: .monospaced))
+                Text(image.root).font(.system(size: 11, design: .monospaced))
                     .foregroundStyle(WbColor.textSecondary).lineLimit(1).truncationMode(.middle)
                     .textSelection(.enabled).help(image.root)
                 if !image.used_by.isEmpty {
@@ -104,7 +104,7 @@ struct ImageManagementView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             if image.source != "external" {
                 Button(model.text("删除…", "Remove…")) { target = image }
-                    .buttonStyle(.bordered).controlSize(.small)
+                    .buttonStyle(WbPillButtonStyle()).controlSize(.small)
                     .disabled(!image.can_delete || loading || removing)
                     .help(image.used_by.isEmpty ? model.text("删除系统镜像", "Remove system image") : model.text("设备正在使用此镜像", "Devices use this image"))
                     .accessibilityLabel(model.text("删除镜像：", "Remove image: ") + "Android API \(image.api) · \(Device.imageTagLabel(image.tag)) · \(image.abi)")
@@ -160,7 +160,7 @@ struct ImageManagementView: View {
                     if let onPanelClose { onPanelClose({}) } else { dismiss() }
                 }.keyboardShortcut(.cancelAction).disabled(removing)
             }
-            .buttonStyle(.bordered).controlSize(.regular)
+            .buttonStyle(WbPillButtonStyle()).controlSize(.regular)
             .padding(.horizontal, 24).padding(.vertical, 16)
         }
         .frame(width: 700, height: 500)

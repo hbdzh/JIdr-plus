@@ -29,7 +29,7 @@ Apps keep Magisk's normal per-app prompt (D22). The "auto-grant all" toggle stay
 
 Accepted on 2026-10-14:
 - Option (3), the guided tap above, ships as the **Play Store beta for the MVP** (D6 fallback), built in Phase 9d.
-- Options (1) and (2) are **deferred to post-MVP**, to be revisited by hand by the maintainer. No AI agent builds them.
+- Options (1) and (2) are **deferred to post-MVP**, to be revisited by hand by the maintainer.
 
 ## Consequences
 

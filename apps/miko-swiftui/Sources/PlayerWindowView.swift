@@ -756,7 +756,7 @@ struct ContentView: View {
                     .help(t("暂停回放", "Pause playback", language))
             }
             Button(t("停止", "Stop", language)) { transport.scriptPlayStop() }
-                .buttonStyle(.bordered).controlSize(.small)
+                .buttonStyle(WbPillButtonStyle()).controlSize(.small)
                 .help(t("停止回放", "Stop playback", language))
         }
     }

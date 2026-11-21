@@ -257,6 +257,9 @@ impl Backend for FakeBackend {
         name: &str,
         avd_dir: &Path,
     ) -> MikoResult<()> {
+        if !avd_dir.is_dir() {
+            return Err(MikoError::sdk("AVD directory is unavailable"));
+        }
         let empty = {
             let mut s = self.lock();
             if !s.running.contains_key(&instance.pid) {
